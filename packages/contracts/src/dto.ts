@@ -208,6 +208,41 @@ export interface ParametrosDTO {
   timezone: string;
 }
 
+// ---------- Funil público de agendamento (booking) ----------
+// Superfície não autenticada. O tenant é explícito: o funil carrega o
+// `companyId` (deploy da própria barbearia) e o envia em toda chamada —
+// nunca há resolução implícita/fallback de empresa no servidor (DOMAIN.md §2.4).
+
+export interface EmpresaPublicaDTO {
+  companyId: string;
+  nome: string;
+  /** Fuso IANA da empresa — o funil renderiza datas/horas nele, nunca no fuso do navegador. */
+  timezone: string;
+}
+export interface BarbeiroPublicoDTO {
+  id: string;
+  nome: string;
+}
+export interface HorarioDisponivelDTO {
+  horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
+  inicioIso: string; // instante absoluto UTC (ISO 8601) correspondente
+}
+export interface HorariosDisponiveisDTO {
+  data: string; // YYYY-MM-DD, dia civil local consultado
+  horarios: HorarioDisponivelDTO[];
+}
+export interface AgendarPublicoRequest {
+  companyId: string;
+  barbeiroId: string;
+  servicoIds: string[];
+  data: string; // YYYY-MM-DD, dia civil local
+  horaInicio: string; // "HH:mm", horário de parede LOCAL
+  cliente: { nome: string; telefone: string };
+}
+export interface AgendarPublicoResponse {
+  atendimentoId: string;
+}
+
 // ---------- Webhook AbacatePay (payload documentado) ----------
 export interface WebhookAbacatePayRequest {
   event: string; // ex: "billing.paid"

@@ -1,16 +1,19 @@
 import { Module } from '@nestjs/common';
 import { AtendimentosController } from './presentation/atendimentos.controller';
+import { BookingPublicoController } from './presentation/booking-publico.controller';
 import { AgendarAvulsoUseCase } from './application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-comparecimento.usecase';
 import { AgendaQueryService } from './infrastructure/agenda-query.service';
+import { EmpresaPublicaQueryService } from './infrastructure/empresa-publica-query.service';
+import { HorariosDisponiveisQueryService } from './infrastructure/horarios-disponiveis-query.service';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [PaymentsModule],
-  controllers: [AtendimentosController],
+  controllers: [AtendimentosController, BookingPublicoController],
   providers: [
     AgendarAvulsoUseCase,
     AgendarComCreditoUseCase,
@@ -18,6 +21,8 @@ import { PaymentsModule } from '../payments/payments.module';
     CancelarAtendimentoUseCase,
     RegistrarNaoComparecimentoUseCase,
     AgendaQueryService,
+    EmpresaPublicaQueryService,
+    HorariosDisponiveisQueryService,
   ],
 })
 export class SchedulingModule {}

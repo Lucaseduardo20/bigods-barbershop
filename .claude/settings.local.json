@@ -30,7 +30,8 @@
       "Bash(npx vitest *)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/fuso-horario.spec.ts)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npm run test:multitz)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/booking-publico.e2e.spec.ts)"
     ]
   }
 }

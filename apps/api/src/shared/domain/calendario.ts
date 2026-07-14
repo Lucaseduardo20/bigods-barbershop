@@ -78,6 +78,12 @@ export function diaCivilChave(instante: Date, tz: Timezone): string {
   return `${String(p.ano).padStart(4, '0')}-${String(p.mes).padStart(2, '0')}-${String(p.dia).padStart(2, '0')}`;
 }
 
+/** Horário de parede local "HH:mm" do instante, no fuso dado. */
+export function horaLocalHHmm(instante: Date, tz: Timezone): string {
+  const p = partesEmZona(instante, tz);
+  return `${String(p.hora).padStart(2, '0')}:${String(p.minuto).padStart(2, '0')}`;
+}
+
 /**
  * Converte um horário de parede LOCAL (no fuso dado) para o instante UTC
  * correspondente. Robusto a transições de horário de verão via duas iterações
