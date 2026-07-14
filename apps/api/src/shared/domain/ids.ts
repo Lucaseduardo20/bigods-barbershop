@@ -1,0 +1,10 @@
+export type CompanyId = string;
+export type ServicoId = string;
+export type BarbeiroId = string;
+export type DisponibilidadeId = string;
+export type ClienteId = string;
+export type AtendimentoId = string;
+export type VendaDePacoteId = string;
+export type ItemDoPacoteId = string;
+export type LancamentoId = string;
+export type IntencaoDePagamentoId = string;
