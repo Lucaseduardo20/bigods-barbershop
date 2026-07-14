@@ -1,0 +1,212 @@
+import {
+  FormaPagamento,
+  OrigemAtendimento,
+  Papel,
+  StatusAtendimento,
+  StatusItemPacote,
+  StatusPagamento,
+} from './enums';
+
+// ---------- Auth ----------
+export interface LoginRequest {
+  login: string;
+  senha: string;
+}
+export interface UsuarioDTO {
+  barbeiroId: string;
+  companyId: string;
+  nome: string;
+  papeis: Papel[];
+}
+export interface LoginResponse {
+  token: string;
+  usuario: UsuarioDTO;
+}
+
+// ---------- Catálogo ----------
+export interface ServicoDTO {
+  id: string;
+  nome: string;
+  precoAvulsoCentavos: number;
+  duracaoMinutos: number;
+  ativo: boolean;
+}
+export interface CriarServicoRequest {
+  nome: string;
+  precoAvulsoCentavos: number;
+  duracaoMinutos: number;
+}
+export interface AtualizarServicoRequest {
+  nome?: string;
+  precoAvulsoCentavos?: number;
+  ativo?: boolean;
+}
+
+// ---------- Staff ----------
+export interface ExcecaoComissaoDTO {
+  servicoId: string;
+  percentual: number; // porcentagem (ex: 60)
+}
+export interface BarbeiroDTO {
+  id: string;
+  nome: string;
+  papeis: Papel[];
+  comissaoPadrao: number; // porcentagem (ex: 45)
+  excecoesComissao: ExcecaoComissaoDTO[];
+  servicosAtendidos: string[];
+  ativo: boolean;
+}
+export interface CriarBarbeiroRequest {
+  nome: string;
+  papeis: Papel[];
+  comissaoPadrao: number;
+  servicosAtendidos: string[];
+  login?: string;
+  senha?: string;
+}
+export interface AtualizarComissaoRequest {
+  comissaoPadrao: number;
+  excecoes: ExcecaoComissaoDTO[];
+}
+export interface DisponibilidadeDTO {
+  id: string;
+  barbeiroId: string;
+  data: string; // YYYY-MM-DD
+  inicio: string; // ISO
+  fim: string; // ISO
+}
+export interface CriarDisponibilidadeRequest {
+  barbeiroId: string;
+  data: string;
+  inicio: string;
+  fim: string;
+}
+
+// ---------- Clientes ----------
+export interface ClienteDTO {
+  id: string;
+  nome: string;
+  telefone: string;
+  possuiConta: boolean;
+}
+
+// ---------- Agenda ----------
+export interface ItemAtendidoDTO {
+  servicoId: string;
+  servicoNome: string;
+  valorCobradoCentavos: number;
+  duracaoMinutos: number;
+  itemDoPacoteId: string | null;
+}
+export interface AtendimentoDTO {
+  id: string;
+  cliente: { id: string; nome: string; telefone: string };
+  barbeiro: { id: string; nome: string };
+  itens: ItemAtendidoDTO[];
+  inicio: string; // ISO
+  fim: string; // ISO
+  status: StatusAtendimento;
+  origem: OrigemAtendimento;
+  formaPagamento: FormaPagamento | null;
+  motivoCancelamento: string | null;
+  valorTotalCentavos: number;
+}
+export interface AgendarAvulsoRequest {
+  barbeiroId: string;
+  servicoIds: string[];
+  inicio: string; // ISO
+  cliente: { nome: string; telefone: string };
+  gerarCobranca?: boolean;
+}
+export interface AgendarComCreditoRequest {
+  vendaId: string;
+  itemId: string;
+  barbeiroId: string;
+  inicio: string; // ISO
+}
+export interface ConcluirAtendimentoRequest {
+  formaPagamento?: FormaPagamento;
+}
+export interface CancelarAtendimentoRequest {
+  motivo: string;
+}
+export interface CobrancaDTO {
+  intencaoId: string;
+  qrCode: string;
+  copiaECola: string;
+}
+export interface AgendarResponse {
+  atendimentoId: string;
+  cobranca: CobrancaDTO | null;
+}
+
+// ---------- Pacotes ----------
+export interface ItemDoPacoteDTO {
+  id: string;
+  servicoId: string;
+  servicoNome: string;
+  valorRateadoCentavos: number;
+  status: StatusItemPacote;
+  faltasComputadas: number;
+  prazoReagendamentoAte: string | null;
+  atendimentoId: string | null;
+}
+export interface VendaDePacoteDTO {
+  id: string;
+  cliente: { id: string; nome: string; telefone: string };
+  valorPagoCentavos: number;
+  saldoResidualCentavos: number;
+  compradoEm: string;
+  statusPagamento: StatusPagamento;
+  itens: ItemDoPacoteDTO[];
+}
+export interface VenderPacoteRequest {
+  cliente: { nome: string; telefone: string };
+  servicoIds: string[];
+  valorPagoCentavos: number;
+  pagamentoImediato: boolean;
+}
+export interface VenderPacoteResponse {
+  vendaId: string;
+  clienteId: string;
+  cobranca: CobrancaDTO | null;
+}
+
+// ---------- Comissão ----------
+export interface LancamentoComissaoDTO {
+  id: string;
+  barbeiroId: string;
+  atendimentoId: string;
+  servicoId: string;
+  servicoNome: string;
+  valorBaseCentavos: number;
+  percentualAplicado: number; // porcentagem
+  valorComissaoCentavos: number;
+  ocorridoEm: string;
+}
+/**
+ * Saldo real e projeção futura são números SEPARADOS e rotulados.
+ * Nunca somar os dois (projeção pode ser cancelada).
+ */
+export interface SaldoComissaoDTO {
+  barbeiroId: string;
+  saldoRealCentavos: number;
+  projecaoFuturaCentavos: number;
+}
+export interface ExtratoComissaoDTO {
+  saldo: SaldoComissaoDTO;
+  lancamentos: LancamentoComissaoDTO[];
+}
+
+// ---------- Parâmetros ----------
+export interface ParametrosDTO {
+  prazoReagendamentoDias: number;
+}
+
+// ---------- Webhook AbacatePay (payload documentado) ----------
+export interface WebhookAbacatePayRequest {
+  event: string; // ex: "billing.paid"
+  data: {
+    metadata: { externalId: string };
+  };
+}

@@ -8,7 +8,16 @@
       "Bash(npm install *)",
       "Bash(npm run *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m 'chore: fundação do monorepo \\(workspaces + turborepo, api NestJS, admin Vite, contracts, config, docker postgres\\) *)"
+      "Bash(git commit -q -m 'chore: fundação do monorepo \\(workspaces + turborepo, api NestJS, admin Vite, contracts, config, docker postgres\\) *)",
+      "Bash(npx prisma *)",
+      "Bash(export DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\")",
+      "Bash(docker exec *)",
+      "Bash(npx tsx *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" node dist/main.js)",
+      "Bash(curl -s -X POST localhost:3000/atendimentos/c2ac900e-9a4a-46f3-bcd7-b912cd60518d/concluir -H 'Authorization: Bearer __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' -d '{}')",
+      "Bash(curl -s localhost:3000/comissao/bar-gabriel -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(python3 -c 'import sys,json;v=json.load\\(sys.stdin\\)[0];print\\([\\(i[\"servicoNome\"],i[\"status\"]\\) for i in v[\"itens\"]]\\)')",
+      "Bash(git commit -q -m 'feat: aplicação + infraestrutura — Prisma \\(EXCLUDE gist\\), repositórios, casos de uso, eventos, auth local e REST *)"
     ]
   }
 }

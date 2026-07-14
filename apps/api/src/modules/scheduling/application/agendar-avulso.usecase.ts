@@ -1,0 +1,142 @@
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { OrigemAtendimento } from '@bigods/contracts';
+import { Atendimento } from '../domain/atendimento.aggregate';
+import { Cliente } from '../../customers/domain/cliente.aggregate';
+import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
+import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
+import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import {
+  DISPONIBILIDADE_REPOSITORY,
+  DisponibilidadeRepository,
+} from '../../staff/domain/disponibilidade.repository';
+import {
+  ATENDIMENTO_REPOSITORY,
+  AtendimentoRepository,
+} from '../domain/atendimento.repository';
+import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
+import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
+import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
+import { Telefone } from '../../../shared/domain/telefone';
+import { DomainEvent } from '../../../shared/events/domain-event';
+
+export interface AgendarAvulsoInput {
+  companyId: string;
+  barbeiroId: string;
+  servicoIds: string[];
+  inicio: Date;
+  cliente: { nome: string; telefone: string };
+  /** Funil público gera cobrança PIX na hora; painel admin cobra na conclusão. */
+  gerarCobranca?: boolean;
+}
+
+export interface AgendarAvulsoOutput {
+  atendimentoId: string;
+  clienteId: string;
+  cobranca: { intencaoId: string; qrCode: string; copiaECola: string } | null;
+}
+
+@Injectable()
+export class AgendarAvulsoUseCase {
+  constructor(
+    @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
+    @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
+    @Inject(DISPONIBILIDADE_REPOSITORY) private readonly disponibilidades: DisponibilidadeRepository,
+    @Inject(ATENDIMENTO_REPOSITORY) private readonly atendimentos: AtendimentoRepository,
+    @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
+    @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+  ) {}
+
+  async executar(input: AgendarAvulsoInput): Promise<AgendarAvulsoOutput> {
+    const servicos = await this.servicos.porIds(input.servicoIds);
+    if (servicos.length !== input.servicoIds.length) {
+      throw new NotFoundException('Serviço inexistente');
+    }
+    const inativo = servicos.find((s) => !s.ativo);
+    if (inativo) {
+      throw new BadRequestException(`Serviço ${inativo.nome} está inativo`);
+    }
+    const barbeiro = await this.barbeiros.porId(input.barbeiroId);
+    if (!barbeiro || barbeiro.companyId !== input.companyId) {
+      throw new NotFoundException('Barbeiro não encontrado');
+    }
+
+    const data = input.inicio.toISOString().slice(0, 10);
+    const disponibilidades = await this.disponibilidades.porBarbeiroEData(barbeiro.id, data);
+    const janelaBusca = 24 * 60 * 60 * 1000;
+    const ativos = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(
+      barbeiro.id,
+      new Date(input.inicio.getTime() - janelaBusca),
+      new Date(input.inicio.getTime() + janelaBusca),
+    );
+
+    const telefone = Telefone.de(input.cliente.telefone);
+    const atendimentoId = randomUUID();
+    const eventos: DomainEvent[] = [];
+
+    // Passos 4-6 do §8.1 numa única transação
+    const resultado = await this.uow.transacao(async (repos) => {
+      let cliente = await repos.clientes.porTelefone(input.companyId, telefone);
+      if (!cliente) {
+        cliente = Cliente.criar({
+          id: randomUUID(),
+          companyId: input.companyId,
+          nome: input.cliente.nome,
+          telefone,
+        });
+        await repos.clientes.salvar(cliente);
+      }
+
+      const atendimento = Atendimento.agendar({
+        id: atendimentoId,
+        companyId: input.companyId,
+        clienteId: cliente.id,
+        barbeiro,
+        itens: servicos.map((s) => ({
+          servicoId: s.id,
+          valorCobrado: s.precoAvulso,
+          duracao: s.duracao,
+          itemDoPacoteId: null,
+        })),
+        inicio: input.inicio,
+        origem: OrigemAtendimento.AVULSO,
+        disponibilidades,
+        atendimentosAtivos: ativos,
+      });
+      await repos.atendimentos.salvar(atendimento);
+      eventos.push(...atendimento.puxarEventos());
+
+      let intencao: IntencaoDePagamento | null = null;
+      if (input.gerarCobranca) {
+        intencao = IntencaoDePagamento.criar({
+          id: randomUUID(),
+          companyId: input.companyId,
+          referencia: { tipo: 'ATENDIMENTO', atendimentoId },
+          valor: atendimento.valorTotal(),
+          externalId: randomUUID(),
+        });
+        await repos.intencoesDePagamento.salvar(intencao);
+      }
+      return { clienteId: cliente.id, intencao };
+    });
+
+    await this.publisher.publicar(eventos);
+
+    let cobranca: AgendarAvulsoOutput['cobranca'] = null;
+    if (resultado.intencao) {
+      const pix = await this.gateway.criarCobrancaPix({
+        valor: resultado.intencao.valor,
+        descricao: `Atendimento ${atendimentoId}`,
+        externalId: resultado.intencao.externalId,
+      });
+      cobranca = {
+        intencaoId: resultado.intencao.id,
+        qrCode: pix.qrCode,
+        copiaECola: pix.copiaECola,
+      };
+    }
+
+    return { atendimentoId, clienteId: resultado.clienteId, cobranca };
+  }
+}

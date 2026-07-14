@@ -50,6 +50,11 @@ export class AtendimentoCancelado implements DomainEvent {
     readonly origem: OrigemAtendimento,
     readonly motivo: string,
     readonly itensDoPacote: ItemDoPacoteId[],
+    /**
+     * true se cancelado antes do início do atendimento (não conta falta).
+     * DECISAO_PENDENTE: spec não define o prazo limite — usamos o início do atendimento.
+     */
+    readonly antecipado: boolean,
   ) {}
 }
 

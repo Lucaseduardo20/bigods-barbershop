@@ -1,0 +1,117 @@
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { VendaDePacote } from '../domain/venda-de-pacote.aggregate';
+import { Cliente } from '../../customers/domain/cliente.aggregate';
+import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
+import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
+import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
+import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
+import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
+import { Dinheiro } from '../../../shared/domain/dinheiro';
+import { Telefone } from '../../../shared/domain/telefone';
+import { DomainEvent } from '../../../shared/events/domain-event';
+
+export interface VenderPacoteInput {
+  companyId: string;
+  cliente: { nome: string; telefone: string };
+  /** serviços do pacote — repetir o id para múltiplas unidades do mesmo serviço */
+  servicoIds: string[];
+  valorPagoCentavos: number;
+  /** venda presencial já paga (dinheiro/cartão) confirma na hora; senão gera PIX */
+  pagamentoImediato: boolean;
+}
+
+export interface VenderPacoteOutput {
+  vendaId: string;
+  clienteId: string;
+  cobranca: { intencaoId: string; qrCode: string; copiaECola: string } | null;
+}
+
+@Injectable()
+export class VenderPacoteUseCase {
+  constructor(
+    @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
+    @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
+    @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+  ) {}
+
+  async executar(input: VenderPacoteInput): Promise<VenderPacoteOutput> {
+    const unicos = [...new Set(input.servicoIds)];
+    const servicos = await this.servicos.porIds(unicos);
+    if (servicos.length !== unicos.length) {
+      throw new NotFoundException('Serviço inexistente no pacote');
+    }
+    const porId = new Map(servicos.map((s) => [s.id, s]));
+    const inativo = servicos.find((s) => !s.ativo);
+    if (inativo) {
+      throw new BadRequestException(`Serviço ${inativo.nome} está inativo`);
+    }
+
+    const telefone = Telefone.de(input.cliente.telefone);
+    const vendaId = randomUUID();
+    const eventos: DomainEvent[] = [];
+
+    const resultado = await this.uow.transacao(async (repos) => {
+      let cliente = await repos.clientes.porTelefone(input.companyId, telefone);
+      if (!cliente) {
+        cliente = Cliente.criar({
+          id: randomUUID(),
+          companyId: input.companyId,
+          nome: input.cliente.nome,
+          telefone,
+        });
+        await repos.clientes.salvar(cliente);
+      }
+
+      const venda = VendaDePacote.vender({
+        id: vendaId,
+        companyId: input.companyId,
+        clienteId: cliente.id,
+        valorPago: Dinheiro.deCentavos(input.valorPagoCentavos),
+        itens: input.servicoIds.map((servicoId) => ({
+          itemId: randomUUID(),
+          servicoId,
+          precoAvulsoNaVenda: porId.get(servicoId)!.precoAvulso,
+        })),
+        compradoEm: new Date(),
+      });
+
+      const intencao = IntencaoDePagamento.criar({
+        id: randomUUID(),
+        companyId: input.companyId,
+        referencia: { tipo: 'VENDA_DE_PACOTE', vendaDePacoteId: vendaId },
+        valor: Dinheiro.deCentavos(input.valorPagoCentavos),
+        externalId: randomUUID(),
+      });
+
+      if (input.pagamentoImediato) {
+        intencao.confirmarPagamento();
+        venda.confirmarPagamento();
+      }
+
+      await repos.vendasDePacote.salvar(venda);
+      await repos.intencoesDePagamento.salvar(intencao);
+      eventos.push(...venda.puxarEventos(), ...intencao.puxarEventos());
+      return { clienteId: cliente.id, intencao };
+    });
+
+    await this.publisher.publicar(eventos);
+
+    let cobranca: VenderPacoteOutput['cobranca'] = null;
+    if (!input.pagamentoImediato) {
+      const pix = await this.gateway.criarCobrancaPix({
+        valor: resultado.intencao.valor,
+        descricao: `Pacote ${vendaId}`,
+        externalId: resultado.intencao.externalId,
+      });
+      cobranca = {
+        intencaoId: resultado.intencao.id,
+        qrCode: pix.qrCode,
+        copiaECola: pix.copiaECola,
+      };
+    }
+
+    return { vendaId, clienteId: resultado.clienteId, cobranca };
+  }
+}

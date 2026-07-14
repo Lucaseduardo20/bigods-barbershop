@@ -179,6 +179,7 @@ export class Atendimento extends AggregateRoot {
         this.props.origem,
         motivo.trim(),
         this.itensDoPacote(),
+        Date.now() < this.props.intervalo.inicio.getTime(),
       ),
     );
   }

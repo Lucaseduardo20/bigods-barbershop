@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Papel {
+  ADMIN
+  BARBEIRO
+}
+
+enum StatusAtendimento {
+  AGENDADO
+  CONCLUIDO
+  CANCELADO
+  NAO_COMPARECEU
+}
+
+enum OrigemAtendimento {
+  AVULSO
+  CREDITO_PACOTE
+}
+
+enum StatusItemPacote {
+  DISPONIVEL
+  AGENDADO
+  CONSUMIDO
+  SEGUNDA_CHANCE
+  EXPIRADO
+}
+
+enum StatusPagamento {
+  AGUARDANDO
+  PAGO
+  EXPIRADO
+  FALHOU
+}
+
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  CARTAO_DEBITO
+  CARTAO_CREDITO
+}
+
+enum ReferenciaPagamento {
+  ATENDIMENTO
+  VENDA_DE_PACOTE
+}
+
+model Company {
+  id                      String  @id
+  nome                    String
+  // ParametrosDaEmpresa: prazo da segunda chance (§4.2), ajustável pelo admin
+  prazoReagendamentoDias  Int     @default(10)
+
+  servicos      Servico[]
+  barbeiros     Barbeiro[]
+  clientes      Cliente[]
+  atendimentos  Atendimento[]
+  vendasPacote  VendaDePacote[]
+  lancamentos   LancamentoComissao[]
+  intencoes     IntencaoDePagamento[]
+}
+
+model Servico {
+  id                   String  @id
+  companyId            String
+  nome                 String
+  precoAvulsoCentavos  Int
+  duracaoMinutos       Int
+  ativo                Boolean @default(true)
+
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+}
+
+model Barbeiro {
+  id                 String  @id
+  companyId          String
+  nome               String
+  papeis             Papel[]
+  comissaoPadraoBp   Int
+  ativo              Boolean @default(true)
+
+  // credenciais da autenticação local (infra — não fazem parte do domínio)
+  login              String? @unique
+  senhaHash          String?
+
+  company            Company @relation(fields: [companyId], references: [id])
+  excecoesComissao   ExcecaoComissao[]
+  servicosAtendidos  BarbeiroServico[]
+  disponibilidades   Disponibilidade[]
+
+  @@index([companyId])
+}
+
+model ExcecaoComissao {
+  barbeiroId    String
+  servicoId     String
+  percentualBp  Int
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+
+  @@id([barbeiroId, servicoId])
+}
+
+model BarbeiroServico {
+  barbeiroId String
+  servicoId  String
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+
+  @@id([barbeiroId, servicoId])
+}
+
+model Disponibilidade {
+  id         String   @id
+  barbeiroId String
+  data       String
+  inicio     DateTime
+  fim        DateTime
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+
+  @@index([barbeiroId, data])
+}
+
+model Cliente {
+  id         String  @id
+  companyId  String
+  nome       String
+  telefone   String
+  cognitoSub String?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, telefone])
+}
+
+model Atendimento {
+  id                 String            @id
+  companyId          String
+  clienteId          String
+  barbeiroId         String
+  inicio             DateTime
+  fim                DateTime
+  status             StatusAtendimento
+  origem             OrigemAtendimento
+  formaPagamento     FormaPagamento?
+  motivoCancelamento String?
+
+  company Company        @relation(fields: [companyId], references: [id])
+  itens   ItemAtendido[]
+
+  @@index([barbeiroId, inicio])
+  @@index([companyId, inicio])
+  @@index([clienteId])
+}
+
+model ItemAtendido {
+  id                   String  @id @default(uuid())
+  atendimentoId        String
+  servicoId            String
+  valorCobradoCentavos Int
+  duracaoMinutos       Int
+  itemDoPacoteId       String?
+
+  atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
+
+  @@index([atendimentoId])
+}
+
+model VendaDePacote {
+  id                    String          @id
+  companyId             String
+  clienteId             String
+  valorPagoCentavos     Int
+  saldoResidualCentavos Int             @default(0)
+  compradoEm            DateTime
+  statusPagamento       StatusPagamento
+
+  company Company        @relation(fields: [companyId], references: [id])
+  itens   ItemDoPacote[]
+
+  @@index([clienteId])
+  @@index([companyId])
+}
+
+model ItemDoPacote {
+  id                    String           @id
+  vendaId               String
+  servicoId             String
+  valorRateadoCentavos  Int
+  status                StatusItemPacote
+  faltasComputadas      Int              @default(0)
+  prazoReagendamentoAte DateTime?
+  atendimentoId         String?
+
+  venda VendaDePacote @relation(fields: [vendaId], references: [id])
+
+  @@index([vendaId])
+  @@index([status, prazoReagendamentoAte])
+}
+
+model LancamentoComissao {
+  id                    String   @id
+  companyId             String
+  barbeiroId            String
+  atendimentoId         String
+  servicoId             String
+  valorBaseCentavos     Int
+  percentualAplicadoBp  Int
+  valorComissaoCentavos Int
+  ocorridoEm            DateTime
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([barbeiroId])
+  @@index([atendimentoId])
+}
+
+model IntencaoDePagamento {
+  id              String              @id
+  companyId       String
+  referenciaTipo  ReferenciaPagamento
+  atendimentoId   String?
+  vendaDePacoteId String?
+  valorCentavos   Int
+  status          StatusPagamento
+  externalId      String              @unique
+
+  company Company @relation(fields: [companyId], references: [id])
+}

@@ -1,0 +1,53 @@
+import { Global, Module } from '@nestjs/common';
+import { PrismaService } from './infrastructure/prisma.service';
+import { NestEventPublisher } from './infrastructure/nest-event-publisher';
+import { PrismaUnitOfWork } from './infrastructure/prisma-unit-of-work';
+import { EVENT_PUBLISHER } from './events/event-publisher';
+import { UNIT_OF_WORK } from './application/unit-of-work';
+import { SERVICO_REPOSITORY } from '../modules/catalog/domain/servico.repository';
+import { BARBEIRO_REPOSITORY } from '../modules/staff/domain/barbeiro.repository';
+import { DISPONIBILIDADE_REPOSITORY } from '../modules/staff/domain/disponibilidade.repository';
+import { CLIENTE_REPOSITORY } from '../modules/customers/domain/cliente.repository';
+import { ATENDIMENTO_REPOSITORY } from '../modules/scheduling/domain/atendimento.repository';
+import { VENDA_DE_PACOTE_REPOSITORY } from '../modules/packages/domain/venda-de-pacote.repository';
+import { LANCAMENTO_COMISSAO_REPOSITORY } from '../modules/payroll/domain/lancamento-comissao.repository';
+import { INTENCAO_DE_PAGAMENTO_REPOSITORY } from '../modules/payments/domain/intencao-de-pagamento.repository';
+import { PARAMETROS_DA_EMPRESA_REPOSITORY } from '../modules/packages/domain/parametros-da-empresa.repository';
+import { PrismaServicoRepository } from '../modules/catalog/infrastructure/prisma-servico.repository';
+import { PrismaBarbeiroRepository } from '../modules/staff/infrastructure/prisma-barbeiro.repository';
+import { PrismaDisponibilidadeRepository } from '../modules/staff/infrastructure/prisma-disponibilidade.repository';
+import { PrismaClienteRepository } from '../modules/customers/infrastructure/prisma-cliente.repository';
+import { PrismaAtendimentoRepository } from '../modules/scheduling/infrastructure/prisma-atendimento.repository';
+import { PrismaVendaDePacoteRepository } from '../modules/packages/infrastructure/prisma-venda-de-pacote.repository';
+import { PrismaLancamentoComissaoRepository } from '../modules/payroll/infrastructure/prisma-lancamento-comissao.repository';
+import { PrismaIntencaoDePagamentoRepository } from '../modules/payments/infrastructure/prisma-intencao-de-pagamento.repository';
+import { PrismaParametrosRepository } from '../modules/packages/infrastructure/prisma-parametros.repository';
+
+const repositorios = [
+  { provide: SERVICO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaServicoRepository(p), inject: [PrismaService] },
+  { provide: BARBEIRO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaBarbeiroRepository(p), inject: [PrismaService] },
+  { provide: DISPONIBILIDADE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaDisponibilidadeRepository(p), inject: [PrismaService] },
+  { provide: CLIENTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaClienteRepository(p), inject: [PrismaService] },
+  { provide: ATENDIMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaAtendimentoRepository(p), inject: [PrismaService] },
+  { provide: VENDA_DE_PACOTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDePacoteRepository(p), inject: [PrismaService] },
+  { provide: LANCAMENTO_COMISSAO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaLancamentoComissaoRepository(p), inject: [PrismaService] },
+  { provide: INTENCAO_DE_PAGAMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaIntencaoDePagamentoRepository(p), inject: [PrismaService] },
+  { provide: PARAMETROS_DA_EMPRESA_REPOSITORY, useClass: PrismaParametrosRepository },
+];
+
+@Global()
+@Module({
+  providers: [
+    PrismaService,
+    { provide: EVENT_PUBLISHER, useClass: NestEventPublisher },
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
+    ...repositorios,
+  ],
+  exports: [
+    PrismaService,
+    EVENT_PUBLISHER,
+    UNIT_OF_WORK,
+    ...repositorios.map((r) => r.provide),
+  ],
+})
+export class SharedModule {}
