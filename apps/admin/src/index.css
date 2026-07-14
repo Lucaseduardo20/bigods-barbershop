@@ -1,3 +1,199 @@
+@import url('https://fonts.googleapis.com/css2?family=Rye&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Tokens do design system Bigod's Barber (Claude Design) */
+:root {
+  --brand-ink: #342414;
+  --brand-gold: #b88e42;
+  --brand-cream: #ffecb9;
+  --brand-beige: #c4b58e;
+  --brand-gold-100: #f3e2c2;
+  --brand-gold-300: #d9b876;
+  --brand-gold-700: #8f6c30;
+  --brand-ink-900: #1c130a;
+
+  --neutral-0: #ffffff;
+  --neutral-50: #faf7f2;
+  --neutral-100: #f3ede2;
+  --neutral-200: #e7ddcc;
+  --neutral-300: #d3c4a9;
+  --neutral-400: #ab9a7c;
+  --neutral-500: #83745c;
+  --neutral-600: #635747;
+  --neutral-800: #2f2820;
+  --neutral-900: #1c1712;
+
+  --surface-app: var(--neutral-50);
+  --surface-card: var(--neutral-0);
+  --surface-sunken: var(--neutral-100);
+  --border-subtle: var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --text-primary: var(--neutral-900);
+  --text-secondary: var(--neutral-600);
+  --text-muted: var(--neutral-400);
+  --text-on-gold: var(--brand-ink-900);
+  --accent-primary: var(--brand-gold);
+  --accent-primary-hover: var(--brand-gold-700);
+
+  --status-success: oklch(0.6 0.13 152);
+  --status-success-bg: oklch(0.95 0.04 152);
+  --status-warning: oklch(0.75 0.15 75);
+  --status-warning-bg: oklch(0.96 0.05 85);
+  --status-danger: oklch(0.55 0.18 25);
+  --status-danger-bg: oklch(0.95 0.05 25);
+  --status-info: oklch(0.62 0.09 240);
+  --status-info-bg: oklch(0.95 0.03 240);
+
+  --font-brand: 'Rye', Georgia, serif;
+  --font-ui: 'Manrope', -apple-system, 'Segoe UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--neutral-800);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+}
+
+.app-shell {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: var(--surface-app);
+  position: relative;
+  padding-bottom: 76px;
+}
+
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.badge-success { background: var(--status-success-bg); color: var(--status-success); }
+.badge-warning { background: var(--status-warning-bg); color: var(--status-warning); }
+.badge-danger { background: var(--status-danger-bg); color: var(--status-danger); }
+.badge-info { background: var(--status-info-bg); color: var(--status-info); }
+.badge-gold { background: var(--brand-gold-100); color: var(--brand-gold-700); }
+.badge-neutral { background: var(--surface-sunken); color: var(--text-secondary); }
+
+.btn {
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font: 700 14px var(--font-ui);
+  cursor: pointer;
+  background: var(--accent-primary);
+  color: var(--text-on-gold);
+  transition: background 0.15s;
+}
+.btn:hover { background: var(--accent-primary-hover); color: var(--brand-cream); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-ghost { background: var(--surface-sunken); color: var(--text-primary); }
+.btn-ghost:hover { background: var(--neutral-200); color: var(--text-primary); }
+.btn-danger { background: var(--status-danger-bg); color: var(--status-danger); }
+.btn-danger:hover { background: var(--status-danger); color: #fff; }
+.btn-sm { padding: 8px 12px; font-size: 12px; border-radius: 10px; }
+
+.input, .select {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font: 500 14px var(--font-ui);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  outline: none;
+  box-sizing: border-box;
+}
+.input:focus, .select:focus { border-color: var(--accent-primary); }
+.label {
+  display: block;
+  font: 700 12px var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+}
+
+.tabs { display: flex; gap: 6px; background: var(--surface-sunken); padding: 4px; border-radius: 12px; }
+.tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 8px 4px;
+  border-radius: 9px;
+  font: 700 12px var(--font-ui);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.tab-active { background: var(--surface-card); color: var(--text-primary); box-shadow: 0 1px 3px rgba(28, 19, 10, 0.12); }
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 430px;
+  display: flex;
+  background: var(--surface-card);
+  border-top: 1px solid var(--border-subtle);
+  z-index: 20;
+}
+.bottom-nav button {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 10px 0 12px;
+  font: 700 11px var(--font-ui);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.bottom-nav button.ativo { color: var(--brand-gold-700); }
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 19, 10, 0.55);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.dialog {
+  background: var(--surface-card);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 430px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.brand-wordmark {
+  font-family: var(--font-brand);
+  color: var(--brand-ink);
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}

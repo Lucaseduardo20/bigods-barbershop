@@ -7,6 +7,9 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "test": "vitest run",
+    "db:migrate": "prisma migrate deploy --schema ../../prisma/schema.prisma",
+    "db:generate": "prisma generate --schema ../../prisma/schema.prisma",
+    "db:seed": "tsx ../../prisma/seed.ts",
     "test:watch": "vitest"
   },
   "dependencies": {
