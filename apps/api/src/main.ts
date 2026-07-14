@@ -1,3 +1,9 @@
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
+// .env vive na raiz do monorepo (compartilhado com docker-compose), não em
+// apps/api — Prisma Client (ao contrário do Prisma CLI) não o carrega sozinho.
+config({ path: resolve(__dirname, '../../../.env') });
+
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
