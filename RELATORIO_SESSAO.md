@@ -87,14 +87,41 @@ raciocinar sobre dias civis).
 
 **Fora de escopo (como pedido):** seleção de timezone na UI de configuração — o modelo suporta (`ParametrosDTO.timezone` já é retornado pela API), mas não há tela para trocá-lo; a empresa seedada é única.
 
+## Funil público de agendamento avulso (sessão 2026-07-14, continuação) ✅
+
+Implementado o `apps/booking` como o funil público de agendamento **avulso**, consumindo a API real. Cliente não autenticado marca um horário (nome + telefone), paga **presencialmente** (cobrado na conclusão pelo painel, como o fluxo avulso já existente), e o atendimento **aparece na agenda do Gabriel no admin** — ciclo fechado, sem mocks. Escopo estrito: nada de Cognito, AbacatePay, pacotes ou área do cliente.
+
+**Backend — superfície pública (`modules/scheduling`, endpoints `@Publico()` atrás do guard global):**
+- `GET /public/empresa?companyId=` → marca + fuso (`EmpresaPublicaQueryService`). Empresa inexistente → 404, nunca fallback (§2.4).
+- `GET /public/servicos?companyId=` → serviços ativos.
+- `GET /public/barbeiros?companyId=&servicoIds=` → barbeiros ativos que atendem **todos** os serviços escolhidos.
+- `GET /public/horarios?companyId=&barbeiroId=&data=&servicoIds=` → **projeção** de horários livres (`HorariosDisponiveisQueryService`): slots que cabem numa janela de disponibilidade e não colidem com atendimento AGENDADO. Dia civil **local**, horários renderizados no fuso da empresa (novo helper puro `horaLocalHHmm` em `calendario.ts`). Grade de 15 min (decisão pendente #3).
+- `POST /public/agendamentos` → **reusa `AgendarAvulsoUseCase`** com `gerarCobranca=false`. Nenhuma invariante é pulada: serviço ativo, barbeiro atende, disponibilidade por dia civil local, conflito de horário (invariante + EXCLUDE), encontrar-ou-criar cliente por telefone — tudo na transação que já existia.
+
+**Decisão registrada (endpoint público vs. guard global):** o endpoint de agendar do painel exige autenticação (guard global). Em vez de afrouxar o guard ou duplicar regra, criei um endpoint `@Publico()` dedicado que **orquestra o mesmo caso de uso** — a escrita pública passa exatamente pelas mesmas validações de domínio (evita o anti-padrão §10 "rota pública de escrita sem validação"). O **tenant é explícito**: o funil carrega `companyId` (constante de build, `VITE_COMPANY_ID`, default `bigods`) e o envia em toda chamada — sem resolução implícita de empresa no servidor.
+
+**Frontend (`apps/booking`, React+Vite+Tailwind, tokens compartilhados do design system, porta 5174):**
+- Etapas: Landing → Serviços (multi-seleção, total+duração sempre visíveis) → Barbeiro (pré-selecionado e pulado quando só há um que atende os serviços) → Data/Horário (day picker + slots reais agrupados manhã/tarde) → Dados (nome + telefone com máscara) → Confirmação (resumo + aviso "pagamento na barbearia") → Sucesso.
+- Datas/horas **sempre no fuso da empresa** (via `/public/empresa`, mesmo princípio do `TimezoneProvider` do admin) — nunca o fuso do navegador.
+- Progresso persiste a refresh (`sessionStorage`, chave `bigods.booking.v1` — não é o banco); voltar sem perder o preenchido; indicador de progresso (stepper).
+- Estados de loading/erro (com retry)/vazio em toda etapa. Tipos 100% de `@bigods/contracts`.
+- Layout novo (superfície de conversão mobile-first, responsivo), linguagem visual compartilhada com o admin (ink/gold, Manrope/Rye, cards/botões/inputs).
+
+**Divergências conscientes do protótipo** (implementação, não domínio): sem upsell de pacote e sem PIX/cartão (fora de escopo — pagamento presencial); hero da landing com gradiente de marca em vez da imagem `barber-background.jpg`, e sucesso com checkmark SVG animado em vez do `success-animation.json` (Lottie) — mantém o app self-contained, sem dependência/asset externo (a cláusula "se encaixar" do brief). Foto de barbeiro: avatar de iniciais, pois o domínio não modela foto (decisão pendente #4).
+
+**Testes:** e2e do endpoint público (`booking-publico.e2e.spec.ts`, Supertest + AppModule real, 12 casos) — bypass do guard sem token, cliente novo por telefone, conflito 422, fora da disponibilidade 422, **reconciliação por telefone** (dois agendamentos, mesmo telefone → um só cliente), horários no fuso local. Vitest passou a usar **SWC** (`unplugin-swc`) para emitir metadata de decorator e permitir bootar a DI do Nest nos testes. Total: **112 testes** (91 domínio/unit + 21 integração/e2e).
+
 ## Decisões pendentes (DECISOES_PENDENTES.md)
 
 1. **Prazo limite do "cancelamento antecipado"** não definido na spec — usei "antes do início do atendimento".
 2. **Retorno de item em 2ª chance após cancelamento antecipado** — preservo SEGUNDA_CHANCE+prazo (o diagrama sugere DISPONIVEL, mas isso permitiria escapar da expiração em loop).
+3. **Granularidade do grid de horários do funil** (15 min) — projeção, não regra de domínio; confirmar com o negócio.
+4. **Foto do barbeiro no funil** — domínio não modela foto; usei avatar de iniciais.
 
 ## Pendências / limitações conhecidas
 
-- `apps/booking` e `apps/account`: esqueletos (fora do escopo da sessão).
+- `apps/account`: esqueleto (área do cliente — fora do escopo; depende de Cognito).
+- `apps/booking`: funil de agendamento **avulso** implementado. Agendar consumindo crédito de pacote (área logada) fica para a sessão da área do cliente.
 - Cognito e AbacatePay reais: plugar via `AuthProvider`, `IdentityProvider` e `PaymentGateway` (fakes locais em uso).
 - `npm run test` inclui os testes de integração → exige o Postgres do docker-compose rodando e migrado.
 - Notificação WhatsApp: não implementada (Fase 2 do produto), mas `AtendimentoAgendado` já é emitido.
@@ -122,7 +149,7 @@ npm run db:seed -w @bigods/api       # Company, Gabriel, serviços, pacote exemp
 
 # 5. Build + testes
 npm run build
-npm run test                          # 100 testes (integração exige o banco no ar)
+npm run test                          # 112 testes (integração/e2e exigem o banco no ar)
 npm run test:multitz -w @bigods/api   # a suíte inteira em TZ=UTC/America/Sao_Paulo/Asia/Tokyo
 
 # 6. API (porta 3000)
@@ -131,6 +158,12 @@ npm run dev -w @bigods/api           # ou: node apps/api/dist/main.js
 # 7. Painel admin (porta 5173, proxy /api → :3000)
 npm run dev -w @bigods/admin
 # → http://localhost:5173 — login: gabriel / senha: bigods123
+
+# 8. Funil público de agendamento (porta 5174, proxy /api → :3000)
+npm run dev -w @bigods/booking
+# → http://localhost:5174 — sem login. Marque um horário; ele aparece na agenda
+#   do painel admin (passo 7) no mesmo dia. Pagamento é presencial (na conclusão).
+#   Tenant: VITE_COMPANY_ID (default "bigods").
 
 # Webhook fake de pagamento (confirmar um PIX gerado):
 # curl -X POST localhost:3000/webhooks/abacatepay -H 'Content-Type: application/json' \
