@@ -85,13 +85,50 @@ silencioso para a primeira empresa do banco quando o tenant não era identificad
 meio-pronta é pior que ausente. Queremos a **costura** (o campo existe, os agregados o respeitam)
 sem o **mecanismo** (que só se prova com um segundo tenant real).
 
-### 2.5 Dinheiro
+### 2.5 Dinheiro e Percentual
 
 - **Nunca `float`.** Sempre `NUMERIC`/decimal no banco, e um Value Object `Dinheiro` no domínio
-  (armazenado em centavos, inteiro).
+  (armazenado em centavos, inteiro). O mesmo vale para `Percentual` (comissão): armazenado em
+  **pontos-base inteiros** (45% = 4500 bp), nunca como fração de ponto flutuante — a mesma
+  disciplina de `Dinheiro`, pela mesma razão.
 - **Arredondamento de rateio:** ao ratear o valor de um pacote entre seus itens, arredondar por
   item e garantir que **a soma dos itens arredondados bate exatamente com o valor pago**. O
   resíduo de centavos vai para o último item. Isso é uma invariante, não um detalhe.
+
+### 2.6 Fuso horário: costura na `Company`, conversão sempre na fronteira
+
+O banco guarda **instantes absolutos** (`timestamptz`) — isso não muda. Mas a empresa tem um
+**fuso horário IANA próprio** (`Company.timezone`, ex.: `"America/Sao_Paulo"`), pela mesma lógica
+de costura do `companyId` (§2.4): outras barbearias em outros fusos vão usar o sistema, então o
+fuso nunca é uma constante global do código.
+
+**Regra:** toda fronteira (controller, caso de uso) converte. Um horário informado pelo admin
+("9h") significa 9h no fuso da empresa → vira o instante UTC correspondente antes de persistir. Um
+instante lido do banco só volta a ser "9h" na hora de **renderizar**, no fuso da empresa — nunca no
+fuso do navegador/dispositivo de quem está olhando.
+
+**O domínio permanece puro e nunca presume fuso implícito.** Nenhum código de domínio lê
+`process.env.TZ` nem trata `new Date()` como "agora" sem que isso seja um parâmetro explícito.
+Quando uma regra precisa raciocinar sobre **dia civil** (não sobre duração absoluta em
+milissegundos), ela recebe o `Timezone` como parâmetro — ex.:
+`VendaDePacote.computarFalta(itemId, dias, hoje, tz)`. As funções puras que fazem essa conversão
+(`instanteDeLocal`, `diaCivilChave`, `limitesDoDiaCivil`, `fimDoDiaCivilMaisDias`, todas em
+`shared/domain/calendario.ts`) usam só `Intl.DateTimeFormat` — nenhuma dependência de framework —
+e são robustas a transição de horário de verão.
+
+**Prazo de reagendamento é dias civis, não N×24h.** "10 dias de prazo" vence no fim do 10º dia
+civil local — se houver mudança de horário de verão no meio do intervalo, o número de **horas**
+decorridas muda, o número de **dias** não. Uma vez congelado, `ItemDoPacote.prazoReagendamentoAte`
+já é o instante absoluto correto: o job de expiração (§4.2) só compara instantes UTC depois disso,
+sem precisar reconhecer fuso de novo.
+
+**Por quê:** esta versão nasceu com tudo tratado em UTC ponta a ponta — "disponibilidade das 9h às
+18h" seedada como UTC virava 6h às 15h no horário real do barbeiro (UTC-3). A causa raiz era
+confundir **instante absoluto** com **dia civil**: os casos de uso de agendamento buscavam a
+disponibilidade do dia via `instante.toISOString().slice(0,10)` — o dia **UTC** do instante, não o
+dia local. Um corte marcado às 23h30 local caía no dia UTC seguinte e não encontrava a janela
+certa. Corrigido trocando toda leitura de "que dia é esse instante" por `diaCivilChave(instante,
+tz)`. Bloqueador de produção — não reintroduzir.
 
 ---
 
@@ -153,12 +190,12 @@ espalhada.
 
 Janela de trabalho de um barbeiro.
 
-| Campo | Tipo |
-|---|---|
-| `id` | DisponibilidadeId |
-| `barbeiroId` | BarbeiroId |
-| `data` | Data |
-| `janela` | IntervaloDeTempo (inicio, fim) |
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | DisponibilidadeId | |
+| `barbeiroId` | BarbeiroId | |
+| `data` | Data (YYYY-MM-DD) | **dia civil local** (fuso da empresa, §2.6) a que a janela pertence |
+| `janela` | IntervaloDeTempo (inicio, fim) | instantes absolutos UTC — "9h–18h" é convertido na fronteira a partir do fuso da empresa, nunca tratado como UTC literal |
 
 **Invariantes:** `inicio < fim`; janelas do mesmo barbeiro no mesmo dia não se sobrepõem.
 
@@ -218,18 +255,28 @@ retroativamente — inaceitável num sistema que precisa ser auditável.
 
 **Invariantes:**
 - Não existem dois `Atendimento` com status ativo (`AGENDADO`) sobrepostos no tempo para o mesmo
-  `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no Postgres.
-- O `intervalo` deve estar contido em alguma `DisponibilidadeBarbeiro` daquele barbeiro naquela data.
+  `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no Postgres. `IntervaloDeTempo`
+  é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se tocam (o fim de um é igual ao
+  início do outro) não conflitam.
+- O `intervalo` deve estar contido em alguma `DisponibilidadeBarbeiro` daquele barbeiro naquela
+  data — a disponibilidade é procurada pelo **dia civil local** do início do atendimento (§2.6),
+  nunca pelo dia UTC bruto do instante.
 - Todo `servicoId` dos itens deve estar em `barbeiro.servicosAtendidos`.
 - Se `origem = CREDITO_PACOTE`, todo item deve ter `itemDoPacoteId` preenchido e
   `valorCobrado` = valor rateado daquele item no pacote (não o preço avulso).
 - Se `origem = AVULSO`, `itemDoPacoteId` é sempre null.
 - `status = CANCELADO` exige `motivoCancelamento` não-vazio.
 
+**Cancelamento — antecipado vs. tardio:** `cancelar(motivo)` calcula
+`antecipado = agora < intervalo.inicio` e inclui isso no evento `AtendimentoCancelado`. Essa
+distinção existe para o handler de Pacote (§5): cancelamento **antes** do horário marcado libera o
+item do pacote vinculado sem contar falta; cancelamento **depois** do horário (ou
+não-comparecimento) sempre conta falta — ver §4.2.
+
 **Eventos emitidos:**
 - `AtendimentoAgendado`
 - `AtendimentoConcluido` → **dispara cálculo de comissão** (§3.7)
-- `AtendimentoCancelado`
+- `AtendimentoCancelado` (carrega `antecipado: boolean`)
 - `ClienteFaltou`
 
 **Nota v1:** o cancelamento setava `status = canceled` **e** fazia soft-delete simultaneamente —
@@ -264,7 +311,7 @@ itens individuais, cada um com ciclo de vida próprio.
 | `valorRateado` | Dinheiro | **congelado na venda** — ver rateio abaixo |
 | `status` | StatusItemPacote | máquina de estado — ver §4.2 |
 | `faltasComputadas` | 0 \| 1 | quantas vezes o cliente já falhou neste item |
-| `prazoReagendamentoAte` | Data \| null | preenchido quando entra em segunda chance |
+| `prazoReagendamentoAte` | Instante \| null | preenchido quando entra em segunda chance — **fim do dia civil local**, N dias depois (§2.6, §4.2), não `hoje + N×24h` |
 | `atendimentoId` | AtendimentoId \| null | quando agendado/concluído |
 
 **Rateio (calculado UMA vez, no momento da venda, e congelado):**
@@ -381,7 +428,9 @@ soft-delete (foi assim que a v1 acabou com cancelamento representado de duas for
 ```
 
 - `AGENDADO → CONCLUIDO`: emite `AtendimentoConcluido`. Exige `formaPagamento` se `AVULSO`.
-- `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado`.
+- `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado` com `antecipado: boolean`
+  (`true` se cancelado antes do horário marcado) — usado pelo handler de Pacote para decidir se o
+  item associado conta falta (§3.5, §4.2).
 - `AGENDADO → NAO_COMPARECEU`: emite `ClienteFaltou`.
 - **Estados finais não transicionam.** Reagendar = criar um novo `Atendimento`, não mutar o antigo.
   (Isso preserva a auditoria: o histórico mostra que houve uma falta.)
@@ -395,8 +444,8 @@ Esta é a máquina de estado mais sutil do sistema. Ela existe porque a regra de
    ┌──────────────┐
    │  DISPONIVEL  │◄─────────────────────┐
    └──────┬───────┘                      │
-          │ agenda                       │ cancela ANTES do prazo limite
-          ▼                              │ (não conta como falta)
+          │ agenda                       │ cancela ANTES do horário marcado
+          ▼                              │ (não conta falta — ver nota abaixo)
    ┌──────────────┐                      │
    │   AGENDADO   ├──────────────────────┘
    └──────┬───────┘
@@ -428,8 +477,20 @@ Esta é a máquina de estado mais sutil do sistema. Ela existe porque a regra de
 AGENDADO    EXPIRADO
 ```
 
-**Parâmetros:**
-- Prazo de reagendamento: **10 dias, parametrizável pelo admin** (`ParametrosDaEmpresa`).
+**Cancelamento antecipado — para onde volta:** a seta do diagrama simplifica um detalhe. O
+retorno não é sempre para `DISPONIVEL`:
+- **0 faltas** → volta para `DISPONIVEL`.
+- **1 falta** (item já tinha passado por `SEGUNDA_CHANCE` e foi reagendado) → volta para
+  `SEGUNDA_CHANCE`, **preservando o `prazoReagendamentoAte` original**. Voltar para `DISPONIVEL`
+  apagaria o prazo e deixaria o cliente escapar da expiração agendando e cancelando em loop.
+
+"Antes do horário marcado" é definido operacionalmente como: o cancelamento do `Atendimento`
+vinculado aconteceu antes do `intervalo.inicio` agendado (`AtendimentoCancelado.antecipado`,
+§3.5). Cancelamento depois do horário, ou não-comparecimento, sempre conta falta.
+
+**Parâmetros (`ParametrosDaEmpresa`, armazenados em `Company`):**
+- `prazoReagendamentoDias`: **10 dias civis** no fuso da empresa (`Company.timezone`),
+  parametrizável pelo admin. Vence no **fim do dia civil local** — não é `hoje + 10×24h` (§2.6).
 - Máximo de faltas antes de expirar: **1** (na segunda, expira).
 
 **Sobre `saldoResidual`:** quando um item expira, seu `valorRateado` **não desaparece** — migra para
@@ -444,7 +505,11 @@ Automatizar um caminho raro antes de conhecer sua frequência é otimização pr
 primeiro** (a barbearia é o laboratório), automatizar depois se o volume justificar.
 
 **Expiração por prazo** é verificada por um job agendado (cron diário) que varre itens em
-`SEGUNDA_CHANCE` com `prazoReagendamentoAte < hoje`. Não é um trigger em tempo real.
+`SEGUNDA_CHANCE` com `prazoReagendamentoAte < hoje`. Como `prazoReagendamentoAte` já foi congelado
+como o instante absoluto correto (fim do dia civil local, calculado com o fuso da empresa no
+momento da falta — §2.6), essa comparação é UTC puro: o job não precisa reconhecer fuso de novo, e
+o horário exato em que ele roda não afeta a correção do resultado (rodar antes do prazo não expira
+nada; depois, expira exatamente o que deveria). Não é um trigger em tempo real.
 
 ---
 
@@ -462,6 +527,9 @@ sem broker/fila).
 | `PacoteVendido` | VendaDePacote | **Identity:** promove Cliente a usuário Cognito | — |
 | `ItemDoPacoteExpirado` | VendaDePacote | migra valor p/ saldoResidual | notificação ao cliente |
 | `PagamentoConfirmado` | IntencaoDePagamento | libera pacote/atendimento | recibo |
+
+`AtendimentoCancelado` carrega `antecipado: boolean` (cancelado antes do horário marcado) — o
+handler de Pacote usa isso para decidir entre liberar o item sem falta ou computar falta (§4.2).
 
 **Regra:** um agregado **nunca** chama outro agregado diretamente. A comunicação entre agregados é
 via evento (assíncrono conceitualmente, síncrono na execução MVP) ou via orquestração explícita na
@@ -522,7 +590,9 @@ bigods/
 │   │   └── src/
 │   │       ├── shared/
 │   │       │   ├── domain/       # VOs comuns: Dinheiro, Percentual,
-│   │       │   │                 # IntervaloDeTempo, Telefone, Duracao
+│   │       │   │                 # IntervaloDeTempo, Telefone, Duracao,
+│   │       │   │                 # Timezone; calendario.ts (dias civis,
+│   │       │   │                 # conversão local↔UTC — §2.6)
 │   │       │   ├── events/       # infra de eventos de domínio
 │   │       │   └── errors/       # erros de domínio tipados
 │   │       │
@@ -587,6 +657,8 @@ essa classe inteira de bug antes que ela nasça. É a maior razão pela qual est
 1. Validar serviços existem, estão ativos, e o barbeiro os atende
 2. Calcular intervalo (soma das durações)
 3. Validar que o intervalo cabe na disponibilidade do barbeiro
+   → a disponibilidade é buscada pelo DIA CIVIL local (fuso da empresa) do
+     horário pedido, nunca pelo dia UTC bruto do instante (§2.6)
 4. Encontrar-ou-criar Cliente pelo telefone (normalizado)
 5. Criar Atendimento (AGENDADO, origem=AVULSO)
    → invariante de sobreposição validada no domínio
@@ -605,6 +677,7 @@ Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou,
 2. Carregar VendaDePacote do cliente
 3. Selecionar ItemDoPacote (status DISPONIVEL ou SEGUNDA_CHANCE)
 4. Validar disponibilidade e conflito de horário
+   → mesma regra de dia civil local do §8.1 (§2.6)
 5. TRANSAÇÃO:
    a. VendaDePacote.consumirItem(itemId, atendimentoId)  → item vira AGENDADO
    b. Criar Atendimento (origem=CREDITO_PACOTE,
@@ -633,11 +706,18 @@ Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou,
 1. Barbeiro marca NAO_COMPARECEU
 2. Emite ClienteFaltou
 3. Se origem = CREDITO_PACOTE:
-   VendaDePacote.computarFalta(itemId):
+   VendaDePacote.computarFalta(itemId, dias, hoje, tz):
      - faltasComputadas += 1
-     - se faltas == 1 → SEGUNDA_CHANCE, prazo = hoje + parametros.prazoReagendamento
+     - se faltas == 1 → SEGUNDA_CHANCE, prazo = fim do dia civil local N dias
+       depois de hoje (N = parametros.prazoReagendamentoDias, tz =
+       Company.timezone) — não hoje + N×24h corridas (§2.6)
      - se faltas == 2 → EXPIRADO, valorRateado migra p/ saldoResidual
 4. Nenhuma comissão é gerada (o serviço não foi prestado)
+
+Mesmo caminho (`computarFalta`) é usado para cancelamento TARDIO de
+`Atendimento` de origem CREDITO_PACOTE (§3.5, §4.2) — a diferença entre
+"cliente faltou" e "cancelou tarde" não importa para o pacote, ambos contam
+falta.
 ```
 
 ---
@@ -654,11 +734,20 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
+- Fuso horário (§2.6): conversão local↔UTC robusta a horário de verão (caso real cruzando a
+  transição de DST em `America/New_York`); dia civil vs. dia UTC bruto do instante (disponibilidade,
+  agenda do dia, prazo de reagendamento). A suíte inteira roda idêntica sob `TZ=UTC`,
+  `TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo` — nenhum teste pode depender do fuso do processo.
 
 **Testes de integração:**
 - Constraint `EXCLUDE` do Postgres realmente rejeita sobreposição sob concorrência.
 - Transação de "agendar com crédito" faz rollback completo se qualquer passo falhar.
 - Webhook de pagamento é idempotente (processar 2x não gera efeito duplo).
+- Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).
+- Atendimento marcado perto da meia-noite local aparece na consulta de agenda do seu dia civil
+  correto, nunca no dia seguinte.
+- Job de expiração não erra a virada de dia por causa do fuso (prazo vence "hoje" local mesmo
+  quando o instante UTC já é outro dia).
 
 **Não perseguir cobertura alta em controllers e mapeamento de infra.** O valor está no domínio.
 
@@ -681,6 +770,15 @@ Cada item aqui é um erro real da v1, documentado na auditoria técnica. Não re
 | Fallback silencioso de tenant ("pega a primeira empresa") | Sem tenant explícito → erro, nunca chute |
 | `float` para dinheiro | `NUMERIC` no banco, VO `Dinheiro` em centavos |
 | Preço lido do catálogo ao exibir histórico | Snapshot do valor no momento da transação |
+
+**Nota:** o item abaixo não é erro da v1 — foi descoberto e corrigido durante a implementação
+desta versão, e é documentado aqui pelo mesmo motivo: para não ser reintroduzido por acidente.
+
+| ❌ Anti-padrão | ✅ Correto |
+|---|---|
+| Tratar tudo em UTC ponta a ponta, sem reconhecer o fuso civil da operação | `Company.timezone` + conversão sempre na fronteira; domínio recebe `Timezone` explícito, nunca presume fuso do runtime (§2.6) |
+| Dia "de hoje" calculado a partir do dia UTC bruto do instante (`instante.toISOString().slice(0,10)`) | `diaCivilChave(instante, tz)` — dia civil no fuso da empresa |
+| Prazo de N dias como `hoje + N×24h` | Dias civis: fim do N-ésimo dia civil local (`fimDoDiaCivilMaisDias`) — sobrevive a horário de verão |
 
 ---
 
