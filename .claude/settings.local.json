@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(docker-compose --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'chore: fundação do monorepo \\(workspaces + turborepo, api NestJS, admin Vite, contracts, config, docker postgres\\) *)"
+    ]
+  }
+}

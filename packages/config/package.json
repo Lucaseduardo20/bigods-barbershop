@@ -1,0 +1,10 @@
+{
+  "name": "@bigods/config",
+  "version": "0.0.1",
+  "private": true,
+  "files": [
+    "tsconfig.base.json",
+    "eslint.config.js",
+    "prettier.config.js"
+  ]
+}

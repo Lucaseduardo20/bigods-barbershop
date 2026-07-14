@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:16
+    container_name: bigods-postgres
+    environment:
+      POSTGRES_USER: bigods
+      POSTGRES_PASSWORD: bigods
+      POSTGRES_DB: bigods
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
