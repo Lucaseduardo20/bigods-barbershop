@@ -21,9 +21,11 @@ export class ParametrosController {
 
   @Get()
   async obter(@UsuarioAtual() usuario: UsuarioAutenticado): Promise<ParametrosDTO> {
-    return {
-      prazoReagendamentoDias: await this.parametros.prazoReagendamentoDias(usuario.companyId),
-    };
+    const [prazoReagendamentoDias, tz] = await Promise.all([
+      this.parametros.prazoReagendamentoDias(usuario.companyId),
+      this.parametros.timezone(usuario.companyId),
+    ]);
+    return { prazoReagendamentoDias, timezone: tz.iana };
   }
 
   @Papeis(Papel.ADMIN)
@@ -36,6 +38,7 @@ export class ParametrosController {
       usuario.companyId,
       body.prazoReagendamentoDias,
     );
-    return { prazoReagendamentoDias: body.prazoReagendamentoDias };
+    const tz = await this.parametros.timezone(usuario.companyId);
+    return { prazoReagendamentoDias: body.prazoReagendamentoDias, timezone: tz.iana };
   }
 }

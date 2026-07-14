@@ -71,15 +71,15 @@ export interface AtualizarComissaoRequest {
 export interface DisponibilidadeDTO {
   id: string;
   barbeiroId: string;
-  data: string; // YYYY-MM-DD
-  inicio: string; // ISO
-  fim: string; // ISO
+  data: string; // YYYY-MM-DD, dia civil local (fuso da empresa)
+  inicio: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
+  fim: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
 }
 export interface CriarDisponibilidadeRequest {
   barbeiroId: string;
-  data: string;
-  inicio: string;
-  fim: string;
+  data: string; // YYYY-MM-DD, dia civil local
+  inicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa) — nunca ISO/UTC
+  fim: string; // "HH:mm", horário de parede LOCAL
 }
 
 // ---------- Clientes ----------
@@ -103,8 +103,8 @@ export interface AtendimentoDTO {
   cliente: { id: string; nome: string; telefone: string };
   barbeiro: { id: string; nome: string };
   itens: ItemAtendidoDTO[];
-  inicio: string; // ISO
-  fim: string; // ISO
+  inicio: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
+  fim: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
   status: StatusAtendimento;
   origem: OrigemAtendimento;
   formaPagamento: FormaPagamento | null;
@@ -114,7 +114,8 @@ export interface AtendimentoDTO {
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
   servicoIds: string[];
-  inicio: string; // ISO
+  data: string; // YYYY-MM-DD, dia civil local
+  horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
   cliente: { nome: string; telefone: string };
   gerarCobranca?: boolean;
 }
@@ -122,7 +123,8 @@ export interface AgendarComCreditoRequest {
   vendaId: string;
   itemId: string;
   barbeiroId: string;
-  inicio: string; // ISO
+  data: string; // YYYY-MM-DD, dia civil local
+  horaInicio: string; // "HH:mm", horário de parede LOCAL
 }
 export interface ConcluirAtendimentoRequest {
   formaPagamento?: FormaPagamento;
@@ -201,6 +203,9 @@ export interface ExtratoComissaoDTO {
 // ---------- Parâmetros ----------
 export interface ParametrosDTO {
   prazoReagendamentoDias: number;
+  /** Fuso IANA da empresa (ex: "America/Sao_Paulo"). Frontend deve SEMPRE renderizar
+   * datas/horas neste fuso — nunca no fuso do navegador/dispositivo do usuário. */
+  timezone: string;
 }
 
 // ---------- Webhook AbacatePay (payload documentado) ----------

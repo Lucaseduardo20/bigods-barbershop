@@ -19,6 +19,11 @@ import {
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
+import { diaCivilChave } from '../../../shared/domain/calendario';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 
 export interface AgendarComCreditoInput {
   companyId: string;
@@ -42,6 +47,7 @@ export class AgendarComCreditoUseCase {
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendas: VendaDePacoteRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
 
   async executar(input: AgendarComCreditoInput): Promise<{ atendimentoId: string }> {
@@ -59,7 +65,9 @@ export class AgendarComCreditoUseCase {
       throw new NotFoundException('Barbeiro não encontrado');
     }
 
-    const data = input.inicio.toISOString().slice(0, 10);
+    // Dia civil LOCAL (fuso da empresa) — não a data UTC bruta do instante.
+    const tz = await this.parametros.timezone(input.companyId);
+    const data = diaCivilChave(input.inicio, tz);
     const disponibilidades = await this.disponibilidades.porBarbeiroEData(barbeiro.id, data);
     const janelaBusca = 24 * 60 * 60 * 1000;
     const ativos = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(

@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { ItemParaVenda, VendaDePacote } from './venda-de-pacote.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
+import { Timezone } from '../../../shared/domain/timezone';
+import { fimDoDiaCivilMaisDias, instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import {
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
 
-const hoje = new Date(Date.UTC(2026, 6, 15));
-const dias = (n: number) => new Date(hoje.getTime() + n * 24 * 60 * 60 * 1000);
+const tz = Timezone.de('America/Sao_Paulo');
+const hoje = instanteDeDataHoraLocal('2026-07-15', '14:00', tz);
+// Prazo de 10 dias civis, calculado a mesma forma que o domínio calcula (fim do dia civil local).
+const prazo10 = fimDoDiaCivilMaisDias(hoje, 10, tz);
+const antes = (d: Date) => new Date(d.getTime() - 1);
+const depois = (d: Date) => new Date(d.getTime() + 1);
 
 const item = (id: string, servicoId: string, precoCentavos: number): ItemParaVenda => ({
   itemId: id,
@@ -101,20 +107,22 @@ describe('ItemDoPacote — transições legais', () => {
     expect(i.atendimentoId).toBeNull();
   });
 
-  it('1ª falta → SEGUNDA_CHANCE com prazo', () => {
+  it('1ª falta → SEGUNDA_CHANCE com prazo em DIAS CIVIS (fim do 10º dia local, não 240h corridas)', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     const i = v.obterItem('i1');
     expect(i.status).toBe(StatusItemPacote.SEGUNDA_CHANCE);
     expect(i.faltasComputadas).toBe(1);
-    expect(i.prazoReagendamentoAte?.getTime()).toBe(dias(10).getTime());
+    expect(i.prazoReagendamentoAte?.getTime()).toBe(prazo10.getTime());
+    // não é ingenuamente hoje + 240h corridas
+    expect(i.prazoReagendamentoAte?.getTime()).not.toBe(hoje.getTime() + 10 * 24 * 60 * 60 * 1000);
   });
 
   it('SEGUNDA_CHANCE → reagenda → AGENDADO', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     v.agendarItem('i1', 'at-2');
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.AGENDADO);
   });
@@ -122,23 +130,38 @@ describe('ItemDoPacote — transições legais', () => {
   it('2ª falta → EXPIRADO e valor migra para saldoResidual (soma preservada)', () => {
     const v = venderPago(6000, [item('i1', 'corte', 4000), item('i2', 'barba', 3000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     v.agendarItem('i1', 'at-2');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.EXPIRADO);
     expect(v.saldoResidual.centavos).toBe(3429);
     expect(somaRateadosNaoExpirados(v) + v.saldoResidual.centavos).toBe(6000);
     expect(v.puxarEventos().map((e) => e.nome)).toContain('ItemDoPacoteExpirado');
   });
 
-  it('expiração por prazo estourado (job diário)', () => {
+  it('expiração por prazo estourado (job diário) — compara o instante já congelado, sem precisar de tz de novo', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
-    expect(v.expirarItensVencidos(dias(10))).toEqual([]); // prazo ainda não estourou
-    expect(v.expirarItensVencidos(dias(11))).toEqual(['i1']);
+    v.computarFalta('i1', 10, hoje, tz);
+    expect(v.expirarItensVencidos(prazo10)).toEqual([]); // no próprio limite, ainda não venceu
+    expect(v.expirarItensVencidos(depois(prazo10))).toEqual(['i1']);
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.EXPIRADO);
     expect(v.saldoResidual.centavos).toBe(4000);
+  });
+
+  it('job não expira item cujo prazo vence "hoje" no fuso local mas cairia em outro dia UTC', () => {
+    // falta às 23:00 local de SP: o prazo de 1 dia vence no fim do dia civil
+    // seguinte local, cujo instante UTC cai de madrugada — testando que a
+    // comparação usa o instante correto (congelado com tz), não uma leitura
+    // ingênua do "dia" a partir do timestamp UTC bruto.
+    const faltaTarde = instanteDeDataHoraLocal('2026-07-15', '23:00', tz);
+    const v = venderPago(4000, [item('i1', 'corte', 4000)]);
+    v.agendarItem('i1', 'at-1');
+    v.computarFalta('i1', 1, faltaTarde, tz);
+    const prazoEsperado = fimDoDiaCivilMaisDias(faltaTarde, 1, tz);
+    expect(v.obterItem('i1').prazoReagendamentoAte?.getTime()).toBe(prazoEsperado.getTime());
+    expect(v.expirarItensVencidos(antes(prazoEsperado))).toEqual([]);
+    expect(v.expirarItensVencidos(depois(prazoEsperado))).toEqual(['i1']);
   });
 });
 
@@ -157,9 +180,9 @@ describe('ItemDoPacote — transições ilegais', () => {
   it('não consome item EXPIRADO', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     v.agendarItem('i1', 'at-2');
-    v.computarFalta('i1', 10, hoje); // expira
+    v.computarFalta('i1', 10, hoje, tz); // expira
     expect(() => v.agendarItem('i1', 'at-3')).toThrow(TransicaoDeEstadoInvalidaError);
     expect(() => v.consumirItem('i1')).toThrow(TransicaoDeEstadoInvalidaError);
   });
@@ -173,15 +196,15 @@ describe('ItemDoPacote — transições ilegais', () => {
 
   it('não computa falta em item não agendado', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
-    expect(() => v.computarFalta('i1', 10, hoje)).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => v.computarFalta('i1', 10, hoje, tz)).toThrow(TransicaoDeEstadoInvalidaError);
   });
 
   it('nunca existe item com 2 faltas sem expirar', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     v.agendarItem('i1', 'at-2');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     // faltasComputadas fica em 1 e o estado é EXPIRADO — não há contagem 2 viva
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.EXPIRADO);
   });
@@ -194,11 +217,11 @@ describe('ItemDoPacote — transições ilegais', () => {
   it('cancelamento antecipado após 1ª falta preserva SEGUNDA_CHANCE e prazo', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1');
-    v.computarFalta('i1', 10, hoje);
+    v.computarFalta('i1', 10, hoje, tz);
     v.agendarItem('i1', 'at-2');
     v.liberarItem('i1');
     const i = v.obterItem('i1');
     expect(i.status).toBe(StatusItemPacote.SEGUNDA_CHANCE);
-    expect(i.prazoReagendamentoAte?.getTime()).toBe(dias(10).getTime());
+    expect(i.prazoReagendamentoAte?.getTime()).toBe(prazo10.getTime());
   });
 });

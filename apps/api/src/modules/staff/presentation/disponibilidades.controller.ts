@@ -10,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsDateString, IsISO8601, IsOptional, IsString, Matches } from 'class-validator';
+import { Matches, IsString } from 'class-validator';
 import { randomUUID } from 'node:crypto';
 import { DisponibilidadeDTO, Papel } from '@bigods/contracts';
 import {
@@ -19,14 +19,22 @@ import {
 } from '../domain/disponibilidade.repository';
 import { DisponibilidadeBarbeiro } from '../domain/disponibilidade.aggregate';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
+import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 import { UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
+
+const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 class CriarDisponibilidadeDto {
   @IsString() barbeiroId!: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) data!: string;
-  @IsISO8601() inicio!: string;
-  @IsISO8601() fim!: string;
+  /** Horário de parede LOCAL (fuso da empresa), ex: "09:00" — nunca ISO/UTC. */
+  @Matches(HORA_HHMM) inicio!: string;
+  @Matches(HORA_HHMM) fim!: string;
 }
 
 function paraDTO(d: DisponibilidadeBarbeiro): DisponibilidadeDTO {
@@ -50,6 +58,8 @@ export class DisponibilidadesController {
   constructor(
     @Inject(DISPONIBILIDADE_REPOSITORY)
     private readonly disponibilidades: DisponibilidadeRepository,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
+    private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
 
   @Get()
@@ -69,13 +79,18 @@ export class DisponibilidadesController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<DisponibilidadeDTO> {
     autorizarProprioOuAdmin(body.barbeiroId, usuario);
+    // Fronteira converte: "9h" no formulário do admin é 9h no fuso da empresa.
+    const tz = await this.parametros.timezone(usuario.companyId);
     const existentes = await this.disponibilidades.porBarbeiroEData(body.barbeiroId, body.data);
     const nova = DisponibilidadeBarbeiro.criar(
       {
         id: randomUUID(),
         barbeiroId: body.barbeiroId,
         data: body.data,
-        janela: IntervaloDeTempo.de(new Date(body.inicio), new Date(body.fim)),
+        janela: IntervaloDeTempo.de(
+          instanteDeDataHoraLocal(body.data, body.inicio, tz),
+          instanteDeDataHoraLocal(body.data, body.fim, tz),
+        ),
       },
       existentes,
     );

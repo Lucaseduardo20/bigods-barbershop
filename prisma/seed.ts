@@ -1,19 +1,32 @@
 import { PrismaClient } from '@prisma/client';
 import { randomUUID, scryptSync, randomBytes } from 'node:crypto';
+import { Timezone } from '../apps/api/src/shared/domain/timezone';
+import { diaCivilChave, instanteDeDataHoraLocal } from '../apps/api/src/shared/domain/calendario';
 
 const prisma = new PrismaClient();
+
+const TZ_EMPRESA = 'America/Sao_Paulo';
+const tz = Timezone.de(TZ_EMPRESA);
 
 function hashSenha(senha: string): string {
   const sal = randomBytes(16).toString('hex');
   return `${sal}:${scryptSync(senha, sal, 32).toString('hex')}`;
 }
 
+/** dia civil local + `d` dias, como "YYYY-MM-DD" (aritmética de calendário, não 24h×d). */
+function diaLocalMaisDias(d: number): string {
+  const hoje = diaCivilChave(new Date(), tz);
+  const [ano, mes, dia] = hoje.split('-').map(Number);
+  const alvo = new Date(Date.UTC(ano, mes - 1, dia + d));
+  return `${alvo.getUTCFullYear()}-${String(alvo.getUTCMonth() + 1).padStart(2, '0')}-${String(alvo.getUTCDate()).padStart(2, '0')}`;
+}
+
 async function main() {
   const companyId = 'bigods';
   await prisma.company.upsert({
     where: { id: companyId },
-    create: { id: companyId, nome: "Bigod's Barber", prazoReagendamentoDias: 10 },
-    update: {},
+    create: { id: companyId, nome: "Bigod's Barber", prazoReagendamentoDias: 10, timezone: TZ_EMPRESA },
+    update: { timezone: TZ_EMPRESA },
   });
 
   const corteId = 'svc-corte';
@@ -51,22 +64,24 @@ async function main() {
     skipDuplicates: true,
   });
 
-  // Disponibilidade dos próximos 30 dias, 9h–18h UTC
+  // Disponibilidade dos próximos 30 dias, 9h–18h HORÁRIO DE SÃO PAULO (não UTC —
+  // isso é literalmente o bug que motivou a correção de fuso desta sessão).
   for (let d = 0; d < 30; d++) {
-    const dia = new Date();
-    dia.setUTCDate(dia.getUTCDate() + d);
-    const data = dia.toISOString().slice(0, 10);
+    const data = diaLocalMaisDias(d);
     const id = `disp-${gabrielId}-${data}`;
+    const janela = {
+      barbeiroId: gabrielId,
+      data,
+      inicio: instanteDeDataHoraLocal(data, '09:00', tz),
+      fim: instanteDeDataHoraLocal(data, '18:00', tz),
+    };
+    // update real (não `{}`) para o seed ser auto-corretivo: reaplicar depois
+    // de uma mudança de regra (como esta correção de fuso) precisa sobrescrever
+    // dados antigos, não deixá-los intocados por já existir o mesmo id.
     await prisma.disponibilidade.upsert({
       where: { id },
-      create: {
-        id,
-        barbeiroId: gabrielId,
-        data,
-        inicio: new Date(`${data}T09:00:00.000Z`),
-        fim: new Date(`${data}T18:00:00.000Z`),
-      },
-      update: {},
+      create: { id, ...janela },
+      update: janela,
     });
   }
 
@@ -103,7 +118,7 @@ async function main() {
     });
   }
 
-  console.log('Seed concluído. Login do painel: gabriel / bigods123');
+  console.log(`Seed concluído (fuso: ${TZ_EMPRESA}). Login do painel: gabriel / bigods123`);
 }
 
 main().finally(() => prisma.$disconnect());

@@ -8,6 +8,7 @@ import type {
 import { FormaPagamento, OrigemAtendimento, Papel, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dinheiro, hojeISO, hora } from '../lib/format';
+import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
 
 const toneStatus: Record<StatusAtendimento, string> = {
@@ -24,16 +25,17 @@ const labelStatus: Record<StatusAtendimento, string> = {
 };
 
 export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
+  const tz = useTimezone();
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
-  const [data, setData] = useState(hojeISO());
+  const [data, setData] = useState(() => hojeISO(tz));
   const [filtro, setFiltro] = useState<'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.CONCLUIDO>('todos');
   const [novoAberto, setNovoAberto] = useState(false);
   const [selecionado, setSelecionado] = useState<AtendimentoDTO | null>(null);
 
-  const de = `${data}T00:00:00.000Z`;
-  const ate = `${data}T23:59:59.999Z`;
+  // "data" é o dia civil no fuso da EMPRESA — o backend converte para o
+  // intervalo UTC correto (um atendimento às 23:30 local não vaza pro dia seguinte).
   const { dados, erro, carregando, recarregar } = useApi(
-    () => api<AtendimentoDTO[]>(`/atendimentos?de=${de}&ate=${ate}`),
+    () => api<AtendimentoDTO[]>(`/atendimentos?data=${data}`),
     [data],
   );
 
@@ -87,7 +89,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
                 onClick={() => setSelecionado(a)}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-12 text-center font-extrabold text-[14px]">{hora(a.inicio)}</div>
+                  <div className="w-12 text-center font-extrabold text-[14px]">{hora(a.inicio, tz)}</div>
                   <div className="w-px h-8" style={{ background: 'var(--border-subtle)' }} />
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-[14px] truncate">{a.cliente.nome}</div>
@@ -119,6 +121,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
       />
       <DetalheDialog
         atendimento={selecionado}
+        tz={tz}
         aoFechar={() => setSelecionado(null)}
         aoMudar={() => {
           setSelecionado(null);
@@ -167,7 +170,8 @@ function NovoAtendimentoDialog({
         body: {
           barbeiroId,
           servicoIds: servicosSel,
-          inicio: `${data}T${horaInicio}:00.000Z`,
+          data,
+          horaInicio,
           cliente: { nome, telefone },
         },
       });
@@ -243,10 +247,12 @@ function NovoAtendimentoDialog({
 
 function DetalheDialog({
   atendimento,
+  tz,
   aoFechar,
   aoMudar,
 }: {
   atendimento: AtendimentoDTO | null;
+  tz: string;
   aoFechar: () => void;
   aoMudar: () => void;
 }) {
@@ -291,7 +297,7 @@ function DetalheDialog({
           </div>
         </div>
         <div className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-          {hora(a.inicio)}–{hora(a.fim)} · {a.barbeiro.nome} · {a.cliente.telefone}
+          {hora(a.inicio, tz)}–{hora(a.fim, tz)} · {a.barbeiro.nome} · {a.cliente.telefone}
           {a.motivoCancelamento && <div>Motivo: {a.motivoCancelamento}</div>}
         </div>
 

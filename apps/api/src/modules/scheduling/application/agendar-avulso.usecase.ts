@@ -19,6 +19,11 @@ import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-pu
 import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
 import { Telefone } from '../../../shared/domain/telefone';
 import { DomainEvent } from '../../../shared/events/domain-event';
+import { diaCivilChave } from '../../../shared/domain/calendario';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 
 export interface AgendarAvulsoInput {
   companyId: string;
@@ -46,6 +51,7 @@ export class AgendarAvulsoUseCase {
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
 
   async executar(input: AgendarAvulsoInput): Promise<AgendarAvulsoOutput> {
@@ -62,7 +68,10 @@ export class AgendarAvulsoUseCase {
       throw new NotFoundException('Barbeiro não encontrado');
     }
 
-    const data = input.inicio.toISOString().slice(0, 10);
+    // Dia civil LOCAL (fuso da empresa) — nunca a data UTC bruta do instante,
+    // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
+    const tz = await this.parametros.timezone(input.companyId);
+    const data = diaCivilChave(input.inicio, tz);
     const disponibilidades = await this.disponibilidades.porBarbeiroEData(barbeiro.id, data);
     const janelaBusca = 24 * 60 * 60 * 1000;
     const ativos = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(

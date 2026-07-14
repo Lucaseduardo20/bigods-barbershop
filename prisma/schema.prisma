@@ -56,6 +56,10 @@ model Company {
   nome                    String
   // ParametrosDaEmpresa: prazo da segunda chance (§4.2), ajustável pelo admin
   prazoReagendamentoDias  Int     @default(10)
+  // Fuso IANA da empresa (ex: "America/Sao_Paulo"). Propriedade da Company,
+  // não constante global — outras barbearias em outros fusos usarão o sistema.
+  // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
+  timezone                String  @default("America/Sao_Paulo")
 
   servicos      Servico[]
   barbeiros     Barbeiro[]
@@ -121,9 +125,11 @@ model BarbeiroServico {
 model Disponibilidade {
   id         String   @id
   barbeiroId String
+  // Dia civil LOCAL (YYYY-MM-DD) a que esta janela pertence — "terça 9h–18h" no
+  // horário do barbeiro. inicio/fim são os instantes UTC correspondentes.
   data       String
-  inicio     DateTime
-  fim        DateTime
+  inicio     DateTime @db.Timestamptz(3)
+  fim        DateTime @db.Timestamptz(3)
 
   barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
 
@@ -147,8 +153,8 @@ model Atendimento {
   companyId          String
   clienteId          String
   barbeiroId         String
-  inicio             DateTime
-  fim                DateTime
+  inicio             DateTime          @db.Timestamptz(3)
+  fim                DateTime          @db.Timestamptz(3)
   status             StatusAtendimento
   origem             OrigemAtendimento
   formaPagamento     FormaPagamento?
@@ -181,7 +187,7 @@ model VendaDePacote {
   clienteId             String
   valorPagoCentavos     Int
   saldoResidualCentavos Int             @default(0)
-  compradoEm            DateTime
+  compradoEm            DateTime        @db.Timestamptz(3)
   statusPagamento       StatusPagamento
 
   company Company        @relation(fields: [companyId], references: [id])
@@ -198,7 +204,9 @@ model ItemDoPacote {
   valorRateadoCentavos  Int
   status                StatusItemPacote
   faltasComputadas      Int              @default(0)
-  prazoReagendamentoAte DateTime?
+  // Fim do dia civil local (§4.2) — já um instante absoluto correto; o job de
+  // expiração compara em UTC puro, sem precisar reconhecer o fuso de novo.
+  prazoReagendamentoAte DateTime?        @db.Timestamptz(3)
   atendimentoId         String?
 
   venda VendaDePacote @relation(fields: [vendaId], references: [id])
@@ -216,7 +224,7 @@ model LancamentoComissao {
   valorBaseCentavos     Int
   percentualAplicadoBp  Int
   valorComissaoCentavos Int
-  ocorridoEm            DateTime
+  ocorridoEm            DateTime @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id])
 

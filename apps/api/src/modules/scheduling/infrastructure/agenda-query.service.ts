@@ -6,24 +6,32 @@ import {
   StatusAtendimento,
 } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
+import { limitesDoDiaCivil } from '../../../shared/domain/calendario';
+import { Timezone } from '../../../shared/domain/timezone';
 
 /** Projeção de leitura da agenda (§2.1) — não é fonte de verdade de conflito. */
 @Injectable()
 export class AgendaQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * `diaLocal` é o dia civil (YYYY-MM-DD) no fuso da empresa — "os atendimentos
+   * de hoje" são os que caem nesse dia civil LOCAL, não no dia UTC bruto do
+   * instante (um atendimento às 23:30 local não pode "vazar" para o dia seguinte).
+   */
   async listar(params: {
     companyId: string;
-    de: Date;
-    ate: Date;
+    diaLocal: string;
+    tz: Timezone;
     barbeiroId?: string;
   }): Promise<AtendimentoDTO[]> {
+    const { inicio, fimExclusivo } = limitesDoDiaCivil(params.diaLocal, params.tz);
     const atendimentos = await this.prisma.atendimento.findMany({
       where: {
         companyId: params.companyId,
         ...(params.barbeiroId ? { barbeiroId: params.barbeiroId } : {}),
-        inicio: { lt: params.ate },
-        fim: { gt: params.de },
+        inicio: { lt: fimExclusivo },
+        fim: { gt: inicio },
       },
       include: { itens: true },
       orderBy: { inicio: 'asc' },

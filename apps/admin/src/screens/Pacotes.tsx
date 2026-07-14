@@ -9,6 +9,7 @@ import type {
 import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
+import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 
 const toneItem: Record<StatusItemPacote, string> = {
@@ -33,6 +34,7 @@ const tonePagamento: Record<StatusPagamento, string> = {
 };
 
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
+  const tz = useTimezone();
   const [venderAberto, setVenderAberto] = useState(false);
   const [agendarItem, setAgendarItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
   const { dados, erro, carregando, recarregar } = useApi(() => api<VendaDePacoteDTO[]>('/pacotes'), []);
@@ -57,7 +59,7 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
               <div>
                 <div className="font-bold text-[14px]">{v.cliente.nome}</div>
                 <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  {dataCurta(v.compradoEm)} · {dinheiro(v.valorPagoCentavos)}
+                  {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)}
                   {v.saldoResidualCentavos > 0 && (
                     <> · saldo residual {dinheiro(v.saldoResidualCentavos)}</>
                   )}
@@ -77,7 +79,7 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
                     <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                       rateado {dinheiro(i.valorRateadoCentavos)}
                       {i.status === StatusItemPacote.SEGUNDA_CHANCE && i.prazoReagendamentoAte && (
-                        <> · reagendar até {dataCurta(i.prazoReagendamentoAte)}</>
+                        <> · reagendar até {dataCurta(i.prazoReagendamentoAte, tz)}</>
                       )}
                     </div>
                   </div>
@@ -245,7 +247,8 @@ function AgendarCreditoDialog({
   aoFechar: () => void;
   aoSalvar: () => void;
 }) {
-  const [data, setData] = useState(hojeISO());
+  const tz = useTimezone();
+  const [data, setData] = useState(() => hojeISO(tz));
   const [horaInicio, setHoraInicio] = useState('10:00');
   const [barbeiroId, setBarbeiroId] = useState(usuario.barbeiroId);
   const [salvando, setSalvando] = useState(false);
@@ -264,7 +267,8 @@ function AgendarCreditoDialog({
           vendaId: alvo.venda.id,
           itemId: alvo.item.id,
           barbeiroId,
-          inicio: `${data}T${horaInicio}:00.000Z`,
+          data,
+          horaInicio,
         },
       });
       aoSalvar();

@@ -48,9 +48,12 @@ export class PacoteAtendimentoHandlers {
   }
 
   private async computarFaltas(companyId: string, itens: string[]): Promise<void> {
-    const prazoDias = await this.parametros.prazoReagendamentoDias(companyId);
+    const [prazoDias, tz] = await Promise.all([
+      this.parametros.prazoReagendamentoDias(companyId),
+      this.parametros.timezone(companyId),
+    ]);
     await this.processarItens(itens, async (venda, itemId) => {
-      venda.computarFalta(itemId, prazoDias, new Date());
+      venda.computarFalta(itemId, prazoDias, new Date(), tz);
     });
   }
 

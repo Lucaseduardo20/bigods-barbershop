@@ -8,7 +8,17 @@ import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-wo
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
 
-/** Job diário (§4.2): expira itens em SEGUNDA_CHANCE com prazo estourado. */
+/**
+ * Job diário (§4.2): expira itens em SEGUNDA_CHANCE com prazo estourado.
+ *
+ * `prazoReagendamentoAte` já é um instante absoluto correto (fim do dia civil
+ * LOCAL, calculado com tz explícito no momento da falta — ver
+ * `VendaDePacote.computarFalta`). Por isso a comparação aqui é uma comparação
+ * de instantes UTC pura, sem precisar reconhecer fuso de novo: rodar o job
+ * antes do prazo não expira nada, rodar depois expira exatamente o que já
+ * devia. O horário exato do cron abaixo é só conveniência operacional — a
+ * correção da expiração não depende de quando o job roda.
+ */
 @Injectable()
 export class ExpirarItensJob {
   private readonly logger = new Logger(ExpirarItensJob.name);
@@ -19,7 +29,10 @@ export class ExpirarItensJob {
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  // 3h da manhã no fuso da empresa seedada (America/Sao_Paulo, UTC-3 o ano
+  // todo — não pratica horário de verão). Só afeta a hora de execução, nunca
+  // a correção do resultado (ver comentário da classe).
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: 'America/Sao_Paulo' })
   async executar(hoje = new Date()): Promise<number> {
     const candidatas = await this.vendas.comItensEmSegundaChanceVencidos(hoje);
     let totalExpirados = 0;

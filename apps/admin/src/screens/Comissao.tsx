@@ -3,9 +3,11 @@ import type { BarbeiroDTO, ExtratoComissaoDTO, UsuarioDTO } from '@bigods/contra
 import { Papel } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro } from '../lib/format';
+import { useTimezone } from '../lib/tz-context';
 import { ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 
 export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
+  const tz = useTimezone();
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [barbeiroId, setBarbeiroId] = useState(usuario.barbeiroId);
   const barbeiros = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
@@ -62,7 +64,7 @@ export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
                 <div>
                   <div className="text-[13px] font-bold">{l.servicoNome}</div>
                   <div className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                    {dataCurta(l.ocorridoEm)} · base {dinheiro(l.valorBaseCentavos)} × {l.percentualAplicado}%
+                    {dataCurta(l.ocorridoEm, tz)} · base {dinheiro(l.valorBaseCentavos)} × {l.percentualAplicado}%
                   </div>
                 </div>
                 <div className="font-extrabold text-[15px]" style={{ color: 'var(--brand-gold-700)' }}>

@@ -2,18 +2,25 @@ export function dinheiro(centavos: number): string {
   return (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-export function hora(iso: string): string {
+/**
+ * SEMPRE renderiza no fuso da EMPRESA (vindo da API via `/parametros`), nunca
+ * no fuso do navegador/dispositivo — um admin viajando não pode ver a agenda
+ * deslocada. `tz` é obrigatório e vem de `useTimezone()`.
+ */
+export function hora(iso: string, tz: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'UTC',
+    timeZone: tz,
   });
 }
 
-export function dataCurta(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+export function dataCurta(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: tz });
 }
 
-export function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Dia civil de "agora" no fuso da EMPRESA — nunca no fuso do navegador. */
+export function hojeISO(tz: string): string {
+  // locale en-CA formata como YYYY-MM-DD
+  return new Date().toLocaleDateString('en-CA', { timeZone: tz });
 }

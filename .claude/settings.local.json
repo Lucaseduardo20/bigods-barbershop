@@ -24,7 +24,12 @@
       "Bash(npx turbo *)",
       "Bash(pkill -f \"vite --port 5173\")",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npm run test)",
-      "Bash(git commit -q -m 'feat: painel admin — agenda, pacotes, comissão e ajustes seguindo o design importado \\(Claude Design\\) *)"
+      "Bash(git commit -q -m 'feat: painel admin — agenda, pacotes, comissão e ajustes seguindo o design importado \\(Claude Design\\) *)",
+      "Bash(git commit -q -m 'docs: relatório da sessão e decisões pendentes *)",
+      "Bash(pkill -f \"node dist/main.js\")",
+      "Bash(npx vitest *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/fuso-horario.spec.ts)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npm run test:multitz)"
     ]
   }
 }

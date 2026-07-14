@@ -1,6 +1,8 @@
 import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
+import { Timezone } from '../../../shared/domain/timezone';
+import { fimDoDiaCivilMaisDias } from '../../../shared/domain/calendario';
 import {
   AtendimentoId,
   ClienteId,
@@ -189,8 +191,12 @@ export class VendaDePacote extends AggregateRoot {
   /**
    * Falta ou cancelamento tardio de item AGENDADO.
    * 1ª falta → SEGUNDA_CHANCE com prazo; 2ª falta → EXPIRADO (valor migra p/ saldoResidual).
+   *
+   * O prazo é em DIAS CIVIS no fuso da empresa, vencendo no fim do dia local —
+   * não "N×24h a partir de agora". O domínio não conhece o fuso implicitamente:
+   * ele é sempre recebido explícito (nunca `new Date()` presumindo TZ do runtime).
    */
-  computarFalta(itemId: ItemDoPacoteId, prazoReagendamentoDias: number, hoje: Date): void {
+  computarFalta(itemId: ItemDoPacoteId, prazoReagendamentoDias: number, hoje: Date, tz: Timezone): void {
     const item = this.item(itemId);
     if (item.status !== StatusItemPacote.AGENDADO) {
       throw new TransicaoDeEstadoInvalidaError(
@@ -201,9 +207,7 @@ export class VendaDePacote extends AggregateRoot {
     if (item.faltasComputadas === 0) {
       item.faltasComputadas = 1;
       item.status = StatusItemPacote.SEGUNDA_CHANCE;
-      item.prazoReagendamentoAte = new Date(
-        hoje.getTime() + prazoReagendamentoDias * 24 * 60 * 60 * 1000,
-      );
+      item.prazoReagendamentoAte = fimDoDiaCivilMaisDias(hoje, prazoReagendamentoDias, tz);
     } else {
       this.expirarItem(item);
     }
