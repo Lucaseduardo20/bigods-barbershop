@@ -55,3 +55,39 @@ Para o login sem senha por telefone no Cognito, há duas abordagens: **(a)** Cus
 **Implementado:** abordagem (a) — `CognitoIdentityProvider` usa `CUSTOM_AUTH`, e os Lambdas estão prontos em `infra/cognito-triggers/`. Escolha por **portabilidade**: roda em qualquer User Pool, é o padrão universalmente documentado, e o brief antecipou os Lambda triggers como artefato.
 
 **A confirmar com o Rafael quando o pool estiver pronto:** se o pool já tiver o `SMS_OTP` nativo disponível, ele é operacionalmente mais simples (não há Lambdas para manter). Migrar para ele mexe **só** no `CognitoIdentityProvider` (trocar os comandos do SDK) — a interface `IdentityProvider` e todo o resto ficam iguais. Decisão de operação, não de domínio.
+
+## 9. Teste ponta-a-ponta contra o SANDBOX real do AbacatePay — PENDENTE DE CREDENCIAL
+
+O gateway real (`AbacatePayGateway`) e o webhook validado por assinatura estão
+implementados e cobertos por testes com HTTP mockado (`abacatepay.gateway.spec.ts`,
+`abacatepay-webhook.verifier.spec.ts`) e por um e2e do webhook com payload assinado
+à mão (`webhook-abacatepay.e2e.spec.ts`). **Não** existe ainda o teste que gera uma
+cobrança real no sandbox do AbacatePay e simula o pagamento pelo endpoint deles,
+porque **não há credencial de sandbox** (`ABACATEPAY_API_KEY` de teste) nas variáveis
+de ambiente.
+
+**Ação:** assim que a key de sandbox chegar, esse é o **primeiro** teste a rodar —
+cobrança real → `simularPagamento(gatewayId)` (`POST /pixQrCode/simulate-payment`)
+→ webhook confirma → pacote libera créditos. A infraestrutura já está pronta
+(`AbacatePayGateway.simularPagamento` existe justamente para isso).
+
+## 10. Versão/base da API do AbacatePay assumida (`/v1`, `pixQrCode`)
+
+A documentação do AbacatePay mudou entre v1 e v2 (a base chegou a ser anunciada
+como `.../v2` com `/transparents/*`). Adotei o caminho **estável e público**
+`https://api.abacatepay.com/v1` + `pixQrCode/create` + `pixQrCode/simulate-payment`,
+que suporta `metadata.externalId` direto e retorna `brCode`/`brCodeBase64`. A base
+é **overridável** por `ABACATEPAY_BASE_URL` sem tocar código.
+
+**A confirmar no primeiro contato com o sandbox real:** se a conta usar outra
+versão/base, ajustar `ABACATEPAY_BASE_URL` (e, se os nomes dos campos diferirem,
+apenas o mapeamento em `AbacatePayGateway` — a porta `PaymentGateway` não muda).
+
+## 11. Webhook do AbacatePay só é MONTADO com o gateway real
+
+Com `PAYMENT_GATEWAY=fake` (default fora de produção) o `WebhooksController` **não
+é montado** — nenhuma superfície de webhook é exposta em demo, como pedido. A
+decisão de montar lê `PAYMENT_GATEWAY` na avaliação do módulo; em produção (build
+CommonJS) a ordem de carga garante que a env já está setada. Além disso, mesmo se
+exposto, o guard **falha fechado** sem `ABACATEPAY_WEBHOOK_SECRET` (401), e o boot
+recusa subir com o gateway real sem o secret — dupla proteção.

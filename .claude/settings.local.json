@@ -45,7 +45,14 @@
       "Bash(pkill -9 -f \"node dist/main.js\")",
       "Bash(ps -o pid,ppid,cmd -p 691943)",
       "Bash(kill -9 691943)",
-      "Bash(awk '{print $2, $11, $12, $13}')"
+      "Bash(awk '{print $2, $11, $12, $13}')",
+      "WebFetch(domain:docs.abacatepay.com)",
+      "WebFetch(domain:www.abacatepay.com)",
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Bash(grep -iB2 \"RolesGuard\\\\|In \\\\[\\\\|context\\\\|module\")",
+      "Bash(PAYMENT_GATEWAY=abacatepay ABACATEPAY_API_KEY=k ABACATEPAY_WEBHOOK_SECRET=s node -e ' *)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(NODE_ENV=production IDENTITY_PROVIDER=cognito COGNITO_REGION=x COGNITO_USER_POOL_ID=x COGNITO_CLIENT_ID=x PAYMENT_GATEWAY=abacatepay ABACATEPAY_API_KEY=k node dist/main.js)"
     ]
   }
 }

@@ -286,10 +286,19 @@ export interface PerfilClienteDTO {
   pacotes: VendaDePacoteDTO[];
 }
 
-// ---------- Webhook AbacatePay (payload documentado) ----------
+// ---------- Webhook AbacatePay ----------
+// Payload deliberadamente frouxo: extraímos só `event`/`status` e o `externalId`
+// (que pode vir em metadata direto ou aninhado). A AbacatePay recomenda não
+// validar o payload inteiro contra um schema rígido para não quebrar com
+// mudanças futuras deles.
 export interface WebhookAbacatePayRequest {
-  event: string; // ex: "billing.paid"
-  data: {
-    metadata: { externalId: string };
+  event?: string; // ex: "billing.paid", "transparent.completed"
+  data?: {
+    status?: string; // ex: "PAID"
+    externalId?: string;
+    metadata?: { externalId?: string };
+    pixQrCode?: { metadata?: { externalId?: string } };
+    [k: string]: unknown;
   };
+  [k: string]: unknown;
 }

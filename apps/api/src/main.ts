@@ -15,7 +15,9 @@ async function bootstrap() {
   // ANTES de instanciar qualquer coisa.
   assertConfiguracaoSegura();
 
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true expõe req.rawBody — os bytes crus necessários para validar a
+  // assinatura HMAC do webhook do AbacatePay sobre o corpo exatamente recebido.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors();
   await app.listen(process.env.PORT ?? 3000);

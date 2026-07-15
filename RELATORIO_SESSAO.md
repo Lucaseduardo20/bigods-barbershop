@@ -162,6 +162,48 @@ Módulo `identity` do CLIENTE final: login sem senha por telefone (OTP), com um 
 
 **Testes (25 novos, total 137):** config guard (6, unit); `CognitoIdentityProvider` com SDK mockado (9); e2e do fluxo demo (10) — provisão-sem-promoção, iniciar→código errado(401)→código certo(promove), uso único, expirado(401), telefone não provisionado (resposta neutra), perfil autenticado, e rate limit (6ª tentativa → 429). Smoke manual confirmou o fluxo HTTP ponta a ponta e o `cognitoSub` preenchido só na confirmação.
 
+## Gateway de pagamento real (AbacatePay) + webhook validado (sessão 2026-07-15) ✅
+
+Substituído o `FakeAbacatePayGateway` pelo gateway real **atrás da mesma porta
+`PaymentGateway`** — trocar `fake ↔ abacatepay` é só a variável `PAYMENT_GATEWAY`
+(default `abacatepay` em produção, `fake` fora dela), zero mudança de domínio/aplicação.
+
+- **`AbacatePayGateway`** (`infrastructure/abacatepay.gateway.ts`): cria cobrança PIX
+  (Checkout Transparente, `POST /pixQrCode/create`) com QR Code + copia-e-cola, sem
+  redirecionar o cliente. `externalId` (= id da nossa `IntencaoDePagamento`) viaja em
+  `metadata.externalId` — a chave que o webhook devolve (§3.8). `fetch` **injetado/mockável**;
+  nenhum teste toca a rede. Tem `simularPagamento(gatewayId)` para o e2e de sandbox.
+- **Validação de assinatura do webhook (falha de segurança real corrigida):** o
+  `AbacatePayWebhookGuard` valida **antes** de qualquer processamento — HMAC-SHA256 do
+  **corpo cru** (bootstrap com `rawBody: true`) contra `X-Webhook-Signature`, comparado
+  em **tempo constante** (`crypto.timingSafeEqual`, nunca `===`); aceita também o
+  `?webhookSecret=` em tempo constante. Payload não-verificado → **401**, sem tocar em
+  nenhuma entidade. Idempotência por `externalId` preservada (não regrediu).
+- **Modelo de ambientes:** validação de assinatura é **incondicional** — sem branch de
+  "pular em dev". Homologação e produção rodam o mesmo código; a única diferença é a
+  API key / webhook secret. O `config-seguranca` **recusa o boot** com `PAYMENT_GATEWAY=abacatepay`
+  sem `ABACATEPAY_API_KEY` ou `ABACATEPAY_WEBHOOK_SECRET`. Com `fake`, o webhook nem é montado.
+- **Rate limit** no webhook (`@Throttle` 60/min) além da assinatura.
+
+**Variáveis a preencher** (em `.env.example`, seção "Pagamento"): `ABACATEPAY_API_KEY`
+(painel → Integrar → API Keys) e `ABACATEPAY_WEBHOOK_SECRET` (painel → Webhooks, ao criar
+o endpoint) — **ambas obrigatórias** com o gateway real. Opcionais: `ABACATEPAY_BASE_URL`
+(default `https://api.abacatepay.com/v1`), `ABACATEPAY_EXPIRA_SEGUNDOS`. **Credenciais de
+sandbox:** obter no painel do AbacatePay em modo dev/teste — a mesma base, só troca a key.
+Como testar o webhook local sem HTTPS pública (payload assinado à mão ou ngrok): ver
+`apps/api/src/modules/payments/README.md`.
+
+**Confirmação:** trocar fake→real é **só variável de ambiente** — `PAYMENT_GATEWAY=abacatepay`
++ as duas keys; nenhum código de domínio/aplicação muda.
+
+**Testes (23 novos, total 160):** verificador de assinatura (8, unit — HMAC válido/inválido/
+adulterado/ausente/segredo vazio/query); `AbacatePayGateway` com `fetch` mockado (5 — mapeamento
+brCode/brCodeBase64, envio de `metadata.externalId`+centavos+Bearer, erros HTTP/error, simulate);
+config guard do gateway (novos casos); e2e do webhook (5 — assinatura válida confirma e libera,
+ausente/inválida → 401 sem tocar na intenção, idempotência 2x). Boot verificado: recusa
+`PAYMENT_GATEWAY=abacatepay` sem webhook secret (exit 1). **Pendente:** e2e contra o sandbox
+real, aguardando a key de teste (DECISOES_PENDENTES #9 — primeiro a rodar quando chegar).
+
 ## Decisões pendentes (DECISOES_PENDENTES.md)
 
 1. **Prazo limite do "cancelamento antecipado"** não definido na spec — usei "antes do início do atendimento".
@@ -172,12 +214,16 @@ Módulo `identity` do CLIENTE final: login sem senha por telefone (OTP), com um 
 6. **Admins puros não atendem** — LKT e Rafael Grigio têm só papel ADMIN, sem `servicosAtendidos`; seletores de barbeiro filtram por papel BARBEIRO.
 7. **`cognitoSub` preenchido na confirmação do OTP, não na compra do pacote** — refinamento de segurança do §3.4 (compra provisiona; posse do telefone promove).
 8. **Fluxo do Cognito: Custom Auth Challenge (implementado) vs. SMS_OTP nativo** — escolhi o portável; migrar mexe só no adapter.
+9. **E2E contra o sandbox real do AbacatePay** — pendente de credencial de teste; primeiro a rodar quando chegar.
+10. **Versão/base da API do AbacatePay** — adotei `/v1` + `pixQrCode` (overridável por `ABACATEPAY_BASE_URL`); confirmar no sandbox.
+11. **Webhook só montado com o gateway real** — em `fake` nenhuma superfície é exposta; guard falha fechado sem secret.
 
 ## Pendências / limitações conhecidas
 
 - `apps/account` (frontend da área do cliente): ainda esqueleto. O **backend** da identidade do cliente (login OTP + perfil) está pronto e testado; falta só a UI React consumir `/conta/*` — próxima sessão.
 - `apps/booking`: funil de agendamento **avulso** implementado. Agendar consumindo crédito de pacote (área logada) fica para a sessão da área do cliente.
-- Cognito: adapter real pronto (`IDENTITY_PROVIDER=cognito`) + Lambdas em `infra/cognito-triggers/`; falta o Rafael publicar na AWS e preencher as env vars. AbacatePay real: plugar via `PaymentGateway` (fake local em uso).
+- Cognito: adapter real pronto (`IDENTITY_PROVIDER=cognito`) + Lambdas em `infra/cognito-triggers/`; falta o Rafael publicar na AWS e preencher as env vars.
+- AbacatePay: **gateway real e webhook validado implementados** (`PAYMENT_GATEWAY=abacatepay`). Falta só preencher `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET` e rodar o e2e contra o sandbox quando a key chegar. Em dev, `PAYMENT_GATEWAY=fake` (sem webhook exposto).
 - `npm run test` inclui os testes de integração → exige o Postgres do docker-compose rodando e migrado.
 - Notificação WhatsApp: não implementada (Fase 2 do produto), mas `AtendimentoAgendado` já é emitido.
 - Timezone corrigido nesta sessão (ver seção dedicada acima): banco em `timestamptz`, `Company.timezone` = `America/Sao_Paulo`, toda fronteira converte. Não há UI para trocar o timezone (fora de escopo combinado).
@@ -204,7 +250,7 @@ npm run db:seed -w @bigods/api       # Company, Gabriel, serviços, pacote exemp
 
 # 5. Build + testes
 npm run build
-npm run test                          # 137 testes (integração/e2e exigem o banco no ar)
+npm run test                          # 160 testes (integração/e2e exigem o banco no ar)
 npm run test:multitz -w @bigods/api   # a suíte inteira em TZ=UTC/America/Sao_Paulo/Asia/Tokyo
 
 # 6. API (porta 3000)

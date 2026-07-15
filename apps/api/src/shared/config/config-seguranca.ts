@@ -34,4 +34,24 @@ export function assertConfiguracaoSegura(env: NodeJS.ProcessEnv = process.env): 
       'IDENTITY_PROVIDER=demo em produção não envia SMS real. Configure IDENTITY_PROVIDER=cognito.',
     );
   }
+
+  // Com o gateway real ativo, o webhook fica exposto e sua validação de
+  // assinatura é INCONDICIONAL — logo, a API key e o webhook secret têm de
+  // existir em QUALQUER ambiente (dev com túnel, homologação, produção).
+  // Sem o secret, o webhook não teria como validar a origem — falha fechada.
+  const gatewayPadrao = producao ? 'abacatepay' : 'fake';
+  const gateway = (env.PAYMENT_GATEWAY ?? gatewayPadrao).toLowerCase();
+  if (gateway === 'abacatepay') {
+    if (!env.ABACATEPAY_API_KEY) {
+      throw new ConfiguracaoInseguraError(
+        'PAYMENT_GATEWAY=abacatepay exige ABACATEPAY_API_KEY. Use PAYMENT_GATEWAY=fake para demo sem gateway real.',
+      );
+    }
+    if (!env.ABACATEPAY_WEBHOOK_SECRET) {
+      throw new ConfiguracaoInseguraError(
+        'PAYMENT_GATEWAY=abacatepay expõe o webhook e exige ABACATEPAY_WEBHOOK_SECRET para validar a assinatura. ' +
+          'Sem ele, qualquer um forjaria confirmação de pagamento. Use PAYMENT_GATEWAY=fake se não quiser expor o webhook.',
+      );
+    }
+  }
 }
