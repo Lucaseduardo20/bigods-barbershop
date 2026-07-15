@@ -248,6 +248,44 @@ export interface AgendarPublicoResponse {
   atendimentoId: string;
 }
 
+// ---------- Área do cliente (login OTP por telefone) ----------
+// Tenant explícito: o app da conta carrega o `companyId` (deploy da barbearia)
+// e o envia em toda chamada — sem resolução implícita de empresa (§2.4).
+
+export interface IniciarLoginClienteRequest {
+  companyId: string;
+  telefone: string;
+}
+export interface IniciarLoginClienteResponse {
+  /** Token opaco do desafio, reapresentado na confirmação. */
+  desafio: string;
+  /** Quando o código expira (ISO 8601 UTC). */
+  expiraEm: string;
+  /** SOMENTE em modo demo (DEMO_MODE=true): o código, para testar sem SMS. Senão null. */
+  codigoDemo: string | null;
+}
+export interface ConfirmarLoginClienteRequest {
+  companyId: string;
+  telefone: string;
+  codigo: string;
+  desafio: string;
+}
+export interface ClienteSessaoDTO {
+  id: string;
+  nome: string;
+  telefone: string;
+}
+export interface ConfirmarLoginClienteResponse {
+  /** Token de sessão do cliente — Bearer nas chamadas da área logada. */
+  token: string;
+  cliente: ClienteSessaoDTO;
+}
+export interface PerfilClienteDTO {
+  cliente: ClienteSessaoDTO;
+  /** Pacotes do cliente (reusa o read model de pacotes). */
+  pacotes: VendaDePacoteDTO[];
+}
+
 // ---------- Webhook AbacatePay (payload documentado) ----------
 export interface WebhookAbacatePayRequest {
   event: string; // ex: "billing.paid"

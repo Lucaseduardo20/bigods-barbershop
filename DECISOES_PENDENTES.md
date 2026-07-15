@@ -41,3 +41,17 @@ O pedido foi "poder filtrar por período de no máximo 1 mês", sem precisar se 
 O pedido diz "2 admins... e 2 barbeiros fictícios", em contraste com o Gabriel já existente, que acumula `ADMIN`+`BARBEIRO` (é sócio e corta cabelo). Não havia como saber se os 2 novos admins deveriam também atender clientes.
 
 **Mínimo implementado:** LKT e Rafael Grigio têm **só** o papel `ADMIN` — acesso total ao painel, mas não aparecem nos seletores de barbeiro para agendar (comissão padrão 0%, sem `servicosAtendidos`, sem disponibilidade). Os seletores de barbeiro para agendamento (`Agenda`, `Pacotes`) e a lista/filtro de comissão agora filtram por `papeis.includes('BARBEIRO')`, para não oferecer um admin puro como opção de quem vai cortar o cabelo. Se o negócio quiser que LKT/Rafael também atendam, basta adicionar o papel `BARBEIRO` + serviços + disponibilidade (a estrutura já suporta, sem migração).
+
+## 7. Momento exato em que `Cliente.cognitoSub` é preenchido
+
+O DOMAIN.md §3.4 diz que o cliente "vira usuário Cognito (cognitoSub preenchido) no momento em que compra um pacote". A infraestrutura de identidade desta sessão **refina** isso por segurança: comprar o pacote **provisiona** o usuário externo (cria a possibilidade de login), mas o `cognitoSub` só é gravado quando o cliente **confirma o código OTP** e prova posse do telefone. Preencher antes permitiria "sequestrar" o telefone de outra pessoa (basta comprar um pacote informando o número alheio).
+
+**Implementado:** `OnPacoteVendidoHandler` chama `identity.provisionarUsuario(...)` (não seta cognitoSub); `ConfirmarLoginClienteUseCase` chama `promoverParaUsuario(sub)` na confirmação. A `docs/DOMAIN.md` §3.4 continua válida no espírito (compra de pacote = ganha direito a login); a pendência é só confirmar com o negócio se o refinamento "cognitoSub na confirmação, não na compra" está ok — é a leitura segura e foi pedida explicitamente no brief desta sessão.
+
+## 8. Fluxo do Cognito: Custom Auth Challenge vs. SMS_OTP nativo
+
+Para o login sem senha por telefone no Cognito, há duas abordagens: **(a)** Custom Auth Challenge (`CUSTOM_AUTH`) com 3 Lambda triggers, ou **(b)** o novo fluxo nativo `USER_AUTH`/`SMS_OTP` (sem Lambdas, mas exige tier Essentials/Plus e feature recente habilitada).
+
+**Implementado:** abordagem (a) — `CognitoIdentityProvider` usa `CUSTOM_AUTH`, e os Lambdas estão prontos em `infra/cognito-triggers/`. Escolha por **portabilidade**: roda em qualquer User Pool, é o padrão universalmente documentado, e o brief antecipou os Lambda triggers como artefato.
+
+**A confirmar com o Rafael quando o pool estiver pronto:** se o pool já tiver o `SMS_OTP` nativo disponível, ele é operacionalmente mais simples (não há Lambdas para manter). Migrar para ele mexe **só** no `CognitoIdentityProvider` (trocar os comandos do SDK) — a interface `IdentityProvider` e todo o resto ficam iguais. Decisão de operação, não de domínio.

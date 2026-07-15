@@ -16,5 +16,7 @@ import { PaymentsModule } from '../payments/payments.module';
     ExpirarItensJob,
     PacotesQueryService,
   ],
+  // Exportado para a área logada do cliente (identity) reusar o read model de pacotes.
+  exports: [PacotesQueryService],
 })
 export class PackagesModule {}

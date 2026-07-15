@@ -138,6 +138,30 @@ Quatro pedidos pontuais no `apps/admin`, todos implementados e testados manualme
   - **Pedro Martins** — 35% de comissão padrão, atende Corte+Barba, **exceção de comissão: Barba = 60%** (testa `Barbeiro.percentualPara` com override por serviço), expediente **9h–13h** (só manhã).
 - Seed continua idempotente (upserts com `update` real, não `{}`) — rodar de novo não duplica nem perde dados.
 
+## Infraestrutura de identidade do cliente (sessão 2026-07-15) ✅
+
+Módulo `identity` do CLIENTE final: login sem senha por telefone (OTP), com um **modo demo 100% funcional sem AWS** e o adapter real do Cognito **pronto para plugar** — a troca é só variável de ambiente. Não toquei no `AuthProvider` de staff/admin (preocupação separada).
+
+**Porta única (`IdentityProvider`, domínio TS puro):** `provisionarUsuario` / `iniciarLogin` / `confirmarLogin`. A aplicação e o domínio dependem só desta interface; os dois adapters são o único lugar que conhece "demo vs. cognito".
+
+**`DemoIdentityProvider` (`IDENTITY_PROVIDER=demo`, default em dev):** código de 6 dígitos, guardado **com hash** (HMAC) numa tabela própria (`DemoDesafioLogin`), expira em poucos minutos, uso único, com limite de tentativas por desafio. NUNCA envia SMS; só devolve o código na resposta quando `DEMO_MODE=true`. O "user pool" demo é a tabela `DemoIdentidade` (sub estável por telefone).
+
+**`CognitoIdentityProvider` (`IDENTITY_PROVIDER=cognito`):** AWS SDK v3, login sem senha via **Custom Auth Challenge** (`CUSTOM_AUTH`). Cliente do SDK injetado para ser mockável (nenhum teste toca a AWS). Escolha do fluxo e alternativa (SMS_OTP nativo) documentadas na decisão pendente #8. Os 3 Lambda triggers (Define/Create/Verify) estão prontos em **`infra/cognito-triggers/`** com um README de deploy — **não publiquei nada** (sem acesso à conta AWS), é só o Rafael aplicar.
+
+**Rede de segurança de configuração:** `assertConfiguracaoSegura()` roda no boot (`main.ts`) e **recusa subir** se `DEMO_MODE=true` e `NODE_ENV=production` juntos (o código OTP vazaria) — também recusa `IDENTITY_PROVIDER=demo` em produção (não haveria SMS real). Verificado: `NODE_ENV=production DEMO_MODE=true node dist/main.js` sai com erro antes de instanciar qualquer coisa.
+
+**Promoção do cliente (§3.4, refinada — decisão pendente #7):** `PacoteVendido` → `OnPacoteVendidoHandler` só **provisiona** o usuário externo (idempotente). O `Cliente.cognitoSub` só é preenchido na **confirmação do código** (`ConfirmarLoginClienteUseCase.promoverParaUsuario`), quando o cliente prova posse do telefone — nunca antes. Comprar outro pacote não duplica usuário nem cliente (reconciliação por telefone).
+
+**Endpoints (área logada do cliente, `/conta`):** `POST /conta/login/iniciar`, `POST /conta/login/confirmar` (retorna token de sessão próprio da app — provider-agnóstico), `GET /conta/perfil` (cliente + pacotes, reusando o read model de pacotes). Sessão do cliente via `ClienteGuard` + token HMAC próprio (separado do guard de staff).
+
+**Rate limiting (`@nestjs/throttler`):** guard global que chaveia por **telefone** quando presente (senão por IP). Login (`iniciar`/`confirmar`): **5 tentativas por telefone / 10 min** — freia força bruta de código e esgotamento de custo de SMS. O endpoint público de agendamento da sessão anterior (que estava **sem proteção**) ganhou **30/10 min por IP**.
+
+**Troca demo→produção é SÓ variável de ambiente** (confirmado): sobe `IDENTITY_PROVIDER=cognito`, preenche as vars do Cognito (abaixo), remove `DEMO_MODE`. Nenhum arquivo de aplicação/domínio muda — a factory em `identity.module.ts` é o único ponto que escolhe o adapter.
+
+**Variáveis que o Rafael preenche quando o User Pool estiver pronto** (documentadas em `.env.example`): `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` (app client sem secret, com `ALLOW_CUSTOM_AUTH`), `COGNITO_OTP_TTL_MINUTOS` (opcional), e credenciais AWS pela cadeia padrão do SDK (IAM Role em prod). A role do backend precisa de `AdminCreateUser`, `AdminSetUserPassword`, `InitiateAuth`, `RespondToAuthChallenge`.
+
+**Testes (25 novos, total 137):** config guard (6, unit); `CognitoIdentityProvider` com SDK mockado (9); e2e do fluxo demo (10) — provisão-sem-promoção, iniciar→código errado(401)→código certo(promove), uso único, expirado(401), telefone não provisionado (resposta neutra), perfil autenticado, e rate limit (6ª tentativa → 429). Smoke manual confirmou o fluxo HTTP ponta a ponta e o `cognitoSub` preenchido só na confirmação.
+
 ## Decisões pendentes (DECISOES_PENDENTES.md)
 
 1. **Prazo limite do "cancelamento antecipado"** não definido na spec — usei "antes do início do atendimento".
@@ -146,12 +170,14 @@ Quatro pedidos pontuais no `apps/admin`, todos implementados e testados manualme
 4. **Foto do barbeiro no funil** — domínio não modela foto; usei avatar de iniciais.
 5. **"1 mês" como período máximo da agenda** — usei 31 dias corridos fixos (não mês-calendário).
 6. **Admins puros não atendem** — LKT e Rafael Grigio têm só papel ADMIN, sem `servicosAtendidos`; seletores de barbeiro filtram por papel BARBEIRO.
+7. **`cognitoSub` preenchido na confirmação do OTP, não na compra do pacote** — refinamento de segurança do §3.4 (compra provisiona; posse do telefone promove).
+8. **Fluxo do Cognito: Custom Auth Challenge (implementado) vs. SMS_OTP nativo** — escolhi o portável; migrar mexe só no adapter.
 
 ## Pendências / limitações conhecidas
 
-- `apps/account`: esqueleto (área do cliente — fora do escopo; depende de Cognito).
+- `apps/account` (frontend da área do cliente): ainda esqueleto. O **backend** da identidade do cliente (login OTP + perfil) está pronto e testado; falta só a UI React consumir `/conta/*` — próxima sessão.
 - `apps/booking`: funil de agendamento **avulso** implementado. Agendar consumindo crédito de pacote (área logada) fica para a sessão da área do cliente.
-- Cognito e AbacatePay reais: plugar via `AuthProvider`, `IdentityProvider` e `PaymentGateway` (fakes locais em uso).
+- Cognito: adapter real pronto (`IDENTITY_PROVIDER=cognito`) + Lambdas em `infra/cognito-triggers/`; falta o Rafael publicar na AWS e preencher as env vars. AbacatePay real: plugar via `PaymentGateway` (fake local em uso).
 - `npm run test` inclui os testes de integração → exige o Postgres do docker-compose rodando e migrado.
 - Notificação WhatsApp: não implementada (Fase 2 do produto), mas `AtendimentoAgendado` já é emitido.
 - Timezone corrigido nesta sessão (ver seção dedicada acima): banco em `timestamptz`, `Company.timezone` = `America/Sao_Paulo`, toda fronteira converte. Não há UI para trocar o timezone (fora de escopo combinado).
@@ -178,7 +204,7 @@ npm run db:seed -w @bigods/api       # Company, Gabriel, serviços, pacote exemp
 
 # 5. Build + testes
 npm run build
-npm run test                          # 112 testes (integração/e2e exigem o banco no ar)
+npm run test                          # 137 testes (integração/e2e exigem o banco no ar)
 npm run test:multitz -w @bigods/api   # a suíte inteira em TZ=UTC/America/Sao_Paulo/Asia/Tokyo
 
 # 6. API (porta 3000)
@@ -202,4 +228,13 @@ npm run dev -w @bigods/booking
 # Webhook fake de pagamento (confirmar um PIX gerado):
 # curl -X POST localhost:3000/webhooks/abacatepay -H 'Content-Type: application/json' \
 #   -d '{"event":"billing.paid","data":{"metadata":{"externalId":"<externalId da intenção>"}}}'
+
+# Login OTP do cliente (modo demo — o código volta na resposta, sem SMS):
+# 1) admin vende um pacote pro telefone (provisiona o usuário)
+# 2) curl -X POST localhost:3000/conta/login/iniciar -H 'Content-Type: application/json' \
+#      -d '{"companyId":"bigods","telefone":"11 98888-7777"}'   # → { desafio, codigoDemo }
+# 3) curl -X POST localhost:3000/conta/login/confirmar -H 'Content-Type: application/json' \
+#      -d '{"companyId":"bigods","telefone":"11 98888-7777","codigo":"<codigoDemo>","desafio":"<desafio>"}'
+#    → { token }  (usar como Bearer em GET /conta/perfil)
+# Produção: IDENTITY_PROVIDER=cognito + vars do Cognito (ver .env.example e infra/cognito-triggers/).
 ```

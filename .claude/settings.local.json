@@ -39,7 +39,13 @@
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx tsx prisma/seed.ts)",
       "Bash(curl -s localhost:3000/parametros -o /dev/null -w \"%{http_code}\\\\n\")",
       "Bash(lsof -i :3000 -sTCP:LISTEN -t)",
-      "Bash(fuser 3000/tcp)"
+      "Bash(fuser 3000/tcp)",
+      "Bash(node -e \"const t=require\\('@nestjs/throttler'\\); console.log\\('throttler', require\\('@nestjs/throttler/package.json'\\).version\\); console.log\\('exports:', Object.keys\\(t\\).filter\\(k=>/Throttl/.test\\(k\\)\\).join\\(', '\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" localhost:3000/parametros)",
+      "Bash(pkill -9 -f \"node dist/main.js\")",
+      "Bash(ps -o pid,ppid,cmd -p 691943)",
+      "Bash(kill -9 691943)",
+      "Bash(awk '{print $2, $11, $12, $13}')"
     ]
   }
 }

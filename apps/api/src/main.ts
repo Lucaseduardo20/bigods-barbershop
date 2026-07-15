@@ -8,8 +8,13 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { assertConfiguracaoSegura } from './shared/config/config-seguranca';
 
 async function bootstrap() {
+  // Recusa subir com configuração insegura (ex.: DEMO_MODE=true em produção)
+  // ANTES de instanciar qualquer coisa.
+  assertConfiguracaoSegura();
+
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors();

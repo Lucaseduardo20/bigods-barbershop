@@ -244,3 +244,33 @@ model IntencaoDePagamento {
 
   company Company @relation(fields: [companyId], references: [id])
 }
+
+// ── Identidade do cliente (provider demo) ─────────────────────────────────
+// "User pool" do DemoIdentityProvider — o equivalente local ao Cognito, sem
+// AWS. Só é usado quando IDENTITY_PROVIDER=demo. Em produção com Cognito estas
+// tabelas ficam vazias (o pool vive na AWS).
+
+/** Usuário demo provisionado (um por telefone). `sub` é estável e vira Cliente.cognitoSub. */
+model DemoIdentidade {
+  id        String   @id @default(uuid())
+  companyId String
+  telefone  String // E.164
+  sub       String   @unique
+  criadoEm  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([companyId, telefone])
+}
+
+/** Desafio OTP demo: código de 6 dígitos (guardado com hash), com expiração e tentativas. */
+model DemoDesafioLogin {
+  id          String    @id @default(uuid())
+  companyId   String
+  telefone    String // E.164
+  codigoHash  String // HMAC do código — nunca em claro
+  expiraEm    DateTime  @db.Timestamptz(3)
+  consumidoEm DateTime? @db.Timestamptz(3)
+  tentativas  Int       @default(0)
+  criadoEm    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([companyId, telefone])
+}

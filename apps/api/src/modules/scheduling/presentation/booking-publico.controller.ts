@@ -32,6 +32,7 @@ import {
 import { AgendarAvulsoUseCase } from '../application/agendar-avulso.usecase';
 import { EmpresaPublicaQueryService } from '../infrastructure/empresa-publica-query.service';
 import { HorariosDisponiveisQueryService } from '../infrastructure/horarios-disponiveis-query.service';
+import { Throttle } from '@nestjs/throttler';
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { Publico } from '../../identity/presentation/auth.decorators';
 
@@ -131,7 +132,11 @@ export class BookingPublicoController {
     return this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids });
   }
 
+  // Escrita pública: limita por IP (30 por 10 min) — endpoint de escrita sem
+  // rate limit é vetor óbvio de abuso. A invariante de conflito de horário do
+  // domínio já barra duplicidade, mas isto contém flood antes de chegar lá.
   @Publico()
+  @Throttle({ default: { limit: 30, ttl: 600_000 } })
   @Post('agendamentos')
   async agendar(@Body() body: AgendarPublicoDto): Promise<AgendarPublicoResponse> {
     const tz = await this.parametros.timezone(body.companyId);
