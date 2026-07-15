@@ -6,7 +6,7 @@ import type {
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
-import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import { Papel, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
@@ -254,6 +254,7 @@ function AgendarCreditoDialog({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const barbeiros = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
 
   if (!alvo) return null;
 
@@ -290,7 +291,7 @@ function AgendarCreditoDialog({
           <label className="label">Barbeiro</label>
           {barbeiros.dados && (
             <select className="select" value={barbeiroId} onChange={(e) => setBarbeiroId(e.target.value)}>
-              {barbeiros.dados.map((b) => (
+              {barbeirosQueAtendem.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.nome}
                 </option>

@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Inject,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -32,7 +34,7 @@ import { ConcluirAtendimentoUseCase } from '../application/concluir-atendimento.
 import { CancelarAtendimentoUseCase } from '../application/cancelar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-comparecimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
-import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
+import { diferencaDiasCivis, instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
@@ -42,6 +44,9 @@ import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** "No máximo 1 mês" — interpretado como 31 dias corridos (inclusive nas duas pontas). */
+// DECISAO_PENDENTE: "1 mês" poderia significar mês-calendário (28-31 dias variável); usei 31 dias fixos por simplicidade.
+const PERIODO_MAXIMO_DIAS = 31;
 
 class ClienteInlineDto {
   @IsString() @MinLength(1) nome!: string;
@@ -88,12 +93,19 @@ export class AtendimentosController {
 
   @Get()
   async listar(
-    @Query('data') data: string,
+    @Query('de') de: string,
+    @Query('ate') ate: string,
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Query('barbeiroId') barbeiroId?: string,
   ): Promise<AtendimentoDTO[]> {
-    if (!data || !DATA_ISO.test(data)) {
-      throw new BadRequestException('Parâmetro data obrigatório (YYYY-MM-DD, dia civil local)');
+    if (!de || !DATA_ISO.test(de) || !ate || !DATA_ISO.test(ate)) {
+      throw new BadRequestException('Parâmetros de/ate obrigatórios (YYYY-MM-DD, dia civil local)');
+    }
+    if (de > ate) {
+      throw new BadRequestException('Parâmetro de deve ser anterior ou igual a ate');
+    }
+    if (diferencaDiasCivis(de, ate) > PERIODO_MAXIMO_DIAS) {
+      throw new BadRequestException(`Período máximo de consulta é de ${PERIODO_MAXIMO_DIAS} dias`);
     }
     // Barbeiro sem papel de admin só enxerga a própria agenda
     const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
@@ -101,10 +113,27 @@ export class AtendimentosController {
     const tz = await this.parametros.timezone(usuario.companyId);
     return this.agenda.listar({
       companyId: usuario.companyId,
-      diaLocal: data,
+      deLocal: de,
+      ateLocal: ate,
       tz,
       barbeiroId: filtroBarbeiro,
     });
+  }
+
+  @Get(':id')
+  async detalhe(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<AtendimentoDTO> {
+    const atendimento = await this.agenda.porId(id, usuario.companyId);
+    if (!atendimento) {
+      throw new NotFoundException('Atendimento não encontrado');
+    }
+    const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+    if (!ehAdmin && atendimento.barbeiro.id !== usuario.barbeiroId) {
+      throw new ForbiddenException('Barbeiro só visualiza os próprios atendimentos');
+    }
+    return atendimento;
   }
 
   @Post()

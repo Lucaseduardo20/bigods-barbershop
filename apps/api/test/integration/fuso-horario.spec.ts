@@ -104,12 +104,18 @@ describe('Agenda do dia — dia civil LOCAL, não dia UTC bruto', () => {
       },
     });
 
-    const doDiaCorreto = await agenda.listar({ companyId, diaLocal, tz: tzSaoPaulo });
+    const doDiaCorreto = await agenda.listar({
+      companyId,
+      deLocal: diaLocal,
+      ateLocal: diaLocal,
+      tz: tzSaoPaulo,
+    });
     expect(doDiaCorreto.map((a) => a.id)).toContain(atendimentoId);
 
     const doDiaSeguinteLocal = await agenda.listar({
       companyId,
-      diaLocal: '2026-08-12',
+      deLocal: '2026-08-12',
+      ateLocal: '2026-08-12',
       tz: tzSaoPaulo,
     });
     expect(doDiaSeguinteLocal.map((a) => a.id)).not.toContain(atendimentoId);

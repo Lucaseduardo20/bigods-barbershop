@@ -111,12 +111,41 @@ Implementado o `apps/booking` como o funil público de agendamento **avulso**, c
 
 **Testes:** e2e do endpoint público (`booking-publico.e2e.spec.ts`, Supertest + AppModule real, 12 casos) — bypass do guard sem token, cliente novo por telefone, conflito 422, fora da disponibilidade 422, **reconciliação por telefone** (dois agendamentos, mesmo telefone → um só cliente), horários no fuso local. Vitest passou a usar **SWC** (`unplugin-swc`) para emitir metadata de decorator e permitir bootar a DI do Nest nos testes. Total: **112 testes** (91 domínio/unit + 21 integração/e2e).
 
+## Ajustes no painel admin (sessão 2026-07-15) ✅
+
+Quatro pedidos pontuais no `apps/admin`, todos implementados e testados manualmente contra a API real.
+
+**1. Agenda — de "um dia" para "semana/período" (`Agenda.tsx`):**
+- Removido o filtro de dia único. Agora tem dois modos: **Semana** (padrão — segunda a domingo da semana atual, com navegação "◀ anterior / próxima ▶") e **Período** (dois inputs de data, validado `de <= ate` e no máximo **31 dias** — decisão pendente #5).
+- Lista agrupada por dia civil local, com cabeçalho de seção por dia ("Segunda-feira, 14 de julho") e cada card mostrando a hora — nunca ambíguo qual dia/horário é cada agendamento.
+- Novo filtro de barbeiro (só para admin, só aparece com mais de um barbeiro atendendo) — passa `barbeiroId` para a API.
+- Backend: `GET /atendimentos` trocou o parâmetro único `data` por `de`/`ate` (dias civis, inclusive nas duas pontas); `AgendaQueryService.listar` recebe `deLocal`/`ateLocal` em vez de `diaLocal`. **Breaking change de contrato** — só tinha um consumidor (o admin), atualizado junto.
+
+**2. Detalhe do agendamento sempre com cliente + data + hora:**
+- Extraído `AtendimentoDetalheDialog` (`apps/admin/src/components/`), um componente **compartilhado** que busca o atendimento por id (novo `GET /atendimentos/:id`, com a mesma autorização da listagem: barbeiro só vê os próprios, admin vê tudo) e sempre mostra nome+telefone do cliente num bloco destacado, mais **data** (antes só mostrava a hora) e hora de início/fim.
+- Reusado tanto pela Agenda (clicar num card) quanto pela Comissão (item 3) — literalmente o mesmo componente, não uma cópia.
+
+**3. Histórico de comissão com mais contexto (`Comissao.tsx`):**
+- Cada lançamento agora mostra o **nome do cliente** inline (novo campo `clienteNome` em `LancamentoComissaoDTO`) e a **data real do atendimento** (`atendimentoInicio` — importante: é diferente de `ocorridoEm`, que é o instante em que o atendimento foi *concluído*/lançado no ledger; um atendimento pode ser concluído em outro momento do dia). Um botão de informações (ⓘ) abre o mesmo `AtendimentoDetalheDialog` do item 2, trazendo telefone e o resto do detalhe.
+- `ComissaoController` agora faz um join em lote (Atendimento → Cliente) para preencher esses campos sem N+1.
+
+**4. Seletor de barbeiro filtrado por papel:** como consequência direta do item 4 do seed (abaixo), os seletores de "escolher barbeiro para agendar" (Agenda, Pacotes) e o seletor de comissão agora filtram por `papeis.includes('BARBEIRO')` — um admin puro (que não atende) não aparece mais como opção de quem vai cortar o cabelo (decisão pendente #6).
+
+**5. Seed fortalecido — mais usuários para testar o fluxo completo:**
+- **2 admins puros** (só gestão, não atendem): `lkt` / `rafaelgrigio`, senha `bigods123` (mesma senha de todos os logins seedados, só para dev local).
+- **2 barbeiros fictícios** (só atendem, não são admin), com atributos propositalmente diferentes de Gabriel para exercitar a matriz de comissão e a disponibilidade por dia civil:
+  - **Lucas Andrade** — 40% de comissão padrão, atende Corte+Barba, expediente **12h–20h** (tarde/noite).
+  - **Pedro Martins** — 35% de comissão padrão, atende Corte+Barba, **exceção de comissão: Barba = 60%** (testa `Barbeiro.percentualPara` com override por serviço), expediente **9h–13h** (só manhã).
+- Seed continua idempotente (upserts com `update` real, não `{}`) — rodar de novo não duplica nem perde dados.
+
 ## Decisões pendentes (DECISOES_PENDENTES.md)
 
 1. **Prazo limite do "cancelamento antecipado"** não definido na spec — usei "antes do início do atendimento".
 2. **Retorno de item em 2ª chance após cancelamento antecipado** — preservo SEGUNDA_CHANCE+prazo (o diagrama sugere DISPONIVEL, mas isso permitiria escapar da expiração em loop).
 3. **Granularidade do grid de horários do funil** (15 min) — projeção, não regra de domínio; confirmar com o negócio.
 4. **Foto do barbeiro no funil** — domínio não modela foto; usei avatar de iniciais.
+5. **"1 mês" como período máximo da agenda** — usei 31 dias corridos fixos (não mês-calendário).
+6. **Admins puros não atendem** — LKT e Rafael Grigio têm só papel ADMIN, sem `servicosAtendidos`; seletores de barbeiro filtram por papel BARBEIRO.
 
 ## Pendências / limitações conhecidas
 
@@ -157,7 +186,12 @@ npm run dev -w @bigods/api           # ou: node apps/api/dist/main.js
 
 # 7. Painel admin (porta 5173, proxy /api → :3000)
 npm run dev -w @bigods/admin
-# → http://localhost:5173 — login: gabriel / senha: bigods123
+# → http://localhost:5173 — senha de todos os logins: bigods123
+#   gabriel       (admin + barbeiro, 45%, 9h–18h)
+#   lkt           (admin puro, não atende)
+#   rafaelgrigio  (admin puro, não atende)
+#   barbeiros fictícios sem login próprio (só aparecem na agenda/comissão):
+#     Lucas Andrade (40%, 12h–20h) · Pedro Martins (35%, barba 60%, 9h–13h)
 
 # 8. Funil público de agendamento (porta 5174, proxy /api → :3000)
 npm run dev -w @bigods/booking

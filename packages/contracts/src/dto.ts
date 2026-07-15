@@ -184,7 +184,12 @@ export interface LancamentoComissaoDTO {
   valorBaseCentavos: number;
   percentualAplicado: number; // porcentagem
   valorComissaoCentavos: number;
+  /** Quando o lançamento foi registrado (conclusão do atendimento). */
   ocorridoEm: string;
+  clienteNome: string;
+  clienteTelefone: string;
+  /** Data/hora REAL do atendimento (pode diferir de `ocorridoEm`, se concluído depois do horário marcado). */
+  atendimentoInicio: string;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.

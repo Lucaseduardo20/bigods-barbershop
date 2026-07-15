@@ -34,7 +34,12 @@
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/booking-publico.e2e.spec.ts)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx turbo run test)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx tsx ../../prisma/seed.ts)",
-      "Bash(node dist/main.js)"
+      "Bash(node dist/main.js)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx tsx prisma/seed.ts)",
+      "Bash(curl -s localhost:3000/parametros -o /dev/null -w \"%{http_code}\\\\n\")",
+      "Bash(lsof -i :3000 -sTCP:LISTEN -t)",
+      "Bash(fuser 3000/tcp)"
     ]
   }
 }

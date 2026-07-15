@@ -7,6 +7,9 @@ const prisma = new PrismaClient();
 
 const TZ_EMPRESA = 'America/Sao_Paulo';
 const tz = Timezone.de(TZ_EMPRESA);
+const DIAS_DE_DISPONIBILIDADE = 30;
+/** Senha padrão de todos os usuários seedados — só para desenvolvimento local. */
+const SENHA_PADRAO = 'bigods123';
 
 function hashSenha(senha: string): string {
   const sal = randomBytes(16).toString('hex');
@@ -19,6 +22,28 @@ function diaLocalMaisDias(d: number): string {
   const [ano, mes, dia] = hoje.split('-').map(Number);
   const alvo = new Date(Date.UTC(ano, mes - 1, dia + d));
   return `${alvo.getUTCFullYear()}-${String(alvo.getUTCMonth() + 1).padStart(2, '0')}-${String(alvo.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Cria/atualiza uma janela de disponibilidade diária (horário LOCAL) para os próximos N dias. */
+async function seedarDisponibilidade(barbeiroId: string, horaInicio: string, horaFim: string) {
+  for (let d = 0; d < DIAS_DE_DISPONIBILIDADE; d++) {
+    const data = diaLocalMaisDias(d);
+    const id = `disp-${barbeiroId}-${data}`;
+    const janela = {
+      barbeiroId,
+      data,
+      inicio: instanteDeDataHoraLocal(data, horaInicio, tz),
+      fim: instanteDeDataHoraLocal(data, horaFim, tz),
+    };
+    // update real (não `{}`) para o seed ser auto-corretivo: reaplicar depois
+    // de uma mudança de regra precisa sobrescrever dados antigos, não deixá-los
+    // intocados por já existir o mesmo id.
+    await prisma.disponibilidade.upsert({
+      where: { id },
+      create: { id, ...janela },
+      update: janela,
+    });
+  }
 }
 
 async function main() {
@@ -42,6 +67,7 @@ async function main() {
     update: {},
   });
 
+  // ---- Gabriel: sócio-barbeiro, admin + atende, 9h–18h ----
   const gabrielId = 'bar-gabriel';
   await prisma.barbeiro.upsert({
     where: { id: gabrielId },
@@ -52,7 +78,7 @@ async function main() {
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
       login: 'gabriel',
-      senhaHash: hashSenha('bigods123'),
+      senhaHash: hashSenha(SENHA_PADRAO),
     },
     update: {},
   });
@@ -63,27 +89,85 @@ async function main() {
     ],
     skipDuplicates: true,
   });
+  await seedarDisponibilidade(gabrielId, '09:00', '18:00');
+
+  // ---- Admins de gestão (não atendem — só acesso ao painel) ----
+  // DECISAO_PENDENTE: "admin" aqui é só o papel ADMIN sem BARBEIRO, seguindo a
+  // leitura de que "2 admins" e "2 barbeiros" no pedido são categorias
+  // distintas (diferente de Gabriel, que acumula os dois papéis).
+  const admins = [
+    { id: 'bar-lkt', nome: 'LKT', login: 'lkt' },
+    { id: 'bar-rafael-grigio', nome: 'Rafael Grigio', login: 'rafaelgrigio' },
+  ];
+  for (const admin of admins) {
+    await prisma.barbeiro.upsert({
+      where: { id: admin.id },
+      create: {
+        id: admin.id,
+        companyId,
+        nome: admin.nome,
+        papeis: ['ADMIN'],
+        comissaoPadraoBp: 0,
+        login: admin.login,
+        senhaHash: hashSenha(SENHA_PADRAO),
+      },
+      update: {},
+    });
+  }
+
+  // ---- Barbeiros fictícios (só atendem — para testar seleção de barbeiro,
+  // serviços por barbeiro, comissão por exceção e janelas de horário distintas) ----
+  const lucasId = 'bar-lucas-andrade';
+  await prisma.barbeiro.upsert({
+    where: { id: lucasId },
+    create: {
+      id: lucasId,
+      companyId,
+      nome: 'Lucas Andrade',
+      papeis: ['BARBEIRO'],
+      comissaoPadraoBp: 4000, // 40%
+    },
+    update: {},
+  });
+  await prisma.barbeiroServico.createMany({
+    data: [
+      { barbeiroId: lucasId, servicoId: corteId },
+      { barbeiroId: lucasId, servicoId: barbaId },
+    ],
+    skipDuplicates: true,
+  });
+  await seedarDisponibilidade(lucasId, '12:00', '20:00'); // turno da tarde/noite
+
+  const pedroId = 'bar-pedro-martins';
+  await prisma.barbeiro.upsert({
+    where: { id: pedroId },
+    create: {
+      id: pedroId,
+      companyId,
+      nome: 'Pedro Martins',
+      papeis: ['BARBEIRO'],
+      comissaoPadraoBp: 3500, // 35% padrão
+    },
+    update: {},
+  });
+  await prisma.barbeiroServico.createMany({
+    data: [
+      { barbeiroId: pedroId, servicoId: corteId },
+      { barbeiroId: pedroId, servicoId: barbaId },
+    ],
+    skipDuplicates: true,
+  });
+  // exceção: comissão de Barba é 60% para Pedro (matriz de comissão, DOMAIN.md §3.2)
+  await prisma.excecaoComissao.upsert({
+    where: { barbeiroId_servicoId: { barbeiroId: pedroId, servicoId: barbaId } },
+    create: { barbeiroId: pedroId, servicoId: barbaId, percentualBp: 6000 },
+    update: { percentualBp: 6000 },
+  });
+  await seedarDisponibilidade(pedroId, '09:00', '13:00'); // só manhãs
 
   // Disponibilidade dos próximos 30 dias, 9h–18h HORÁRIO DE SÃO PAULO (não UTC —
   // isso é literalmente o bug que motivou a correção de fuso desta sessão).
-  for (let d = 0; d < 30; d++) {
-    const data = diaLocalMaisDias(d);
-    const id = `disp-${gabrielId}-${data}`;
-    const janela = {
-      barbeiroId: gabrielId,
-      data,
-      inicio: instanteDeDataHoraLocal(data, '09:00', tz),
-      fim: instanteDeDataHoraLocal(data, '18:00', tz),
-    };
-    // update real (não `{}`) para o seed ser auto-corretivo: reaplicar depois
-    // de uma mudança de regra (como esta correção de fuso) precisa sobrescrever
-    // dados antigos, não deixá-los intocados por já existir o mesmo id.
-    await prisma.disponibilidade.upsert({
-      where: { id },
-      create: { id, ...janela },
-      update: janela,
-    });
-  }
+  // (Gabriel já seedado acima via seedarDisponibilidade.)
 
   // Pacote exemplo: cliente + venda paga (corte + barba por R$60)
   const clienteId = 'cli-exemplo';
@@ -118,7 +202,9 @@ async function main() {
     });
   }
 
-  console.log(`Seed concluído (fuso: ${TZ_EMPRESA}). Login do painel: gabriel / bigods123`);
+  console.log(`Seed concluído (fuso: ${TZ_EMPRESA}). Senha de todos os logins: ${SENHA_PADRAO}`);
+  console.log('Admins:      gabriel (também barbeiro), lkt, rafaelgrigio');
+  console.log('Barbeiros:   Gabriel (09h–18h), Lucas Andrade (12h–20h), Pedro Martins (09h–13h, barba 60%)');
 }
 
 main().finally(() => prisma.$disconnect());

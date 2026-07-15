@@ -72,6 +72,19 @@ function offsetMinutos(instante: Date, tz: Timezone): number {
   return Math.round((comoUtc - instante.getTime()) / 60_000);
 }
 
+/**
+ * Diferença em dias civis entre duas datas "YYYY-MM-DD", inclusive nas duas
+ * pontas (de==ate → 1). Aritmética de calendário pura (Y/M/D), sem instante
+ * nem fuso — datas civis já fixadas não precisam de tz para se subtrair.
+ */
+export function diferencaDiasCivis(deISO: string, ateISO: string): number {
+  const de = parseDataISO(deISO);
+  const ate = parseDataISO(ateISO);
+  const deUtc = Date.UTC(de.ano, de.mes - 1, de.dia);
+  const ateUtc = Date.UTC(ate.ano, ate.mes - 1, ate.dia);
+  return Math.round((ateUtc - deUtc) / 86_400_000) + 1;
+}
+
 /** Chave do dia civil (YYYY-MM-DD) do instante, no fuso dado. */
 export function diaCivilChave(instante: Date, tz: Timezone): string {
   const p = partesEmZona(instante, tz);

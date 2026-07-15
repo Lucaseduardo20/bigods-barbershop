@@ -5,9 +5,17 @@ import {
   OrigemAtendimento,
   StatusAtendimento,
 } from '@bigods/contracts';
+import {
+  Atendimento as AtendimentoRow,
+  Barbeiro as BarbeiroRow,
+  Cliente as ClienteRow,
+  ItemAtendido as ItemAtendidoRow,
+} from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { limitesDoDiaCivil } from '../../../shared/domain/calendario';
 import { Timezone } from '../../../shared/domain/timezone';
+
+type AtendimentoComItens = AtendimentoRow & { itens: ItemAtendidoRow[] };
 
 /** Projeção de leitura da agenda (§2.1) — não é fonte de verdade de conflito. */
 @Injectable()
@@ -15,17 +23,20 @@ export class AgendaQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * `diaLocal` é o dia civil (YYYY-MM-DD) no fuso da empresa — "os atendimentos
-   * de hoje" são os que caem nesse dia civil LOCAL, não no dia UTC bruto do
-   * instante (um atendimento às 23:30 local não pode "vazar" para o dia seguinte).
+   * `deLocal`/`ateLocal` são dias civis (YYYY-MM-DD) no fuso da empresa,
+   * inclusivos nas duas pontas — "os atendimentos do período" são os que caem
+   * nesses dias civis LOCAIS, não no dia UTC bruto do instante (um atendimento
+   * às 23:30 local não pode "vazar" para o dia seguinte).
    */
   async listar(params: {
     companyId: string;
-    diaLocal: string;
+    deLocal: string;
+    ateLocal: string;
     tz: Timezone;
     barbeiroId?: string;
   }): Promise<AtendimentoDTO[]> {
-    const { inicio, fimExclusivo } = limitesDoDiaCivil(params.diaLocal, params.tz);
+    const { inicio } = limitesDoDiaCivil(params.deLocal, params.tz);
+    const { fimExclusivo } = limitesDoDiaCivil(params.ateLocal, params.tz);
     const atendimentos = await this.prisma.atendimento.findMany({
       where: {
         companyId: params.companyId,
@@ -36,6 +47,21 @@ export class AgendaQueryService {
       include: { itens: true },
       orderBy: { inicio: 'asc' },
     });
+    return this.mapearTodos(atendimentos);
+  }
+
+  /** Um único atendimento por id — para o modal de detalhe (agenda e comissão). */
+  async porId(id: string, companyId: string): Promise<AtendimentoDTO | null> {
+    const atendimento = await this.prisma.atendimento.findFirst({
+      where: { id, companyId },
+      include: { itens: true },
+    });
+    if (!atendimento) return null;
+    const dtos = await this.mapearTodos([atendimento]);
+    return dtos[0] ?? null;
+  }
+
+  private async mapearTodos(atendimentos: AtendimentoComItens[]): Promise<AtendimentoDTO[]> {
     if (atendimentos.length === 0) return [];
 
     const [clientes, barbeiros, servicos] = await Promise.all([
@@ -49,34 +75,41 @@ export class AgendaQueryService {
     ]);
     const clientePorId = new Map(clientes.map((c) => [c.id, c]));
     const barbeiroPorId = new Map(barbeiros.map((b) => [b.id, b]));
-    const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
+    const servicoPorId = new Map(servicos.map((s) => [s.id, s.nome]));
 
-    return atendimentos.map((a) => {
-      const cliente = clientePorId.get(a.clienteId);
-      const barbeiro = barbeiroPorId.get(a.barbeiroId);
-      return {
-        id: a.id,
-        cliente: {
-          id: a.clienteId,
-          nome: cliente?.nome ?? '?',
-          telefone: cliente?.telefone ?? '',
-        },
-        barbeiro: { id: a.barbeiroId, nome: barbeiro?.nome ?? '?' },
-        itens: a.itens.map((i) => ({
-          servicoId: i.servicoId,
-          servicoNome: servicoPorId.get(i.servicoId)?.nome ?? '?',
-          valorCobradoCentavos: i.valorCobradoCentavos,
-          duracaoMinutos: i.duracaoMinutos,
-          itemDoPacoteId: i.itemDoPacoteId,
-        })),
-        inicio: a.inicio.toISOString(),
-        fim: a.fim.toISOString(),
-        status: StatusAtendimento[a.status],
-        origem: OrigemAtendimento[a.origem],
-        formaPagamento: a.formaPagamento ? FormaPagamento[a.formaPagamento] : null,
-        motivoCancelamento: a.motivoCancelamento,
-        valorTotalCentavos: a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0),
-      };
-    });
+    return atendimentos.map((a) =>
+      this.paraDTO(a, clientePorId.get(a.clienteId), barbeiroPorId.get(a.barbeiroId), servicoPorId),
+    );
+  }
+
+  private paraDTO(
+    a: AtendimentoComItens,
+    cliente: ClienteRow | undefined,
+    barbeiro: BarbeiroRow | undefined,
+    servicoNomePorId: Map<string, string>,
+  ): AtendimentoDTO {
+    return {
+      id: a.id,
+      cliente: {
+        id: a.clienteId,
+        nome: cliente?.nome ?? '?',
+        telefone: cliente?.telefone ?? '',
+      },
+      barbeiro: { id: a.barbeiroId, nome: barbeiro?.nome ?? '?' },
+      itens: a.itens.map((i) => ({
+        servicoId: i.servicoId,
+        servicoNome: servicoNomePorId.get(i.servicoId) ?? '?',
+        valorCobradoCentavos: i.valorCobradoCentavos,
+        duracaoMinutos: i.duracaoMinutos,
+        itemDoPacoteId: i.itemDoPacoteId,
+      })),
+      inicio: a.inicio.toISOString(),
+      fim: a.fim.toISOString(),
+      status: StatusAtendimento[a.status],
+      origem: OrigemAtendimento[a.origem],
+      formaPagamento: a.formaPagamento ? FormaPagamento[a.formaPagamento] : null,
+      motivoCancelamento: a.motivoCancelamento,
+      valorTotalCentavos: a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0),
+    };
   }
 }
