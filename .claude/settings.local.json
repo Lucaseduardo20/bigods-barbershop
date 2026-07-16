@@ -52,7 +52,14 @@
       "Bash(grep -iB2 \"RolesGuard\\\\|In \\\\[\\\\|context\\\\|module\")",
       "Bash(PAYMENT_GATEWAY=abacatepay ABACATEPAY_API_KEY=k ABACATEPAY_WEBHOOK_SECRET=s node -e ' *)",
       "Bash(node --input-type=module -e ' *)",
-      "Bash(NODE_ENV=production IDENTITY_PROVIDER=cognito COGNITO_REGION=x COGNITO_USER_POOL_ID=x COGNITO_CLIENT_ID=x PAYMENT_GATEWAY=abacatepay ABACATEPAY_API_KEY=k node dist/main.js)"
+      "Bash(NODE_ENV=production IDENTITY_PROVIDER=cognito COGNITO_REGION=x COGNITO_USER_POOL_ID=x COGNITO_CLIENT_ID=x PAYMENT_GATEWAY=abacatepay ABACATEPAY_API_KEY=k node dist/main.js)",
+      "Bash(cd /home/lkt/work/bigods-barber-v2; ls ~/.claude/ 2>/dev/null; echo \"=== MCP config ===\"; cat .mcp.json 2>/dev/null; cat .claude/settings.local.json 2>/dev/null | head -40; echo \"=== design login command? ===\"; ls .claude/commands 2>/dev/null)",
+      "Read(//home/lkt/.claude/**)",
+      "Bash(rm -f index.js)",
+      "Bash(mkdir -p src/lib src/components src/screens)",
+      "Bash(cp booking/src/lib/format.ts account/src/lib/format.ts)",
+      "Bash(cp booking/src/lib/telefone.ts account/src/lib/telefone.ts)",
+      "Bash(curl -s -X POST localhost:3000/conta/login/iniciar -H 'Content-Type: application/json' -d '{\"companyId\":\"bigods\",\"telefone\":\"\\(11\\) 99999-8888\"}')"
     ]
   }
 }

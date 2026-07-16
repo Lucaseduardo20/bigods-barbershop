@@ -83,6 +83,30 @@ que suporta `metadata.externalId` direto e retorna `brCode`/`brCodeBase64`. A ba
 versão/base, ajustar `ABACATEPAY_BASE_URL` (e, se os nomes dos campos diferirem,
 apenas o mapeamento em `AbacatePayGateway` — a porta `PaymentGateway` não muda).
 
+## 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio
+
+O funil pede "ofereça pacotes daquele serviço com o desconto vs. avulso visível
+(dado que já existe no catálogo)". Mas o **DOMAIN.md não modela template/catálogo
+de pacote** — §3.6 `VendaDePacote` é uma venda ad-hoc, e §11 não lista "template
+de pacote" nem "precificação/desconto de pacote". Ou seja: **de onde sai o preço
+com desconto e a composição do pacote não estava especificado.** Por CLAUDE.md
+("não invente decisão de domínio"), NÃO criei regra de precificação dentro de um
+agregado.
+
+**Mínimo implementado:** um **read model** `PacoteOferta` (id, nome, servicoId,
+quantidade, precoCentavos, ativo) — puro catálogo de leitura, **fora dos
+agregados**. A venda pública expande a oferta nos serviços reais
+(`Array(quantidade).fill(servicoId)`) e passa pelo `VendaDePacoteUseCase`/rateio
+(§3.6) sem tocar em nada do domínio. As ofertas são **semeadas** (2 exemplos no
+`seed.ts`); o `precoAvulsoTotalCentavos` (referência do desconto) é derivado do
+catálogo vigente, não congelado.
+
+**A confirmar com o negócio:** (a) política de desconto/preço dos pacotes; (b) se
+o admin deve ter CRUD de ofertas (hoje: só seed — **CRUD no admin fica pendente**,
+não bloqueia o funil); (c) se "pacote" deveria virar um conceito de catálogo de
+primeira classe (aí entra no DOMAIN.md como agregado/entidade nova). Enquanto
+isso, mudar oferta = editar o seed / a tabela, sem migração de domínio.
+
 ## 11. Webhook do AbacatePay só é MONTADO com o gateway real
 
 Com `PAYMENT_GATEWAY=fake` (default fora de produção) o `WebhooksController` **não

@@ -1,10 +1,9 @@
+import { useState } from 'react';
 import type { EmpresaPublicaDTO, HorariosDisponiveisDTO } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
-import { proximosDias, rotuloDia } from '../lib/format';
+import { diasDaSemana, rotuloSemana, rotuloDia } from '../lib/format';
 import { ErroEstado, SlotSkeleton, useApi, Vazio } from '../components/ui';
-
-const DIAS_A_MOSTRAR = 14;
 
 export function DataHora({
   empresa,
@@ -23,7 +22,10 @@ export function DataHora({
   onPickDay: (dia: string) => void;
   onPickSlot: (hora: string) => void;
 }) {
-  const dias = proximosDias(empresa.timezone, DIAS_A_MOSTRAR);
+  // Navegação por SEMANA (7 dias por vez) — permite marcar em qualquer semana à
+  // frente, não só a atual. `semana` = deslocamento em semanas a partir de hoje.
+  const [semana, setSemana] = useState(0);
+  const dias = diasDaSemana(empresa.timezone, semana);
 
   const { dados, erro, carregando, recarregar } = useApi<HorariosDisponiveisDTO | null>(
     () =>
@@ -67,6 +69,23 @@ export function DataHora({
   return (
     <div>
       <div className="text-[22px] font-extrabold mb-3">Quando?</div>
+      <div className="flex items-center justify-between mb-2.5">
+        <button
+          className="icon-btn"
+          aria-label="Semana anterior"
+          disabled={semana === 0}
+          onClick={() => setSemana((s) => Math.max(0, s - 1))}
+          style={semana === 0 ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+        >
+          ←
+        </button>
+        <span className="text-[13px] font-bold" style={{ color: 'var(--text-secondary)' }}>
+          {semana === 0 ? 'Esta semana' : rotuloSemana(dias)}
+        </span>
+        <button className="icon-btn" aria-label="Próxima semana" onClick={() => setSemana((s) => s + 1)}>
+          →
+        </button>
+      </div>
       <div className="daypicker">
         {dias.map((dia) => {
           const r = rotuloDia(dia);

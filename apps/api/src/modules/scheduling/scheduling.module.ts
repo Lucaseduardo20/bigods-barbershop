@@ -9,6 +9,7 @@ import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-c
 import { AgendaQueryService } from './infrastructure/agenda-query.service';
 import { EmpresaPublicaQueryService } from './infrastructure/empresa-publica-query.service';
 import { HorariosDisponiveisQueryService } from './infrastructure/horarios-disponiveis-query.service';
+import { AgendamentosClienteQueryService } from './infrastructure/agendamentos-cliente-query.service';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
@@ -23,6 +24,10 @@ import { PaymentsModule } from '../payments/payments.module';
     AgendaQueryService,
     EmpresaPublicaQueryService,
     HorariosDisponiveisQueryService,
+    AgendamentosClienteQueryService,
   ],
+  // Exportado para a área logada do cliente (identity) agendar com crédito e
+  // listar os próximos agendamentos no cockpit.
+  exports: [AgendarComCreditoUseCase, AgendamentosClienteQueryService],
 })
 export class SchedulingModule {}

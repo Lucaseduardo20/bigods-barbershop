@@ -67,6 +67,24 @@ async function main() {
     update: {},
   });
 
+  // ---- Ofertas de pacote (read model do funil — não é agregado de domínio) ----
+  // Preço com desconto vs. avulso. A venda expande na quantidade de serviços e o
+  // rateio do domínio (§3.6) congela por cima. Ver DECISOES_PENDENTES: template +
+  // desconto não são modelados no domínio; CRUD no admin fica pendente.
+  const ofertas = [
+    // 5 cortes: R$40×5 = R$200 avulso → R$170 (desconto)
+    { id: 'oferta-5-cortes', nome: '5 Cortes', servicoId: corteId, quantidade: 5, precoCentavos: 17000 },
+    // 4 barbas: R$30×4 = R$120 avulso → R$100
+    { id: 'oferta-4-barbas', nome: '4 Barbas', servicoId: barbaId, quantidade: 4, precoCentavos: 10000 },
+  ];
+  for (const o of ofertas) {
+    await prisma.pacoteOferta.upsert({
+      where: { id: o.id },
+      create: { ...o, companyId, ativo: true },
+      update: {},
+    });
+  }
+
   // ---- Gabriel: sócio-barbeiro, admin + atende, 9h–18h ----
   const gabrielId = 'bar-gabriel';
   await prisma.barbeiro.upsert({
@@ -176,6 +194,14 @@ async function main() {
     create: { id: clienteId, companyId, nome: 'João Exemplo', telefone: '+5511999998888' },
     update: {},
   });
+  // Provisiona o cliente exemplo como usuário demo → o login OTP funciona DIRETO
+  // com o telefone (11) 99999-8888, sem precisar comprar um pacote antes. Em
+  // produção (Cognito) esta tabela fica vazia; aqui é só pra facilitar o teste.
+  await prisma.demoIdentidade.upsert({
+    where: { companyId_telefone: { companyId, telefone: '+5511999998888' } },
+    create: { id: randomUUID(), companyId, telefone: '+5511999998888', sub: `demo-${clienteId}` },
+    update: {},
+  });
   const vendaId = 'pac-exemplo';
   const existente = await prisma.vendaDePacote.findUnique({ where: { id: vendaId } });
   if (!existente) {
@@ -205,6 +231,7 @@ async function main() {
   console.log(`Seed concluído (fuso: ${TZ_EMPRESA}). Senha de todos os logins: ${SENHA_PADRAO}`);
   console.log('Admins:      gabriel (também barbeiro), lkt, rafaelgrigio');
   console.log('Barbeiros:   Gabriel (09h–18h), Lucas Andrade (12h–20h), Pedro Martins (09h–13h, barba 60%)');
+  console.log('Conta demo:  login OTP direto com o telefone (11) 99999-8888 (João Exemplo, com pacote e créditos)');
 }
 
 main().finally(() => prisma.$disconnect());

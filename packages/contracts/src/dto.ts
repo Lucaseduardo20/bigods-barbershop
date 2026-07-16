@@ -223,6 +223,12 @@ export interface EmpresaPublicaDTO {
   nome: string;
   /** Fuso IANA da empresa — o funil renderiza datas/horas nele, nunca no fuso do navegador. */
   timezone: string;
+  /**
+   * `true` quando a API roda em modo demo (DEMO_MODE): o funil pode exibir
+   * afordâncias de demonstração (ex.: simular o pagamento PIX sem gateway real).
+   * SEMPRE `false` em produção (o boot recusa DEMO_MODE=true em produção).
+   */
+  demoMode: boolean;
 }
 export interface BarbeiroPublicoDTO {
   id: string;
@@ -243,9 +249,15 @@ export interface AgendarPublicoRequest {
   data: string; // YYYY-MM-DD, dia civil local
   horaInicio: string; // "HH:mm", horário de parede LOCAL
   cliente: { nome: string; telefone: string };
+  /** online → gera cobrança PIX; presencial (default) → pagar na barbearia. */
+  formaPagamento?: FormaPagamentoFunil;
 }
 export interface AgendarPublicoResponse {
   atendimentoId: string;
+  /** intenção de pagamento quando online (para consultar status); null se presencial. */
+  intencaoId: string | null;
+  /** cobrança PIX quando online; null se presencial. */
+  cobranca: CobrancaDTO | null;
 }
 
 // ---------- Área do cliente (login OTP por telefone) ----------
@@ -280,10 +292,77 @@ export interface ConfirmarLoginClienteResponse {
   token: string;
   cliente: ClienteSessaoDTO;
 }
+/** Agendamento futuro do cliente (read model da área logada). */
+export interface AgendamentoClienteDTO {
+  atendimentoId: string;
+  /** instante absoluto UTC (ISO 8601); o front renderiza no fuso da empresa. */
+  inicioIso: string;
+  servicoNomes: string[];
+  barbeiroNome: string;
+  origem: OrigemAtendimento;
+  status: StatusAtendimento;
+}
 export interface PerfilClienteDTO {
   cliente: ClienteSessaoDTO;
   /** Pacotes do cliente (reusa o read model de pacotes). */
   pacotes: VendaDePacoteDTO[];
+  /** Próximos atendimentos AGENDADOS do cliente, do mais próximo ao mais distante. */
+  proximosAgendamentos: AgendamentoClienteDTO[];
+}
+
+// ---------- Ofertas de pacote (read model do funil) ----------
+// NÃO é um agregado de domínio: é um catálogo de leitura (o que a barbearia
+// oferece como pacote e por quanto). A venda em si continua passando por
+// VendaDePacote/rateio (§3.6). Ver DECISOES_PENDENTES: template + desconto de
+// pacote não são modelados no domínio; hoje vêm semeados. (§ catálogo)
+export interface PacoteOfertaDTO {
+  id: string;
+  nome: string;
+  servicoId: string;
+  servicoNome: string;
+  /** Quantas unidades do serviço o pacote inclui. */
+  quantidade: number;
+  /** Preço do pacote (o que o cliente paga). */
+  precoCentavos: number;
+  /** Soma dos preços avulsos das unidades — referência para exibir o desconto. */
+  precoAvulsoTotalCentavos: number;
+}
+
+// ---------- Compra de pacote pública (funil) ----------
+export type FormaPagamentoFunil = 'online' | 'presencial';
+
+export interface VenderPacotePublicoRequest {
+  companyId: string;
+  ofertaId: string;
+  cliente: { nome: string; telefone: string };
+  /** online → gera cobrança PIX real; presencial → pagar na barbearia (fica AGUARDANDO). */
+  formaPagamento: FormaPagamentoFunil;
+}
+export interface VenderPacotePublicoResponse {
+  vendaId: string;
+  clienteId: string;
+  /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
+  intencaoId: string;
+  /** cobrança PIX quando formaPagamento=online; null quando presencial. */
+  cobranca: CobrancaDTO | null;
+}
+
+// ---------- Status de pagamento (polling do funil online) ----------
+export interface PagamentoStatusDTO {
+  intencaoId: string;
+  status: StatusPagamento;
+}
+
+// ---------- Agendar com crédito na área do cliente ----------
+export interface AgendarComCreditoContaRequest {
+  vendaId: string;
+  itemId: string;
+  barbeiroId: string;
+  data: string; // YYYY-MM-DD, dia civil local
+  horaInicio: string; // "HH:mm", horário de parede LOCAL
+}
+export interface AgendarComCreditoContaResponse {
+  atendimentoId: string;
 }
 
 // ---------- Webhook AbacatePay ----------

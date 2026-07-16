@@ -83,6 +83,22 @@ model Servico {
   @@index([companyId])
 }
 
+// Read model do CATÁLOGO de ofertas de pacote (não é agregado de domínio — a
+// venda em si continua em VendaDePacote/rateio, §3.6). Define o que a barbearia
+// oferece como pacote e por quanto. Hoje semeado; CRUD no admin fica pendente
+// (ver DECISOES_PENDENTES). Uma oferta = N unidades de um serviço por um preço.
+model PacoteOferta {
+  id                 String  @id
+  companyId          String
+  nome               String
+  servicoId          String
+  quantidade         Int
+  precoCentavos      Int
+  ativo              Boolean @default(true)
+
+  @@index([companyId])
+}
+
 model Barbeiro {
   id                 String  @id
   companyId          String

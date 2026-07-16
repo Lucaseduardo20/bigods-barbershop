@@ -11,11 +11,14 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
+  IsIn,
+  IsOptional,
   IsString,
   Matches,
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { FormaPagamentoFunil } from '@bigods/contracts';
 import {
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
@@ -52,6 +55,7 @@ class AgendarPublicoDto {
   /** Horário de parede LOCAL (fuso da empresa) — nunca ISO/UTC pré-construído. */
   @Matches(HORA_HHMM) horaInicio!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
+  @IsOptional() @IsIn(['online', 'presencial']) formaPagamento?: FormaPagamentoFunil;
 }
 
 /**
@@ -140,16 +144,21 @@ export class BookingPublicoController {
   @Post('agendamentos')
   async agendar(@Body() body: AgendarPublicoDto): Promise<AgendarPublicoResponse> {
     const tz = await this.parametros.timezone(body.companyId);
+    // online → gera cobrança PIX na hora; presencial (default) → cobra na conclusão.
+    const online = body.formaPagamento === 'online';
     const resultado = await this.agendarAvulso.executar({
       companyId: body.companyId,
       barbeiroId: body.barbeiroId,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
       cliente: body.cliente,
-      // Pagamento PRESENCIAL, cobrado na conclusão pelo painel — sem PIX/gateway.
-      gerarCobranca: false,
+      gerarCobranca: online,
     });
-    return { atendimentoId: resultado.atendimentoId };
+    return {
+      atendimentoId: resultado.atendimentoId,
+      intencaoId: resultado.cobranca?.intencaoId ?? null,
+      cobranca: resultado.cobranca,
+    };
   }
 
   private exigirCompanyId(companyId?: string): string {

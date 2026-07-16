@@ -28,7 +28,7 @@ export function proximosDias(tz: string, n: number): string[] {
 
 /**
  * 7 dias civis (YYYY-MM-DD) da "semana" que começa em hoje + semanaOffset×7.
- * semanaOffset=0 → começa hoje; 1 → próxima semana; etc.
+ * semanaOffset=0 → começa hoje; 1 → próxima semana; e assim por diante.
  */
 export function diasDaSemana(tz: string, semanaOffset: number): string[] {
   const [ano, mes, dia] = hojeISO(tz).split('-').map(Number);
@@ -48,7 +48,9 @@ export function rotuloSemana(dias: string[]): string {
       .toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' })
       .replace('.', '');
   };
-  return `${num(dias[0])} – ${num(dias[dias.length - 1])} ${mesCurto(dias[dias.length - 1])}`;
+  const primeiro = dias[0];
+  const ultimo = dias[dias.length - 1];
+  return `${num(primeiro)} – ${num(ultimo)} ${mesCurto(ultimo)}`;
 }
 
 /** Rótulos de um dia civil (YYYY-MM-DD). Meio-dia UTC evita qualquer deslocamento de dia. */

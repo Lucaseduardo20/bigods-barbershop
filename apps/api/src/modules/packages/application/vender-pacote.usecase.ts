@@ -17,13 +17,21 @@ export interface VenderPacoteInput {
   /** serviços do pacote — repetir o id para múltiplas unidades do mesmo serviço */
   servicoIds: string[];
   valorPagoCentavos: number;
-  /** venda presencial já paga (dinheiro/cartão) confirma na hora; senão gera PIX */
+  /** venda presencial já paga (dinheiro/cartão) confirma na hora. */
   pagamentoImediato: boolean;
+  /**
+   * Quando NÃO é pagamento imediato: `true` gera cobrança PIX (online), `false`
+   * deixa a intenção AGUARDANDO sem cobrança (pagar na barbearia depois).
+   * Default `true` para preservar o comportamento anterior (admin online = PIX).
+   */
+  gerarCobranca?: boolean;
 }
 
 export interface VenderPacoteOutput {
   vendaId: string;
   clienteId: string;
+  /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
+  intencaoId: string;
   cobranca: { intencaoId: string; qrCode: string; copiaECola: string } | null;
 }
 
@@ -98,8 +106,11 @@ export class VenderPacoteUseCase {
 
     await this.publisher.publicar(eventos);
 
+    // Gera PIX só quando NÃO foi pago na hora E a cobrança online foi pedida
+    // (default true). Presencial público → intenção fica AGUARDANDO, sem PIX.
+    const gerarCobranca = input.gerarCobranca ?? true;
     let cobranca: VenderPacoteOutput['cobranca'] = null;
-    if (!input.pagamentoImediato) {
+    if (!input.pagamentoImediato && gerarCobranca) {
       const pix = await this.gateway.criarCobrancaPix({
         valor: resultado.intencao.valor,
         descricao: `Pacote ${vendaId}`,
@@ -112,6 +123,6 @@ export class VenderPacoteUseCase {
       };
     }
 
-    return { vendaId, clienteId: resultado.clienteId, cobranca };
+    return { vendaId, clienteId: resultado.clienteId, intencaoId: resultado.intencao.id, cobranca };
   }
 }

@@ -204,6 +204,78 @@ ausente/inválida → 401 sem tocar na intenção, idempotência 2x). Boot verif
 `PAYMENT_GATEWAY=abacatepay` sem webhook secret (exit 1). **Pendente:** e2e contra o sandbox
 real, aguardando a key de teste (DECISOES_PENDENTES #9 — primeiro a rodar quando chegar).
 
+## Fechamento do produto: cockpit do cliente + trilha de pacote + pagamento online (sessão 2026-07-15) ✅
+
+Esta sessão fecha o ciclo: o cliente compra pacote no funil, paga online, loga na
+sua conta e usa os créditos — tudo consumindo a infraestrutura já pronta (identidade
+demo/Cognito, AbacatePay real + webhook validado). Nenhuma infra nova foi inventada.
+
+**Backend (contratos + endpoints, reusando casos de uso existentes):**
+- `POST /public/pacotes` (trilha de pacote pública) + `GET /public/pacotes` (ofertas).
+  Reusa `VenderPacoteUseCase` — zero regra duplicada; tenant explícito; rate limit
+  igual ao agendamento (30/10min). `online` gera cobrança PIX real; `presencial` fica
+  AGUARDANDO.
+- `GET /public/pagamentos/:intencaoId` — status da intenção (§3.8) para o **polling**
+  do funil online. Leitura pura, escopada por `companyId` (§2.4), idempotente.
+- `POST /public/agendamentos` ganhou `formaPagamento` (online→PIX / presencial).
+- `POST /conta/agendamentos` — agendar com crédito na área logada (client-authed),
+  reusa `AgendarComCreditoUseCase` (§8.2, dois agregados numa transação); confere que
+  o pacote é do próprio cliente (403 se não).
+- `GET /conta/perfil` enriquecido com `proximosAgendamentos` (novo read model
+  `AgendamentosClienteQueryService`).
+- `VenderPacoteUseCase` ganhou `gerarCobranca` (online/presencial) e passou a expor
+  `intencaoId` sempre.
+
+**`PacoteOferta` (read model, não é domínio):** o funil precisava de "pacotes com
+desconto", mas o DOMAIN.md não modela template/precificação de pacote. Implementado
+como catálogo de leitura semeado, fora dos agregados; a venda expande nos serviços
+reais e passa pelo rateio (§3.6). Registrado em DECISOES_PENDENTES #12.
+
+**apps/account (cockpit do cliente — era esqueleto, agora app React completo):**
+login por telefone → OTP (reusa `/conta/login/*`, com resposta neutra para telefone
+sem conta), home com hierarquia estrita (alerta de 2ª chance com prazo → próximo
+agendamento/CTA → pacotes com **estado real por ficha de crédito** disponível/agendado/
+consumido/2ª chance + saldo residual → histórico), e fluxo "usar crédito" (serviço →
+barbeiro auto/escolha → dia/hora → confirmação "sem cobrança" → sucesso). Design do
+Claude Design (`ui_kits/client-area`), tokens/componentes reusados do admin/booking.
+
+**apps/booking (trilha de pacote + pagamento):** Landing com duas portas (agendar /
+comprar pacote) + link "já é cliente". Trilha de pacote como **bifurcação** do funil
+avulso (reusa Dados e Confirmação). Escolha **online/presencial** na confirmação dos
+**dois** funis. Online → tela de **PIX com QR + copia-e-cola + polling** do status até
+PAGO (trata EXPIRADO/FALHOU com "tentar de novo"). **Onboarding pós-compra**: na tela
+de sucesso do pacote pago, "criar seu acesso agora" dispara o mesmo OTP inline.
+
+**Testes (10 novos, total 170):** `pacote-publico.e2e` (6 — ofertas com desconto,
+compra online→webhook assinado libera créditos, reconciliação por telefone,
+**polling idempotente**, presencial fica AGUARDANDO, tenant no status); `conta-cockpit.e2e`
+(4 — sem-pacote, fixtures segunda-chance/esgotado/residual, agendar com crédito reflete
+no perfil, 403 para pacote alheio). Full build dos 5 pacotes verde.
+
+### Checklist de smoke test manual (ponta a ponta — rodar antes do dia 20)
+
+Pré: `docker compose up -d`, `npx prisma migrate deploy`, `npx tsx prisma/seed.ts`,
+API no ar (`PAYMENT_GATEWAY=fake` OU `abacatepay` + credenciais para testar PIX real),
+`DEMO_MODE=true` para ver o código OTP. Apps: `npm run dev` em admin(5173)/booking(5174)/account(5175).
+
+1. **Comprar pacote público (online):** booking → "Comprar um pacote" → escolher "5 Cortes"
+   → dados (nome + telefone) → confirmar com "Pagar agora (PIX)" → ver QR + copia-e-cola.
+2. **Confirmar pagamento:** em `DEMO_MODE=true` a tela de PIX mostra o botão **"Simular
+   pagamento (demo)"** — clicar confirma via `POST /public/pagamentos/:id/confirmar-demo`
+   (reusa o caso de uso do webhook, idempotente) e a tela **avança sozinha**. Com gateway
+   real, simule no sandbox do AbacatePay (ou dispare o webhook assinado). O botão demo é
+   inerte em produção (só responde com `DEMO_MODE=true`).
+3. **Onboarding:** na tela de sucesso do pacote, "criar seu acesso agora" → digitar o
+   código OTP (demo: aparece na tela) → "acesso criado".
+4. **Logar no cockpit:** account (5175) → telefone → código OTP → ver o pacote recém-comprado
+   com 5 fichas **disponíveis**.
+5. **Agendar com crédito:** no cockpit, "Usar um crédito · Agendar" → dia/hora → confirmar
+   ("sem cobrança") → ver o próximo agendamento no topo e a ficha virar **agendada**.
+6. **Concluir no painel do Gabriel:** admin (5173) → agenda → abrir o atendimento do cliente
+   → concluir.
+7. **Ver a comissão rateada:** admin → comissão do barbeiro → o lançamento aparece com
+   **valor base = rateado do pacote** (não o avulso), no extrato auditável.
+
 ## Decisões pendentes (DECISOES_PENDENTES.md)
 
 1. **Prazo limite do "cancelamento antecipado"** não definido na spec — usei "antes do início do atendimento".
@@ -217,11 +289,12 @@ real, aguardando a key de teste (DECISOES_PENDENTES #9 — primeiro a rodar quan
 9. **E2E contra o sandbox real do AbacatePay** — pendente de credencial de teste; primeiro a rodar quando chegar.
 10. **Versão/base da API do AbacatePay** — adotei `/v1` + `pixQrCode` (overridável por `ABACATEPAY_BASE_URL`); confirmar no sandbox.
 11. **Webhook só montado com o gateway real** — em `fake` nenhuma superfície é exposta; guard falha fechado sem secret.
+12. **Catálogo de ofertas de pacote (`PacoteOferta`) não é domínio** — read model semeado; template/desconto e CRUD no admin ficam pendentes de decisão do negócio.
 
 ## Pendências / limitações conhecidas
 
-- `apps/account` (frontend da área do cliente): ainda esqueleto. O **backend** da identidade do cliente (login OTP + perfil) está pronto e testado; falta só a UI React consumir `/conta/*` — próxima sessão.
-- `apps/booking`: funil de agendamento **avulso** implementado. Agendar consumindo crédito de pacote (área logada) fica para a sessão da área do cliente.
+- `apps/account` (cockpit do cliente): **implementado** nesta sessão (login OTP, home com fichas de crédito por estado, agendar com crédito). CRUD de ofertas de pacote no admin continua fora de escopo (DECISOES #12).
+- `apps/booking`: funil **avulso e de pacote**, com escolha online/presencial e PIX com polling. Onboarding pós-compra inline.
 - Cognito: adapter real pronto (`IDENTITY_PROVIDER=cognito`) + Lambdas em `infra/cognito-triggers/`; falta o Rafael publicar na AWS e preencher as env vars.
 - AbacatePay: **gateway real e webhook validado implementados** (`PAYMENT_GATEWAY=abacatepay`). Falta só preencher `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET` e rodar o e2e contra o sandbox quando a key chegar. Em dev, `PAYMENT_GATEWAY=fake` (sem webhook exposto).
 - `npm run test` inclui os testes de integração → exige o Postgres do docker-compose rodando e migrado.

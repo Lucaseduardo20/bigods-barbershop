@@ -52,6 +52,7 @@ export class DemoIdentityProvider implements IdentityProvider {
     });
     // Telefone não provisionado (não comprou pacote): resposta NEUTRA, sem código,
     // sem "SMS" — indistinguível de um telefone válido para não revelar quem é cliente.
+    
     if (!identidade) {
       return { desafio: '', expiraEm, codigoDemo: null };
     }

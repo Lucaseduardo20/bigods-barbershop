@@ -1,4 +1,14 @@
-export function Landing({ nomeEmpresa, onStart }: { nomeEmpresa: string; onStart: () => void }) {
+const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
+
+export function Landing({
+  nomeEmpresa,
+  onAgendar,
+  onComprarPacote,
+}: {
+  nomeEmpresa: string;
+  onAgendar: () => void;
+  onComprarPacote: () => void;
+}) {
   return (
     <div className="hero">
       <div className="hero-mark">B</div>
@@ -11,12 +21,19 @@ export function Landing({ nomeEmpresa, onStart }: { nomeEmpresa: string; onStart
       <div className="text-[15px] mt-2 mb-8" style={{ color: 'var(--brand-beige)', maxWidth: 320 }}>
         Agende em menos de um minuto. Sem conta, sem complicação.
       </div>
-      <button className="btn btn-lg btn-block" style={{ maxWidth: 360 }} onClick={onStart}>
+      <button className="btn btn-lg btn-block" style={{ maxWidth: 360 }} onClick={onAgendar}>
         Agendar horário →
       </button>
-      <div className="text-[12px] mt-6" style={{ color: 'var(--brand-beige)', opacity: 0.75 }}>
-        Pagamento na barbearia, no dia do atendimento.
-      </div>
+      <button
+        className="btn btn-lg btn-block btn-ghost mt-3"
+        style={{ maxWidth: 360, background: 'rgba(255,255,255,0.10)', color: 'var(--brand-cream)' }}
+        onClick={onComprarPacote}
+      >
+        Comprar um pacote
+      </button>
+      <a href={ACCOUNT_URL} className="text-[13px] mt-6 font-semibold" style={{ color: 'var(--brand-beige)' }}>
+        Já é cliente? Entrar na minha conta →
+      </a>
     </div>
   );
 }

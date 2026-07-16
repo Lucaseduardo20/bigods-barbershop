@@ -5,6 +5,7 @@ import { ProcessarWebhookUseCase } from './application/processar-webhook.usecase
 import { PAYMENT_GATEWAY, PaymentGateway } from './domain/payment-gateway';
 import { FakeAbacatePayGateway } from './infrastructure/fake-abacatepay.gateway';
 import { AbacatePayGateway } from './infrastructure/abacatepay.gateway';
+import { PagamentoStatusQueryService } from './infrastructure/pagamento-status-query.service';
 
 const EXPIRA_PADRAO_SEGUNDOS = 3600;
 
@@ -49,8 +50,9 @@ const controllers = gatewayAtivo() === 'abacatepay' ? [WebhooksController] : [];
   providers: [
     ProcessarWebhookUseCase,
     AbacatePayWebhookGuard,
+    PagamentoStatusQueryService,
     { provide: PAYMENT_GATEWAY, useFactory: criarPaymentGateway },
   ],
-  exports: [PAYMENT_GATEWAY],
+  exports: [PAYMENT_GATEWAY, PagamentoStatusQueryService, ProcessarWebhookUseCase],
 })
 export class PaymentsModule {}

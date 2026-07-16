@@ -11,10 +11,17 @@ export const PASSO = {
   DATA_HORA: 3,
   DADOS: 4,
   CONFIRMACAO: 5,
+  // Trilha de pacote: bifurcação do funil avulso (reusa DADOS e CONFIRMACAO).
+  PACOTE_OFERTA: 6,
 } as const;
+
+/** avulso = agenda um horário; pacote = compra créditos pré-pagos. */
+export type ModoFunil = 'avulso' | 'pacote';
+export type FormaPagamento = 'online' | 'presencial';
 
 export interface FunnelState {
   step: number;
+  modo: ModoFunil;
   servicoIds: string[];
   barbeiroId: string | null;
   barbeiroNome: string | null; // snapshot para exibir na confirmação/sucesso
@@ -24,10 +31,17 @@ export interface FunnelState {
   horaInicio: string | null; // "HH:mm" local
   nome: string;
   telefone: string;
+  // ---- trilha de pacote ----
+  ofertaId: string | null;
+  ofertaNome: string | null;
+  ofertaPrecoCentavos: number | null;
+  // ---- pagamento (ambas as trilhas) ----
+  formaPagamento: FormaPagamento;
 }
 
 export const estadoInicial: FunnelState = {
   step: PASSO.LANDING,
+  modo: 'avulso',
   servicoIds: [],
   barbeiroId: null,
   barbeiroNome: null,
@@ -36,6 +50,10 @@ export const estadoInicial: FunnelState = {
   horaInicio: null,
   nome: '',
   telefone: '',
+  ofertaId: null,
+  ofertaNome: null,
+  ofertaPrecoCentavos: null,
+  formaPagamento: 'presencial',
 };
 
 const CHAVE = 'bigods.booking.v1';

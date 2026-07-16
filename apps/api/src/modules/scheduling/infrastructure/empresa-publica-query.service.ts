@@ -13,6 +13,11 @@ export class EmpresaPublicaQueryService {
       // Sem tenant explícito válido → erro, nunca fallback (DOMAIN.md §2.4)
       throw new NotFoundException(`Empresa ${companyId} não encontrada`);
     }
-    return { companyId: company.id, nome: company.nome, timezone: company.timezone };
+    return {
+      companyId: company.id,
+      nome: company.nome,
+      timezone: company.timezone,
+      demoMode: process.env.DEMO_MODE === 'true',
+    };
   }
 }

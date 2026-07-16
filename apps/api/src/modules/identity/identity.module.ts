@@ -14,6 +14,7 @@ import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
 import { PrismaService } from '../../shared/infrastructure/prisma.service';
 import { PackagesModule } from '../packages/packages.module';
+import { SchedulingModule } from '../scheduling/scheduling.module';
 
 /**
  * Escolhe o IdentityProvider por variável de ambiente. Esta factory é o ÚNICO
@@ -48,7 +49,7 @@ function exigir(nome: string): string {
 
 @Global()
 @Module({
-  imports: [PackagesModule],
+  imports: [PackagesModule, SchedulingModule],
   controllers: [AuthController, ContaClienteController],
   providers: [
     { provide: AUTH_PROVIDER, useClass: LocalAuthProvider },

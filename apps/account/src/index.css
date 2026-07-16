@@ -1,0 +1,240 @@
+@import url('https://fonts.googleapis.com/css2?family=Rye&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==== Tokens do design system Bigod's Barber (Claude Design) — mesmos do admin/booking ==== */
+:root {
+  --brand-ink: #342414;
+  --brand-gold: #b88e42;
+  --brand-cream: #ffecb9;
+  --brand-beige: #c4b58e;
+  --brand-gold-100: #f3e2c2;
+  --brand-gold-300: #d9b876;
+  --brand-gold-700: #8f6c30;
+  --brand-ink-900: #1c130a;
+  --brand-maroon: #5a2c2c;
+
+  --neutral-0: #ffffff;
+  --neutral-50: #faf7f2;
+  --neutral-100: #f3ede2;
+  --neutral-200: #e7ddcc;
+  --neutral-300: #d3c4a9;
+  --neutral-400: #ab9a7c;
+  --neutral-500: #83745c;
+  --neutral-600: #635747;
+  --neutral-800: #2f2820;
+  --neutral-900: #1c1712;
+
+  --surface-app: var(--neutral-50);
+  --surface-card: var(--neutral-0);
+  --surface-sunken: var(--neutral-100);
+  --surface-brand: var(--brand-ink);
+  --surface-brand-tint: var(--brand-gold-100);
+  --border-subtle: var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --text-primary: var(--neutral-900);
+  --text-secondary: var(--neutral-600);
+  --text-muted: var(--neutral-400);
+  --text-on-gold: var(--brand-ink-900);
+  --text-link: var(--brand-gold-700);
+  --accent-primary: var(--brand-gold);
+  --accent-primary-hover: var(--brand-gold-700);
+
+  --state-warning: #b3541e;
+  --state-warning-bg: #f7e9d9;
+  --state-danger: #b3261e;
+
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --font-brand: 'Rye', Georgia, serif;
+  --font-ui: 'Manrope', -apple-system, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--surface-app);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==== Shell mobile-first da área do cliente ==== */
+.account-shell {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: var(--surface-app);
+  position: relative;
+  box-shadow: 0 0 60px rgba(28, 19, 10, 0.08);
+}
+
+/* ---- Botões / inputs (mesma linguagem do admin/booking) ---- */
+.btn {
+  border: none;
+  border-radius: 12px;
+  padding: 14px 18px;
+  font: 700 15px var(--font-ui);
+  cursor: pointer;
+  background: var(--accent-primary);
+  color: var(--text-on-gold);
+  transition: background 0.15s, opacity 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn:hover:not(:disabled) { background: var(--accent-primary-hover); color: var(--brand-cream); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-block { width: 100%; }
+.btn-ghost { background: var(--surface-sunken); color: var(--text-primary); }
+.btn-ghost:hover:not(:disabled) { background: var(--neutral-200); color: var(--text-primary); }
+.btn-outline { background: transparent; border: 1px solid var(--border-default); color: var(--text-primary); }
+.btn-lg { padding: 16px 20px; font-size: 16px; }
+
+.input {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 13px 14px;
+  font: 500 16px var(--font-ui); /* 16px evita zoom no iOS */
+  background: var(--surface-card);
+  color: var(--text-primary);
+  outline: none;
+}
+.input:focus { border-color: var(--accent-primary); }
+.label {
+  display: block;
+  font: 700 12px var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+}
+
+/* ---- Tela de auth (login/otp) sobre fundo de marca ---- */
+.auth-bg {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(184, 142, 66, 0.28), transparent 60%),
+    linear-gradient(180deg, var(--brand-ink) 0%, var(--brand-ink-900) 100%);
+}
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface-card);
+  border-radius: var(--radius-xl);
+  padding: 32px 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.auth-mark {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--brand-gold-100); color: var(--brand-ink);
+  font-family: var(--font-brand); font-size: 28px;
+  margin: 0 auto 16px;
+}
+.otp-box {
+  width: 42px; height: 54px; text-align: center;
+  font: 800 21px var(--font-ui);
+  border-radius: var(--radius-md); outline: none;
+  color: var(--text-primary); background: var(--surface-app);
+  border: 1.5px solid var(--border-default);
+}
+.otp-box.filled { border-color: var(--accent-primary); }
+.otp-box.error { border-color: var(--state-danger); }
+
+/* ---- Header da área logada ---- */
+.account-header {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--surface-brand);
+  padding: 16px 20px;
+  display: flex; align-items: center; gap: 12px;
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+.section-label {
+  font: 700 12px var(--font-ui);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted); margin-bottom: 10px;
+}
+
+/* ---- Fichas de crédito (cada unidade tem estado real) ---- */
+.credit {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 62px; padding: 10px 0 8px; border-radius: var(--radius-md);
+  position: relative; border: 1.5px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+.credit.disponivel { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
+.credit.agendado { border-color: var(--accent-primary); background: var(--surface-card); }
+.credit.urgente { border-color: var(--state-warning); background: var(--surface-card); }
+.credit.consumido { border-color: var(--border-subtle); background: var(--surface-sunken); opacity: 0.55; }
+.credit-nome { font-size: 10px; font-weight: 700; color: var(--text-primary); }
+.credit.consumido .credit-nome { color: var(--text-muted); text-decoration: line-through; }
+.credit-badge {
+  position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--state-warning); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800;
+}
+
+/* ---- Cards selecionáveis / chips / daypicker (do funil) ---- */
+.selectable {
+  width: 100%; text-align: left;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--surface-card);
+  border-radius: 14px; padding: 14px 16px;
+  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+}
+.selectable:hover { border-color: var(--brand-gold-300); }
+.selectable.selected { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
+
+.slot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chip {
+  border: 1.5px solid var(--border-subtle); background: var(--surface-card);
+  border-radius: 10px; padding: 12px 4px; font: 700 14px var(--font-ui);
+  color: var(--text-primary); cursor: pointer; text-align: center; transition: all 0.12s;
+}
+.chip:hover { border-color: var(--brand-gold-300); }
+.chip.selected { background: var(--accent-primary); border-color: var(--accent-primary); color: var(--text-on-gold); }
+.daypicker { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; }
+.daypicker::-webkit-scrollbar { display: none; }
+.day {
+  flex: 0 0 auto; min-width: 62px; border: 1.5px solid var(--border-subtle);
+  background: var(--surface-card); border-radius: 12px; padding: 10px 6px;
+  cursor: pointer; text-align: center; transition: all 0.12s;
+}
+.day.selected { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
+.day-dow { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
+.day-num { font-size: 18px; font-weight: 800; color: var(--text-primary); margin-top: 2px; }
+
+/* ---- Estados ---- */
+.skeleton { background: var(--surface-sunken); border-radius: 12px; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
+.spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid var(--surface-sunken); border-top-color: var(--accent-primary);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.icon-btn {
+  border: none; background: var(--surface-sunken);
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--text-primary); font-size: 18px; flex-shrink: 0;
+}
