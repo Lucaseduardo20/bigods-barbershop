@@ -1,3 +1,4 @@
+import { OrigemDisponibilidade } from '@bigods/contracts';
 import { Disponibilidade as DisponibilidadePrisma } from '@prisma/client';
 import { Db } from '../../../shared/infrastructure/db';
 import { DisponibilidadeBarbeiro } from '../domain/disponibilidade.aggregate';
@@ -11,6 +12,7 @@ function paraDominio(row: DisponibilidadePrisma): DisponibilidadeBarbeiro {
     barbeiroId: row.barbeiroId,
     data: row.data,
     janela: IntervaloDeTempo.de(row.inicio, row.fim),
+    origem: OrigemDisponibilidade[row.origem],
   });
 }
 
@@ -41,6 +43,7 @@ export class PrismaDisponibilidadeRepository implements DisponibilidadeRepositor
       data: d.data,
       inicio: d.janela.inicio,
       fim: d.janela.fim,
+      origem: d.origem,
     };
     await this.db.disponibilidade.upsert({
       where: { id: d.id },

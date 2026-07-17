@@ -35,4 +35,18 @@ export enum FormaPagamento {
   PIX = 'PIX',
   CARTAO_DEBITO = 'CARTAO_DEBITO',
   CARTAO_CREDITO = 'CARTAO_CREDITO',
+  /** Pago antecipadamente online (AbacatePay) — distinto do PIX cobrado no balcão. */
+  PIX_ONLINE = 'PIX_ONLINE',
+}
+
+/** Origem de um LancamentoComissao: serviço prestado ou produto revendido. */
+export enum OrigemComissao {
+  SERVICO = 'SERVICO',
+  PRODUTO = 'PRODUTO',
+}
+
+/** Origem de uma janela de Disponibilidade: gerada pelo ExpedienteSemanal ou editada manualmente. */
+export enum OrigemDisponibilidade {
+  EXPEDIENTE = 'EXPEDIENTE',
+  MANUAL = 'MANUAL',
 }

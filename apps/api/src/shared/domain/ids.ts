@@ -8,3 +8,5 @@ export type VendaDePacoteId = string;
 export type ItemDoPacoteId = string;
 export type LancamentoId = string;
 export type IntencaoDePagamentoId = string;
+export type ProdutoId = string;
+export type VendaDeProdutoId = string;

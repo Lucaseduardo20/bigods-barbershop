@@ -12,6 +12,7 @@ import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { PackagesModule } from './modules/packages/packages.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { ProductsModule } from './modules/products/products.module';
 import { RolesGuard } from './modules/identity/presentation/roles.guard';
 import { TelefoneOuIpThrottlerGuard } from './modules/identity/presentation/telefone-throttler.guard';
 import { DomainErrorFilter } from './shared/presentation/domain-error.filter';
@@ -32,6 +33,7 @@ import { DomainErrorFilter } from './shared/presentation/domain-error.filter';
     PackagesModule,
     PayrollModule,
     PaymentsModule,
+    ProductsModule,
   ],
   providers: [
     // Rate limit primeiro (freia abuso antes de qualquer trabalho), depois auth.

@@ -171,5 +171,90 @@ describe('Atendimento — máquina de estado', () => {
     const [evento] = a.puxarEventos() as any[];
     expect(evento.nome).toBe('AtendimentoConcluido');
     expect(evento.itens[0].valorCobradoCentavos).toBe(4000);
+    expect(evento.produtos).toEqual([]);
+  });
+});
+
+describe('Atendimento — adicionar item na conclusão (walk-in add-on, sessão 2026-07-16)', () => {
+  it('adiciona serviço avulso a um atendimento AGENDADO (itemDoPacoteId sempre null)', () => {
+    const a = agendar();
+    a.adicionarItem('svc-barba', Dinheiro.deCentavos(3000), Duracao.deMinutos(20), barbeiro);
+    expect(a.itens).toHaveLength(2);
+    expect(a.itens[1]).toEqual({
+      servicoId: 'svc-barba',
+      valorCobrado: Dinheiro.deCentavos(3000),
+      duracao: Duracao.deMinutos(20),
+      itemDoPacoteId: null,
+    });
+  });
+
+  it('não revalida sobreposição de horário: intervalo do atendimento não muda', () => {
+    const a = agendar();
+    const intervaloAntes = a.intervalo;
+    a.adicionarItem('svc-barba', Dinheiro.deCentavos(3000), Duracao.deMinutos(20), barbeiro);
+    expect(a.intervalo).toBe(intervaloAntes);
+  });
+
+  it('rejeita serviço que o barbeiro não atende', () => {
+    const a = agendar();
+    expect(() => a.adicionarItem('svc-inexistente', Dinheiro.deCentavos(1000), Duracao.deMinutos(10), barbeiro)).toThrow(
+      InvarianteVioladaError,
+    );
+  });
+
+  it('só permite adicionar item em atendimento AGENDADO', () => {
+    const a = agendar();
+    a.concluir(FormaPagamento.PIX);
+    expect(() => a.adicionarItem('svc-barba', Dinheiro.deCentavos(3000), Duracao.deMinutos(20), barbeiro)).toThrow(
+      TransicaoDeEstadoInvalidaError,
+    );
+  });
+
+  it('item adicionado em atendimento CREDITO_PACOTE agora EXIGE forma de pagamento (generalização)', () => {
+    const a = agendar({
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      itens: [{ ...itemCorte(), valorCobrado: Dinheiro.deCentavos(3429), itemDoPacoteId: 'item-1' }],
+    });
+    a.adicionarItem('svc-barba', Dinheiro.deCentavos(3000), Duracao.deMinutos(20), barbeiro);
+    expect(() => a.concluir()).toThrow(InvarianteVioladaError);
+    a.concluir(FormaPagamento.DINHEIRO);
+    expect(a.formaPagamento).toBe(FormaPagamento.DINHEIRO);
+  });
+
+  it('CREDITO_PACOTE puro (sem adicional) continua concluindo sem forma de pagamento', () => {
+    const a = agendar({
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      itens: [{ ...itemCorte(), valorCobrado: Dinheiro.deCentavos(3429), itemDoPacoteId: 'item-1' }],
+    });
+    a.concluir();
+    expect(a.formaPagamento).toBeNull();
+  });
+});
+
+describe('Atendimento — adicionar produto na conclusão (item 4a, sessão 2026-07-16)', () => {
+  it('adiciona produto (quantidade × preço unitário) e passa a exigir forma de pagamento', () => {
+    const a = agendar({
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      itens: [{ ...itemCorte(), valorCobrado: Dinheiro.deCentavos(3429), itemDoPacoteId: 'item-1' }],
+    });
+    a.adicionarProduto('prod-gel', 2, Dinheiro.deCentavos(1500));
+    expect(a.produtos).toEqual([{ produtoId: 'prod-gel', quantidade: 2, valorUnitario: Dinheiro.deCentavos(1500) }]);
+    expect(a.valorTotal().centavos).toBe(3429 + 2 * 1500);
+    expect(() => a.concluir()).toThrow(InvarianteVioladaError);
+  });
+
+  it('rejeita quantidade não-positiva', () => {
+    const a = agendar();
+    expect(() => a.adicionarProduto('prod-gel', 0, Dinheiro.deCentavos(1500))).toThrow(InvarianteVioladaError);
+    expect(() => a.adicionarProduto('prod-gel', -1, Dinheiro.deCentavos(1500))).toThrow(InvarianteVioladaError);
+  });
+
+  it('evento de conclusão carrega snapshot dos produtos', () => {
+    const a = agendar();
+    a.adicionarProduto('prod-gel', 2, Dinheiro.deCentavos(1500));
+    a.puxarEventos();
+    a.concluir(FormaPagamento.PIX);
+    const [evento] = a.puxarEventos() as any[];
+    expect(evento.produtos).toEqual([{ produtoId: 'prod-gel', quantidade: 2, valorUnitarioCentavos: 1500 }]);
   });
 });

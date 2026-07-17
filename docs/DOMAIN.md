@@ -167,17 +167,26 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `comissaoPadrao` | Percentual | ex: 45% |
 | `excecoesComissao` | Map\<ServicoId, Percentual\> | override por serviço |
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
+| `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
 | `ativo` | boolean | |
 
-**Regra de comissão:**
+**Regra de comissão (serviço):**
 ```
 percentualPara(servicoId) =
   excecoesComissao.get(servicoId) ?? comissaoPadrao
 ```
 
+**Regra de comissão (produto, §3.9 — sessão 2026-07-16):** `comissaoProdutos` é um
+percentual ÚNICO aplicado a TODO produto vendido por este barbeiro — não existe matriz
+por produto. **Por quê:** a matriz por serviço existe porque serviços têm margens de
+mão de obra distintas (cortar cabelo e fazer a barba não custam o mesmo tempo/esforço);
+produto é revenda — o barbeiro só está passando o produto adiante, sem essa variação.
+Adicionar matriz por produto seria complexidade sem justificativa de negócio observada.
+
 **Invariantes:**
 - `comissaoPadrao` entre 0% e 100%.
 - Toda exceção também entre 0% e 100%.
+- `comissaoProdutos` entre 0% e 100%.
 - Só pode ser agendado para serviços em `servicosAtendidos`.
 
 **Nota v1:** o papel era string livre (`'admin'`, `'barber'`) comparada literalmente em vários
@@ -198,6 +207,46 @@ Janela de trabalho de um barbeiro.
 | `janela` | IntervaloDeTempo (inicio, fim) | instantes absolutos UTC — "9h–18h" é convertido na fronteira a partir do fuso da empresa, nunca tratado como UTC literal |
 
 **Invariantes:** `inicio < fim`; janelas do mesmo barbeiro no mesmo dia não se sobrepõem.
+
+**Origem:** `EXPEDIENTE` (gerada pela materialização de `ExpedienteSemanal`, abaixo) ou
+`MANUAL` (criada/editada à mão pelo admin — folga pontual, feriado, exceção). Existe só
+para a regra de conflito da materialização (§3.3.1); não muda o que a disponibilidade
+*significa* nem sua invariante de não-sobreposição.
+
+#### 3.3.1 `ExpedienteSemanal` (item 1 da sessão 2026-07-16)
+
+Expediente recorrente de um barbeiro: para cada dia da semana (0=domingo..6=sábado, mesma
+convenção de `Date.getUTCDay()` sobre a data civil), zero ou mais janelas de horário LOCAL.
+**Não é uma tabela de disponibilidade** — é a regra que **gera** (materializa) as
+`DisponibilidadeBarbeiro` dos próximos dias.
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `barbeiroId` | BarbeiroId | |
+| `companyId` | CompanyId | |
+| `dias` | Map\<DiaSemana, JanelaExpediente[]\> | dia ausente do Map = fechado naquele dia |
+
+**Invariantes (por dia):** janelas com formato `HH:mm` válido; `inicio < fim`; janelas do
+mesmo dia não se sobrepõem (mesma disciplina de `DisponibilidadeBarbeiro`).
+
+**Materialização (aplicação, não domínio):** para um horizonte de dias (job diário +
+chamada imediata ao salvar o expediente), por barbeiro e por dia:
+1. Se existe alguma `Disponibilidade` de origem `MANUAL` naquele dia → **não toca nada**
+   (a edição manual do admin sempre vence).
+2. Senão, substitui por completo as `Disponibilidade` de origem `EXPEDIENTE` daquele dia
+   pelas janelas do dia da semana correspondente (zero janelas = dia fechado, nenhuma
+   disponibilidade).
+
+**Por quê "regra de conflito preserva manual":** sem isso, toda folga pontual ou horário
+excepcional que o admin lançasse à mão seria apagado na próxima rodada do job — o
+expediente é o **padrão**, a disponibilidade do dia é a **exceção**, e exceção sempre
+vence padrão.
+
+**Bug operacional corrigido nesta sessão:** antes do `ExpedienteSemanal`, a disponibilidade
+era seedada/criada dia a dia sem noção de dia da semana — um domingo (barbearia fechada)
+podia aparecer agendável só porque alguém rodou o mesmo script todo santo dia. Com o
+expediente, "fechado aos domingos" é a regra, não uma omissão que alguém precisa lembrar de
+repetir.
 
 ---
 
@@ -234,10 +283,11 @@ Um serviço (ou conjunto de serviços) marcado com um barbeiro em um horário.
 | `clienteId` | ClienteId | |
 | `barbeiroId` | BarbeiroId | |
 | `itens` | List\<ItemAtendido\> | ver abaixo |
-| `intervalo` | IntervaloDeTempo | início + fim (calculado da duração) |
+| `produtos` | List\<ItemProdutoAtendido\> | ver abaixo — item 4a, sessão 2026-07-16 |
+| `intervalo` | IntervaloDeTempo | início + fim (calculado da duração dos itens **na criação** — produtos e itens adicionados depois NÃO alteram o intervalo, ver abaixo) |
 | `status` | StatusAtendimento | máquina de estado — ver §4.1 |
 | `origem` | OrigemAtendimento | `AVULSO` \| `CREDITO_PACOTE` |
-| `formaPagamento` | FormaPagamento \| null | preenchido só na conclusão, se AVULSO |
+| `formaPagamento` | FormaPagamento \| null | preenchido só na conclusão — ver regra generalizada abaixo |
 | `motivoCancelamento` | string \| null | obrigatório se CANCELADO |
 
 **`ItemAtendido`** (value object dentro do agregado):
@@ -248,6 +298,14 @@ Um serviço (ou conjunto de serviços) marcado com um barbeiro em um horário.
 | `valorCobrado` | Dinheiro | **snapshot** — nunca recalcular do catálogo |
 | `duracao` | Duracao | snapshot |
 | `itemDoPacoteId` | ItemDoPacoteId \| null | preenchido se origem = CREDITO_PACOTE |
+
+**`ItemProdutoAtendido`** (value object dentro do agregado — item 4a):
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `produtoId` | ProdutoId | |
+| `quantidade` | int positivo | |
+| `valorUnitario` | Dinheiro | **snapshot** do preço no momento em que foi adicionado |
 
 **Por que snapshot:** se o preço do corte mudar de R$40 para R$50 amanhã, o atendimento de
 ontem continua valendo R$40. Sem snapshot, o histórico e o extrato de comissão mudariam
@@ -262,20 +320,51 @@ retroativamente — inaceitável num sistema que precisa ser auditável.
   data — a disponibilidade é procurada pelo **dia civil local** do início do atendimento (§2.6),
   nunca pelo dia UTC bruto do instante.
 - Todo `servicoId` dos itens deve estar em `barbeiro.servicosAtendidos`.
-- Se `origem = CREDITO_PACOTE`, todo item deve ter `itemDoPacoteId` preenchido e
+- Se `origem = CREDITO_PACOTE`, todo item **original** deve ter `itemDoPacoteId` preenchido e
   `valorCobrado` = valor rateado daquele item no pacote (não o preço avulso).
 - Se `origem = AVULSO`, `itemDoPacoteId` é sempre null.
 - `status = CANCELADO` exige `motivoCancelamento` não-vazio.
 
-**Cancelamento — antecipado vs. tardio:** `cancelar(motivo)` calcula
-`antecipado = agora < intervalo.inicio` e inclui isso no evento `AtendimentoCancelado`. Essa
-distinção existe para o handler de Pacote (§5): cancelamento **antes** do horário marcado libera o
-item do pacote vinculado sem contar falta; cancelamento **depois** do horário (ou
-não-comparecimento) sempre conta falta — ver §4.2.
+**Adicionar item/produto na conclusão (walk-in add-on — itens 3 e 4a, sessão 2026-07-16):**
+`adicionarItem(servicoId, ...)` e `adicionarProduto(produtoId, quantidade, ...)` permitem
+registrar, **antes de concluir**, um serviço ou produto que o cliente pediu na cadeira além
+do que foi agendado (ex.: agendou corte, decidiu fazer a barba também). Só permitido com
+`status = AGENDADO`. Itens adicionados por `adicionarItem` são **sempre avulsos**
+(`itemDoPacoteId = null`) — crédito de pacote nunca é consumido retroativamente.
+
+> **DECISÃO CONSCIENTE:** `adicionarItem`/`adicionarProduto` **NÃO revalidam sobreposição de
+> horário** — o `intervalo` do atendimento não muda. A invariante de sobreposição (checada em
+> `agendar()`) protege **agendamentos futuros**; aqui o barbeiro está registrando trabalho já
+> realizado ou em andamento, não marcando um novo horário. Reaplicar a invariante de
+> sobreposição seria proteger algo que já não está em risco.
+
+**Forma de pagamento na conclusão — regra generalizada (item 2 e 3, sessão 2026-07-16):**
+a exigência de `formaPagamento` deixou de depender só de `origem` e passou a depender do
+que está sendo cobrado de fato:
+```
+exigeFormaPagamento =
+  algum item tem itemDoPacoteId === null   // avulso, original ou adicionado
+  OU produtos.length > 0                    // produto nunca é crédito de pacote
+```
+Isso generaliza corretamente o caso de um `Atendimento` de origem `CREDITO_PACOTE` que
+recebeu um item/produto adicionado na conclusão (item 3/4a): antes dessa mudança, o domínio
+olhava só `origem` e silenciosamente NÃO cobrava o adicional. Casos puros continuam
+idênticos: AVULSO sem adicional sempre exige; CREDITO_PACOTE sem adicional nunca exige.
+
+**PIX_ONLINE (item 2, sessão 2026-07-16):** quando o `Atendimento` tem uma
+`IntencaoDePagamento` **PAGA** vinculada (§3.8) e não há valor adicional (nenhum
+item/produto somado depois do pagamento), a **aplicação** (não o domínio — agregados não se
+chamam entre si, §2.2) passa `formaPagamento = PIX_ONLINE` automaticamente ao concluir, sem
+perguntar nada ao admin. `PIX_ONLINE` é um valor de `FormaPagamento` distinto do `PIX`
+presencial — não se confundem no relatório/extrato. Se sobrou valor adicional (item/produto
+somado depois de pago online), a conclusão AINDA pede forma de pagamento, mas só para cobrir
+esse adicional — o valor já pago online continua registrado separadamente na
+`IntencaoDePagamento` (a UI mostra "R$X já pago online + R$Y a cobrar agora").
 
 **Eventos emitidos:**
 - `AtendimentoAgendado`
-- `AtendimentoConcluido` → **dispara cálculo de comissão** (§3.7)
+- `AtendimentoConcluido` → **dispara cálculo de comissão** (§3.7), carregando também o
+  snapshot dos `produtos` (comissão de produto usa `barbeiro.comissaoProdutos`, §3.2)
 - `AtendimentoCancelado` (carrega `antecipado: boolean`)
 - `ClienteFaltou`
 
@@ -348,19 +437,33 @@ Exemplo: pacote com 1 corte (avulso R$40) + 1 barba (avulso R$30), vendido por R
 ### 3.7 `LancamentoComissao` (raiz) — ledger auditável
 
 **Requisito não-negociável de governança.** Cada centavo de comissão tem um lançamento
-rastreável até o atendimento que o gerou. Não existe "saldo acumulado" como campo mutável.
+rastreável até o atendimento (ou venda de produto) que o gerou. Não existe "saldo
+acumulado" como campo mutável.
+
+**Generalizado na sessão 2026-07-16 (item 4)** para cobrir origem `SERVICO` (via
+`Atendimento`) e `PRODUTO` (via `Atendimento` — add-on, §3.5 — ou `VendaDeProduto` avulsa,
+§3.10). Exatamente um par (`atendimentoId` | `vendaDeProdutoId`) e (`servicoId` |
+`produtoId`) é preenchido, a depender de `origem`.
 
 | Campo | Tipo | Nota |
 |---|---|---|
 | `id` | LancamentoId | |
 | `companyId` | CompanyId | |
 | `barbeiroId` | BarbeiroId | |
-| `atendimentoId` | AtendimentoId | rastreabilidade |
-| `servicoId` | ServicoId | |
-| `valorBase` | Dinheiro | valor do serviço (avulso OU rateado do pacote) |
-| `percentualAplicado` | Percentual | snapshot da regra vigente na conclusão |
+| `origem` | `SERVICO` \| `PRODUTO` | |
+| `atendimentoId` | AtendimentoId \| null | preenchido quando a origem foi um Atendimento (serviço OU produto add-on) |
+| `vendaDeProdutoId` | VendaDeProdutoId \| null | preenchido quando a origem foi uma venda avulsa de produto |
+| `servicoId` | ServicoId \| null | preenchido só se origem = SERVICO |
+| `produtoId` | ProdutoId \| null | preenchido só se origem = PRODUTO |
+| `valorBase` | Dinheiro | serviço: avulso OU rateado do pacote. Produto: unitário × quantidade |
+| `percentualAplicado` | Percentual | snapshot da regra vigente na conclusão/venda — `barbeiro.percentualPara(servicoId)` para serviço, `barbeiro.comissaoProdutos` (único, sem matriz) para produto |
 | `valorComissao` | Dinheiro | `valorBase × percentualAplicado` |
 | `ocorridoEm` | Timestamp | |
+
+**Compatibilidade:** `atendimentoId` e `servicoId` eram `NOT NULL` antes desta sessão;
+viraram opcionais via migration aditiva (`ALTER COLUMN ... DROP NOT NULL` + novas colunas
+com default). Lançamentos existentes **não mudam de forma** — continuam com `origem =
+SERVICO` (default) e os mesmos valores em `atendimentoId`/`servicoId`.
 
 **Saldo do barbeiro = soma dos lançamentos.** Nunca um campo `commission` no `Barbeiro`.
 
@@ -404,6 +507,52 @@ cliente ficava órfão).
 
 **Webhook deve ser idempotente** — gateways reenviam. Processar duas vezes o mesmo `externalId`
 não pode gerar dois efeitos.
+
+---
+
+### 3.9 `Produto` (raiz) — item 4 da sessão 2026-07-16
+
+Catálogo MÍNIMO de produtos para revenda (pomada, gel, óleo de barba). **SEM controle de
+estoque** — decisão consciente, não implementar (ver DECISOES_PENDENTES): sem quantidade,
+sem fornecedor. Mesmo padrão de soft-disable de `Servico` (§3.1) — nunca deletado, só
+desativado, porque histórico de venda/comissão depende dele.
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | ProdutoId | |
+| `companyId` | CompanyId | |
+| `nome` | string | |
+| `preco` | Dinheiro | |
+| `ativo` | boolean | soft-disable |
+
+**Invariantes:** nome não-vazio; `preco` positivo.
+
+Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` na
+conclusão (§3.5, `ItemProdutoAtendido`) ou numa `VendaDeProduto` avulsa (§3.10).
+
+---
+
+### 3.10 `VendaDeProduto` (raiz) — item 4b da sessão 2026-07-16
+
+Venda AVULSA de produto — "alguém entrou só pra comprar", sem `Atendimento` associado.
+Registro simples: produto(s), quem vendeu, forma de pagamento, cliente opcional. Distinta
+do add-on em `ItemProdutoAtendido` (vendido *junto* de um atendimento, §3.5).
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | VendaDeProdutoId | |
+| `companyId` | CompanyId | |
+| `barbeiroId` | BarbeiroId | quem vendeu |
+| `clienteId` | ClienteId \| null | **opcional** — cliente pode não estar cadastrado |
+| `itens` | List\<ItemVendaDeProduto\> | `{ produtoId, quantidade, valorUnitario (snapshot) }` |
+| `formaPagamento` | FormaPagamento | |
+| `vendidoEm` | Timestamp | |
+
+**Invariantes:** ao menos um item; toda `quantidade` inteiro positivo.
+
+**Eventos emitidos:**
+- `VendaDeProdutoRegistrada` → gera `LancamentoComissao` de origem `PRODUTO` por item,
+  usando `barbeiro.comissaoProdutos` (§3.2, §3.7).
 
 ---
 
@@ -527,6 +676,7 @@ sem broker/fila).
 | `PacoteVendido` | VendaDePacote | **Identity:** promove Cliente a usuário Cognito | — |
 | `ItemDoPacoteExpirado` | VendaDePacote | migra valor p/ saldoResidual | notificação ao cliente |
 | `PagamentoConfirmado` | IntencaoDePagamento | libera pacote/atendimento | recibo |
+| `VendaDeProdutoRegistrada` | VendaDeProduto | **Payroll:** cria `LancamentoComissao` (origem PRODUTO) | métricas de revenda |
 
 `AtendimentoCancelado` carrega `antecipado: boolean` (cancelado antes do horário marcado) — o
 handler de Pacote usa isso para decidir entre liberar o item sem falta ou computar falta (§4.2).
@@ -598,10 +748,11 @@ bigods/
 │   │       │
 │   │       ├── modules/
 │   │       │   ├── catalog/      # Servico
-│   │       │   ├── staff/        # Barbeiro, Disponibilidade
+│   │       │   ├── staff/        # Barbeiro, Disponibilidade, ExpedienteSemanal
 │   │       │   ├── customers/    # Cliente
 │   │       │   ├── scheduling/   # Atendimento  ← núcleo
 │   │       │   ├── packages/     # VendaDePacote, ItemDoPacote
+│   │       │   ├── products/     # Produto, VendaDeProduto (§3.9, §3.10)
 │   │       │   ├── payroll/      # LancamentoComissao
 │   │       │   ├── payments/     # IntencaoDePagamento
 │   │       │   └── identity/     # Cognito, autorização
@@ -788,7 +939,7 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 
 | Item | Por que fora | Como entra depois |
 |---|---|---|
-| Estoque / venda de produto | Gabriel não vende produto hoje | Módulo novo; nada no modelo atual impede |
+| Controle de estoque de produto | Venda de produto (§3.9/§3.10) já implementada (sessão 2026-07-16), mas **sem** quantidade/fornecedor/estoque — decisão consciente, não medida ainda | Campo de quantidade no `Produto` + lançamentos de entrada/saída, quando o volume justificar |
 | Vale, saque, débito do barbeiro | Só faz sentido com barbeiro contratado; hoje o único barbeiro é sócio | Lançamento **negativo** no ledger existente |
 | Isolamento multi-tenant dinâmico | Nenhum segundo tenant existe para validar contra | `companyId` já está nos agregados (costura pronta) |
 | Aplicação automática de saldo residual | Caminho raro (exige 2 faltas no mesmo item). Medir frequência primeiro | Estado já é registrado; falta só a lógica |

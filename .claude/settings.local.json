@@ -59,7 +59,18 @@
       "Bash(mkdir -p src/lib src/components src/screens)",
       "Bash(cp booking/src/lib/format.ts account/src/lib/format.ts)",
       "Bash(cp booking/src/lib/telefone.ts account/src/lib/telefone.ts)",
-      "Bash(curl -s -X POST localhost:3000/conta/login/iniciar -H 'Content-Type: application/json' -d '{\"companyId\":\"bigods\",\"telefone\":\"\\(11\\) 99999-8888\"}')"
+      "Bash(curl -s -X POST localhost:3000/conta/login/iniciar -H 'Content-Type: application/json' -d '{\"companyId\":\"bigods\",\"telefone\":\"\\(11\\) 99999-8888\"}')",
+      "Bash(xargs -r kill -9)",
+      "Bash(echo \"API iniciando, PID $!\")",
+      "Bash(nohup npm run dev)",
+      "Bash(sleep 8; tail -40 /tmp/api-dev.log)",
+      "Read(//tmp/**)",
+      "Bash(lsof -ti:3000)",
+      "Bash(echo \"PID $!\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c ' *)",
+      "Bash(pkill -f \"nest start --watch\")",
+      "Bash(grep -n \"^## 5\\\\|^| \\\\`\" docs/DOMAIN.md)"
     ]
   }
 }

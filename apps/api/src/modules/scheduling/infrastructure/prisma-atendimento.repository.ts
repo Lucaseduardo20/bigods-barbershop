@@ -6,6 +6,7 @@ import {
 import {
   Atendimento as AtendimentoPrisma,
   ItemAtendido as ItemAtendidoPrisma,
+  ItemProdutoAtendido as ItemProdutoAtendidoPrisma,
 } from '@prisma/client';
 import { Db } from '../../../shared/infrastructure/db';
 import { Atendimento } from '../domain/atendimento.aggregate';
@@ -15,8 +16,8 @@ import { Duracao } from '../../../shared/domain/duracao';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
 import { AtendimentoId, BarbeiroId, ClienteId, CompanyId } from '../../../shared/domain/ids';
 
-type Row = AtendimentoPrisma & { itens: ItemAtendidoPrisma[] };
-const include = { itens: true } as const;
+type Row = AtendimentoPrisma & { itens: ItemAtendidoPrisma[]; produtos: ItemProdutoAtendidoPrisma[] };
+const include = { itens: true, produtos: true } as const;
 
 function paraDominio(row: Row): Atendimento {
   return Atendimento.reconstituir({
@@ -29,6 +30,11 @@ function paraDominio(row: Row): Atendimento {
       valorCobrado: Dinheiro.deCentavos(i.valorCobradoCentavos),
       duracao: Duracao.deMinutos(i.duracaoMinutos),
       itemDoPacoteId: i.itemDoPacoteId,
+    })),
+    produtos: row.produtos.map((p) => ({
+      produtoId: p.produtoId,
+      quantidade: p.quantidade,
+      valorUnitario: Dinheiro.deCentavos(p.valorUnitarioCentavos),
     })),
     intervalo: IntervaloDeTempo.de(row.inicio, row.fim),
     status: StatusAtendimento[row.status],
@@ -96,6 +102,33 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {
       await this.db.atendimento.update({ where: { id: atendimento.id }, data: dados });
+      // itens/produtos não têm identidade estável no domínio (podem ser
+      // adicionados pós-criação — item 3/4a da sessão 2026-07-16): replace
+      // completo é simples e correto (nenhuma outra tabela referencia a PK
+      // gerada dessas linhas fora desta mesma transação).
+      await this.db.itemAtendido.deleteMany({ where: { atendimentoId: atendimento.id } });
+      if (atendimento.itens.length > 0) {
+        await this.db.itemAtendido.createMany({
+          data: atendimento.itens.map((i) => ({
+            atendimentoId: atendimento.id,
+            servicoId: i.servicoId,
+            valorCobradoCentavos: i.valorCobrado.centavos,
+            duracaoMinutos: i.duracao.minutos,
+            itemDoPacoteId: i.itemDoPacoteId,
+          })),
+        });
+      }
+      await this.db.itemProdutoAtendido.deleteMany({ where: { atendimentoId: atendimento.id } });
+      if (atendimento.produtos.length > 0) {
+        await this.db.itemProdutoAtendido.createMany({
+          data: atendimento.produtos.map((p) => ({
+            atendimentoId: atendimento.id,
+            produtoId: p.produtoId,
+            quantidade: p.quantidade,
+            valorUnitarioCentavos: p.valorUnitario.centavos,
+          })),
+        });
+      }
     } else {
       await this.db.atendimento.create({
         data: {
@@ -107,6 +140,13 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
               valorCobradoCentavos: i.valorCobrado.centavos,
               duracaoMinutos: i.duracao.minutos,
               itemDoPacoteId: i.itemDoPacoteId,
+            })),
+          },
+          produtos: {
+            create: atendimento.produtos.map((p) => ({
+              produtoId: p.produtoId,
+              quantidade: p.quantidade,
+              valorUnitarioCentavos: p.valorUnitario.centavos,
             })),
           },
         },

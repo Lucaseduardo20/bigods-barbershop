@@ -12,6 +12,12 @@ export interface BarbeiroProps {
   comissaoPadrao: Percentual;
   excecoesComissao: Map<ServicoId, Percentual>;
   servicosAtendidos: Set<ServicoId>;
+  /**
+   * Percentual ÚNICO de comissão sobre produto, para TODOS os produtos —
+   * sem matriz por produto (decisão consciente: a matriz por serviço existe
+   * por margens de mão de obra distintas; produto é revenda). Default 0%.
+   */
+  comissaoProdutos: Percentual;
   ativo: boolean;
 }
 
@@ -20,10 +26,11 @@ export class Barbeiro extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<BarbeiroProps, 'ativo' | 'excecoesComissao' | 'servicosAtendidos'> & {
+  static criar(props: Omit<BarbeiroProps, 'ativo' | 'excecoesComissao' | 'servicosAtendidos' | 'comissaoProdutos'> & {
     ativo?: boolean;
     excecoesComissao?: Map<ServicoId, Percentual>;
     servicosAtendidos?: Set<ServicoId>;
+    comissaoProdutos?: Percentual;
   }): Barbeiro {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Barbeiro exige nome');
@@ -36,6 +43,7 @@ export class Barbeiro extends AggregateRoot {
       nome: props.nome.trim(),
       excecoesComissao: props.excecoesComissao ?? new Map(),
       servicosAtendidos: props.servicosAtendidos ?? new Set(),
+      comissaoProdutos: props.comissaoProdutos ?? Percentual.dePontosBase(0),
       ativo: props.ativo ?? true,
     });
   }
@@ -51,6 +59,10 @@ export class Barbeiro extends AggregateRoot {
 
   definirExcecaoComissao(servicoId: ServicoId, percentual: Percentual): void {
     this.props.excecoesComissao.set(servicoId, percentual);
+  }
+
+  definirComissaoProdutos(percentual: Percentual): void {
+    this.props.comissaoProdutos = percentual;
   }
 
   removerExcecaoComissao(servicoId: ServicoId): void {
@@ -78,6 +90,7 @@ export class Barbeiro extends AggregateRoot {
   get nome() { return this.props.nome; }
   get papeis() { return new Set(this.props.papeis); }
   get comissaoPadrao() { return this.props.comissaoPadrao; }
+  get comissaoProdutos() { return this.props.comissaoProdutos; }
   get excecoesComissao() { return new Map(this.props.excecoesComissao); }
   get servicosAtendidos() { return new Set(this.props.servicosAtendidos); }
   get ativo() { return this.props.ativo; }

@@ -44,6 +44,7 @@ enum FormaPagamento {
   PIX
   CARTAO_DEBITO
   CARTAO_CREDITO
+  PIX_ONLINE
 }
 
 enum ReferenciaPagamento {
@@ -51,34 +52,60 @@ enum ReferenciaPagamento {
   VENDA_DE_PACOTE
 }
 
+enum OrigemDisponibilidade {
+  EXPEDIENTE
+  MANUAL
+}
+
+enum OrigemComissao {
+  SERVICO
+  PRODUTO
+}
+
 model Company {
-  id                      String  @id
-  nome                    String
+  id                     String @id
+  nome                   String
   // ParametrosDaEmpresa: prazo da segunda chance (§4.2), ajustável pelo admin
-  prazoReagendamentoDias  Int     @default(10)
+  prazoReagendamentoDias Int    @default(10)
   // Fuso IANA da empresa (ex: "America/Sao_Paulo"). Propriedade da Company,
   // não constante global — outras barbearias em outros fusos usarão o sistema.
   // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
-  timezone                String  @default("America/Sao_Paulo")
+  timezone               String @default("America/Sao_Paulo")
 
   servicos      Servico[]
+  produtos      Produto[]
   barbeiros     Barbeiro[]
   clientes      Cliente[]
   atendimentos  Atendimento[]
   vendasPacote  VendaDePacote[]
+  vendasProduto VendaDeProduto[]
   lancamentos   LancamentoComissao[]
   intencoes     IntencaoDePagamento[]
 }
 
 model Servico {
-  id                   String  @id
-  companyId            String
-  nome                 String
-  precoAvulsoCentavos  Int
-  duracaoMinutos       Int
-  ativo                Boolean @default(true)
+  id                  String  @id
+  companyId           String
+  nome                String
+  precoAvulsoCentavos Int
+  duracaoMinutos      Int
+  ativo               Boolean @default(true)
 
-  company   Company @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+}
+
+// Produto (raiz) — venda de produto MÍNIMA, SEM controle de estoque (decisão
+// consciente: sem quantidade/fornecedor). Soft-disable como Servico.
+model Produto {
+  id            String  @id
+  companyId     String
+  nome          String
+  precoCentavos Int
+  ativo         Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
 }
@@ -88,13 +115,13 @@ model Servico {
 // oferece como pacote e por quanto. Hoje semeado; CRUD no admin fica pendente
 // (ver DECISOES_PENDENTES). Uma oferta = N unidades de um serviço por um preço.
 model PacoteOferta {
-  id                 String  @id
-  companyId          String
-  nome               String
-  servicoId          String
-  quantidade         Int
-  precoCentavos      Int
-  ativo              Boolean @default(true)
+  id            String  @id
+  companyId     String
+  nome          String
+  servicoId     String
+  quantidade    Int
+  precoCentavos Int
+  ativo         Boolean @default(true)
 
   @@index([companyId])
 }
@@ -105,24 +132,47 @@ model Barbeiro {
   nome               String
   papeis             Papel[]
   comissaoPadraoBp   Int
+  // Percentual ÚNICO para TODOS os produtos (sem matriz por produto — produto
+  // é revenda, não tem a variação de margem de mão de obra que justifica a
+  // matriz de serviços). Default 0%.
+  comissaoProdutosBp Int     @default(0)
   ativo              Boolean @default(true)
 
   // credenciais da autenticação local (infra — não fazem parte do domínio)
-  login              String? @unique
-  senhaHash          String?
+  login     String? @unique
+  senhaHash String?
 
-  company            Company @relation(fields: [companyId], references: [id])
-  excecoesComissao   ExcecaoComissao[]
-  servicosAtendidos  BarbeiroServico[]
-  disponibilidades   Disponibilidade[]
+  company           Company            @relation(fields: [companyId], references: [id])
+  excecoesComissao  ExcecaoComissao[]
+  servicosAtendidos BarbeiroServico[]
+  disponibilidades  Disponibilidade[]
+  expedienteJanelas ExpedienteJanela[]
 
   @@index([companyId])
 }
 
+// Expediente semanal recorrente: para cada dia da semana, zero ou mais
+// janelas de horário LOCAL. É o GERADOR das Disponibilidade dos próximos
+// dias (materialização, via job + imediata ao salvar) — a disponibilidade
+// por dia continua existindo e editável individualmente (folga, feriado); a
+// edição manual de um dia não é sobrescrita pela materialização seguinte.
+model ExpedienteJanela {
+  id         String @id @default(uuid())
+  barbeiroId String
+  // 0=domingo .. 6=sábado — mesma convenção de Date.getUTCDay() sobre a data civil.
+  diaSemana  Int
+  horaInicio String // "HH:mm" local
+  horaFim    String // "HH:mm" local
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+
+  @@index([barbeiroId, diaSemana])
+}
+
 model ExcecaoComissao {
-  barbeiroId    String
-  servicoId     String
-  percentualBp  Int
+  barbeiroId   String
+  servicoId    String
+  percentualBp Int
 
   barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
 
@@ -139,13 +189,18 @@ model BarbeiroServico {
 }
 
 model Disponibilidade {
-  id         String   @id
+  id         String                @id
   barbeiroId String
   // Dia civil LOCAL (YYYY-MM-DD) a que esta janela pertence — "terça 9h–18h" no
   // horário do barbeiro. inicio/fim são os instantes UTC correspondentes.
   data       String
-  inicio     DateTime @db.Timestamptz(3)
-  fim        DateTime @db.Timestamptz(3)
+  inicio     DateTime              @db.Timestamptz(3)
+  fim        DateTime              @db.Timestamptz(3)
+  // EXPEDIENTE (gerada pela materialização) ou MANUAL (criada/editada à mão
+  // pelo admin — a materialização NUNCA sobrescreve um dia com origem MANUAL).
+  // Default MANUAL: linhas existentes antes desta coluna são tratadas como
+  // edição manual, preservando o comportamento atual sem retrofit.
+  origem     OrigemDisponibilidade @default(MANUAL)
 
   barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
 
@@ -176,8 +231,9 @@ model Atendimento {
   formaPagamento     FormaPagamento?
   motivoCancelamento String?
 
-  company Company        @relation(fields: [companyId], references: [id])
-  itens   ItemAtendido[]
+  company  Company               @relation(fields: [companyId], references: [id])
+  itens    ItemAtendido[]
+  produtos ItemProdutoAtendido[]
 
   @@index([barbeiroId, inicio])
   @@index([companyId, inicio])
@@ -191,6 +247,21 @@ model ItemAtendido {
   valorCobradoCentavos Int
   duracaoMinutos       Int
   itemDoPacoteId       String?
+
+  atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
+
+  @@index([atendimentoId])
+}
+
+// Produto vendido junto de um Atendimento (walk-in add-on na conclusão, item
+// 4a) — distinto de VendaDeProduto (venda avulsa sem atendimento, item 4b).
+// valorUnitarioCentavos é snapshot do preço vigente no momento da venda.
+model ItemProdutoAtendido {
+  id                    String @id @default(uuid())
+  atendimentoId         String
+  produtoId             String
+  quantidade            Int    @default(1)
+  valorUnitarioCentavos Int
 
   atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
 
@@ -231,16 +302,56 @@ model ItemDoPacote {
   @@index([status, prazoReagendamentoAte])
 }
 
+// Venda AVULSA de produto (item 4b — "alguém entrou só pra comprar", sem
+// Atendimento associado). Registro simples: itens, quem vendeu, forma de
+// pagamento, cliente opcional. Distinta do add-on em ItemProdutoAtendido
+// (item 4a, vendido JUNTO de um atendimento).
+model VendaDeProduto {
+  id             String         @id
+  companyId      String
+  barbeiroId     String
+  clienteId      String?
+  formaPagamento FormaPagamento
+  vendidoEm      DateTime       @db.Timestamptz(3)
+
+  company Company              @relation(fields: [companyId], references: [id])
+  itens   ItemVendaDeProduto[]
+
+  @@index([companyId])
+  @@index([barbeiroId])
+}
+
+model ItemVendaDeProduto {
+  id                    String @id @default(uuid())
+  vendaId               String
+  produtoId             String
+  quantidade            Int
+  valorUnitarioCentavos Int
+
+  venda VendaDeProduto @relation(fields: [vendaId], references: [id])
+
+  @@index([vendaId])
+}
+
+// Ledger generalizado (§3.7): origem SERVICO (via Atendimento) ou PRODUTO (via
+// Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente um par
+// (atendimentoId|vendaDeProdutoId) e (servicoId|produtoId) é preenchido, a
+// depender da origem. atendimentoId/servicoId viraram nullable nesta migration
+// — lançamentos existentes (todos origem=SERVICO, default) NÃO são afetados,
+// continuam com os mesmos valores.
 model LancamentoComissao {
-  id                    String   @id
+  id                    String         @id
   companyId             String
   barbeiroId            String
-  atendimentoId         String
-  servicoId             String
+  origem                OrigemComissao @default(SERVICO)
+  atendimentoId         String?
+  vendaDeProdutoId      String?
+  servicoId             String?
+  produtoId             String?
   valorBaseCentavos     Int
   percentualAplicadoBp  Int
   valorComissaoCentavos Int
-  ocorridoEm            DateTime @db.Timestamptz(3)
+  ocorridoEm            DateTime       @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -266,7 +377,9 @@ model IntencaoDePagamento {
 // AWS. Só é usado quando IDENTITY_PROVIDER=demo. Em produção com Cognito estas
 // tabelas ficam vazias (o pool vive na AWS).
 
-/** Usuário demo provisionado (um por telefone). `sub` é estável e vira Cliente.cognitoSub. */
+/**
+ * Usuário demo provisionado (um por telefone). `sub` é estável e vira Cliente.cognitoSub.
+ */
 model DemoIdentidade {
   id        String   @id @default(uuid())
   companyId String
@@ -277,7 +390,9 @@ model DemoIdentidade {
   @@unique([companyId, telefone])
 }
 
-/** Desafio OTP demo: código de 6 dígitos (guardado com hash), com expiração e tentativas. */
+/**
+ * Desafio OTP demo: código de 6 dígitos (guardado com hash), com expiração e tentativas.
+ */
 model DemoDesafioLogin {
   id          String    @id @default(uuid())
   companyId   String

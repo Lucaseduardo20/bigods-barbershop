@@ -4,18 +4,21 @@ import {
   FormaPagamento,
   OrigemAtendimento,
   StatusAtendimento,
+  StatusPagamento,
 } from '@bigods/contracts';
 import {
   Atendimento as AtendimentoRow,
   Barbeiro as BarbeiroRow,
   Cliente as ClienteRow,
+  IntencaoDePagamento as IntencaoRow,
   ItemAtendido as ItemAtendidoRow,
+  ItemProdutoAtendido as ItemProdutoAtendidoRow,
 } from '@prisma/client';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { limitesDoDiaCivil } from '../../../shared/domain/calendario';
 import { Timezone } from '../../../shared/domain/timezone';
 
-type AtendimentoComItens = AtendimentoRow & { itens: ItemAtendidoRow[] };
+type AtendimentoComItens = AtendimentoRow & { itens: ItemAtendidoRow[]; produtos: ItemProdutoAtendidoRow[] };
 
 /** Projeção de leitura da agenda (§2.1) — não é fonte de verdade de conflito. */
 @Injectable()
@@ -44,7 +47,7 @@ export class AgendaQueryService {
         inicio: { lt: fimExclusivo },
         fim: { gt: inicio },
       },
-      include: { itens: true },
+      include: { itens: true, produtos: true },
       orderBy: { inicio: 'asc' },
     });
     return this.mapearTodos(atendimentos);
@@ -54,7 +57,7 @@ export class AgendaQueryService {
   async porId(id: string, companyId: string): Promise<AtendimentoDTO | null> {
     const atendimento = await this.prisma.atendimento.findFirst({
       where: { id, companyId },
-      include: { itens: true },
+      include: { itens: true, produtos: true },
     });
     if (!atendimento) return null;
     const dtos = await this.mapearTodos([atendimento]);
@@ -64,7 +67,7 @@ export class AgendaQueryService {
   private async mapearTodos(atendimentos: AtendimentoComItens[]): Promise<AtendimentoDTO[]> {
     if (atendimentos.length === 0) return [];
 
-    const [clientes, barbeiros, servicos] = await Promise.all([
+    const [clientes, barbeiros, servicos, produtos, intencoes] = await Promise.all([
       this.prisma.cliente.findMany({
         where: { id: { in: [...new Set(atendimentos.map((a) => a.clienteId))] } },
       }),
@@ -72,13 +75,30 @@ export class AgendaQueryService {
         where: { id: { in: [...new Set(atendimentos.map((a) => a.barbeiroId))] } },
       }),
       this.prisma.servico.findMany(),
+      this.prisma.produto.findMany(),
+      this.prisma.intencaoDePagamento.findMany({
+        where: {
+          referenciaTipo: 'ATENDIMENTO',
+          atendimentoId: { in: atendimentos.map((a) => a.id) },
+          status: 'PAGO',
+        },
+      }),
     ]);
     const clientePorId = new Map(clientes.map((c) => [c.id, c]));
     const barbeiroPorId = new Map(barbeiros.map((b) => [b.id, b]));
-    const servicoPorId = new Map(servicos.map((s) => [s.id, s.nome]));
+    const servicoNomePorId = new Map(servicos.map((s) => [s.id, s.nome]));
+    const produtoNomePorId = new Map(produtos.map((p) => [p.id, p.nome]));
+    const intencaoPagaPorAtendimento = new Map(intencoes.map((i) => [i.atendimentoId!, i]));
 
     return atendimentos.map((a) =>
-      this.paraDTO(a, clientePorId.get(a.clienteId), barbeiroPorId.get(a.barbeiroId), servicoPorId),
+      this.paraDTO(
+        a,
+        clientePorId.get(a.clienteId),
+        barbeiroPorId.get(a.barbeiroId),
+        servicoNomePorId,
+        produtoNomePorId,
+        intencaoPagaPorAtendimento.get(a.id),
+      ),
     );
   }
 
@@ -87,7 +107,11 @@ export class AgendaQueryService {
     cliente: ClienteRow | undefined,
     barbeiro: BarbeiroRow | undefined,
     servicoNomePorId: Map<string, string>,
+    produtoNomePorId: Map<string, string>,
+    intencaoPaga: IntencaoRow | undefined,
   ): AtendimentoDTO {
+    const valorItens = a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0);
+    const valorProdutos = a.produtos.reduce((acc, p) => acc + p.valorUnitarioCentavos * p.quantidade, 0);
     return {
       id: a.id,
       cliente: {
@@ -103,13 +127,21 @@ export class AgendaQueryService {
         duracaoMinutos: i.duracaoMinutos,
         itemDoPacoteId: i.itemDoPacoteId,
       })),
+      produtos: a.produtos.map((p) => ({
+        produtoId: p.produtoId,
+        produtoNome: produtoNomePorId.get(p.produtoId) ?? '?',
+        quantidade: p.quantidade,
+        valorUnitarioCentavos: p.valorUnitarioCentavos,
+      })),
       inicio: a.inicio.toISOString(),
       fim: a.fim.toISOString(),
       status: StatusAtendimento[a.status],
       origem: OrigemAtendimento[a.origem],
       formaPagamento: a.formaPagamento ? FormaPagamento[a.formaPagamento] : null,
       motivoCancelamento: a.motivoCancelamento,
-      valorTotalCentavos: a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0),
+      valorTotalCentavos: valorItens + valorProdutos,
+      pagoOnline: intencaoPaga !== undefined,
+      valorPagoOnlineCentavos: intencaoPaga?.valorCentavos ?? 0,
     };
   }
 }

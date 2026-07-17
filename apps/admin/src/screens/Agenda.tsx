@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { AtendimentoDTO, BarbeiroDTO, ServicoDTO, UsuarioDTO } from '@bigods/contracts';
-import { OrigemAtendimento, Papel, StatusAtendimento } from '@bigods/contracts';
+import type { AtendimentoDTO, BarbeiroDTO, ClienteDTO, ProdutoDTO, ServicoDTO, UsuarioDTO } from '@bigods/contracts';
+import { FormaPagamento, OrigemAtendimento, Papel, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import {
   diferencaDias,
@@ -31,6 +31,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
     'todos',
   );
   const [novoAberto, setNovoAberto] = useState(false);
+  const [vendaAberta, setVendaAberta] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
 
   const de = modo === 'semana' ? semanaInicio : periodoDe;
@@ -72,9 +73,14 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
     <div className="px-5">
       <div className="flex items-end justify-between mb-1">
         <h1 className="m-0 text-[26px] font-bold leading-tight">Agenda</h1>
-        <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
-          + Agendar
-        </button>
+        <div className="flex gap-2">
+          <button className="btn btn-ghost btn-sm" onClick={() => setVendaAberta(true)}>
+            + Venda de produto
+          </button>
+          <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
+            + Agendar
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 mb-2">
@@ -187,6 +193,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
                         <div className="flex flex-col items-end gap-1">
                           <Badge tone={toneStatus[a.status]}>{labelStatus[a.status]}</Badge>
                           {ehPacote ? <Badge tone="gold">Pacote</Badge> : <Badge tone="neutral">Avulso</Badge>}
+                          {a.pagoOnline && <Badge tone="success">Pago online</Badge>}
                         </div>
                       </div>
                     </button>
@@ -204,6 +211,13 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
           setNovoAberto(false);
           recarregar();
         }}
+        ehAdmin={ehAdmin}
+        usuario={usuario}
+      />
+      <VendaDeProdutoDialog
+        aberto={vendaAberta}
+        aoFechar={() => setVendaAberta(false)}
+        aoSalvar={() => setVendaAberta(false)}
         ehAdmin={ehAdmin}
         usuario={usuario}
       />
@@ -342,6 +356,125 @@ function NovoAtendimentoDialog({
         {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
         <button className="btn" disabled={salvando || !nome || !telefone || servicosSel.length === 0} onClick={salvar}>
           {salvando ? 'Agendando…' : 'Agendar'}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Item 4b: venda avulsa de produto — "alguém entrou só pra comprar", sem Atendimento. */
+function VendaDeProdutoDialog({
+  aberto,
+  aoFechar,
+  aoSalvar,
+  ehAdmin,
+  usuario,
+}: {
+  aberto: boolean;
+  aoFechar: () => void;
+  aoSalvar: () => void;
+  ehAdmin: boolean;
+  usuario: UsuarioDTO;
+}) {
+  const [barbeiroId, setBarbeiroId] = useState(usuario.barbeiroId);
+  const [clienteId, setClienteId] = useState('');
+  const [produtoId, setProdutoId] = useState('');
+  const [quantidade, setQuantidade] = useState('1');
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>(FormaPagamento.DINHEIRO);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const barbeiros = useApi(() => (aberto ? api<BarbeiroDTO[]>('/barbeiros') : Promise.resolve([])), [aberto]);
+  const produtos = useApi(() => (aberto ? api<ProdutoDTO[]>('/produtos') : Promise.resolve([])), [aberto]);
+  const clientes = useApi(() => (aberto ? api<ClienteDTO[]>('/clientes') : Promise.resolve([])), [aberto]);
+  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  const produtosAtivos = (produtos.dados ?? []).filter((p) => p.ativo);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    try {
+      await api('/vendas-produto', {
+        method: 'POST',
+        body: {
+          barbeiroId,
+          clienteId: clienteId || undefined,
+          itens: [{ produtoId, quantidade: parseInt(quantidade, 10) || 1 }],
+          formaPagamento,
+        },
+      });
+      setProdutoId('');
+      setQuantidade('1');
+      setClienteId('');
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Dialog open={aberto} onClose={aoFechar} title="Venda avulsa de produto">
+      <div className="flex flex-col gap-3">
+        {ehAdmin && (
+          <div>
+            <label className="label">Barbeiro (quem vendeu)</label>
+            {barbeiros.dados && (
+              <select className="select" value={barbeiroId} onChange={(e) => setBarbeiroId(e.target.value)}>
+                {barbeirosQueAtendem.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.nome}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+        <div>
+          <label className="label">Cliente (opcional)</label>
+          <select className="select" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+            <option value="">Sem cliente identificado</option>
+            {(clientes.dados ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Produto</label>
+          {produtos.erro && <ErroEstado erro={produtos.erro} aoTentar={produtos.recarregar} />}
+          {!produtos.erro && produtosAtivos.length === 0 && !produtos.carregando && (
+            <Vazio texto="Nenhum produto ativo cadastrado (ver Ajustes → Produtos)." />
+          )}
+          <select className="select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)}>
+            <option value="">Selecione…</option>
+            {produtosAtivos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome} · {dinheiro(p.precoCentavos)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="label">Quantidade</label>
+            <input className="input" type="number" min={1} value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+          </div>
+          <div className="flex-1">
+            <label className="label">Forma de pagamento</label>
+            <select className="select" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value as FormaPagamento)}>
+              <option value={FormaPagamento.DINHEIRO}>Dinheiro</option>
+              <option value={FormaPagamento.PIX}>PIX</option>
+              <option value={FormaPagamento.CARTAO_DEBITO}>Cartão débito</option>
+              <option value={FormaPagamento.CARTAO_CREDITO}>Cartão crédito</option>
+            </select>
+          </div>
+        </div>
+        {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+        <button className="btn" disabled={salvando || !barbeiroId || !produtoId} onClick={salvar}>
+          {salvando ? 'Registrando…' : 'Registrar venda'}
         </button>
       </div>
     </Dialog>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { OrigemDisponibilidade } from '@bigods/contracts';
 import { DisponibilidadeBarbeiro } from './disponibilidade.aggregate';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
 import { InvarianteVioladaError } from '../../../shared/errors/domain-error';
@@ -40,5 +41,23 @@ describe('DisponibilidadeBarbeiro', () => {
   it('comporta: intervalo contido na janela', () => {
     expect(manha.comporta(janela(t(9), t(9, 30)))).toBe(true);
     expect(manha.comporta(janela(t(11, 45), t(12, 15)))).toBe(false);
+  });
+
+  it('origem default é MANUAL quando não informada (compat com criação existente)', () => {
+    expect(manha.origem).toBe(OrigemDisponibilidade.MANUAL);
+  });
+
+  it('origem EXPEDIENTE quando explicitamente informada (materialização)', () => {
+    const gerada = DisponibilidadeBarbeiro.criar(
+      {
+        id: 'd5',
+        barbeiroId: 'bar-3',
+        data: '2026-07-15',
+        janela: janela(t(9), t(18)),
+        origem: OrigemDisponibilidade.EXPEDIENTE,
+      },
+      [],
+    );
+    expect(gerada.origem).toBe(OrigemDisponibilidade.EXPEDIENTE);
   });
 });

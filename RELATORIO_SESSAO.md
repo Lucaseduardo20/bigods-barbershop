@@ -5,6 +5,10 @@ Sessão de correção de fuso horário (2026-07-14, continuação): ver seção
 dedicada abaixo. **100 testes verdes** (91 de domínio puro + 9 de integração
 com Postgres), idênticos sob `TZ=UTC`, `TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo`.
 
+Sessão mais recente (2026-07-16, "expediente + PIX_ONLINE + produtos" — ver
+seção dedicada perto do fim deste arquivo): **229 testes verdes**, idênticos
+sob os mesmos 3 fusos.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -300,6 +304,122 @@ API no ar (`PAYMENT_GATEWAY=fake` OU `abacatepay` + credenciais para testar PIX 
 - `npm run test` inclui os testes de integração → exige o Postgres do docker-compose rodando e migrado.
 - Notificação WhatsApp: não implementada (Fase 2 do produto), mas `AtendimentoAgendado` já é emitido.
 - Timezone corrigido nesta sessão (ver seção dedicada acima): banco em `timestamptz`, `Company.timezone` = `America/Sao_Paulo`, toda fronteira converte. Não há UI para trocar o timezone (fora de escopo combinado).
+- Disponibilidade por dia da semana (Gabriel só aparecia agendável na semana atual, nunca em domingo fechado corretamente) e produtos/comissão: **resolvidos na sessão 2026-07-16**, ver seção dedicada abaixo.
+
+## Expediente semanal + PIX_ONLINE + walk-in add-on + produtos (sessão 2026-07-16) ✅
+
+Sessão de correção de três inconsistências operacionais + venda de produtos mínima
+(sem estoque). Escopo estritamente respeitado: **não mexeu** em preço-por-barbeiro
+nem no cockpit do cliente (sessões separadas).
+
+### 1. Expediente semanal recorrente (bug operacional corrigido)
+
+Antes: disponibilidade era criada dia a dia (o seed gerava 30 dias corridos,
+**incluindo domingo** — barbearia fechada aparecia agendável). Agora:
+
+- **`ExpedienteSemanal`** (novo agregado, `staff/domain`): por barbeiro, para cada
+  dia da semana (0=domingo..6=sábado), zero ou mais janelas de horário LOCAL.
+  Invariantes: formato `HH:mm`, `inicio < fim`, sem sobreposição no mesmo dia.
+- **Materialização** (`MaterializarExpedienteUseCase`): gera `Disponibilidade` dos
+  próximos ~45 dias a partir do expediente. Roda via **job diário** (cron 4h,
+  `MaterializarExpedienteJob`) e **imediatamente** ao salvar o expediente
+  (`DefinirExpedienteUseCase`). Regra de conflito: um dia com QUALQUER
+  disponibilidade de origem `MANUAL` **nunca** é tocado pela materialização — o
+  expediente é o gerador, o dia é a exceção, exceção sempre vence padrão.
+- `Disponibilidade` ganhou `origem: EXPEDIENTE | MANUAL` (migration com default
+  `MANUAL` — linhas existentes tratadas como edição manual, sem retrofit).
+- **Admin UI** (`Ajustes → Expediente semanal`): edição por barbeiro, toggle
+  atende/fechado por dia, "aplicar horário aos dias marcados" (edição em lote),
+  salva e materializa na hora.
+- **Endpoints:** `GET/PUT /expediente/:barbeiroId`.
+- **Seed corrigido:** Gabriel, Lucas Andrade e Pedro Martins agora seg-sáb, domingo
+  **sem expediente** (fechado). Confirmado via SQL direto: 0 registros de
+  disponibilidade aos domingos, 26 dias úteis em 30 dias corridos.
+
+### 2. Atendimento pago online não pede forma de pagamento
+
+- Novo valor de enum `FormaPagamento.PIX_ONLINE`, distinto do `PIX` presencial.
+- `ConcluirAtendimentoUseCase` consulta a `IntencaoDePagamento` vinculada ao
+  atendimento (`IntencaoDePagamentoRepository.porReferenciaAtendimento`, novo
+  método); se está **PAGA** e não sobrou valor adicional, chama
+  `atendimento.concluir(PIX_ONLINE)` automaticamente — o domínio não sabe de
+  `IntencaoDePagamento` (§2.2, agregados não se chamam), quem decide é a aplicação.
+- **Admin UI:** badge "Pago online" no card da agenda (visível mesmo antes de
+  concluir, via `AtendimentoDTO.pagoOnline`) e no diálogo de conclusão, que pula a
+  pergunta de forma de pagamento quando não há adicional.
+
+### 3. Adicionar serviço/produto na conclusão (walk-in add-on)
+
+- `Atendimento.adicionarItem(servicoId, ...)` e `.adicionarProduto(produtoId,
+  quantidade, ...)`: permitem registrar, **antes de concluir**, um serviço ou
+  produto que o cliente pediu na cadeira além do agendado. Só com `AGENDADO`.
+  
+- **Decisão consciente documentada em DOMAIN.md §3.5:** NÃO revalidam
+  sobreposição de horário — o `intervalo` não muda; a invariante de sobreposição
+  protege agendamentos *futuros*, não o registro retroativo de um atendimento em
+  curso.
+- **Regra de forma de pagamento generalizada:** deixou de depender só de `origem`
+  e passou a depender do que há de fato pra cobrar (`algum item com
+  itemDoPacoteId===null` OU `produtos.length>0`). Isso fecha uma lacuna real: antes,
+  um item avulso adicionado a um atendimento `CREDITO_PACOTE` **não seria cobrado**
+  (o domínio zerava `formaPagamento` só por olhar `origem`). Testado explicitamente.
+- Pago-online + item/produto adicionado: a conclusão pede forma de pagamento **só
+  do adicional** — a UI mostra "R$X já pago online + R$Y a cobrar agora".
+- Comissão flui pelo caminho existente: o evento final `AtendimentoConcluido`
+  carrega os itens/produtos completos, então `OnAtendimentoConcluidoHandler`
+  (generalizado) gera lançamento pra cada um, sem duplicar lógica.
+- **Endpoints:** `POST /atendimentos/:id/itens`, `POST /atendimentos/:id/produtos`.
+- **Admin UI:** seção "Adicionar à conta" no diálogo de conclusão (serviço + produto
+  com quantidade), habilitada só enquanto `AGENDADO`.
+
+### 4. Produtos (mínimo viável, SEM estoque)
+
+- **`Produto`** (novo agregado, `products/domain`): id, nome, preço, ativo —
+  soft-disable como `Servico`. **Sem** quantidade/fornecedor/estoque (decisão
+  consciente, DECISOES_PENDENTES #13).
+- Venda em dois lugares, nunca uma terceira forma: (a) anexada a um Atendimento na
+  conclusão (`ItemProdutoAtendido`, item 3 acima) ou (b) **venda avulsa**
+  (`VendaDeProduto`, novo agregado — "alguém entrou só pra comprar": produto(s),
+  barbeiro que vendeu, forma de pagamento, cliente **opcional**).
+- **Comissão de produto:** novo campo `Barbeiro.comissaoProdutos` — percentual
+  **único** para todos os produtos, sem matriz por produto (decisão consciente: a
+  matriz por serviço existe por margem de mão de obra distinta; produto é revenda).
+- **Ledger generalizado** (`LancamentoComissao`, §3.7): ganhou `origem` (`SERVICO`
+  \| `PRODUTO`), `produtoId`, `vendaDeProdutoId`; `atendimentoId`/`servicoId`
+  viraram opcionais via migration **aditiva** (`DROP NOT NULL` + novas colunas com
+  default) — lançamentos existentes preservados, testado explicitamente
+  (`produtos.e2e.spec.ts`: insere um lançamento no formato pré-migration e confirma
+  que o extrato continua lendo corretamente).
+- **Admin UI:** CRUD de produtos em `Ajustes`; botão "+ Venda de produto" na Agenda
+  abrindo um diálogo simples; extrato de comissão distingue origem (badge
+  "Produto") e mostra o nome certo (produto ou serviço).
+- **Endpoints:** `GET/POST /produtos`, `PATCH /produtos/:id`, `GET/POST
+  /vendas-produto`.
+
+### Testes e verificação
+
+**16 testes de integração novos**, em 3 arquivos:
+- `expediente.e2e.spec.ts` (4): dia sem janela não gera slots públicos; edição
+  manual sobrevive à rematerialização (via `MaterializarExpedienteUseCase`
+  chamado diretamente no teste).
+- `conclusao-avancada.e2e.spec.ts` (7): presencial continua exigindo forma de
+  pagamento; pago-online sem adicional conclui com `PIX_ONLINE` automático; badge
+  `pagoOnline` visível antes de concluir; adicionar serviço gera comissão correta;
+  pago-online + adicional pede pagamento só do adicional; adicionar produto usa
+  `comissaoProdutos`; não é possível adicionar após concluído.
+- `produtos.e2e.spec.ts` (5): CRUD; venda avulsa gera comissão com origem
+  distinta no extrato (incl. teste de **idempotência** do handler, reprocessar o
+  mesmo evento não duplica); cliente opcional; produto inativo não pode ser
+  vendido; **migration preserva lançamento pré-existente** (inserido direto via
+  Prisma no formato antigo, lido corretamente pelo extrato).
+
+**229 testes totais** (166 domínio/unit + 63 integração), suíte inteira idêntica
+sob `TZ=UTC`, `TZ=America/Sao_Paulo`, `TZ=Asia/Tokyo` (`npm run test:multitz`).
+Build dos 5 pacotes (contracts/api/admin/booking/account) verde. Smoke test manual
+via HTTP real contra Postgres real: login → expediente (domingo 0 janelas
+confirmado por SQL) → produtos → venda avulsa → extrato de comissão mostrando o
+**snapshot correto do percentual** (venda antiga preserva o percentual antigo
+mesmo depois do cadastro do barbeiro mudar — ledger imutável funcionando).
 
 ## Como rodar localmente
 

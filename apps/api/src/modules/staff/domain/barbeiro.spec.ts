@@ -56,3 +56,28 @@ describe('Barbeiro — serviços atendidos', () => {
     ).toThrow(InvarianteVioladaError);
   });
 });
+
+describe('Barbeiro — comissão sobre produto (item 4, sessão 2026-07-16)', () => {
+  it('default 0% quando não informado', () => {
+    expect(criar().comissaoProdutos.porcentagem).toBe(0);
+  });
+
+  it('percentual ÚNICO para todos os produtos — sem matriz por produto', () => {
+    const b = Barbeiro.criar({
+      id: 'bar-2',
+      companyId: 'co-1',
+      nome: 'Pedro',
+      papeis: new Set([Papel.BARBEIRO]),
+      comissaoPadrao: Percentual.dePorcentagem(45),
+      comissaoProdutos: Percentual.dePorcentagem(12),
+      servicosAtendidos: new Set(),
+    });
+    expect(b.comissaoProdutos.porcentagem).toBe(12);
+  });
+
+  it('definirComissaoProdutos atualiza o percentual', () => {
+    const b = criar();
+    b.definirComissaoProdutos(Percentual.dePorcentagem(15));
+    expect(b.comissaoProdutos.porcentagem).toBe(15);
+  });
+});

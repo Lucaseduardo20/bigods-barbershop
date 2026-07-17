@@ -6,6 +6,8 @@ import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usec
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-comparecimento.usecase';
+import { AdicionarItemAtendimentoUseCase } from './application/adicionar-item-atendimento.usecase';
+import { AdicionarProdutoAtendimentoUseCase } from './application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from './infrastructure/agenda-query.service';
 import { EmpresaPublicaQueryService } from './infrastructure/empresa-publica-query.service';
 import { HorariosDisponiveisQueryService } from './infrastructure/horarios-disponiveis-query.service';
@@ -21,6 +23,8 @@ import { PaymentsModule } from '../payments/payments.module';
     ConcluirAtendimentoUseCase,
     CancelarAtendimentoUseCase,
     RegistrarNaoComparecimentoUseCase,
+    AdicionarItemAtendimentoUseCase,
+    AdicionarProdutoAtendimentoUseCase,
     AgendaQueryService,
     EmpresaPublicaQueryService,
     HorariosDisponiveisQueryService,

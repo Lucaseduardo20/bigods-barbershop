@@ -44,6 +44,7 @@ function paraDTO(d: DisponibilidadeBarbeiro): DisponibilidadeDTO {
     data: d.data,
     inicio: d.janela.inicio.toISOString(),
     fim: d.janela.fim.toISOString(),
+    origem: d.origem,
   };
 }
 

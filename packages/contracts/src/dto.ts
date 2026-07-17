@@ -1,6 +1,8 @@
 import {
   FormaPagamento,
   OrigemAtendimento,
+  OrigemComissao,
+  OrigemDisponibilidade,
   Papel,
   StatusAtendimento,
   StatusItemPacote,
@@ -54,6 +56,12 @@ export interface BarbeiroDTO {
   comissaoPadrao: number; // porcentagem (ex: 45)
   excecoesComissao: ExcecaoComissaoDTO[];
   servicosAtendidos: string[];
+  /**
+   * Percentual ÚNICO de comissão sobre produto, para TODOS os produtos —
+   * sem matriz por produto (decisão consciente: a matriz por serviço existe
+   * por margens de mão de obra distintas; produto é revenda). Default 0%.
+   */
+  comissaoProdutos: number; // porcentagem
   ativo: boolean;
 }
 export interface CriarBarbeiroRequest {
@@ -67,6 +75,28 @@ export interface CriarBarbeiroRequest {
 export interface AtualizarComissaoRequest {
   comissaoPadrao: number;
   excecoes: ExcecaoComissaoDTO[];
+  comissaoProdutos: number;
+}
+
+// ---------- Expediente semanal recorrente ----------
+// Gera (materializa) as janelas de Disponibilidade dos próximos dias. A
+// disponibilidade por dia continua existindo e editável individualmente
+// (folga pontual, feriado) — o expediente é o gerador, o dia é a exceção.
+export interface JanelaExpedienteDTO {
+  inicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
+  fim: string; // "HH:mm", horário de parede LOCAL
+}
+export interface DiaDeExpedienteDTO {
+  /** 0=domingo .. 6=sábado (mesma convenção de Date.getUTCDay() sobre o dia civil). */
+  diaSemana: number;
+  janelas: JanelaExpedienteDTO[];
+}
+export interface ExpedienteSemanalDTO {
+  barbeiroId: string;
+  dias: DiaDeExpedienteDTO[];
+}
+export interface DefinirExpedienteRequest {
+  dias: DiaDeExpedienteDTO[];
 }
 export interface DisponibilidadeDTO {
   id: string;
@@ -74,6 +104,8 @@ export interface DisponibilidadeDTO {
   data: string; // YYYY-MM-DD, dia civil local (fuso da empresa)
   inicio: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
   fim: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
+  /** EXPEDIENTE (gerada pelo expediente semanal) ou MANUAL (folga/exceção pontual editada à mão). */
+  origem: OrigemDisponibilidade;
 }
 export interface CriarDisponibilidadeRequest {
   barbeiroId: string;
@@ -98,11 +130,18 @@ export interface ItemAtendidoDTO {
   duracaoMinutos: number;
   itemDoPacoteId: string | null;
 }
+export interface ItemProdutoAtendidoDTO {
+  produtoId: string;
+  produtoNome: string;
+  quantidade: number;
+  valorUnitarioCentavos: number;
+}
 export interface AtendimentoDTO {
   id: string;
   cliente: { id: string; nome: string; telefone: string };
   barbeiro: { id: string; nome: string };
   itens: ItemAtendidoDTO[];
+  produtos: ItemProdutoAtendidoDTO[];
   inicio: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
   fim: string; // ISO 8601 UTC (instante absoluto) — renderizar no fuso da empresa
   status: StatusAtendimento;
@@ -110,6 +149,10 @@ export interface AtendimentoDTO {
   formaPagamento: FormaPagamento | null;
   motivoCancelamento: string | null;
   valorTotalCentavos: number;
+  /** true se há uma IntencaoDePagamento PAGA vinculada — visível mesmo antes de concluir. */
+  pagoOnline: boolean;
+  /** Valor já coberto pelo pagamento online (0 se não pago online). */
+  valorPagoOnlineCentavos: number;
 }
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
@@ -127,10 +170,22 @@ export interface AgendarComCreditoRequest {
   horaInicio: string; // "HH:mm", horário de parede LOCAL
 }
 export interface ConcluirAtendimentoRequest {
+  /**
+   * Obrigatória apenas quando há valor a cobrar não coberto por pagamento
+   * online/crédito de pacote (ex.: atendimento avulso comum, ou pago online
+   * com item/produto adicionado na conclusão — nesse caso cobre só o adicional).
+   */
   formaPagamento?: FormaPagamento;
 }
 export interface CancelarAtendimentoRequest {
   motivo: string;
+}
+export interface AdicionarItemAtendimentoRequest {
+  servicoId: string;
+}
+export interface AdicionarProdutoAtendimentoRequest {
+  produtoId: string;
+  quantidade?: number; // default 1
 }
 export interface CobrancaDTO {
   intencaoId: string;
@@ -175,21 +230,26 @@ export interface VenderPacoteResponse {
 }
 
 // ---------- Comissão ----------
+// Generalizado para cobrir origem SERVICO (via Atendimento) e PRODUTO (via
+// Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente um par
+// (atendimentoId|vendaDeProdutoId) e (servicoNome|produtoNome) é preenchido.
 export interface LancamentoComissaoDTO {
   id: string;
   barbeiroId: string;
-  atendimentoId: string;
-  servicoId: string;
-  servicoNome: string;
+  origem: OrigemComissao;
+  atendimentoId: string | null;
+  vendaDeProdutoId: string | null;
+  servicoNome: string | null;
+  produtoNome: string | null;
   valorBaseCentavos: number;
   percentualAplicado: number; // porcentagem
   valorComissaoCentavos: number;
-  /** Quando o lançamento foi registrado (conclusão do atendimento). */
+  /** Quando o lançamento foi registrado (conclusão do atendimento / venda). */
   ocorridoEm: string;
   clienteNome: string;
   clienteTelefone: string;
-  /** Data/hora REAL do atendimento (pode diferir de `ocorridoEm`, se concluído depois do horário marcado). */
-  atendimentoInicio: string;
+  /** Data/hora REAL do atendimento (pode diferir de `ocorridoEm`), quando origem=SERVICO/atendimento. */
+  atendimentoInicio: string | null;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.
@@ -363,6 +423,52 @@ export interface AgendarComCreditoContaRequest {
 }
 export interface AgendarComCreditoContaResponse {
   atendimentoId: string;
+}
+
+// ---------- Produtos (venda avulsa, SEM controle de estoque) ----------
+// Catálogo mínimo: sem quantidade/estoque/fornecedor (decisão consciente,
+// DECISOES_PENDENTES). Soft-disable como Servico — nunca deletar (histórico).
+export interface ProdutoDTO {
+  id: string;
+  nome: string;
+  precoCentavos: number;
+  ativo: boolean;
+}
+export interface CriarProdutoRequest {
+  nome: string;
+  precoCentavos: number;
+}
+export interface AtualizarProdutoRequest {
+  nome?: string;
+  precoCentavos?: number;
+  ativo?: boolean;
+}
+
+export interface ItemVendaDeProdutoDTO {
+  produtoId: string;
+  produtoNome: string;
+  quantidade: number;
+  valorUnitarioCentavos: number;
+}
+export interface VendaDeProdutoDTO {
+  id: string;
+  barbeiroId: string;
+  barbeiroNome: string;
+  clienteId: string | null;
+  clienteNome: string | null;
+  itens: ItemVendaDeProdutoDTO[];
+  formaPagamento: FormaPagamento;
+  valorTotalCentavos: number;
+  vendidoEm: string; // ISO 8601 UTC
+}
+export interface VenderProdutoAvulsoRequest {
+  barbeiroId: string;
+  clienteId?: string;
+  itens: { produtoId: string; quantidade: number }[];
+  formaPagamento: FormaPagamento;
+}
+export interface VenderProdutoAvulsoResponse {
+  vendaId: string;
 }
 
 // ---------- Webhook AbacatePay ----------

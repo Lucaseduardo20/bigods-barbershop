@@ -21,6 +21,7 @@ function paraDominio(row: Row): Barbeiro {
     nome: row.nome,
     papeis: new Set(row.papeis.map((p) => Papel[p])),
     comissaoPadrao: Percentual.dePontosBase(row.comissaoPadraoBp),
+    comissaoProdutos: Percentual.dePontosBase(row.comissaoProdutosBp),
     excecoesComissao: new Map(
       row.excecoesComissao.map((e) => [e.servicoId, Percentual.dePontosBase(e.percentualBp)]),
     ),
@@ -48,6 +49,7 @@ export class PrismaBarbeiroRepository implements BarbeiroRepository {
       nome: barbeiro.nome,
       papeis: [...barbeiro.papeis],
       comissaoPadraoBp: barbeiro.comissaoPadrao.pontosBase,
+      comissaoProdutosBp: barbeiro.comissaoProdutos.pontosBase,
       ativo: barbeiro.ativo,
     };
     await this.db.barbeiro.upsert({

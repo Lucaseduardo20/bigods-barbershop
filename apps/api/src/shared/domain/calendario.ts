@@ -49,7 +49,7 @@ function partesEmZona(instante: Date, tz: Timezone): Required<DataHoraLocal> {
   };
 }
 
-function parseDataISO(dataISO: string): { ano: number; mes: number; dia: number } {
+export function parseDataISO(dataISO: string): { ano: number; mes: number; dia: number } {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataISO);
   if (!m) {
     throw new InvarianteVioladaError(`Data inválida (YYYY-MM-DD): ${dataISO}`);
@@ -83,6 +83,27 @@ export function diferencaDiasCivis(deISO: string, ateISO: string): number {
   const deUtc = Date.UTC(de.ano, de.mes - 1, de.dia);
   const ateUtc = Date.UTC(ate.ano, ate.mes - 1, ate.dia);
   return Math.round((ateUtc - deUtc) / 86_400_000) + 1;
+}
+
+/**
+ * Dia civil (YYYY-MM-DD) `dias` dias depois de `diaISO`. Aritmética pura de
+ * calendário (Y/M/D) — datas civis já fixadas se somam/subtraem sem precisar
+ * de fuso (o fuso só importa para ir de/para instante absoluto).
+ */
+export function diaCivilMaisDias(diaISO: string, dias: number): string {
+  const { ano, mes, dia } = parseDataISO(diaISO);
+  const alvo = new Date(Date.UTC(ano, mes - 1, dia + dias));
+  return `${String(alvo.getUTCFullYear()).padStart(4, '0')}-${String(alvo.getUTCMonth() + 1).padStart(2, '0')}-${String(alvo.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Dia da semana de um dia civil: 0=domingo .. 6=sábado (convenção de
+ * `Date.getUTCDay()`). Tz-agnóstico: uma data civil já fixada não precisa de
+ * fuso para saber que dia da semana é.
+ */
+export function diaDaSemanaCivil(diaISO: string): number {
+  const { ano, mes, dia } = parseDataISO(diaISO);
+  return new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay();
 }
 
 /** Chave do dia civil (YYYY-MM-DD) do instante, no fuso dado. */

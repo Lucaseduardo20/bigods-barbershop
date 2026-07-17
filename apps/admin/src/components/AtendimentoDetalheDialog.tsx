@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AtendimentoDTO } from '@bigods/contracts';
+import type { AtendimentoDTO, ProdutoDTO, ServicoDTO } from '@bigods/contracts';
 import { FormaPagamento, OrigemAtendimento, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hora } from '../lib/format';
@@ -23,6 +23,10 @@ export const labelStatus: Record<StatusAtendimento, string> = {
  * Modal de detalhe de um atendimento — busca por id (GET /atendimentos/:id) e
  * sempre mostra nome+telefone do cliente e data+hora do agendamento. Reusado
  * pela Agenda (clicar num card) e pela Comissão (botão de info em um lançamento).
+ *
+ * Itens 2/3/4a da sessão 2026-07-16: badge "Pago online"; adicionar
+ * serviço/produto ANTES de concluir (walk-in add-on); ao concluir, forma de
+ * pagamento só é pedida se sobrar valor não coberto pelo pagamento online.
  */
 export function AtendimentoDetalheDialog({
   atendimentoId,
@@ -38,6 +42,9 @@ export function AtendimentoDetalheDialog({
   const [motivo, setMotivo] = useState('');
   const [erroAcao, setErroAcao] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [servicoParaAdicionar, setServicoParaAdicionar] = useState('');
+  const [produtoParaAdicionar, setProdutoParaAdicionar] = useState('');
+  const [qtdProduto, setQtdProduto] = useState('1');
 
   const {
     dados: atendimento,
@@ -49,9 +56,21 @@ export function AtendimentoDetalheDialog({
     [atendimentoId],
   );
 
+  const servicosReq = useApi(() => api<ServicoDTO[]>('/servicos'), []);
+  const produtosReq = useApi(() => api<ProdutoDTO[]>('/produtos'), []);
+
   if (!atendimentoId) return null;
   const a = atendimento;
   const ehPacote = a?.origem === OrigemAtendimento.CREDITO_PACOTE;
+  const agendado = a?.status === StatusAtendimento.AGENDADO;
+
+  // Mesma regra de `Atendimento.concluir()` (domínio): exige forma de
+  // pagamento se há item avulso ou produto — a menos que o pagamento online já
+  // cubra o total (sem adicional).
+  const semAdicionalPagoOnline = !!a && a.pagoOnline && a.valorPagoOnlineCentavos >= a.valorTotalCentavos;
+  const precisaFormaPagamento =
+    !!a && !semAdicionalPagoOnline && (a.itens.some((i) => i.itemDoPacoteId === null) || a.produtos.length > 0);
+  const valorAdicional = a ? Math.max(0, a.valorTotalCentavos - a.valorPagoOnlineCentavos) : 0;
 
   const acao = async (fn: () => Promise<unknown>) => {
     setOcupado(true);
@@ -59,6 +78,19 @@ export function AtendimentoDetalheDialog({
     try {
       await fn();
       aoMudar();
+    } catch (e) {
+      setErroAcao(String((e as Error).message));
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const recarregarSoDetalhe = async (fn: () => Promise<unknown>) => {
+    setOcupado(true);
+    setErroAcao(null);
+    try {
+      await fn();
+      recarregar();
     } catch (e) {
       setErroAcao(String((e as Error).message));
     } finally {
@@ -75,6 +107,7 @@ export function AtendimentoDetalheDialog({
           <div className="flex gap-2 items-center flex-wrap">
             <Badge tone={toneStatus[a.status]}>{labelStatus[a.status]}</Badge>
             {ehPacote ? <Badge tone="gold">Crédito de pacote</Badge> : <Badge tone="neutral">Avulso</Badge>}
+            {a.pagoOnline && <Badge tone="success">Pago online</Badge>}
           </div>
 
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>
@@ -94,9 +127,17 @@ export function AtendimentoDetalheDialog({
 
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>
             {a.itens.map((i, idx) => (
-              <div key={idx} className="flex justify-between text-[13px] py-1">
+              <div key={`s${idx}`} className="flex justify-between text-[13px] py-1">
                 <span>{i.servicoNome}</span>
                 <span className="font-bold">{dinheiro(i.valorCobradoCentavos)}</span>
+              </div>
+            ))}
+            {a.produtos.map((p, idx) => (
+              <div key={`p${idx}`} className="flex justify-between text-[13px] py-1">
+                <span>
+                  {p.produtoNome} {p.quantidade > 1 ? `×${p.quantidade}` : ''}
+                </span>
+                <span className="font-bold">{dinheiro(p.valorUnitarioCentavos * p.quantidade)}</span>
               </div>
             ))}
             <div
@@ -106,13 +147,93 @@ export function AtendimentoDetalheDialog({
               <span>Total</span>
               <span>{dinheiro(a.valorTotalCentavos)}</span>
             </div>
+            {a.pagoOnline && (
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                {valorAdicional > 0 ? (
+                  <>
+                    {dinheiro(a.valorPagoOnlineCentavos)} já pago online + <strong>{dinheiro(valorAdicional)} a cobrar agora</strong>
+                  </>
+                ) : (
+                  <>{dinheiro(a.valorPagoOnlineCentavos)} já pago online — nada a cobrar</>
+                )}
+              </div>
+            )}
           </div>
 
-          {a.status === StatusAtendimento.AGENDADO && (
+          {agendado && (
             <>
-              {!ehPacote && (
+              {/* Item 3/4a: adicionar serviço/produto ANTES de concluir (walk-in add-on) */}
+              <div className="card flex flex-col gap-2">
+                <div className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+                  Adicionar à conta
+                </div>
+                <div className="flex gap-2">
+                  <select className="select flex-1" value={servicoParaAdicionar} onChange={(e) => setServicoParaAdicionar(e.target.value)}>
+                    <option value="">Serviço…</option>
+                    {(servicosReq.dados ?? [])
+                      .filter((s) => s.ativo)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nome} · {dinheiro(s.precoAvulsoCentavos)}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={ocupado || !servicoParaAdicionar}
+                    onClick={() =>
+                      recarregarSoDetalhe(async () => {
+                        await api(`/atendimentos/${a.id}/itens`, { method: 'POST', body: { servicoId: servicoParaAdicionar } });
+                        setServicoParaAdicionar('');
+                      })
+                    }
+                  >
+                    + Add
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <select className="select flex-1" value={produtoParaAdicionar} onChange={(e) => setProdutoParaAdicionar(e.target.value)}>
+                    <option value="">Produto…</option>
+                    {(produtosReq.dados ?? [])
+                      .filter((p) => p.ativo)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nome} · {dinheiro(p.precoCentavos)}
+                        </option>
+                      ))}
+                  </select>
+                  <input
+                    className="input"
+                    style={{ width: 56 }}
+                    type="number"
+                    min={1}
+                    value={qtdProduto}
+                    onChange={(e) => setQtdProduto(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={ocupado || !produtoParaAdicionar}
+                    onClick={() =>
+                      recarregarSoDetalhe(async () => {
+                        await api(`/atendimentos/${a.id}/produtos`, {
+                          method: 'POST',
+                          body: { produtoId: produtoParaAdicionar, quantidade: parseInt(qtdProduto, 10) || 1 },
+                        });
+                        setProdutoParaAdicionar('');
+                        setQtdProduto('1');
+                      })
+                    }
+                  >
+                    + Add
+                  </button>
+                </div>
+              </div>
+
+              {precisaFormaPagamento && (
                 <div>
-                  <label className="label">Forma de pagamento (para concluir)</label>
+                  <label className="label">
+                    Forma de pagamento {valorAdicional > 0 && a.pagoOnline ? `(do adicional: ${dinheiro(valorAdicional)})` : '(para concluir)'}
+                  </label>
                   <select className="select" value={forma} onChange={(e) => setForma(e.target.value as FormaPagamento)}>
                     <option value={FormaPagamento.PIX}>PIX</option>
                     <option value={FormaPagamento.DINHEIRO}>Dinheiro</option>
@@ -128,7 +249,7 @@ export function AtendimentoDetalheDialog({
                   acao(() =>
                     api(`/atendimentos/${a.id}/concluir`, {
                       method: 'POST',
-                      body: ehPacote ? {} : { formaPagamento: forma },
+                      body: precisaFormaPagamento ? { formaPagamento: forma } : {},
                     }),
                   )
                 }

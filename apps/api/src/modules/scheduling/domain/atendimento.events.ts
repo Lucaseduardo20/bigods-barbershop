@@ -6,6 +6,7 @@ import {
   ClienteId,
   CompanyId,
   ItemDoPacoteId,
+  ProdutoId,
   ServicoId,
 } from '../../../shared/domain/ids';
 
@@ -14,6 +15,13 @@ export interface ItemAtendidoSnapshot {
   valorCobradoCentavos: number;
   duracaoMinutos: number;
   itemDoPacoteId: ItemDoPacoteId | null;
+}
+
+export interface ItemProdutoAtendidoSnapshot {
+  produtoId: ProdutoId;
+  quantidade: number;
+  /** Preço UNITÁRIO snapshot — a linha total é `valorUnitarioCentavos * quantidade`. */
+  valorUnitarioCentavos: number;
 }
 
 export class AtendimentoAgendado implements DomainEvent {
@@ -38,6 +46,7 @@ export class AtendimentoConcluido implements DomainEvent {
     readonly barbeiroId: BarbeiroId,
     readonly origem: OrigemAtendimento,
     readonly itens: ItemAtendidoSnapshot[],
+    readonly produtos: ItemProdutoAtendidoSnapshot[],
   ) {}
 }
 

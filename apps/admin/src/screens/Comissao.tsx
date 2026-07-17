@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { BarbeiroDTO, ExtratoComissaoDTO, UsuarioDTO } from '@bigods/contracts';
-import { Papel } from '@bigods/contracts';
+import { OrigemComissao, Papel } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
-import { ErroEstado, Loading, useApi, Vazio } from '../components/ui';
+import { Badge, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 import { AtendimentoDetalheDialog } from '../components/AtendimentoDetalheDialog';
 
 export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
@@ -62,29 +62,39 @@ export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
           <div className="label">Extrato (ledger)</div>
           {dados.lancamentos.length === 0 && <Vazio texto="Nenhum lançamento ainda." />}
           <div className="flex flex-col gap-2">
-            {dados.lancamentos.map((l) => (
-              <div key={l.id} className="card flex items-center gap-2.5">
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-bold truncate">{l.clienteNome}</div>
-                  <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                    {l.servicoNome} · {dataCurta(l.atendimentoInicio, tz)}
+            {dados.lancamentos.map((l) => {
+              const ehProduto = l.origem === OrigemComissao.PRODUTO;
+              const nomeItem = ehProduto ? l.produtoNome : l.servicoNome;
+              const dataRotulo = l.atendimentoInicio ? dataCurta(l.atendimentoInicio, tz) : dataCurta(l.ocorridoEm, tz);
+              return (
+                <div key={l.id} className="card flex items-center gap-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-[13px] font-bold truncate">{l.clienteNome}</div>
+                      {ehProduto && <Badge tone="gold">Produto</Badge>}
+                    </div>
+                    <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {nomeItem} · {dataRotulo}
+                    </div>
+                    <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      base {dinheiro(l.valorBaseCentavos)} × {l.percentualAplicado}%
+                    </div>
                   </div>
-                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                    base {dinheiro(l.valorBaseCentavos)} × {l.percentualAplicado}%
+                  <div className="font-extrabold text-[15px] flex-shrink-0" style={{ color: 'var(--brand-gold-700)' }}>
+                    {dinheiro(l.valorComissaoCentavos)}
                   </div>
+                  {l.atendimentoId && (
+                    <button
+                      className="btn btn-ghost btn-sm flex-shrink-0"
+                      aria-label="Ver detalhes do atendimento"
+                      onClick={() => setSelecionadoId(l.atendimentoId)}
+                    >
+                      ⓘ
+                    </button>
+                  )}
                 </div>
-                <div className="font-extrabold text-[15px] flex-shrink-0" style={{ color: 'var(--brand-gold-700)' }}>
-                  {dinheiro(l.valorComissaoCentavos)}
-                </div>
-                <button
-                  className="btn btn-ghost btn-sm flex-shrink-0"
-                  aria-label="Ver detalhes do atendimento"
-                  onClick={() => setSelecionadoId(l.atendimentoId)}
-                >
-                  ⓘ
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

@@ -9,6 +9,7 @@ import {
   ClienteId,
   CompanyId,
   ItemDoPacoteId,
+  ProdutoId,
   ServicoId,
 } from '../../../shared/domain/ids';
 import {
@@ -33,12 +34,24 @@ export interface ItemAtendido {
   itemDoPacoteId: ItemDoPacoteId | null;
 }
 
+/**
+ * Value object interno: produto vendido junto deste atendimento (walk-in
+ * add-on na conclusão, item 3/4a da sessão 2026-07-16). `valorUnitario` é
+ * snapshot do preço vigente no momento em que foi adicionado.
+ */
+export interface ItemProdutoAtendido {
+  produtoId: ProdutoId;
+  quantidade: number;
+  valorUnitario: Dinheiro;
+}
+
 export interface AtendimentoProps {
   id: AtendimentoId;
   companyId: CompanyId;
   clienteId: ClienteId;
   barbeiroId: BarbeiroId;
   itens: ItemAtendido[];
+  produtos: ItemProdutoAtendido[];
   intervalo: IntervaloDeTempo;
   status: StatusAtendimento;
   origem: OrigemAtendimento;
@@ -118,6 +131,7 @@ export class Atendimento extends AggregateRoot {
       clienteId: params.clienteId,
       barbeiroId: barbeiro.id,
       itens,
+      produtos: [],
       intervalo,
       status: StatusAtendimento.AGENDADO,
       origem,
@@ -141,14 +155,33 @@ export class Atendimento extends AggregateRoot {
     return new Atendimento(props);
   }
 
+  /**
+   * Forma de pagamento é exigida sempre que há valor a cobrar não coberto por
+   * crédito de pacote — ou seja, sempre que existe algum item com
+   * `itemDoPacoteId === null` (avulso) OU algum produto (produto nunca é
+   * crédito de pacote). Generalização de "AVULSO exige, CREDITO_PACOTE não":
+   * cobre também o caso de um item/produto avulso ADICIONADO na conclusão de
+   * um atendimento de origem CREDITO_PACOTE (walk-in add-on, item 3/4a da
+   * sessão 2026-07-16) — antes esse valor adicional silenciosamente não
+   * exigia pagamento porque a checagem olhava só `origem`.
+   *
+   * Quando o atendimento foi PAGO ONLINE e não há adicional (nenhum item
+   * avulso/produto além do que já foi coberto), a aplicação chama `concluir`
+   * já com `formaPagamento = PIX_ONLINE` — o domínio não sabe de
+   * IntencaoDePagamento (§2.2, agregados não se chamam), quem decide isso é
+   * `ConcluirAtendimentoUseCase`.
+   */
   concluir(formaPagamento?: FormaPagamento): void {
     this.exigirAgendado('concluir');
-    if (this.props.origem === OrigemAtendimento.AVULSO && !formaPagamento) {
-      throw new InvarianteVioladaError('Conclusão de atendimento avulso exige forma de pagamento');
+    const exigeFormaPagamento =
+      this.props.itens.some((i) => i.itemDoPacoteId === null) || this.props.produtos.length > 0;
+    if (exigeFormaPagamento && !formaPagamento) {
+      throw new InvarianteVioladaError(
+        'Conclusão exige forma de pagamento para os itens/produtos não cobertos por crédito de pacote',
+      );
     }
     this.props.status = StatusAtendimento.CONCLUIDO;
-    this.props.formaPagamento =
-      this.props.origem === OrigemAtendimento.AVULSO ? (formaPagamento ?? null) : null;
+    this.props.formaPagamento = exigeFormaPagamento ? (formaPagamento ?? null) : null;
     this.adicionarEvento(
       new AtendimentoConcluido(
         this.props.id,
@@ -161,8 +194,46 @@ export class Atendimento extends AggregateRoot {
           duracaoMinutos: i.duracao.minutos,
           itemDoPacoteId: i.itemDoPacoteId,
         })),
+        this.props.produtos.map((p) => ({
+          produtoId: p.produtoId,
+          quantidade: p.quantidade,
+          valorUnitarioCentavos: p.valorUnitario.centavos,
+        })),
       ),
     );
+  }
+
+  /**
+   * Adiciona um serviço já realizado (walk-in add-on na conclusão — item 3 da
+   * sessão 2026-07-16): cliente agendou um corte, na cadeira decidiu fazer a
+   * barba também. Sempre avulso (`itemDoPacoteId = null`) — crédito de pacote
+   * só é consumido no fluxo de agendamento normal, nunca retroativamente.
+   *
+   * DECISÃO CONSCIENTE: NÃO revalida sobreposição de horário. O `intervalo`
+   * do atendimento não muda — o barbeiro está registrando trabalho já
+   * realizado/em andamento, não agendando um novo horário futuro. A
+   * invariante de sobreposição (checada em `agendar()`) protege agendamentos
+   * futuros, não o registro retroativo de um atendimento já em curso.
+   */
+  adicionarItem(servicoId: ServicoId, valorCobrado: Dinheiro, duracao: Duracao, barbeiro: Barbeiro): void {
+    this.exigirAgendado('adicionar item');
+    if (!barbeiro.atende(servicoId)) {
+      throw new InvarianteVioladaError(`Barbeiro ${barbeiro.nome} não atende o serviço ${servicoId}`);
+    }
+    this.props.itens.push({ servicoId, valorCobrado, duracao, itemDoPacoteId: null });
+  }
+
+  /**
+   * Adiciona um produto vendido junto deste atendimento (item 4a). Mesma
+   * decisão de não-revalidação de sobreposição do `adicionarItem` — produtos
+   * nem afetam o intervalo, muito menos a disponibilidade do barbeiro.
+   */
+  adicionarProduto(produtoId: ProdutoId, quantidade: number, valorUnitario: Dinheiro): void {
+    this.exigirAgendado('adicionar produto');
+    if (!Number.isInteger(quantidade) || quantidade <= 0) {
+      throw new InvarianteVioladaError(`Quantidade deve ser inteiro positivo: ${quantidade}`);
+    }
+    this.props.produtos.push({ produtoId, quantidade, valorUnitario });
   }
 
   cancelar(motivo: string): void {
@@ -213,8 +284,15 @@ export class Atendimento extends AggregateRoot {
       .filter((id): id is ItemDoPacoteId => id !== null);
   }
 
+  /** Itens + produtos. Usado para gerar a IntencaoDePagamento e para saber se
+   * há valor adicional não coberto por um pagamento online já confirmado. */
   valorTotal(): Dinheiro {
-    return this.props.itens.reduce((acc, i) => acc.somar(i.valorCobrado), Dinheiro.zero());
+    const totalItens = this.props.itens.reduce((acc, i) => acc.somar(i.valorCobrado), Dinheiro.zero());
+    const totalProdutos = this.props.produtos.reduce(
+      (acc, p) => acc.somar(p.valorUnitario.multiplicarPorInteiro(p.quantidade)),
+      Dinheiro.zero(),
+    );
+    return totalItens.somar(totalProdutos);
   }
 
   get id() { return this.props.id; }
@@ -222,6 +300,7 @@ export class Atendimento extends AggregateRoot {
   get clienteId() { return this.props.clienteId; }
   get barbeiroId() { return this.props.barbeiroId; }
   get itens(): readonly ItemAtendido[] { return this.props.itens; }
+  get produtos(): readonly ItemProdutoAtendido[] { return this.props.produtos; }
   get intervalo() { return this.props.intervalo; }
   get status() { return this.props.status; }
   get origem() { return this.props.origem; }

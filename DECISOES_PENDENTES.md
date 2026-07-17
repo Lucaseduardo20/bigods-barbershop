@@ -115,3 +115,38 @@ decisão de montar lê `PAYMENT_GATEWAY` na avaliação do módulo; em produçã
 CommonJS) a ordem de carga garante que a env já está setada. Além disso, mesmo se
 exposto, o guard **falha fechado** sem `ABACATEPAY_WEBHOOK_SECRET` (401), e o boot
 recusa subir com o gateway real sem o secret — dupla proteção.
+
+## 13. Produtos: SEM controle de estoque (decisão consciente, pedida explicitamente)
+
+O brief da sessão 2026-07-16 pediu venda de produto "mínima, SEM estoque" de forma
+explícita — não é uma pendência de descoberta, é uma restrição de escopo dada. Documentado
+aqui só para reforçar: **não implementar** quantidade, fornecedor, entrada/saída de
+estoque nem alerta de reposição, mesmo que pareça óbvio depois de ter o CRUD de produto
+pronto. Ver DOMAIN.md §11 (fora de escopo).
+
+**Quando reconsiderar:** se o volume de venda de produto justificar controlar quantidade
+(medir primeiro, mesma filosofia do §4.2 sobre `saldoResidual` — não automatizar um
+caminho antes de saber a frequência real).
+
+## 14. CRUD de ofertas de pacote (DECISOES #10) e CRUD de produtos: consistência a médio prazo
+
+A sessão de pacotes (2026-07-15) deixou `PacoteOferta` como read model só-seed, sem CRUD
+no admin. Esta sessão (2026-07-16) **implementou CRUD completo para Produto** (que é
+estruturalmente parecido — catálogo simples com preço e soft-disable). Vale considerar,
+numa sessão futura, se `PacoteOferta` deveria ganhar o mesmo tratamento (CRUD no admin)
+para não ficar como a única exceção "só editável no banco/seed" — mas isso depende da
+decisão de negócio pendente no item #10 sobre se "pacote" vira catálogo de primeira
+classe. Não é uma inconsistência técnica, é uma sequência natural de prioridade.
+
+## 15. Granularidade do expediente: uma janela por dia na UI do admin
+
+O agregado `ExpedienteSemanal` suporta **múltiplas janelas por dia** (ex.: manhã e
+tarde com intervalo no meio) — a invariante de domínio já cobre isso (sem sobreposição
+entre janelas do mesmo dia). A UI de admin implementada nesta sessão (`Ajustes →
+Expediente semanal`) permite editar só **uma janela por dia**, o suficiente para os
+casos reais do seed (Gabriel/Lucas/Pedro, cada um com um único turno). Se a barbearia
+precisar de um barbeiro com dois turnos separados por um intervalo (ex.: 9h–12h e
+14h–18h), o backend já suporta via API (`PUT /expediente/:barbeiroId` aceita array de
+janelas por dia) — só a UI precisa de um "+ adicionar janela" por dia, deixado de fora
+por não haver caso de uso real observado ainda (mesma filosofia de "medir antes de
+automatizar" do §4.2).

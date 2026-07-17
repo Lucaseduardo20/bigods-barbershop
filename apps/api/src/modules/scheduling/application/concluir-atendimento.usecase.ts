@@ -1,9 +1,13 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { FormaPagamento, OrigemAtendimento, Papel } from '@bigods/contracts';
+import { FormaPagamento, OrigemAtendimento, Papel, StatusPagamento } from '@bigods/contracts';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
+import {
+  INTENCAO_DE_PAGAMENTO_REPOSITORY,
+  IntencaoDePagamentoRepository,
+} from '../../payments/domain/intencao-de-pagamento.repository';
 
 export interface ConcluirAtendimentoInput {
   atendimentoId: string;
@@ -16,6 +20,7 @@ export class ConcluirAtendimentoUseCase {
   constructor(
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
+    @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
   ) {}
 
   async executar(input: ConcluirAtendimentoInput): Promise<void> {
@@ -28,7 +33,18 @@ export class ConcluirAtendimentoUseCase {
       }
       autorizarDonoOuAdmin(atendimento.barbeiroId, input.usuario);
 
-      atendimento.concluir(input.formaPagamento);
+      // Item 2 da sessão 2026-07-16: se há IntencaoDePagamento PAGA vinculada,
+      // a parte já paga não exige forma de pagamento — a aplicação (não o
+      // domínio, §2.2) sabe disso porque consulta o outro agregado aqui.
+      // Se sobrou valor além do que foi pago online (itens/produtos
+      // adicionados na conclusão, item 3/4a), a conclusão AINDA exige a forma
+      // de pagamento — mas só para cobrir esse adicional.
+      const intencaoPaga = await this.intencaoPagaDoAtendimento(atendimento.id);
+      const valorTotal = atendimento.valorTotal().centavos;
+      const valorPagoOnline = intencaoPaga?.valor.centavos ?? 0;
+      const semAdicional = intencaoPaga !== null && valorTotal <= valorPagoOnline;
+
+      atendimento.concluir(semAdicional ? FormaPagamento.PIX_ONLINE : input.formaPagamento);
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
 
@@ -49,6 +65,11 @@ export class ConcluirAtendimentoUseCase {
 
     // Comissão reage ao evento (§2.3) — handler do Payroll
     await this.publisher.publicar(eventos);
+  }
+
+  private async intencaoPagaDoAtendimento(atendimentoId: string) {
+    const intencao = await this.intencoes.porReferenciaAtendimento(atendimentoId);
+    return intencao && intencao.status === StatusPagamento.PAGO ? intencao : null;
   }
 }
 

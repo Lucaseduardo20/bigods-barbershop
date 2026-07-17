@@ -13,26 +13,35 @@ import { VENDA_DE_PACOTE_REPOSITORY } from '../modules/packages/domain/venda-de-
 import { LANCAMENTO_COMISSAO_REPOSITORY } from '../modules/payroll/domain/lancamento-comissao.repository';
 import { INTENCAO_DE_PAGAMENTO_REPOSITORY } from '../modules/payments/domain/intencao-de-pagamento.repository';
 import { PARAMETROS_DA_EMPRESA_REPOSITORY } from '../modules/packages/domain/parametros-da-empresa.repository';
+import { PRODUTO_REPOSITORY } from '../modules/products/domain/produto.repository';
+import { VENDA_DE_PRODUTO_REPOSITORY } from '../modules/products/domain/venda-de-produto.repository';
+import { EXPEDIENTE_SEMANAL_REPOSITORY } from '../modules/staff/domain/expediente-semanal.repository';
 import { PrismaServicoRepository } from '../modules/catalog/infrastructure/prisma-servico.repository';
 import { PrismaBarbeiroRepository } from '../modules/staff/infrastructure/prisma-barbeiro.repository';
 import { PrismaDisponibilidadeRepository } from '../modules/staff/infrastructure/prisma-disponibilidade.repository';
+import { PrismaExpedienteSemanalRepository } from '../modules/staff/infrastructure/prisma-expediente-semanal.repository';
 import { PrismaClienteRepository } from '../modules/customers/infrastructure/prisma-cliente.repository';
 import { PrismaAtendimentoRepository } from '../modules/scheduling/infrastructure/prisma-atendimento.repository';
 import { PrismaVendaDePacoteRepository } from '../modules/packages/infrastructure/prisma-venda-de-pacote.repository';
 import { PrismaLancamentoComissaoRepository } from '../modules/payroll/infrastructure/prisma-lancamento-comissao.repository';
 import { PrismaIntencaoDePagamentoRepository } from '../modules/payments/infrastructure/prisma-intencao-de-pagamento.repository';
 import { PrismaParametrosRepository } from '../modules/packages/infrastructure/prisma-parametros.repository';
+import { PrismaProdutoRepository } from '../modules/products/infrastructure/prisma-produto.repository';
+import { PrismaVendaDeProdutoRepository } from '../modules/products/infrastructure/prisma-venda-de-produto.repository';
 
 const repositorios = [
   { provide: SERVICO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaServicoRepository(p), inject: [PrismaService] },
   { provide: BARBEIRO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaBarbeiroRepository(p), inject: [PrismaService] },
   { provide: DISPONIBILIDADE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaDisponibilidadeRepository(p), inject: [PrismaService] },
+  { provide: EXPEDIENTE_SEMANAL_REPOSITORY, useFactory: (p: PrismaService) => new PrismaExpedienteSemanalRepository(p), inject: [PrismaService] },
   { provide: CLIENTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaClienteRepository(p), inject: [PrismaService] },
   { provide: ATENDIMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaAtendimentoRepository(p), inject: [PrismaService] },
   { provide: VENDA_DE_PACOTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDePacoteRepository(p), inject: [PrismaService] },
   { provide: LANCAMENTO_COMISSAO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaLancamentoComissaoRepository(p), inject: [PrismaService] },
   { provide: INTENCAO_DE_PAGAMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaIntencaoDePagamentoRepository(p), inject: [PrismaService] },
   { provide: PARAMETROS_DA_EMPRESA_REPOSITORY, useClass: PrismaParametrosRepository },
+  { provide: PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaProdutoRepository(p), inject: [PrismaService] },
+  { provide: VENDA_DE_PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDeProdutoRepository(p), inject: [PrismaService] },
 ];
 
 @Global()

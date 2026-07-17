@@ -48,6 +48,7 @@ class CriarBarbeiroDto {
 class AtualizarComissaoDto {
   @IsNumber() @Min(0) @Max(100) comissaoPadrao!: number;
   @IsArray() @ValidateNested({ each: true }) @Type(() => ExcecaoDto) excecoes!: ExcecaoDto[];
+  @IsNumber() @Min(0) @Max(100) comissaoProdutos!: number;
 }
 
 class AtualizarServicosDto {
@@ -65,6 +66,7 @@ function paraDTO(b: Barbeiro): BarbeiroDTO {
       percentual: p.porcentagem,
     })),
     servicosAtendidos: [...b.servicosAtendidos],
+    comissaoProdutos: b.comissaoProdutos.porcentagem,
     ativo: b.ativo,
   };
 }
@@ -124,6 +126,7 @@ export class BarbeirosController {
         body.excecoes.map((e) => [e.servicoId, Percentual.dePorcentagem(e.percentual)]),
       ),
       servicosAtendidos: barbeiro.servicosAtendidos,
+      comissaoProdutos: Percentual.dePorcentagem(body.comissaoProdutos),
       ativo: barbeiro.ativo,
     });
     await this.barbeiros.salvar(atualizado);

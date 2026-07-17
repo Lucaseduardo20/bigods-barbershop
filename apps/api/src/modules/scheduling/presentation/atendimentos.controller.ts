@@ -16,7 +16,9 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
+  IsPositive,
   IsString,
   Matches,
   MinLength,
@@ -33,6 +35,8 @@ import { AgendarComCreditoUseCase } from '../application/agendar-com-credito.use
 import { ConcluirAtendimentoUseCase } from '../application/concluir-atendimento.usecase';
 import { CancelarAtendimentoUseCase } from '../application/cancelar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-comparecimento.usecase';
+import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
+import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
 import { diferencaDiasCivis, instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import {
@@ -79,6 +83,15 @@ class CancelarDto {
   @IsString() @MinLength(1) motivo!: string;
 }
 
+class AdicionarItemDto {
+  @IsString() @MinLength(1) servicoId!: string;
+}
+
+class AdicionarProdutoDto {
+  @IsString() @MinLength(1) produtoId!: string;
+  @IsOptional() @IsInt() @IsPositive() quantidade?: number;
+}
+
 @Controller('atendimentos')
 export class AtendimentosController {
   constructor(
@@ -87,6 +100,8 @@ export class AtendimentosController {
     private readonly concluir: ConcluirAtendimentoUseCase,
     private readonly cancelar: CancelarAtendimentoUseCase,
     private readonly registrarFalta: RegistrarNaoComparecimentoUseCase,
+    private readonly adicionarItem: AdicionarItemAtendimentoUseCase,
+    private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
@@ -167,6 +182,33 @@ export class AtendimentosController {
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
     });
     return { atendimentoId: resultado.atendimentoId, cobranca: null };
+  }
+
+  /** Item 3 da sessão 2026-07-16 (walk-in add-on): adiciona serviço ANTES de concluir. */
+  @Post(':id/itens')
+  async adicionarItemAtendimento(
+    @Param('id') id: string,
+    @Body() body: AdicionarItemDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.adicionarItem.executar({ atendimentoId: id, servicoId: body.servicoId, usuario });
+    return { ok: true };
+  }
+
+  /** Item 4a da sessão 2026-07-16: produto vendido junto do atendimento, ANTES de concluir. */
+  @Post(':id/produtos')
+  async adicionarProdutoAtendimento(
+    @Param('id') id: string,
+    @Body() body: AdicionarProdutoDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.adicionarProduto.executar({
+      atendimentoId: id,
+      produtoId: body.produtoId,
+      quantidade: body.quantidade ?? 1,
+      usuario,
+    });
+    return { ok: true };
   }
 
   @Post(':id/concluir')

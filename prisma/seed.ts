@@ -24,20 +24,51 @@ function diaLocalMaisDias(d: number): string {
   return `${alvo.getUTCFullYear()}-${String(alvo.getUTCMonth() + 1).padStart(2, '0')}-${String(alvo.getUTCDate()).padStart(2, '0')}`;
 }
 
-/** Cria/atualiza uma janela de disponibilidade diária (horário LOCAL) para os próximos N dias. */
-async function seedarDisponibilidade(barbeiroId: string, horaInicio: string, horaFim: string) {
+/** 0=domingo .. 6=sábado (Date.getUTCDay()) — mesma convenção do ExpedienteJanela. */
+function diaDaSemana(dataISO: string): number {
+  const [ano, mes, dia] = dataISO.split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay();
+}
+
+const SEG_A_SAB = [1, 2, 3, 4, 5, 6]; // domingo (0) fica de fora — barbearia fechada
+
+/**
+ * Item 1 da sessão 2026-07-16: expediente semanal recorrente (seg-sáb com a
+ * janela dada, domingo SEM expediente) + materialização dos próximos
+ * DIAS_DE_DISPONIBILIDADE dias — substitui o antigo `seedarDisponibilidade`
+ * diário, que criava disponibilidade todo santo dia (inclusive domingo,
+ * barbearia fechada apareceria agendável — o bug operacional desta sessão).
+ * Mesma regra do `MaterializarExpedienteUseCase`, reimplementada aqui em
+ * Prisma puro porque o seed é um script standalone, sem DI do Nest.
+ */
+async function seedarExpediente(barbeiroId: string, horaInicio: string, horaFim: string) {
+  await prisma.expedienteJanela.deleteMany({ where: { barbeiroId } });
+  await prisma.expedienteJanela.createMany({
+    data: SEG_A_SAB.map((diaSemana) => ({ barbeiroId, diaSemana, horaInicio, horaFim })),
+  });
+
+  // Limpa qualquer disponibilidade antiga (incl. origem MANUAL de rodadas do
+  // seed anteriores à existência do ExpedienteSemanal — a materialização real
+  // NUNCA apaga origem MANUAL, mas o seed sempre reconstrói do zero para os
+  // barbeiros que ele próprio gerencia).
+  await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
+
   for (let d = 0; d < DIAS_DE_DISPONIBILIDADE; d++) {
     const data = diaLocalMaisDias(d);
+    const atende = SEG_A_SAB.includes(diaDaSemana(data));
     const id = `disp-${barbeiroId}-${data}`;
+    if (!atende) {
+      // Domingo: sem expediente → sem disponibilidade (remove se sobrou de rodada anterior).
+      await prisma.disponibilidade.deleteMany({ where: { id, origem: 'EXPEDIENTE' } });
+      continue;
+    }
     const janela = {
       barbeiroId,
       data,
       inicio: instanteDeDataHoraLocal(data, horaInicio, tz),
       fim: instanteDeDataHoraLocal(data, horaFim, tz),
+      origem: 'EXPEDIENTE' as const,
     };
-    // update real (não `{}`) para o seed ser auto-corretivo: reaplicar depois
-    // de uma mudança de regra precisa sobrescrever dados antigos, não deixá-los
-    // intocados por já existir o mesmo id.
     await prisma.disponibilidade.upsert({
       where: { id },
       create: { id, ...janela },
@@ -85,6 +116,20 @@ async function main() {
     });
   }
 
+  // ---- Produtos (item 4 da sessão 2026-07-16 — venda mínima, sem estoque) ----
+  const gelId = 'prod-gel';
+  const pomadaId = 'prod-pomada';
+  await prisma.produto.upsert({
+    where: { id: gelId },
+    create: { id: gelId, companyId, nome: 'Gel Fixador', precoCentavos: 1500, ativo: true },
+    update: {},
+  });
+  await prisma.produto.upsert({
+    where: { id: pomadaId },
+    create: { id: pomadaId, companyId, nome: 'Pomada Modeladora', precoCentavos: 3500, ativo: true },
+    update: {},
+  });
+
   // ---- Gabriel: sócio-barbeiro, admin + atende, 9h–18h ----
   const gabrielId = 'bar-gabriel';
   await prisma.barbeiro.upsert({
@@ -95,6 +140,7 @@ async function main() {
       nome: 'Gabriel',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
+      comissaoProdutosBp: 1000, // 10% — percentual único, sem matriz por produto
       login: 'gabriel',
       senhaHash: hashSenha(SENHA_PADRAO),
     },
@@ -107,7 +153,7 @@ async function main() {
     ],
     skipDuplicates: true,
   });
-  await seedarDisponibilidade(gabrielId, '09:00', '18:00');
+  await seedarExpediente(gabrielId, '09:00', '18:00');
 
   // ---- Admins de gestão (não atendem — só acesso ao painel) ----
   // DECISAO_PENDENTE: "admin" aqui é só o papel ADMIN sem BARBEIRO, seguindo a
@@ -154,7 +200,7 @@ async function main() {
     ],
     skipDuplicates: true,
   });
-  await seedarDisponibilidade(lucasId, '12:00', '20:00'); // turno da tarde/noite
+  await seedarExpediente(lucasId, '12:00', '20:00'); // turno da tarde/noite, seg-sáb
 
   const pedroId = 'bar-pedro-martins';
   await prisma.barbeiro.upsert({
@@ -181,11 +227,12 @@ async function main() {
     create: { barbeiroId: pedroId, servicoId: barbaId, percentualBp: 6000 },
     update: { percentualBp: 6000 },
   });
-  await seedarDisponibilidade(pedroId, '09:00', '13:00'); // só manhãs
+  await seedarExpediente(pedroId, '09:00', '13:00'); // só manhãs, seg-sáb
 
-  // Disponibilidade dos próximos 30 dias, 9h–18h HORÁRIO DE SÃO PAULO (não UTC —
-  // isso é literalmente o bug que motivou a correção de fuso desta sessão).
-  // (Gabriel já seedado acima via seedarDisponibilidade.)
+  // Disponibilidade dos próximos DIAS_DE_DISPONIBILIDADE dias, HORÁRIO DE SÃO
+  // PAULO (não UTC — o bug que motivou a correção de fuso de uma sessão
+  // anterior), seg-sáb — domingo fica SEM expediente (barbearia fechada não
+  // pode aparecer agendável, o bug operacional desta sessão). Ver `seedarExpediente`.
 
   // Pacote exemplo: cliente + venda paga (corte + barba por R$60)
   const clienteId = 'cli-exemplo';
@@ -230,7 +277,9 @@ async function main() {
 
   console.log(`Seed concluído (fuso: ${TZ_EMPRESA}). Senha de todos os logins: ${SENHA_PADRAO}`);
   console.log('Admins:      gabriel (também barbeiro), lkt, rafaelgrigio');
-  console.log('Barbeiros:   Gabriel (09h–18h), Lucas Andrade (12h–20h), Pedro Martins (09h–13h, barba 60%)');
+  console.log('Barbeiros:   Gabriel (seg-sáb 09h–18h), Lucas Andrade (seg-sáb 12h–20h), Pedro Martins (seg-sáb 09h–13h, barba 60%)');
+  console.log('Expediente:  domingo SEM expediente para todos (barbearia fechada) — materializado via ExpedienteSemanal');
+  console.log('Produtos:    Gel Fixador (R$15) e Pomada Modeladora (R$35) — Gabriel com comissão de produto 10%');
   console.log('Conta demo:  login OTP direto com o telefone (11) 99999-8888 (João Exemplo, com pacote e créditos)');
 }
 

@@ -26,6 +26,14 @@ export class Dinheiro {
     return Dinheiro.deCentavos(this.centavos - outro.centavos);
   }
 
+  /** Multiplica por uma quantidade inteira (ex.: preço unitário × quantidade vendida). */
+  multiplicarPorInteiro(quantidade: number): Dinheiro {
+    if (!Number.isInteger(quantidade) || quantidade < 0) {
+      throw new InvarianteVioladaError(`Quantidade deve ser inteiro não-negativo: ${quantidade}`);
+    }
+    return Dinheiro.deCentavos(this.centavos * quantidade);
+  }
+
   ehZero(): boolean {
     return this.centavos === 0;
   }
