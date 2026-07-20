@@ -11,11 +11,15 @@ sob os mesmos 3 fusos.
 
 Sessão de correção de bugs de smoke test (2026-07-20 — ver seção dedicada perto
 do fim deste arquivo): 8 bugs corrigidos, cada um com teste que reproduziu o
-problema antes da correção. **232 testes verdes no backend** (231 passam + 1
-falha pré-existente e fora de escopo, ver nota na seção), idênticos sob os 3
-fusos; suítes novas de testes puros em `apps/booking`, `apps/account` e
-`apps/admin` (13 testes) para lógica de frontend que antes não tinha nenhuma
-cobertura.
+problema antes da correção. Suítes novas de testes puros em `apps/booking`,
+`apps/account` e `apps/admin` (13 testes) para lógica de frontend que antes não
+tinha nenhuma cobertura.
+
+Sessão de correção do teste de expediente (2026-07-20, continuação — ver seção
+dedicada perto do fim deste arquivo): a falha pré-existente mencionada acima
+foi diagnosticada (causa C: teste mal dimensionado no tempo, não bug de
+produção) e corrigida. **233 testes verdes no backend, 100%**, idênticos sob
+`TZ=UTC`, `TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo` (`npm run test:multitz`).
 
 ## Fase 1 — Fundação do monorepo ✅
 
@@ -582,13 +586,104 @@ false`); venda inexistente → 404.
 escopo** — `expediente.e2e.spec.ts`, "edição manual sobrevive à
 rematerialização" — confirmado via `git stash` que já falhava antes desta
 sessão, em qualquer um dos 3 fusos; não é um dos 8 bugs pedidos e não foi
-tocado). Suíte inteira idêntica sob `TZ=UTC`, `TZ=America/Sao_Paulo`,
+tocado nesta sessão). Suíte inteira idêntica sob `TZ=UTC`, `TZ=America/Sao_Paulo`,
 `TZ=Asia/Tokyo`. Novas suítes de teste puro (sem harness de render, só lógica
 extraída para funções testáveis) nos 3 frontends, que antes não tinham nenhum
 teste configurado: `apps/booking` (3 testes), `apps/account` (10 testes),
 `apps/admin` (4 testes) — `vitest.config.ts` + `"test": "vitest run"`
 adicionados aos 3 `package.json`. Build dos 5 pacotes (`turbo run build`)
 verde.
+
+**Atualização (mesma data, sessão seguinte):** a falha pré-existente acima foi
+diagnosticada e corrigida — ver "Correção do teste de expediente" logo abaixo.
+A suíte do backend está 100% verde agora (233/233).
+
+## Correção do teste de expediente (sessão 2026-07-20, continuação) ✅
+
+Objetivo único desta sessão: `expediente.e2e.spec.ts` → "edição manual de um
+dia sobrevive à rematerialização" 100% verde, com diagnóstico explícito da
+causa raiz antes de qualquer correção. Nada além disso foi tocado (preço por
+barbeiro, catálogo de pacote e aprovação ficam para a próxima sessão).
+
+### Diagnóstico
+
+A falha era sempre na mesma linha (`expect(horarios.body.horarios.length).toBeGreaterThan(0)`),
+**nunca** nas asserções anteriores que verificam a disponibilidade manual no
+banco (`toHaveLength(1)`, `origem === 'MANUAL'`) — isso já isolava a causa
+antes de qualquer suposição:
+
+- **Causa (A) descartada**: a disponibilidade manual estava intacta no banco
+  depois da rematerialização (asserções de banco passavam). A regra "dia com
+  origem MANUAL nunca é tocado" (`MaterializarExpedienteUseCase.materializarUmDia`)
+  funciona corretamente.
+- **Causa (B) descartada**: a projeção pública (`HorariosDisponiveisQueryService`)
+  não filtra por `origem` nenhuma — lê toda `Disponibilidade` do
+  barbeiro/dia, sem distinção MANUAL/EXPEDIENTE.
+- **Causa raiz = (C), mas não a hipótese literal do relato** (não era duração
+  do serviço — 07:00-08:00 comporta um corte de 30min sem ambiguidade). O
+  problema real: o helper `proximaSegundaEDomingo()` do teste começava a busca
+  em `d=0` (hoje incluso) — se a suíte rodasse numa segunda-feira, "próxima
+  segunda" resolvia para **hoje**. A projeção pública tem um filtro
+  intencional e correto (`slotInicio <= agora.getTime()) continue` — "não
+  oferecer horário passado"), e uma janela manual fixa de 07:00-08:00
+  criada num dia que já é hoje fica inteiramente no passado assim que a
+  suíte roda depois das 08:00. Confirmado: **hoje (2026-07-20) é
+  segunda-feira**; a suíte estava rodando às 16h, muito depois das 08:00. O
+  teste anterior no mesmo arquivo ("dia com janela gera slots públicos") usa
+  o expediente 09:00-18:00 do mesmo dia e só não quebrava porque 18:00 ainda
+  não tinha passado — o mesmo tipo de fragilidade, só que com margem maior.
+  **Não é um bug de produção**: o filtro de horário passado é comportamento
+  correto e desejado (não faz sentido oferecer um agendamento no passado).
+
+### Correção
+
+Nenhuma mudança em código de produção (era causa C — só o teste estava mal
+dimensionado no tempo, não em duração). Correção no teste:
+
+- `proximaSegundaEDomingo()` agora começa em `d=1` (nunca "hoje") — garante um
+  dia **inteiramente futuro**, então nenhuma janela fixa de horário pode ser
+  filtrada por já ter passado, não importa a hora do dia em que a suíte roda.
+  Isso também blinda o teste "dia com janela gera slots públicos" contra a
+  mesma fragilidade (ele não estava quebrado, mas tinha o mesmo risco latente).
+- Teste "edição manual sobrevive à rematerialização" reescrito com:
+  - janela manual folgada e sem ambiguidade: **06:00-08:00** (2h, bem longe do
+    expediente 09:00-18:00 do mesmo dia — cenário real: barbeiro abre mais
+    cedo num dia excepcional).
+  - asserções separadas e específicas: (a) a disponibilidade manual continua
+    no banco, `origem: 'MANUAL'`, com `inicio`/`fim` batendo **exatamente**
+    com o instante esperado (antes a asserção só checava
+    `inicio !== fim`, que seria verdade mesmo se a janela tivesse sido
+    silenciosamente trocada por outra); (b) a projeção pública devolve slots,
+    todos dentro de 06:00-08:00, e nenhum a partir de 09:00 (nunca do
+    expediente padrão).
+- Novo teste, caso inverso: **dia sem edição manual é rematerializado
+  normalmente quando o expediente muda** — muda só terça-feira (10:00-14:00,
+  mantendo seg/qua/qui/sex em 09-18) via `PUT /expediente`, confirma que a
+  disponibilidade de terça reflete o novo horário (`origem: 'EXPEDIENTE'`,
+  instantes exatos) **e** que a edição manual de segunda-feira (teste
+  anterior) permanece intacta depois dessa rematerialização em massa — prova
+  que a proteção de dias MANUAL não virou "a materialização nunca atualiza
+  nada".
+
+### Janela deslizante de materialização (confirmado, sem alteração)
+
+`MaterializarExpedienteJob` roda diariamente (cron `EVERY_DAY_AT_4AM`,
+`America/Sao_Paulo`) e chama `MaterializarExpedienteUseCase.executar({companyId})`
+**sem** fixar `hoje` — o use case usa `input.hoje ?? new Date()` como base e
+materializa `hoje..hoje+45`. Como o job roda todo dia com "hoje" real (nunca
+fixo), a janela de fato desliza: a cada execução diária o horizonte avança um
+dia (o dia 46 de ontem vira o dia 45 de hoje). Não havia bug aqui — comportamento
+já estava correto, só confirmado por leitura de código (nenhum teste dedicado
+a isso existia antes; não foi adicionado um agora por ser comportamento de
+orquestração de cron, non-determinístico de testar sem mockar `Date`, e fora
+do escopo estrito desta sessão — se quiser cobertura disso, é candidato pra
+próxima sessão, não uma pendência aberta pela raiz do bug encontrado aqui).
+
+### Verificação
+
+`npm run test` (28 arquivos, **233/233 testes**) e `npm run test:multitz`
+(`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`) **100% verdes**, zero falhas. Build
+dos 5 pacotes (`turbo run build`) verde.
 
 ## Como rodar localmente
 
