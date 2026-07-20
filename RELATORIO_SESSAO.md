@@ -9,6 +9,14 @@ Sessão mais recente (2026-07-16, "expediente + PIX_ONLINE + produtos" — ver
 seção dedicada perto do fim deste arquivo): **229 testes verdes**, idênticos
 sob os mesmos 3 fusos.
 
+Sessão de correção de bugs de smoke test (2026-07-20 — ver seção dedicada perto
+do fim deste arquivo): 8 bugs corrigidos, cada um com teste que reproduziu o
+problema antes da correção. **232 testes verdes no backend** (231 passam + 1
+falha pré-existente e fora de escopo, ver nota na seção), idênticos sob os 3
+fusos; suítes novas de testes puros em `apps/booking`, `apps/account` e
+`apps/admin` (13 testes) para lógica de frontend que antes não tinha nenhuma
+cobertura.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -420,6 +428,167 @@ via HTTP real contra Postgres real: login → expediente (domingo 0 janelas
 confirmado por SQL) → produtos → venda avulsa → extrato de comissão mostrando o
 **snapshot correto do percentual** (venda antiga preserva o percentual antigo
 mesmo depois do cadastro do barbeiro mudar — ledger imutável funcionando).
+
+## Correção de bugs de smoke test manual (sessão 2026-07-20) ✅
+
+Sessão de correção pura — sem features novas, sem mexer em preço-por-barbeiro,
+catálogo de pacotes ou cancelar/reagendar pelo cliente (sessões B/C separadas).
+Para cada bug: teste que reproduz o problema primeiro, depois a correção.
+
+### Bug 1 — OTP duplo pós-compra e loop de repagamento (crítico)
+
+Dois defeitos distintos no mesmo fluxo:
+
+- **Loop de repagamento**: `apps/booking` persistia o `FunnelState` inteiro em
+  `sessionStorage`, mas `concluido`/`pago` viviam em `useState` separado, nunca
+  persistido. Um refresh depois de pagar restaurava `step: CONFIRMACAO` com os
+  dados antigos (`ofertaId`, `formaPagamento`...) e o cliente caía de novo na
+  tela de pagamento de um pacote **já PAGO**, podendo comprar em dobro.
+  Correção: `concluido` passou a ser campo do próprio `FunnelState` persistido;
+  `sanitizarEstadoCarregado()` (função pura, `funnel-state.ts`) descarta o
+  estado salvo e volta para `LANDING` sempre que `concluido: true` — uma compra
+  concluída nunca mais é resumida no meio do funil.
+- **Segundo OTP**: o onboarding pós-compra (`Onboarding.tsx`, booking) já
+  confirmava o código e ganhava um token de sessão real, mas só linkava para
+  `ACCOUNT_URL` sem repassar nada — a área do cliente (origem diferente, sem
+  acesso ao `localStorage` de lá) não tinha sessão e pedia OTP de novo.
+  Correção: `linkDeContaComSessao()` (booking) embute token+cliente na
+  querystring do link; `sessaoDaQuery()` (account, `session.ts`) lê e
+  estabelece a sessão no primeiro carregamento, limpando a URL depois — um
+  único OTP já deixa a conta logada.
+- Testes novos (pure functions, sem harness de render): `funnel-state.spec.ts`,
+  `handoff.spec.ts` (booking), `session.spec.ts` (account).
+
+### Bug 2 — telefone sem conta ficava preso no OTP sem feedback
+
+Login OTP só provisionava identidade (Cognito/`DemoIdentidade`) na compra de um
+pacote (`OnPacoteVendidoHandler`) — um telefone que só agendou avulso, ou nunca
+comprou nada, recebia `desafio=''` (código nenhum) e ficava preso digitando um
+código que nunca existiu, sem nunca saber por quê.
+
+Correção: `IniciarLoginClienteUseCase` agora chama
+`identity.provisionarUsuario(...)` (idempotente nos dois providers) **antes**
+de iniciar o desafio — qualquer telefone recebe um código de verdade; a
+neutralidade (não revelar existência de conta) continua garantida porque a
+resposta do "iniciar" é sempre a mesma forma. `ConfirmarLoginClienteUseCase`
+não barra mais com 401 quando não há `Cliente` — cria a conta na hora, já que o
+código provou posse do telefone; a área logada mostra a home vazia normal
+("sem pacotes, agende seu primeiro horário", tela que já existia). `// DECISAO_PENDENTE`
+sobre o nome placeholder (`'Cliente'`) enquanto não existe edição de perfil —
+ver DECISOES_PENDENTES.md #16.
+
+Teste: `conta-cliente.e2e.spec.ts` — telefone nunca usado recebe código real;
+confirmar cria `Cliente` e devolve perfil vazio (não erro/loop).
+
+### Bug 3 — mensagem crua de conflito de horário
+
+`Conflito de horário: barbeiro já tem atendimento <uuid> sobreposto` chegava
+verbatim à tela do cliente (o `DomainErrorFilter` reenviava `exception.message`
+sem filtro). Correção: novo subtipo `ConflitoDeHorarioError extends
+InvarianteVioladaError` (mensagem técnica preservada para o domínio/logs); o
+filtro mapeia esse tipo para uma mensagem amigável ("Esse horário acabou de ser
+preenchido. Escolha outro, por favor.") e loga o detalhe técnico via `Logger`,
+nunca expondo UUID/jargão na resposta HTTP.
+
+No frontend (`apps/booking`): `voltar()` limpa `erroEnvio` — o erro de uma
+tentativa não fica mais grudado ao refazer o fluxo com outro horário. Novo
+componente `AlertaErro` (alerta visível, não uma div solta) usado tanto no
+conflito quanto na validação de telefone incompleto em `Dados.tsx` (antes só
+desabilitava o botão sem explicar por quê).
+
+Teste: `booking-publico.e2e.spec.ts` — resposta do conflito não contém UUID
+nem "sobreposto", é a mensagem amigável exata.
+
+### Bug 4 — comissão não carregava com o primeiro barbeiro do select
+
+`Comissao.tsx` inicializava `barbeiroId` com `usuario.barbeiroId` (que pode não
+bater com nenhum barbeiro da lista, ex.: admin puro) — o `<select>` renderizava
+visualmente o primeiro item (comportamento padrão do DOM quando o `value`
+controlado não casa com nenhuma `<option>`), mas o fetch continuava usando o
+valor antigo/inválido, só corrigindo ao trocar manualmente. Correção: função
+pura `idEfetivo()` (`apps/admin/src/lib/selecao.ts`) cai no primeiro item da
+lista carregada quando o valor atual é nulo ou não existe mais — usada tanto no
+`value` do select quanto na chave do fetch.
+
+Teste: `selecao.spec.ts` (admin).
+
+### Bug 5 — add-on em atendimento de crédito não mostrava o valor a cobrar
+
+No diálogo de conclusão (`AtendimentoDetalheDialog.tsx`), o rótulo "forma de
+pagamento" só mostrava o valor a cobrar quando `a.pagoOnline` era verdadeiro —
+um serviço avulso adicionado a um atendimento de **crédito de pacote** (nunca
+pago online) passava a exigir forma de pagamento (correto) mas sem dizer
+quanto. Como `valorAdicional = valorTotal - valorPagoOnlineCentavos` já era
+calculado corretamente para os dois casos (0 quando não é pago online), a
+correção foi só remover a condição — o rótulo sempre mostra "(R$X a cobrar
+agora)".
+
+Teste: `conclusao-avancada.e2e.spec.ts` — asserta `valorPagoOnlineCentavos`
+zerado e `valorTotal - valorPagoOnlineCentavos` igual ao total cheio quando não
+há pagamento online.
+
+### Bug 6 — prazo de segunda chance mostrava 11 dias em vez de 10
+
+`diasRestantes()` (cockpit) fazia `Math.ceil((prazoMs - agoraMs) / 86400000)`.
+Como `prazoReagendamentoAte` é sempre **fim do dia civil** N
+(`fimDoDiaCivilMaisDias`, já testado) e "agora" é tipicamente meio do dia, a
+diferença bruta em ms é quase N+1 dias — o `ceil` arredondava para cima.
+Correção: `diasCivisRestantes()` (`apps/account/src/lib/format.ts`) compara
+**datas civis** (hoje vs. dia civil do prazo, no fuso da empresa), não
+milissegundos brutos — um prazo de 10 dias mostra 10 do início ao fim do dia de
+hoje, nunca 11.
+
+Teste: `format.spec.ts` — prazo de 10 dias consultado às 14h mostra 10 (o
+cálculo antigo, verificado manualmente, dava 11 no mesmo cenário); mostra 0 no
+último dia; nunca negativo.
+
+### Bug 7 — mensagens com gênero/plural errados no cockpit
+
+(a) "sua corte" / "você perde a corte" concordava sempre no feminino, mas o
+nome do serviço é texto livre cadastrado pelo admin (ex.: "Corte" é
+masculino) — não há gênero gramatical modelado no domínio, e não dá pra
+adivinhar. Correção: reescrita para usar "o horário de {serviço}" como núcleo
+da frase (sempre masculino, invariante a qualquer nome de serviço) — sem
+inventar heurística de gênero nenhuma.
+(b) saldo residual de múltiplos itens expirados sempre dizia "um serviço
+perdeu o prazo", mesmo com 2+ itens. Correção: conta real de itens
+`EXPIRADO` do pacote, pluralização correta ("2 serviços perderam o prazo").
+
+Ambas extraídas para funções puras (`apps/account/src/lib/textos.ts`):
+`fraseSegundaChance()` e `fraseSaldoResidual()`.
+
+Teste: `textos.spec.ts`.
+
+### Bug 8 — admin não conseguia confirmar pagamento presencial de pacote
+
+Pacote comprado como "pagar na barbearia" ficava `AGUARDANDO` para sempre — não
+havia nenhuma ação no admin para o barbeiro/admin confirmar o recebimento e
+liberar os créditos (só existia "marcar como pago" ao **criar** uma venda
+nova). Correção: novo `ConfirmarPagamentoPresencialUseCase` reusa o **mesmo**
+caminho idempotente do webhook (`IntencaoDePagamento.confirmarPagamento()` +
+`VendaDePacote.confirmarPagamento()`, ambos já testados) — só troca o gatilho
+(admin em vez do gateway). Novo endpoint `POST /pacotes/:id/confirmar-pagamento`;
+novo método `porReferenciaVendaDePacote` no repositório de intenções (mesmo
+padrão de `porReferenciaAtendimento`, já existente). Admin: botão "Confirmar
+pagamento presencial" ao lado do badge `AGUARDANDO` em `Pacotes.tsx`.
+
+Teste: `conta-cliente.e2e.spec.ts` — venda presencial fica `AGUARDANDO`;
+confirmar libera os créditos; confirmar de novo é idempotente (`processado:
+false`); venda inexistente → 404.
+
+### Verificação
+
+**232 testes no backend** (231 passam; 1 falha pré-existente e **fora de
+escopo** — `expediente.e2e.spec.ts`, "edição manual sobrevive à
+rematerialização" — confirmado via `git stash` que já falhava antes desta
+sessão, em qualquer um dos 3 fusos; não é um dos 8 bugs pedidos e não foi
+tocado). Suíte inteira idêntica sob `TZ=UTC`, `TZ=America/Sao_Paulo`,
+`TZ=Asia/Tokyo`. Novas suítes de teste puro (sem harness de render, só lógica
+extraída para funções testáveis) nos 3 frontends, que antes não tinham nenhum
+teste configurado: `apps/booking` (3 testes), `apps/account` (10 testes),
+`apps/admin` (4 testes) — `vitest.config.ts` + `"test": "vitest run"`
+adicionados aos 3 `package.json`. Build dos 5 pacotes (`turbo run build`)
+verde.
 
 ## Como rodar localmente
 

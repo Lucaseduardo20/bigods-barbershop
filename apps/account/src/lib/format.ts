@@ -69,6 +69,21 @@ export function rotuloDia(dataISO: string): { dow: string; num: string; longo: s
   };
 }
 
+/**
+ * Bug 6: dias civis restantes até um prazo, no fuso da empresa — comparando
+ * DATAS civis (não milissegundos brutos). `prazoReagendamentoAte` é sempre
+ * fim do dia civil N (§ shared/domain/calendario.ts), então um diff de ms
+ * contra "agora" (tipicamente no meio do dia) soma quase um dia inteiro extra
+ * e o `Math.ceil` arredondava para N+1. Comparando datas civis, um prazo de
+ * 10 dias sempre mostra 10, do início ao fim do dia de hoje.
+ */
+export function diasCivisRestantes(prazoIso: string, tz: string): number {
+  const [ah, mh, dh] = hojeISO(tz).split('-').map(Number);
+  const [ap, mp, dp] = new Date(prazoIso).toLocaleDateString('en-CA', { timeZone: tz }).split('-').map(Number);
+  const diff = Math.round((Date.UTC(ap, mp - 1, dp) - Date.UTC(ah, mh - 1, dh)) / 86_400_000);
+  return Math.max(0, diff);
+}
+
 export function iniciais(nome: string): string {
   return nome
     .trim()

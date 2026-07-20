@@ -176,10 +176,15 @@ describe('POST /public/agendamentos (fluxo completo, sem token)', () => {
     };
     await http.post('/public/agendamentos').send(payload).expect(201);
     // sobreposição direta (mesmo horário) com cliente diferente
-    await http
+    const conflito = await http
       .post('/public/agendamentos')
       .send({ ...payload, horaInicio: '11:15', cliente: { nome: 'Segundo', telefone: fone(2) } })
       .expect(422);
+    // Bug 3: a mensagem que chega à tela do cliente não pode expor UUID/jargão
+    // técnico — precisa ser amigável e acionável.
+    expect(conflito.body.message).toBe('Esse horário acabou de ser preenchido. Escolha outro, por favor.');
+    expect(conflito.body.message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+    expect(conflito.body.message.toLowerCase()).not.toContain('sobreposto');
   });
 
   it('fora da disponibilidade (08:00, antes de 09:00 local) → 422', async () => {

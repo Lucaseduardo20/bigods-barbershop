@@ -1,8 +1,10 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Telefone } from '../../../shared/domain/telefone';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { IDENTITY_PROVIDER, IdentityProvider } from '../domain/identity-provider';
 import { ClienteSessaoService } from '../infrastructure/cliente-sessao.service';
+import { Cliente } from '../../customers/domain/cliente.aggregate';
 
 export interface ConfirmarLoginClienteInput {
   companyId: string;
@@ -44,11 +46,20 @@ export class ConfirmarLoginClienteUseCase {
 
     // Reconcilia o cliente por telefone e promove a usuário (idempotente).
     const cliente = await this.uow.transacao(async (repos) => {
-      const cliente = await repos.clientes.porTelefone(input.companyId, telefone);
+      let cliente = await repos.clientes.porTelefone(input.companyId, telefone);
       if (!cliente) {
-        // Só há sub válido porque o telefone foi provisionado (comprou pacote),
-        // o que sempre cria um Cliente. Ausência aqui é inconsistência — não vaza.
-        throw new UnauthorizedException('Não foi possível entrar');
+        // Bug 2: o código já provou posse do telefone — não há mais razão para
+        // barrar quem nunca comprou nada (nem pacote, nem avulso). Cria o
+        // Cliente aqui; a área logada mostra a home vazia normal ("sem pacotes
+        // ainda, agende seu primeiro horário") em vez de travar num erro.
+        // DECISAO_PENDENTE: nome placeholder até existir edição de perfil.
+        cliente = Cliente.criar({
+          id: randomUUID(),
+          companyId: input.companyId,
+          nome: 'Cliente',
+          telefone,
+        });
+        await repos.clientes.salvar(cliente);
       }
       if (!cliente.ehUsuario) {
         cliente.promoverParaUsuario(resultado.sub);

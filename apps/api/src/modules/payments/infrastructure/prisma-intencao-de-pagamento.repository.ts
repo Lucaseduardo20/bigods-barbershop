@@ -7,7 +7,7 @@ import {
 } from '../domain/intencao-de-pagamento.aggregate';
 import { IntencaoDePagamentoRepository } from '../domain/intencao-de-pagamento.repository';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
-import { AtendimentoId, IntencaoDePagamentoId } from '../../../shared/domain/ids';
+import { AtendimentoId, IntencaoDePagamentoId, VendaDePacoteId } from '../../../shared/domain/ids';
 
 function paraDominio(row: IntencaoPrisma): IntencaoDePagamento {
   const referencia: ReferenciaDePagamento =
@@ -40,6 +40,13 @@ export class PrismaIntencaoDePagamentoRepository implements IntencaoDePagamentoR
   async porReferenciaAtendimento(atendimentoId: AtendimentoId): Promise<IntencaoDePagamento | null> {
     const row = await this.db.intencaoDePagamento.findFirst({
       where: { referenciaTipo: 'ATENDIMENTO', atendimentoId },
+    });
+    return row ? paraDominio(row) : null;
+  }
+
+  async porReferenciaVendaDePacote(vendaDePacoteId: VendaDePacoteId): Promise<IntencaoDePagamento | null> {
+    const row = await this.db.intencaoDePagamento.findFirst({
+      where: { referenciaTipo: 'VENDA_DE_PACOTE', vendaDePacoteId },
     });
     return row ? paraDominio(row) : null;
   }

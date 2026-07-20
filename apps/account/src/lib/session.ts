@@ -36,3 +36,31 @@ export function limparSessao(): void {
     /* ignore */
   }
 }
+
+const PARAMS_SESSAO = ['token', 'clienteId', 'clienteNome', 'clienteTelefone'] as const;
+
+/**
+ * Bug 1: handoff de sessão vindo do onboarding pós-compra do app de booking
+ * (origem diferente, sem acesso ao localStorage de cá). Função pura — recebe
+ * a querystring já extraída para ser testável sem `window`.
+ */
+export function sessaoDaQuery(search: string): SessaoCliente | null {
+  const params = new URLSearchParams(search);
+  const token = params.get('token');
+  const id = params.get('clienteId');
+  const nome = params.get('clienteNome');
+  const telefone = params.get('clienteTelefone');
+  if (!token || !id || !nome || !telefone) return null;
+  return { token, cliente: { id, nome, telefone } };
+}
+
+/** Remove os parâmetros de handoff da URL depois de consumidos (não persistir na barra de endereço). */
+export function limparParametrosDeSessaoNaUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    for (const chave of PARAMS_SESSAO) url.searchParams.delete(chave);
+    window.history.replaceState({}, '', url.toString());
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,6 +1,7 @@
 import type { ServicoDTO } from '@bigods/contracts';
 import { dinheiro, rotuloDia } from '../lib/format';
 import { servicosSelecionados, totalCentavos, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
+import { AlertaErro } from '../components/ui';
 
 export function Confirmacao({
   estado,
@@ -95,11 +96,7 @@ export function Confirmacao({
         </div>
       </div>
 
-      {erroEnvio && (
-        <div className="text-[13px] font-semibold px-3 py-2.5 rounded-xl" style={{ color: 'var(--status-danger)', background: 'var(--status-danger-bg)' }}>
-          {erroEnvio}
-        </div>
-      )}
+      {erroEnvio && <AlertaErro texto={erroEnvio} />}
 
       <button className="btn btn-lg btn-block" disabled={enviando} onClick={onConfirmar}>
         {enviando ? 'Enviando…' : online ? 'Ir para o pagamento →' : ehPacote ? 'Confirmar compra' : 'Confirmar horário'}

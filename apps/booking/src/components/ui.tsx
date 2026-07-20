@@ -33,6 +33,23 @@ export function ErroEstado({ erro, aoTentar }: { erro: string; aoTentar?: () => 
   );
 }
 
+/**
+ * Bug 3: erro amigável e bem visível (não uma div solta) — usado tanto no
+ * conflito de horário quanto na validação de telefone inválido, mesmo padrão.
+ */
+export function AlertaErro({ texto }: { texto: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2.5 rounded-2xl p-3.5 text-[13px] font-semibold"
+      style={{ background: 'var(--status-danger-bg)', color: 'var(--status-danger)', border: '1px solid var(--status-danger)' }}
+    >
+      <span className="text-[16px] leading-none mt-0.5">⚠️</span>
+      <span>{texto}</span>
+    </div>
+  );
+}
+
 export function Vazio({ titulo, texto, acao }: { titulo: string; texto: string; acao?: ReactNode }) {
   return (
     <div className="text-center py-10 px-2">

@@ -186,10 +186,37 @@ describe('Login OTP (demo)', () => {
       .expect(401);
   });
 
-  it('telefone NÃO provisionado → resposta neutra sem código (não vaza quem é cliente)', async () => {
+  it('bug 2: telefone NUNCA usado antes recebe código de verdade (login não depende de já ter comprado nada)', async () => {
+    // Antes desta correção, um telefone nunca provisionado (nem pacote, nem
+    // avulso) recebia desafio='' e codigoDemo=null — o cliente ficava preso na
+    // tela de código sem nunca saber que não tinha conta. Login agora
+    // provisiona a identidade na hora, para qualquer telefone: a resposta do
+    // "iniciar" é sempre a mesma forma (não revela existência de conta aqui).
     const res = await http.post('/conta/login/iniciar').send({ companyId, telefone: foneUnprov }).expect(201);
-    expect(res.body.codigoDemo).toBeNull();
-    expect(res.body.desafio).toBe('');
+    expect(res.body.desafio).toBeTruthy();
+    expect(res.body.codigoDemo).toMatch(/^\d{6}$/);
+  });
+
+  it('bug 2: confirmar o código de um telefone sem Cliente cria a conta na hora (posse do telefone já provada)', async () => {
+    const foneNovo = fone('6666');
+    const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone: foneNovo }).expect(201);
+    const confirmar = await http
+      .post('/conta/login/confirmar')
+      .send({ companyId, telefone: foneNovo, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+      .expect(201);
+    expect(confirmar.body.token).toBeTruthy();
+
+    // Home vazia normal, não erro/loop: sem pacotes nem agendamentos.
+    const perfil = await http
+      .get('/conta/perfil')
+      .set('Authorization', `Bearer ${confirmar.body.token}`)
+      .expect(200);
+    expect(perfil.body.pacotes).toEqual([]);
+    expect(perfil.body.proximosAgendamentos).toEqual([]);
+
+    const cliente = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(foneNovo) } });
+    expect(cliente).toBeTruthy();
+    expect(cliente!.cognitoSub).toBeTruthy();
   });
 });
 
@@ -217,5 +244,48 @@ describe('Rate limiting (força bruta de código / custo de SMS)', () => {
       await http.post('/conta/login/iniciar').send(alvo).expect(201);
     }
     await http.post('/conta/login/iniciar').send(alvo).expect(429);
+  });
+});
+
+describe('Bug 8 — admin confirma pagamento presencial de um pacote AGUARDANDO', () => {
+  it('venda presencial fica AGUARDANDO; confirmar manualmente libera os créditos uma única vez', async () => {
+    const venda = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        cliente: { nome: 'Presencial Bug8', telefone: fone('7777') },
+        servicoIds: [corteId],
+        valorPagoCentavos: 4000,
+        pagamentoImediato: false,
+      })
+      .expect(201);
+
+    let vendas = await http.get('/pacotes').set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
+    let alvo = vendas.body.find((v: { id: string }) => v.id === venda.body.vendaId);
+    expect(alvo.statusPagamento).toBe('AGUARDANDO');
+
+    const confirmar1 = await http
+      .post(`/pacotes/${venda.body.vendaId}/confirmar-pagamento`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .expect(201);
+    expect(confirmar1.body.processado).toBe(true);
+
+    vendas = await http.get('/pacotes').set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
+    alvo = vendas.body.find((v: { id: string }) => v.id === venda.body.vendaId);
+    expect(alvo.statusPagamento).toBe('PAGO');
+
+    // idempotente: confirmar de novo não tem efeito (já estava PAGO)
+    const confirmar2 = await http
+      .post(`/pacotes/${venda.body.vendaId}/confirmar-pagamento`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .expect(201);
+    expect(confirmar2.body.processado).toBe(false);
+  });
+
+  it('venda inexistente → 404', async () => {
+    await http
+      .post('/pacotes/venda-inexistente/confirmar-pagamento')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .expect(404);
   });
 });

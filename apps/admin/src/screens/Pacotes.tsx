@@ -37,7 +37,21 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
   const tz = useTimezone();
   const [venderAberto, setVenderAberto] = useState(false);
   const [agendarItem, setAgendarItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
+  const [confirmando, setConfirmando] = useState<string | null>(null);
   const { dados, erro, carregando, recarregar } = useApi(() => api<VendaDePacoteDTO[]>('/pacotes'), []);
+
+  // Bug 8: pacote "pagar na barbearia" fica AGUARDANDO sem nenhuma ação para o
+  // admin liberar os créditos quando o cliente paga no balcão — confirma pelo
+  // mesmo caminho idempotente do webhook.
+  const confirmarPagamento = async (vendaId: string) => {
+    setConfirmando(vendaId);
+    try {
+      await api(`/pacotes/${vendaId}/confirmar-pagamento`, { method: 'POST' });
+      recarregar();
+    } finally {
+      setConfirmando(null);
+    }
+  };
 
   return (
     <div className="px-5">
@@ -65,7 +79,18 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
                   )}
                 </div>
               </div>
-              <Badge tone={tonePagamento[v.statusPagamento]}>{v.statusPagamento}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge tone={tonePagamento[v.statusPagamento]}>{v.statusPagamento}</Badge>
+                {v.statusPagamento === StatusPagamento.AGUARDANDO && (
+                  <button
+                    className="btn btn-sm"
+                    disabled={confirmando === v.id}
+                    onClick={() => confirmarPagamento(v.id)}
+                  >
+                    {confirmando === v.id ? 'Confirmando…' : 'Confirmar pagamento presencial'}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               {v.itens.map((i) => (

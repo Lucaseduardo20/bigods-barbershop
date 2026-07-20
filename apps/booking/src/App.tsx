@@ -54,7 +54,6 @@ function Funil() {
   );
 
   const [estado, setEstado] = useState<FunnelState>(() => carregarEstado());
-  const [concluido, setConcluido] = useState(false);
   const [pago, setPago] = useState(false);
   const [avancando, setAvancando] = useState(false); // transição serviços→barbeiro
   const [erroDecisao, setErroDecisao] = useState<string | null>(null);
@@ -88,7 +87,6 @@ function Funil() {
 
   const reset = () => {
     limparEstado();
-    setConcluido(false);
     setPago(false);
     setErroEnvio(null);
     setCobranca(null);
@@ -96,7 +94,7 @@ function Funil() {
     setEstado(estadoInicial);
   };
 
-  if (concluido) {
+  if (estado.concluido) {
     return <Sucesso estado={estado} pago={pago} onNovo={reset} />;
   }
 
@@ -113,7 +111,7 @@ function Funil() {
           onPago={() => {
             setPago(true);
             setCobranca(null);
-            setConcluido(true);
+            patch({ concluido: true });
           }}
           onTentarNovo={() => {
             setCobranca(null);
@@ -197,6 +195,9 @@ function Funil() {
   };
 
   const voltar = () => {
+    // Bug 3: erro de uma tentativa anterior (ex.: conflito de horário) não pode
+    // ficar "grudado" ao voltar e refazer o fluxo com outros dados.
+    setErroEnvio(null);
     switch (estado.step) {
       case PASSO.SERVICOS:
       case PASSO.PACOTE_OFERTA:
@@ -233,7 +234,7 @@ function Funil() {
           setIntencaoId(r.intencaoId);
         } else {
           setPago(false);
-          setConcluido(true);
+          patch({ concluido: true });
         }
       } else {
         const r = await api<AgendarPublicoResponse>('/public/agendamentos', {
@@ -253,7 +254,7 @@ function Funil() {
           setIntencaoId(r.intencaoId);
         } else {
           setPago(false);
-          setConcluido(true);
+          patch({ concluido: true });
         }
       }
     } catch (e) {

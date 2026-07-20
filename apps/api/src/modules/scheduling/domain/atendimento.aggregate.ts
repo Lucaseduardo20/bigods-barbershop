@@ -13,6 +13,7 @@ import {
   ServicoId,
 } from '../../../shared/domain/ids';
 import {
+  ConflitoDeHorarioError,
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
@@ -120,7 +121,7 @@ export class Atendimento extends AggregateRoot {
         a.props.intervalo.sobrepoe(intervalo),
     );
     if (conflito) {
-      throw new InvarianteVioladaError(
+      throw new ConflitoDeHorarioError(
         `Conflito de horário: barbeiro já tem atendimento ${conflito.id} sobreposto`,
       );
     }

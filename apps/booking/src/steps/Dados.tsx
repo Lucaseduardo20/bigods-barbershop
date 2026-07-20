@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { AlertaErro } from '../components/ui';
+import { telefoneValido } from '../lib/telefone';
+
 export function Dados({
   nome,
   telefone,
@@ -9,6 +13,10 @@ export function Dados({
   onNome: (v: string) => void;
   onTelefone: (v: string) => void;
 }) {
+  // Bug 3: antes o botão só ficava desabilitado, sem dizer por quê. Só avisa
+  // depois que a pessoa sair do campo — não a cada dígito digitado.
+  const [telefoneTocado, setTelefoneTocado] = useState(false);
+  const telefoneIncompleto = telefoneTocado && telefone.trim().length > 0 && !telefoneValido(telefone);
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -36,7 +44,9 @@ export function Dados({
           autoComplete="tel"
           value={telefone}
           onChange={(e) => onTelefone(e.target.value)}
+          onBlur={() => setTelefoneTocado(true)}
         />
+        {telefoneIncompleto && <div className="mt-2"><AlertaErro texto="Telefone incompleto — confira o DDD e o número." /></div>}
       </div>
     </div>
   );

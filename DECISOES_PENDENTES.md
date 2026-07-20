@@ -150,3 +150,19 @@ precisar de um barbeiro com dois turnos separados por um intervalo (ex.: 9h–12
 janelas por dia) — só a UI precisa de um "+ adicionar janela" por dia, deixado de fora
 por não haver caso de uso real observado ainda (mesma filosofia de "medir antes de
 automatizar" do §4.2).
+
+## 16. Nome placeholder para Cliente criado só pelo login (bug 2, sessão 2026-07-20)
+
+Corrigindo o bug de telefone sem conta ficar preso no OTP, o login por telefone passou
+a criar um `Cliente` na hora da confirmação do código, mesmo quando a pessoa nunca
+comprou nada (nem pacote, nem avulso) — antes disso só existiam dois caminhos de criação
+de `Cliente`, ambos com nome vindo de um formulário de compra (`agendar-avulso` /
+`vender-pacote`). Login sozinho não coleta nome nenhum.
+
+**Mínimo implementado:** `nome: 'Cliente'` fixo (`confirmar-login-cliente.usecase.ts`).
+Não há tela de edição de perfil no cockpit para a pessoa corrigir isso depois.
+
+**Quando reconsiderar:** se esse caminho (login sem compra prévia) virar comum na
+prática — hoje ele existe mais como rede de segurança de UX (não deixar ninguém preso no
+OTP) do que como um fluxo de cadastro esperado — vale adicionar um passo de "como você se
+chama?" no onboarding do cockpit, ou uma tela de editar nome/perfil.

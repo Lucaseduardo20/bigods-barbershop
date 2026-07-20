@@ -167,6 +167,11 @@ describe('Item 3/4a — adicionar item/produto na conclusão (walk-in add-on)', 
     const detalhe = await http.get(`/atendimentos/${atendimentoId}`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
     expect(detalhe.body.itens).toHaveLength(2);
     expect(detalhe.body.valorTotalCentavos).toBe(4000 + 3000);
+    // Bug 5: sem pagamento online, o valor "a cobrar agora" que o admin exibe
+    // (valorTotalCentavos - valorPagoOnlineCentavos) tem que ser o total cheio,
+    // não zero/ausente — antes o front só mostrava esse valor quando pagoOnline.
+    expect(detalhe.body.valorPagoOnlineCentavos).toBe(0);
+    expect(detalhe.body.valorTotalCentavos - detalhe.body.valorPagoOnlineCentavos).toBe(4000 + 3000);
 
     await http
       .post(`/atendimentos/${atendimentoId}/concluir`)

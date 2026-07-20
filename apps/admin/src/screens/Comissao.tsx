@@ -6,6 +6,7 @@ import { dataCurta, dinheiro } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 import { AtendimentoDetalheDialog } from '../components/AtendimentoDetalheDialog';
+import { idEfetivo } from '../lib/selecao';
 
 export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
   const tz = useTimezone();
@@ -14,16 +15,23 @@ export function Comissao({ usuario }: { usuario: UsuarioDTO }) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const barbeiros = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  // Bug 4: `barbeiroId` (de usuario.barbeiroId) pode não bater com nenhum
+  // barbeiro da lista (ex.: admin puro) — o <select> mostrava visualmente o
+  // primeiro item, mas o fetch abaixo ainda usava o valor antigo/vazio, só
+  // corrigindo quando o usuário trocava manualmente de barbeiro. O valor
+  // efetivo (usado tanto no <select> quanto no fetch) já cai no primeiro da
+  // lista quando não há seleção válida.
+  const barbeiroIdEfetivo = idEfetivo(barbeiroId, barbeirosQueAtendem);
   const { dados, erro, carregando, recarregar } = useApi(
-    () => api<ExtratoComissaoDTO>(`/comissao/${barbeiroId}`),
-    [barbeiroId],
+    () => api<ExtratoComissaoDTO>(`/comissao/${barbeiroIdEfetivo}`),
+    [barbeiroIdEfetivo],
   );
 
   return (
     <div className="px-5">
       <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Comissão</h1>
       {ehAdmin && barbeirosQueAtendem.length > 0 && (
-        <select className="select mb-3" value={barbeiroId} onChange={(e) => setBarbeiroId(e.target.value)}>
+        <select className="select mb-3" value={barbeiroIdEfetivo ?? ''} onChange={(e) => setBarbeiroId(e.target.value)}>
           {barbeirosQueAtendem.map((b) => (
             <option key={b.id} value={b.id}>
               {b.nome}

@@ -37,6 +37,8 @@ export interface FunnelState {
   ofertaPrecoCentavos: number | null;
   // ---- pagamento (ambas as trilhas) ----
   formaPagamento: FormaPagamento;
+  /** Compra/agendamento concluído nesta sessão — estado final (§ bug 1). */
+  concluido: boolean;
 }
 
 export const estadoInicial: FunnelState = {
@@ -54,16 +56,29 @@ export const estadoInicial: FunnelState = {
   ofertaNome: null,
   ofertaPrecoCentavos: null,
   formaPagamento: 'presencial',
+  concluido: false,
 };
 
 const CHAVE = 'bigods.booking.v1';
+
+/**
+ * Uma compra/agendamento concluído é estado final: nunca resume no meio do
+ * funil. Sem isso, um refresh após pagar restaura o passo de Confirmação
+ * salvo em sessionStorage e reabre o pagamento de um pacote já PAGO (bug 1).
+ * Função pura (sem I/O) para ser testável sem depender de sessionStorage.
+ */
+export function sanitizarEstadoCarregado(bruto: Partial<FunnelState>): FunnelState {
+  const estado = { ...estadoInicial, ...bruto };
+  if (estado.concluido) return estadoInicial;
+  return estado;
+}
 
 /** Persistência do progresso — sobrevive a refresh. É sessionStorage, NÃO o banco. */
 export function carregarEstado(): FunnelState {
   try {
     const raw = sessionStorage.getItem(CHAVE);
     if (!raw) return estadoInicial;
-    return { ...estadoInicial, ...(JSON.parse(raw) as Partial<FunnelState>) };
+    return sanitizarEstadoCarregado(JSON.parse(raw) as Partial<FunnelState>);
   } catch {
     return estadoInicial;
   }

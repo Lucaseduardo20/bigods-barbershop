@@ -231,9 +231,11 @@ export function AtendimentoDetalheDialog({
 
               {precisaFormaPagamento && (
                 <div>
-                  <label className="label">
-                    Forma de pagamento {valorAdicional > 0 && a.pagoOnline ? `(do adicional: ${dinheiro(valorAdicional)})` : '(para concluir)'}
-                  </label>
+                  {/* Bug 5: valor a cobrar tem que aparecer sempre que a forma de
+                      pagamento é pedida — antes só mostrava quando pagoOnline, e
+                      um add-on num crédito de pacote (sem pagoOnline) pedia a
+                      forma sem dizer quanto cobrar. */}
+                  <label className="label">Forma de pagamento ({dinheiro(valorAdicional)} a cobrar agora)</label>
                   <select className="select" value={forma} onChange={(e) => setForma(e.target.value as FormaPagamento)}>
                     <option value={FormaPagamento.PIX}>PIX</option>
                     <option value={FormaPagamento.DINHEIRO}>Dinheiro</option>

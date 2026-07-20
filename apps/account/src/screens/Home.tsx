@@ -6,7 +6,8 @@ import type {
 } from '@bigods/contracts';
 import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { BOOKING_URL } from '../lib/config';
-import { dinheiro } from '../lib/format';
+import { diasCivisRestantes, dinheiro } from '../lib/format';
+import { fraseSaldoResidual, fraseSegundaChance } from '../lib/textos';
 import { Icon } from '../components/ui';
 
 /** Item ainda utilizável para marcar um novo horário. */
@@ -18,12 +19,6 @@ function vendaPaga(v: VendaDePacoteDTO): boolean {
 }
 function temCreditoLivre(v: VendaDePacoteDTO): boolean {
   return vendaPaga(v) && v.itens.some(bookavel);
-}
-
-/** Dias civis restantes até um prazo (arredonda pra cima; nunca negativo na exibição). */
-function diasRestantes(prazoIso: string): number {
-  const ms = new Date(prazoIso).getTime() - Date.now();
-  return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
 function rotuloDataHora(iso: string, tz: string): { dia: string; hora: string } {
@@ -57,28 +52,27 @@ export function Home({
 
   return (
     <div style={{ padding: '18px 20px 40px' }}>
-      {emPrazo.map(({ item }) => (
-        <div
-          key={item.id}
-          style={{ background: 'var(--state-warning)', borderRadius: 'var(--radius-lg)', padding: 16, color: '#fff', marginBottom: 14 }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
-            <Icon name="alarm-clock" size={18} />
-            <span>
-              Você tem {diasRestantes(item.prazoReagendamentoAte!)} dias para reagendar sua {item.servicoNome.toLowerCase()}
-            </span>
-          </div>
-          <div style={{ fontSize: 12.5, opacity: 0.9, marginBottom: 12 }}>
-            Depois do prazo, o valor vira saldo no pacote — mas você perde a {item.servicoNome.toLowerCase()}.
-          </div>
-          <button
-            onClick={() => onAgendar(item.servicoId)}
-            style={{ border: 'none', width: '100%', padding: '12px 0', borderRadius: 'var(--radius-md)', background: '#fff', color: 'var(--state-warning)', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}
+      {emPrazo.map(({ item }) => {
+        const frase = fraseSegundaChance(diasCivisRestantes(item.prazoReagendamentoAte!, tz), item.servicoNome);
+        return (
+          <div
+            key={item.id}
+            style={{ background: 'var(--state-warning)', borderRadius: 'var(--radius-lg)', padding: 16, color: '#fff', marginBottom: 14 }}
           >
-            Reagendar agora
-          </button>
-        </div>
-      ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
+              <Icon name="alarm-clock" size={18} />
+              <span>{frase.titulo}</span>
+            </div>
+            <div style={{ fontSize: 12.5, opacity: 0.9, marginBottom: 12 }}>{frase.corpo}</div>
+            <button
+              onClick={() => onAgendar(item.servicoId)}
+              style={{ border: 'none', width: '100%', padding: '12px 0', borderRadius: 'var(--radius-md)', background: '#fff', color: 'var(--state-warning)', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}
+            >
+              Reagendar agora
+            </button>
+          </div>
+        );
+      })}
 
       {/* 2) Próximo agendamento (ou CTA agendar) */}
       <div style={{ marginBottom: 24 }}>
@@ -199,8 +193,9 @@ function PacoteCard({
         >
           <Icon name="coins" size={14} />
           <span>
-            <strong style={{ color: 'var(--text-primary)' }}>{dinheiro(pacote.saldoResidualCentavos)} de saldo</strong> — um
-            serviço perdeu o prazo, mas o valor continua seu, guardado neste pacote.
+            <strong style={{ color: 'var(--text-primary)' }}>{dinheiro(pacote.saldoResidualCentavos)} de saldo</strong> —{' '}
+            {fraseSaldoResidual(pacote.itens.filter((i) => i.status === StatusItemPacote.EXPIRADO).length)}, mas o valor
+            continua seu, guardado neste pacote.
           </span>
         </div>
       )}

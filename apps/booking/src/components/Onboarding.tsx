@@ -5,6 +5,7 @@ import type {
 } from '@bigods/contracts';
 import { api, ApiError } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
+import { linkDeContaComSessao } from '../lib/handoff';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
 const N = 6;
@@ -23,6 +24,7 @@ export function Onboarding({ telefone }: { telefone: string }) {
   const [digitos, setDigitos] = useState<string[]>(Array(N).fill(''));
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [sessao, setSessao] = useState<ConfirmarLoginClienteResponse | null>(null);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
 
   const iniciar = async () => {
@@ -47,10 +49,11 @@ export function Onboarding({ telefone }: { telefone: string }) {
     setOcupado(true);
     setErro(null);
     try {
-      await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
+      const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
         method: 'POST',
         body: { companyId: COMPANY_ID, telefone, codigo, desafio },
       });
+      setSessao(r);
       setFase('pronto');
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : String(e));
@@ -78,7 +81,11 @@ export function Onboarding({ telefone }: { telefone: string }) {
         <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
           Agora é só entrar na sua conta para usar os créditos quando quiser.
         </div>
-        <a href={ACCOUNT_URL} className="btn btn-block" style={{ textDecoration: 'none' }}>
+        <a
+          href={sessao ? linkDeContaComSessao(ACCOUNT_URL, sessao) : ACCOUNT_URL}
+          className="btn btn-block"
+          style={{ textDecoration: 'none' }}
+        >
           Ir para minha conta →
         </a>
       </div>

@@ -70,7 +70,12 @@
       "Bash(python3 -m json.tool)",
       "Bash(python3 -c ' *)",
       "Bash(pkill -f \"nest start --watch\")",
-      "Bash(grep -n \"^## 5\\\\|^| \\\\`\" docs/DOMAIN.md)"
+      "Bash(grep -n \"^## 5\\\\|^| \\\\`\" docs/DOMAIN.md)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/conta-cliente.e2e.spec.ts)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run src/modules/identity)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx vitest run test/integration/conclusao-avancada.e2e.spec.ts)",
+      "Bash(node -e ' *)"
     ]
   }
 }

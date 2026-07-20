@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
   ConfirmarLoginClienteResponse,
   IniciarLoginClienteResponse,
@@ -7,7 +7,14 @@ import type {
 import { api } from './lib/api';
 import { COMPANY_ID } from './lib/config';
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
-import { carregarSessao, limparSessao, salvarSessao, type SessaoCliente } from './lib/session';
+import {
+  carregarSessao,
+  limparParametrosDeSessaoNaUrl,
+  limparSessao,
+  salvarSessao,
+  sessaoDaQuery,
+  type SessaoCliente,
+} from './lib/session';
 import { ErroEstado, Loading, useApi } from './components/ui';
 import { Login, Otp } from './screens/Auth';
 import { Home } from './screens/Home';
@@ -26,8 +33,19 @@ export function App() {
 
 function Conta() {
   const empresa = useEmpresa();
-  const [sessao, setSessao] = useState<SessaoCliente | null>(() => carregarSessao());
-  const [tela, setTela] = useState<Tela>(() => (carregarSessao() ? 'home' : 'login'));
+  // Bug 1: handoff de sessão do onboarding pós-compra (app de booking) via
+  // querystring — um único OTP lá já basta, sem pedir código de novo aqui.
+  const [sessao, setSessao] = useState<SessaoCliente | null>(
+    () => carregarSessao() ?? sessaoDaQuery(window.location.search),
+  );
+  const [tela, setTela] = useState<Tela>(() => (sessao ? 'home' : 'login'));
+
+  useEffect(() => {
+    if (!sessao) return;
+    salvarSessao(sessao);
+    limparParametrosDeSessaoNaUrl();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Estado do login OTP
   const [telefone, setTelefone] = useState('');

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
 import { VenderPacoteUseCase } from '../application/vender-pacote.usecase';
+import { ConfirmarPagamentoPresencialUseCase } from '../application/confirmar-pagamento-presencial.usecase';
 import { PacotesQueryService } from '../infrastructure/pacotes-query.service';
 import { UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
@@ -33,6 +34,7 @@ class VenderPacoteDto {
 export class PacotesController {
   constructor(
     private readonly venderPacote: VenderPacoteUseCase,
+    private readonly confirmarPagamentoPresencial: ConfirmarPagamentoPresencialUseCase,
     private readonly consulta: PacotesQueryService,
   ) {}
 
@@ -56,5 +58,18 @@ export class PacotesController {
       valorPagoCentavos: body.valorPagoCentavos,
       pagamentoImediato: body.pagamentoImediato,
     });
+  }
+
+  /**
+   * Bug 8: confirma manualmente o pagamento presencial ("na barbearia") de um
+   * pacote AGUARDANDO — mesmo caminho idempotente do webhook (§ domínio),
+   * só que disparado pelo admin em vez do gateway.
+   */
+  @Post(':id/confirmar-pagamento')
+  async confirmarPagamento(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ processado: boolean }> {
+    return this.confirmarPagamentoPresencial.executar({ companyId: usuario.companyId, vendaId: id });
   }
 }

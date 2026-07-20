@@ -1,5 +1,5 @@
 import { IntencaoDePagamento } from './intencao-de-pagamento.aggregate';
-import { AtendimentoId, IntencaoDePagamentoId } from '../../../shared/domain/ids';
+import { AtendimentoId, IntencaoDePagamentoId, VendaDePacoteId } from '../../../shared/domain/ids';
 
 export interface IntencaoDePagamentoRepository {
   porId(id: IntencaoDePagamentoId): Promise<IntencaoDePagamento | null>;
@@ -10,6 +10,12 @@ export interface IntencaoDePagamentoRepository {
    * (item 2 da sessão 2026-07-16). No máximo uma por atendimento hoje.
    */
   porReferenciaAtendimento(atendimentoId: AtendimentoId): Promise<IntencaoDePagamento | null>;
+  /**
+   * A intenção vinculada a uma VendaDePacote (referencia VENDA_DE_PACOTE) —
+   * usada pela confirmação manual de pagamento presencial (bug 8), o mesmo
+   * caminho idempotente do webhook, só que disparado pelo admin.
+   */
+  porReferenciaVendaDePacote(vendaDePacoteId: VendaDePacoteId): Promise<IntencaoDePagamento | null>;
   salvar(intencao: IntencaoDePagamento): Promise<void>;
 }
 
