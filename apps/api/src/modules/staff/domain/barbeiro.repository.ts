@@ -3,6 +3,8 @@ import { BarbeiroId, CompanyId } from '../../../shared/domain/ids';
 
 export interface BarbeiroRepository {
   porId(id: BarbeiroId): Promise<Barbeiro | null>;
+  /** Link pessoal de marketing (§4b) — slug inválido/inexistente devolve null (nunca 404 feio pro cliente). */
+  porSlug(companyId: CompanyId, slug: string): Promise<Barbeiro | null>;
   listar(companyId: CompanyId): Promise<Barbeiro[]>;
   salvar(barbeiro: Barbeiro): Promise<void>;
 }

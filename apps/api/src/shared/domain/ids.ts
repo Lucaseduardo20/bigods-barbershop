@@ -10,3 +10,4 @@ export type LancamentoId = string;
 export type IntencaoDePagamentoId = string;
 export type ProdutoId = string;
 export type VendaDeProdutoId = string;
+export type PacoteOfertaId = string;

@@ -685,6 +685,351 @@ próxima sessão, não uma pendência aberta pela raiz do bug encontrado aqui).
 (`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`) **100% verdes**, zero falhas. Build
 dos 5 pacotes (`turbo run build`) verde.
 
+## PacoteOferta como agregado + preço por barbeiro + aprovação + funil reordenado (sessão-B, 2026-07-20/21) ✅
+
+Sessão estrutural em 5 fases, mexendo em precificação e rateio de pacote
+(dinheiro) — prioridade absoluta era não corromper o que já funcionava
+(233/233 no início). Suíte mantida verde ao fim de cada fase (254 → 262 → 276
+→ 291) e 291/291 confirmado no fechamento em `npm run test`,
+`npm run test:multitz` (UTC/América-São Paulo/Ásia-Tóquio) e `turbo run build`
+dos 5 pacotes.
+
+### Fase 1 — `PacoteOferta` vira domínio de primeira classe
+
+Era um read-model semeado direto no banco; virou agregado próprio
+(`pacote-oferta.aggregate.ts`) com invariantes reais: preço > 0, ≥1 item da
+composição, quantidade > 0 por item, barbeiro dono atende todos os serviços
+da composição, preço ≤ soma dos avulsos (nunca desconto negativo). Composição
+é **mista** — lista de `{servicoId, quantidade}`, suporta pacotes tipo "2
+cortes + 2 barbas", não só um serviço repetido.
+
+**Regra central de precificação:** o preço em centavos é sempre o que
+**persiste**; o percentual de desconto é sempre **derivado** na exibição
+(`percentualDeEconomia(somaAvulsos, precoPacote)`), nunca fonte de verdade —
+documentado em DOMAIN.md §3.11 com o motivo explícito: se o percentual fosse
+persistido, mudar o preço de referência no futuro mudaria silenciosamente o
+preço do pacote já vendido. Admin pode digitar por % ou por R$ (dois modos de
+entrada no mesmo formulário, com preview ao vivo), mas o que grava é sempre o
+preço.
+
+Funil público (`Pacote.tsx`) agora mostra a economia lado a lado: preço do
+pacote, quanto custaria avulso, economia em R$ e % (ex: "R$160 · em vez de
+R$200 · economize R$40 (20%)").
+
+CRUD completo no admin (`Ajustes.tsx` → `OfertasDePacote`/`OfertaDialog`).
+Venda continua passando pelo rateio existente (§3.6), não reescrito.
+
+### Fase 2 — Preço por barbeiro (parte mais sensível)
+
+`Servico.precoAvulso` virou preço de **referência da casa**; cada barbeiro
+pode ter override por serviço (`ExcecaoPreco`, mesmo padrão de
+`comissaoPadrao` + exceções já existente). `precoPara(servico, barbeiro) =
+override ?? referência`, centralizado em `precificacao-pacote.ts`.
+
+Rateio de pacote passa a usar o preço **do barbeiro vigente na venda**.
+Snapshots já congelados (`valorRateado`, `valorCobrado`, `percentualAplicado`)
+não podem mudar retroativamente — coberto pelo teste obrigatório
+(`preco-por-barbeiro.e2e.spec.ts`): cria venda, conclui atendimento (gera
+comissão), muda o preço do barbeiro, confirma via `.toEqual()` que a venda e o
+lançamento de comissão antigos continuam **byte a byte idênticos**.
+
+`VendaDePacote` ganha `barbeiroId`; crédito só pode ser consumido com o
+barbeiro dono (`agendarItem` recusa outro barbeiro com
+`InvarianteVioladaError`). Resgate cruzado entre barbeiros ficou
+explicitamente fora desta sessão — ver DECISOES_PENDENTES.md #19.
+
+**Decisão registrada, não implementada:** `precoPara` não foi estendido ao
+agendamento avulso direto (`Atendimento`) — só o rateio de pacote foi pedido.
+Ver DECISOES_PENDENTES.md #18.
+
+### Fase 3 — Workflow de aprovação de `PacoteOferta`
+
+Estados: `RASCUNHO → PENDENTE_APROVACAO → APROVADO | REJEITADO`. Barbeiro
+cria/edita → `PENDENTE_APROVACAO`; admin aprova ou rejeita (com motivo).
+Editar um pacote `APROVADO` volta pra `PENDENTE_APROVACAO`. Só `APROVADO`
+aparece no funil público (filtro em `pacote-ofertas-query.service.ts`). Admin
+que também é barbeiro pode aprovar o próprio pacote (senão o fluxo trava com
+o Gabriel, que é o único usuário real hoje). Painel de pendências no admin.
+
+**Ambiguidade registrada:** o gatilho de criação de um `RASCUNHO` (vs. ir
+direto pra `PENDENTE_APROVACAO`) não estava especificado — implementado o
+mínimo (estado existe, transição `enviarParaAprovacao()` existe e testada),
+sem inventar uma tela de "salvar rascunho". Ver DECISOES_PENDENTES.md #17.
+
+### Fase 4 — Funil: barbeiro primeiro + link próprio
+
+**4a:** Barbeiro passa a ser escolhido **antes** do serviço nas duas trilhas
+(avulso e pacote) — necessário porque preço por barbeiro faz mostrar preço
+antes de saber o barbeiro ser errado. Skip automático mantido quando só há um
+barbeiro (`Barbeiro.tsx` auto-avança e não renderiza o seletor).
+
+**4b:** Link pessoal por barbeiro via query string (`?barbeiro=slug`) —
+escolhido em vez de rota (`/b/slug`) por não exigir React Router nem
+configuração de SPA-fallback ainda não confirmada na hospedagem (decisão de
+implementação, registrada em DECISOES_PENDENTES.md #20 quanto à unicidade do
+slug ser só por empresa). Slug gerado no cadastro do barbeiro
+(`slugDoNome`/`slugUnico`, normaliza acento), editável no admin. Entrar pelo
+link pré-seleciona o barbeiro, pula a etapa de escolha, mostra "Agendando com
+{nome}" no topo com saída discreta "ver outros profissionais". **Link sempre
+vence estado salvo em sessionStorage** — `aplicarBarbeiroDoLink()` reseta o
+funil inteiro (não faz merge) e isso é testado explicitamente
+(`funnel-state.spec.ts`). Slug inválido/inexistente cai no funil normal, nunca
+em erro 404 pro cliente (`GET /public/barbeiro-por-slug` retorna 404
+internamente, o front trata como "sem link"). Admin mostra o link pronto de
+cada barbeiro com botão de copiar (`LinksDeAgendamento`).
+
+**4c:** `origemLinkBarbeiroId` registrado em `Atendimento` e `VendaDePacote`
+quando o agendamento vem de um link de barbeiro — só registro, sem tela de
+relatório (dado não recuperável retroativamente, não dá pra inventar métrica
+agora).
+
+### Fase 5 — `docs/DOMAIN.md` atualizado
+
+§3.2/§3.2.1/§3.2.2 (preço por barbeiro e fronteira consciente com avulso),
+§3.5/§3.6 (rateio usa preço do barbeiro), novo §3.11 (`PacoteOferta` como
+agregado), novo §4.3 (máquina de estado de aprovação), §8.5 (nova ordem do
+funil, link pessoal, `origemLink`), §11 (itens fora de escopo desta sessão:
+resgate cruzado entre barbeiros, relatório de origem de link).
+
+### Migrações aplicadas
+
+`20260720195850_pacote_oferta_agregado`,
+`20260720201500_preco_por_barbeiro`,
+`20260720203000_aprovacao_pacote_oferta`,
+`20260721000000_slug_barbeiro_origem_link` — todas com backfill (barbeiro
+mais antigo da empresa como dono de ofertas/vendas pré-existentes; slug
+gerado via `unaccent` + `ROW_NUMBER()` pra evitar colisão).
+
+### O que precisa de smoke test manual
+
+- Admin: criar oferta de pacote mista (2+ serviços diferentes), alternar entre
+  entrada por % e por R$, confirmar preview de economia batendo antes de
+  salvar.
+- Admin: mudar preço de um barbeiro num serviço já usado numa venda antiga de
+  pacote concluída — confirmar visualmente que a venda antiga na tela de
+  cockpit/histórico não mudou de valor.
+- Fluxo completo do link pessoal: abrir `/?barbeiro=<slug-do-gabriel>`,
+  confirmar banner "Agendando com Gabriel", concluir um agendamento, e
+  verificar no admin que a origem ficou registrada. Testar também "ver outros
+  profissionais" a meio do funil.
+- Barbeiro (usuário não-admin) criando e editando uma oferta de pacote — deve
+  ir pra pendente, não pode aprovar a oferta de outro barbeiro, pode aprovar a
+  própria se também for admin (caso do Gabriel).
+- Slug inválido na URL (`/?barbeiro=xxxxx`) — confirmar que cai no funil
+  normal sem tela de erro.
+
+## Correção pós-smoke: preço por barbeiro ponta-a-ponta + 10 bugs (sessão-C) ✅
+
+Sessão de correção pura, sem features novas. Contexto: a sessão-B passou
+291/291 testes mas entregou o núcleo (preço por barbeiro) **quebrado** num
+smoke test manual, porque os testes anteriores exercitavam `precoPara`
+isolada no domínio, nunca o caminho real (funil público → rateio → avulso →
+exibição no admin). Regra desta sessão: toda correção de bug de comportamento
+teve teste no nível mais realista disponível (endpoint HTTP real quando
+existe; função pura extraída da UI quando o bug é só de apresentação, sem
+endpoint dedicado).
+
+### BUG-RAIZ — preço por barbeiro não estava plugado nos caminhos reais
+
+`precoDeReferencia(servico, barbeiro)` (override do barbeiro ?? referência
+da casa) já existia e já era usada corretamente em **um** lugar (rateio de
+`VendaDePacote` via `VenderPacoteUseCase`, e a composição/economia de
+`PacoteOferta`). Faltava plugar em:
+
+- **`GET /public/servicos`** — sempre devolvia `Servico.precoAvulso`
+  (referência), ignorando o `barbeiroId` da query. Agora usa
+  `precoDeReferencia` quando um barbeiro é informado.
+- **`AgendarAvulsoUseCase`** (funil público E painel admin, que reusa o
+  mesmo caso de uso) — `ItemAtendido.valorCobrado` usava sempre
+  `servico.precoAvulso`.
+- **`AdicionarItemAtendimentoUseCase`** (walk-in add-on na conclusão) — mesmo
+  problema.
+
+★ **Decisão de negócio confirmada pelo dono desta sessão:** preço por
+barbeiro passa a valer **geral**, inclusive no agendamento avulso direto —
+não só no rateio de pacote. Isso resolve `DECISOES_PENDENTES.md #18`
+(estava documentado como fora de escopo na sessão-B; a decisão explícita
+do dono nesta sessão reverte isso). `AgendarComCreditoUseCase` **não
+precisou mudar** — já usava o valor rateado congelado na venda
+(`item.valorRateado`), nunca recalculado do catálogo — snapshot, como deveria.
+
+**Testes end-to-end (via HTTP real, banco real — não a função isolada)** em
+`preco-por-barbeiro.e2e.spec.ts`, descrição "BUG-RAIZ (sessão-C)": dois
+barbeiros com overrides diferentes para o mesmo serviço → `GET
+/public/servicos` devolve preços diferentes; comprar a mesma composição de
+oferta com os dois barbeiros → rateios diferentes, cada um batendo com
+`round(valorPago × pesoDoBarbeiro / somaDoBarbeiro)`; agendar avulso pelo
+funil público com barbeiro com override → cobra o override, não a
+referência.
+
+### Investigação: "invariante furada" (oferta aceitando serviço que o barbeiro não atende)
+
+O relato do smoke dizia que uma oferta do Pedro Martins foi criada com um
+serviço que ele não atende. **Reproduzido via curl contra o endpoint real
+antes de qualquer mudança:** `POST /pacote-ofertas` com um serviço fora de
+`barbeiro.servicosAtendidos` **já era rejeitado** com 422 e mensagem clara
+("Barbeiro dono não atende o serviço ... da composição") — a invariante no
+domínio (`PacoteOferta.validar`) está e sempre esteve correta neste código.
+
+A causa mais provável do que o smoke viu: **não existia UI nenhuma** para
+gerenciar quais serviços um barbeiro atende (só existia o endpoint `PUT
+/barbeiros/:id/servicos`, sem tela) — então qualquer inconsistência nos
+dados (ex.: seed antigo, ou dado herdado de uma migração) não tinha como
+ser corrigida pelo admin, e a experiência de "criar oferta com serviço que
+o barbeiro não deveria atender" podia acontecer se o cadastro de
+`servicosAtendidos` já estivesse errado por outro motivo, não porque a
+oferta burlou a validação. Corrigido:
+- Nova tela **Ajustes → Serviços por barbeiro** (checkboxes, usa o endpoint
+  que já existia).
+- `OfertaDialog` (tela de oferta) agora **filtra** o seletor de serviço da
+  composição pelos `servicosAtendidos` do barbeiro escolhido — evita o
+  usuário montar uma composição que o backend vai recusar, mesmo que a
+  validação de verdade continue sendo a do domínio.
+- Regressão coberta em `preco-por-barbeiro.e2e.spec.ts`: criar serviço novo
+  (que ninguém atende), tentar criar oferta pra um barbeiro existente com
+  esse serviço → 422 via endpoint real, oferta não persiste.
+
+### Outros bugs corrigidos
+
+- **Mensagem de validação crua:** `composicao` vazia devolvia o texto
+  técnico do class-validator ("composicao should not be empty") direto na
+  tela — a mensagem amigável do domínio nunca era alcançada porque a
+  validação do DTO roda antes, na borda. Adicionadas mensagens customizadas
+  nos decorators (`ArrayNotEmpty`, `IsPositive` de quantidade/preço).
+  Quantidade 0: o frontend já filtrava silenciosamente a linha antes de
+  enviar — se sobrava composição vazia, caía no mesmo caso acima.
+- **CRUD de preço de serviço no admin:** o backend já suportava editar
+  `precoAvulsoCentavos` via `PATCH /servicos/:id`; só faltava o botão
+  "Editar preço" na tela de Serviços (Ajustes). O override por barbeiro
+  (`PrecosPorBarbeiro`) já existia desde a sessão-B — o motivo de "não dar
+  pra testar" era o bug-raiz (o override existia mas não refletia em lugar
+  nenhum), não a ausência da tela.
+- **Workflow de aprovação pela metade:** só admin conseguia criar oferta —
+  barbeiro não-admin não tinha tela nenhuma, o que tornava o fluxo
+  "barbeiro propõe → admin aprova" sem sentido prático. `CatalogoDeOfertas`
+  (nova localização, ver abaixo) agora é acessível a qualquer usuário
+  logado: admin vê/gerencia o catálogo inteiro (painel de pendências,
+  aprovar/rejeitar); barbeiro não-admin só vê e edita as PRÓPRIAS ofertas
+  (mesma restrição de escopo já usada em agenda/comissão via
+  `usuario.barbeiroId`), sempre nascendo como dono de si mesmo, sem
+  aprovar/rejeitar (nem no backend: guard de dono-ou-admin). Endurecimento
+  correlato: `PATCH /pacote-ofertas/:id/status` (ativo/inativo) não tinha
+  NENHUMA checagem de autorização antes desta sessão — qualquer usuário
+  logado podia desativar a oferta de qualquer barbeiro. Adicionado o mesmo
+  guard `exigirDonoOuAdmin` que `criar`/`atualizar` já tinham.
+- **Badge contraditório (Rejeitado + Ativo ao mesmo tempo):** `ativo` é uma
+  flag independente de `statusAprovacao` no domínio (correto — soft-disable
+  não é o mesmo conceito que aprovação) — mas só é *visível/relevante* de
+  fato quando `APROVADO` (só oferta aprovada aparece no funil público). A
+  tela agora só mostra o badge/toggle Ativo·Inativo quando
+  `statusAprovacao === APROVADO`; para os outros estados, só o badge de
+  aprovação aparece — um estado só por vez.
+- **Tela branca no skip de barbeiro único:** com um único barbeiro na casa
+  (caso mais comum, hoje só o Gabriel atende), o passo "Com quem?" pula
+  sozinho — mas entre o barbeiro resolver e o passo seguinte (Serviços)
+  buscar sua própria lista, havia uma janela sem NENHUM indicativo visual
+  (nem loading, nem conteúdo). Corrigido: `Barbeiro.tsx` mostra `Loading`
+  em vez de `null` durante o auto-avanço; `Servicos.tsx` passa a aceitar
+  `carregando` do pai e mostra spinner em vez de lista vazia sem contexto.
+- **BUG FINANCEIRO — add-on em crédito recobrava o item já pago:**
+  `AtendimentoDetalheDialog` calculava "valor a cobrar agora" como
+  `valorTotal - valorPagoOnline`, onde `valorTotal` soma TODOS os itens do
+  atendimento — inclusive os com `itemDoPacoteId` preenchido, já cobertos
+  pelo crédito do pacote. Um add-on (walk-in) num atendimento de crédito
+  instruía o admin a cobrar o item original de novo, em cima do que o
+  pacote já cobria. Extraído `lib/conclusao.ts`
+  (`valorNaoCobertoPorCredito`/`valorACobrarNaConclusao`, mesmo critério de
+  `exigeFormaPagamento` do domínio) e testado diretamente — é um bug de
+  apresentação puro (o domínio nunca armazena "quanto cobrar", só a forma de
+  pagamento; o valor exibido é o que orienta o que o barbeiro cobra em
+  dinheiro/cartão de verdade).
+- **UX — origem de link não aparecia no admin:** `origemLinkBarbeiroId`
+  estava gravado no banco desde a sessão-B mas não saía em nenhum DTO.
+  Adicionado `origemLinkBarbeiroNome` em `AtendimentoDTO`/`VendaDePacoteDTO`
+  (resolvido via join com `Barbeiro`) e exibido no detalhe do atendimento e
+  no card da venda de pacote ("via link de X" / "sem link de origem"). Sem
+  tela de relatório/métrica — mesma decisão da sessão-B, só o dado visível.
+- **UX — sem máscara de moeda:** campos de preço eram `<input>` de texto
+  livre, fonte comum de erro de digitação com dinheiro. Novo componente
+  `CurrencyInput` (`apps/admin/src/components/ui.tsx`) com máscara "por
+  dígitos" (preenche da direita, sem depender de separador decimal digitado
+  à mão — nunca ambíguo tipo "12,5"), aplicado em: criar/editar serviço,
+  criar produto, overrides de preço por barbeiro, preço de oferta de pacote
+  (modo R$), venda de pacote no admin.
+- **UX — Pacotes duplicado:** "Ofertas de pacote" vivia dentro de Ajustes,
+  mas já existia a aba "Pacotes" (vendidos) na navegação principal.
+  Consolidado num `Tabs` dentro da aba Pacotes: "Vendidos" / "Catálogo de
+  ofertas" — um lugar só, e a consolidação foi o que abriu espaço pra
+  liberar o acesso do barbeiro não-admin (ver acima), já que Ajustes é
+  visível só pra admin e Pacotes não.
+
+### Investigação E.7 — "caí logado numa conta que já estava logada"
+
+**Confirmado como (a): vazamento real de sessão entre clientes distintos —
+bug de segurança, corrigido.** Causa raiz em `apps/account/src/App.tsx`: a
+sessão inicial era resolvida como `carregarSessao() ?? sessaoDaQuery(...)`
+— ou seja, uma sessão JÁ SALVA no navegador (localStorage) tinha
+precedência sobre o handoff da URL (a prova fresca de identidade que
+acabou de confirmar o OTP na compra). Num dispositivo compartilhado —
+tablet da barbearia usado pra fechar a compra, celular do
+barbeiro emprestado pro cliente "criar acesso" na hora — se um cliente A
+já tinha sessão salva ali, o cliente B, que acabou de comprar e clicou no
+link de handoff, caía DIRETO na conta de A: nome, telefone, pacotes e
+créditos de outra pessoa visíveis.
+
+Corrigido invertendo a precedência (`resolverSessaoInicial`): o handoff da
+URL sempre vence a sessão salva, nunca o contrário — mesmo princípio já
+usado no link pessoal de barbeiro do funil de agendamento ("prova nova
+sempre vence estado salvo"). Testado em `session.spec.ts`: sessão de um
+cliente A já salva + handoff de um cliente B na URL → resultado é sempre a
+sessão de B, nunca a de A.
+
+### Verificação
+
+`npm run test` (33 arquivos, **295/295 testes**, incluindo os novos
+end-to-end do bug-raiz) e `npm run test:multitz`
+(`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`) **100% verdes**. `turbo run
+build` verde nos 5 pacotes (contracts, api, admin, booking, account) —
+inclui `tsc --noEmit` de cada frontend. Testes novos de frontend (Vitest,
+sem DOM, mesma disciplina de função pura + spec colocado já estabelecida):
+`apps/admin/src/lib/moeda.spec.ts`, `apps/admin/src/lib/conclusao.spec.ts`,
+`apps/account/src/lib/session.spec.ts` (bloco `resolverSessaoInicial`).
+
+**Não testado interativamente num navegador real** — este ambiente não tem
+ferramenta de automação de browser disponível. A verificação foi: `tsc
+--noEmit` + `vite build` bem-sucedidos nos 3 frontends (garante que o
+código compila e é sintaticamente válido), testes unitários das funções
+extraídas especificamente para isolar a lógica de cada bug corrigido, e
+testes de integração HTTP reais para tudo que tem endpoint. Os itens abaixo
+precisam de smoke test manual num navegador antes de considerar esta sessão
+100% fechada.
+
+### O que precisa de smoke test manual
+
+- Fluxo completo do funil público: escolher um barbeiro com override de
+  preço, confirmar que o preço mostrado em "Serviços" já é o dele; comprar
+  uma oferta de pacote e comparar o rateio com outro barbeiro.
+- Cadastrar um serviço novo, criar/editar preço de referência (Ajustes →
+  Serviços → "Editar preço"), cadastrar um override por barbeiro (Ajustes →
+  Preços por barbeiro) e confirmar que aparece certo no funil.
+- Marcar quais serviços um barbeiro atende (Ajustes → Serviços por
+  barbeiro) e confirmar que a composição de oferta pra ele só oferece esses
+  serviços.
+- Logar como um barbeiro NÃO-admin e confirmar: consegue criar/editar a
+  própria oferta (aba Pacotes → Catálogo de ofertas), NÃO vê ofertas de
+  outros barbeiros, NÃO vê botão de aprovar/rejeitar.
+- Criar um atendimento de crédito de pacote, adicionar um serviço avulso
+  (walk-in) na conclusão, e confirmar que o valor pedido pra cobrar é só o
+  do adicional — nunca o item já coberto pelo pacote.
+- Testar o handoff pós-compra em dois navegadores/abas anônimas diferentes
+  simulando dois clientes no mesmo dispositivo, confirmando que o segundo
+  handoff sempre substitui a sessão do primeiro.
+- Skip de barbeiro único: com só um barbeiro cadastrado, confirmar que não
+  aparece nenhum frame em branco entre "Com quem?" e "O que vai ser?".
+- Conferir a máscara de moeda em todos os campos de valor tocados (digitar
+  rápido, apagar, colar um valor) — comportamento esperado é preencher da
+  direita como uma calculadora de banco.
+
 ## Como rodar localmente
 
 ```bash

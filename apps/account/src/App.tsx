@@ -11,8 +11,8 @@ import {
   carregarSessao,
   limparParametrosDeSessaoNaUrl,
   limparSessao,
+  resolverSessaoInicial,
   salvarSessao,
-  sessaoDaQuery,
   type SessaoCliente,
 } from './lib/session';
 import { ErroEstado, Loading, useApi } from './components/ui';
@@ -35,8 +35,10 @@ function Conta() {
   const empresa = useEmpresa();
   // Bug 1: handoff de sessão do onboarding pós-compra (app de booking) via
   // querystring — um único OTP lá já basta, sem pedir código de novo aqui.
+  // Bug de segurança E.7 (sessão-C): o handoff da URL SEMPRE vence a sessão
+  // salva, nunca o contrário — ver `resolverSessaoInicial`.
   const [sessao, setSessao] = useState<SessaoCliente | null>(
-    () => carregarSessao() ?? sessaoDaQuery(window.location.search),
+    () => resolverSessaoInicial(window.location.search, carregarSessao()),
   );
   const [tela, setTela] = useState<Tela>(() => (sessao ? 'home' : 'login'));
 

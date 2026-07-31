@@ -163,11 +163,13 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `id` | BarbeiroId | |
 | `companyId` | CompanyId | |
 | `nome` | string | |
+| `slug` | string | link pessoal de marketing (§3.2.1) — único por empresa |
 | `papeis` | Set\<Papel\> | `ADMIN` \| `BARBEIRO` — enum, nunca string livre |
 | `comissaoPadrao` | Percentual | ex: 45% |
 | `excecoesComissao` | Map\<ServicoId, Percentual\> | override por serviço |
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
 | `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
+| `precosServicos` | Map\<ServicoId, Dinheiro\> | override de PREÇO por serviço (§3.2.2, sessão-B) — ausência = usa `Servico.precoAvulso` |
 | `ativo` | boolean | |
 
 **Regra de comissão (serviço):**
@@ -187,7 +189,43 @@ Adicionar matriz por produto seria complexidade sem justificativa de negócio ob
 - `comissaoPadrao` entre 0% e 100%.
 - Toda exceção também entre 0% e 100%.
 - `comissaoProdutos` entre 0% e 100%.
+- `slug`: só letras minúsculas, números e hífen, sem começar/terminar com hífen (formato validado no domínio; unicidade por empresa é responsabilidade do caller, que consulta o repositório).
 - Só pode ser agendado para serviços em `servicosAtendidos`.
+
+#### 3.2.1 Slug — link pessoal de marketing (sessão-B, Fase 4b)
+
+Cada barbeiro tem um link público (`{BOOKING_URL}/?barbeiro={slug}`) pra divulgar em
+status de WhatsApp, Instagram, cartão. Gerado automaticamente a partir do nome no
+cadastro (kebab-case, sem acento — `slugDoNome`/`slugUnico` em `staff/domain/slug.ts`),
+editável pelo admin depois. Slug inválido ou inexistente no funil público devolve 404
+da API, mas o **frontend nunca mostra isso ao cliente** — cai silenciosamente no funil
+normal (escolha de barbeiro), porque um link velho de um barbeiro que já saiu não pode
+quebrar a experiência de quem clicou nele.
+
+**Precedência sobre estado salvo:** o funil de agendamento persiste progresso em
+`sessionStorage` entre visitas. Um link com barbeiro explícito **sempre vence** esse
+estado salvo — mesmo que o cliente tivesse escolhido outro barbeiro numa visita
+anterior, entrar por `/?barbeiro=gabriel` reinicia o funil com Gabriel fixado (e
+descarta qualquer seleção de serviço da visita anterior, que pode não fazer sentido
+para o novo barbeiro).
+
+#### 3.2.2 Preço por barbeiro — `precoPara` (sessão-B, Fase 2)
+
+`Servico.precoAvulso` passa a ser o preço de **referência da casa**. Cada barbeiro pode
+ter um override por serviço (`precosServicos`, mesmo padrão de `excecoesComissao`):
+
+```
+precoPara(servico, barbeiro) =
+  barbeiro.overridePrecoPara(servico.id) ?? servico.precoAvulso
+```
+
+`precoPara` é uma função da camada de aplicação (`packages/domain/precificacao-pacote.ts`),
+não um método do agregado `Barbeiro` — o domínio do barbeiro só guarda o override, não
+conhece `Servico`. **Onde isso é usado:** hoje, exclusivamente no rateio de
+`VendaDePacote` (§3.6) e na composição/economia de `PacoteOferta` (§3.11). O preço do
+**avulso agendado direto** (`Atendimento.ItemAtendido.valorCobrado`) continua usando
+`Servico.precoAvulso` (referência da casa) — estender `precoPara` pra lá é decisão de
+domínio não pedida nesta sessão, não implementada (ver DECISOES_PENDENTES).
 
 **Nota v1:** o papel era string livre (`'admin'`, `'barber'`) comparada literalmente em vários
 lugares. Aqui é enum, e autorização é centralizada (guard/policy), nunca comparação de string
@@ -289,6 +327,7 @@ Um serviço (ou conjunto de serviços) marcado com um barbeiro em um horário.
 | `origem` | OrigemAtendimento | `AVULSO` \| `CREDITO_PACOTE` |
 | `formaPagamento` | FormaPagamento \| null | preenchido só na conclusão — ver regra generalizada abaixo |
 | `motivoCancelamento` | string \| null | obrigatório se CANCELADO |
+| `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio o agendamento, se veio de algum (só registro, ver §8.4) |
 
 **`ItemAtendido`** (value object dentro do agregado):
 
@@ -385,11 +424,19 @@ itens individuais, cada um com ciclo de vida próprio.
 | `id` | VendaDePacoteId | |
 | `companyId` | CompanyId | |
 | `clienteId` | ClienteId | |
+| `barbeiroId` | BarbeiroId | **dono do pacote** (sessão-B, Fase 2) — ver regra abaixo |
 | `valorPago` | Dinheiro | valor total efetivamente pago |
 | `itens` | List\<ItemDoPacote\> | entidades internas |
 | `saldoResidual` | Dinheiro | acumula valor de itens expirados (§4.2) |
 | `compradoEm` | Timestamp | |
 | `statusPagamento` | StatusPagamento | ver §3.8 |
+| `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
+
+**Dono do pacote (`barbeiroId`, sessão-B Fase 2):** todo pacote pertence a UM barbeiro —
+é o preço DELE (`precoPara`, §3.2.2) que alimenta o rateio abaixo. Crédito só pode ser
+consumido com o barbeiro dono (`agendarItem` recusa qualquer outro barbeiro —
+`InvarianteVioladaError`). **Resgate cruzado entre barbeiros está fora desta sessão**
+(decisão futura, ver DECISOES_PENDENTES).
 
 **`ItemDoPacote`** (entidade dentro do agregado — **nunca manipulada fora da raiz**):
 
@@ -407,7 +454,7 @@ itens individuais, cada um com ciclo de vida próprio.
 
 ```
 Para cada item i:
-  pesoNominal(i) = servico(i).precoAvulso   // preço avulso vigente NA VENDA
+  pesoNominal(i) = precoPara(servico(i), barbeiroDono)   // §3.2.2 — vigente NA VENDA
   somaNominal    = Σ pesoNominal
 
   valorRateado(i) = arredonda( valorPago × pesoNominal(i) / somaNominal )
@@ -416,7 +463,17 @@ Resíduo de arredondamento vai para o último item, garantindo:
   Σ valorRateado == valorPago   (INVARIANTE)
 ```
 
-Exemplo: pacote com 1 corte (avulso R$40) + 1 barba (avulso R$30), vendido por R$60.
+O algoritmo do rateio em si **não mudou** desde a sessão original — só o peso nominal,
+que antes de sempre olhar `Servico.precoAvulso` (referência da casa), agora passa pelo
+`precoPara` (override do barbeiro dono, senão a referência). **Congelado igual a
+qualquer outro snapshot:** mudar o `precosServicos` de um barbeiro DEPOIS de uma venda
+não altera `valorRateado` das vendas já feitas — só afeta rateios de vendas futuras.
+Testado explicitamente (`preco-por-barbeiro.e2e.spec.ts`): cria venda + conclui
+atendimento (gera comissão) → muda o preço do barbeiro → venda antiga e lançamento de
+comissão permanecem byte a byte idênticos.
+
+Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) + 1 barba
+(avulso R$30), vendido por R$60.
 - Corte: 60 × 40/70 = R$34,29
 - Barba: 60 × 30/70 = R$25,71
 - Soma: R$60,00 ✓
@@ -426,6 +483,7 @@ Exemplo: pacote com 1 corte (avulso R$40) + 1 barba (avulso R$30), vendido por R
 - Um item nunca tem mais de 1 falta computada (na segunda, expira).
 - Um item não pode ir para `AGENDADO` se não estiver `DISPONIVEL` ou `SEGUNDA_CHANCE`.
 - Não é possível consumir item de um pacote com `statusPagamento != PAGO`.
+- `agendarItem` exige que o barbeiro passado seja o `barbeiroId` dono do pacote (sessão-B, Fase 2).
 
 **Eventos emitidos:**
 - `PacoteVendido`
@@ -556,6 +614,63 @@ do add-on em `ItemProdutoAtendido` (vendido *junto* de um atendimento, §3.5).
 
 ---
 
+### 3.11 `PacoteOferta` (raiz) — sessão-B (Fases 1 e 3)
+
+Catálogo de pacotes que a barbearia oferece à venda — **agregado de domínio de
+primeira classe** desde esta sessão (antes era um read model só semeado, sem CRUD, ver
+DECISOES_PENDENTES #12, resolvido). Define O QUE está à venda e por quanto; a venda em
+si continua passando por `VendaDePacote`/rateio (§3.6) — este agregado nunca reescreve o
+rateio, só é a fonte da composição e do preço que alimentam a venda.
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | PacoteOfertaId | |
+| `companyId` | CompanyId | |
+| `barbeiroId` | BarbeiroId | **dono da oferta** (Fase 2) — cada barbeiro tem seu próprio catálogo |
+| `nome` | string | |
+| `composicao` | List\<{servicoId, quantidade}\> | **MISTA**: N serviços distintos, cada um com sua quantidade (ex.: 2 cortes + 2 barbas no mesmo pacote) |
+| `preco` | Dinheiro | **única fonte de verdade persistida** — ver regra de precificação abaixo |
+| `ativo` | boolean | soft-disable, como `Servico`/`Produto` |
+| `statusAprovacao` | StatusAprovacaoPacoteOferta | workflow de aprovação (§4.3, Fase 3) |
+| `motivoRejeicao` | string \| null | preenchido só quando `REJEITADO` |
+
+**★ Regra central de precificação — preço é sempre a fonte de verdade:** o admin (ou o
+barbeiro dono) pode digitar o preço de duas formas na UI — (a) um percentual de
+desconto sobre a soma dos preços de referência, ou (b) o preço final direto. **Qualquer
+que seja o modo de entrada, o que se PERSISTE é sempre o preço em centavos** — o
+percentual nunca é armazenado, é sempre DERIVADO na exibição a partir de
+`(somaDeReferencia, preco)`. Se o percentual fosse a fonte de verdade, uma mudança
+futura no preço avulso/override de referência alteraria o preço do pacote sozinha, sem
+ninguém ter decidido isso — guardando o preço, ele só muda quando alguém edita, e o
+percentual exibido se recalcula, revelando corretamente que o desconto real
+encolheu/cresceu. Mesma disciplina de snapshot do resto do sistema (dinheiro é
+congelado; o que é derivado, é sempre recalculado, nunca guardado). O modo (a)/(b) é
+**só uma conveniência de entrada no frontend** — o backend só recebe e persiste
+`precoCentavos`, sempre.
+
+**Base de cálculo da soma de referência:** usa `precoPara(servico, barbeiroDono)`
+(§3.2.2) — ou seja, o mesmo pacote pode ter percentual de desconto **diferente** entre
+barbeiros com preços diferentes para os mesmos serviços. Isso é correto e esperado, não
+é bug — a UI do admin deixa claro que a base é o preço do barbeiro dono.
+
+**Invariantes:**
+- `nome` não-vazio.
+- `composicao` tem ao menos um item; toda `quantidade` inteiro positivo.
+- Todo `servicoId` da composição deve estar em `barbeiroDono.servicosAtendidos`.
+- `preco` > 0.
+- `preco` **não pode ser maior** que a soma dos preços de referência da composição — um
+  "pacote" mais caro que comprar os mesmos serviços separado é erro de cadastro, não um
+  desconto negativo.
+
+**Autorização:** "barbeiro cria/edita → PENDENTE" — o barbeiro dono (ou um admin em
+nome dele) pode criar/editar sua própria oferta; só um admin aprova/rejeita (ver §4.3).
+
+**Uso na venda:** `expandirServicoIds()` repete cada `servicoId` da composição pela
+`quantidade` — o mesmo array plano que `VenderPacoteUseCase` já aceitava antes desta
+sessão (nenhuma mudança na assinatura do rateio, §3.6).
+
+---
+
 ## 4. Máquinas de estado
 
 Estados são **explícitos**. Nunca representar estado com combinação de flags booleanas ou
@@ -662,6 +777,44 @@ nada; depois, expira exatamente o que deveria). Não é um trigger em tempo real
 
 ---
 
+### 4.3 `PacoteOferta` — workflow de aprovação (sessão-B, Fase 3)
+
+```
+┌───────────┐  enviarParaAprovacao   ┌─────────────────────┐
+│ RASCUNHO  ├───────────────────────►│  PENDENTE_APROVACAO │
+└───────────┘                        └──────────┬───────────┘
+                                     aprovar │       │ rejeitar(motivo)
+                                             ▼       ▼
+                                      ┌───────────┐ ┌────────────┐
+                                      │ APROVADO  │ │ REJEITADO  │
+                                      └─────┬─────┘ └─────┬──────┘
+                                            │ editar       │ editar
+                                            └──────┬───────┘
+                                                   ▼
+                                        volta pra PENDENTE_APROVACAO
+```
+
+- **Criar** já nasce em `PENDENTE_APROVACAO` (regra: "barbeiro cria/edita → PENDENTE").
+  `RASCUNHO` existe como estado explícito da máquina, mas nada no fluxo padrão desta
+  sessão o produz automaticamente — só é alcançável passando o status explicitamente.
+  `// DECISAO_PENDENTE`: se deveria existir uma ação de UI "salvar rascunho" separada
+  de "enviar pra aprovação" (não estava especificado — ver DECISOES_PENDENTES).
+- **Só `APROVADO` aparece no funil público.** `PENDENTE_APROVACAO`, `REJEITADO` e
+  `RASCUNHO` só são visíveis no admin.
+- **`aprovar()`/`rejeitar(motivo)`** só saem de `PENDENTE_APROVACAO` — chamar de
+  qualquer outro estado é `TransicaoDeEstadoInvalidaError`. `rejeitar` exige motivo
+  não-vazio (`motivoRejeicao`).
+- **Editar um pacote `APROVADO` ou `REJEITADO` volta para `PENDENTE_APROVACAO`**
+  (limpando `motivoRejeicao`) — precisa passar pelo admin de novo. Editar um
+  `RASCUNHO` ou um já `PENDENTE_APROVACAO` mantém o mesmo estado (editar não publica
+  sozinho; editar um pendente não pula fila).
+- **Autorização:** só ADMIN aprova/rejeita. Um admin que TAMBÉM é o barbeiro dono do
+  pacote **pode aprovar o próprio** — nenhuma checagem de "dono não pode aprovar a si
+  mesmo" é feita **de propósito**: sem isso, o fluxo trava com um único
+  admin+barbeiro real (caso do Gabriel, hoje o único admin que também atende).
+
+---
+
 ## 5. Eventos de domínio
 
 Emitidos pelos agregados, tratados por handlers. **In-process** no MVP (event emitter do Nest,
@@ -751,7 +904,7 @@ bigods/
 │   │       │   ├── staff/        # Barbeiro, Disponibilidade, ExpedienteSemanal
 │   │       │   ├── customers/    # Cliente
 │   │       │   ├── scheduling/   # Atendimento  ← núcleo
-│   │       │   ├── packages/     # VendaDePacote, ItemDoPacote
+│   │       │   ├── packages/     # VendaDePacote, ItemDoPacote, PacoteOferta (§3.11)
 │   │       │   ├── products/     # Produto, VendaDeProduto (§3.9, §3.10)
 │   │       │   ├── payroll/      # LancamentoComissao
 │   │       │   ├── payments/     # IntencaoDePagamento
@@ -871,6 +1024,40 @@ Mesmo caminho (`computarFalta`) é usado para cancelamento TARDIO de
 falta.
 ```
 
+### 8.5 Funil público — ordem das etapas e link pessoal de barbeiro (sessão-B, Fase 4)
+
+**Ordem das etapas (§4a):** com preço por barbeiro (§3.2.2), mostrar serviço ou pacote
+antes de saber o barbeiro é mostrar preço errado. As duas trilhas do funil público agora
+escolhem o barbeiro **primeiro**:
+
+```
+avulso:  LANDING → BARBEIRO → SERVIÇOS → DATA/HORA → DADOS → CONFIRMAÇÃO
+pacote:  LANDING → BARBEIRO → OFERTA DE PACOTE       → DADOS → CONFIRMAÇÃO
+```
+
+A etapa BARBEIRO é pulada automaticamente quando só existe **um** barbeiro na barbearia
+(mesmo espírito do skip antigo — antes calculado só depois de saber os serviços
+escolhidos; agora calculado direto, já que o barbeiro vem primeiro). Depois de
+escolhido, os serviços/ofertas mostrados já vêm filtrados pra esse barbeiro
+(`GET /public/servicos?barbeiroId=`, `GET /public/pacotes?barbeiroId=`).
+
+**Link pessoal do barbeiro (§4b):** `GET /public/barbeiro-por-slug?slug=` resolve um
+slug pro barbeiro; o frontend usa isso pra pré-selecionar o barbeiro e pular a etapa de
+escolha (ver §3.2.1 pra precedência sobre estado salvo e comportamento de slug
+inválido). O funil mostra "Agendando com {nome}" com uma saída discreta ("ver outros
+profissionais") só quando o barbeiro veio de um link — escolha manual ou skip por
+barbeiro único não precisam de escape hatch, não há nada "preso" pra desfazer.
+
+**Registro de origem (§4c):** quando o agendamento/venda vem de um link de barbeiro, o
+funil manda `origemLinkBarbeiroId` no `POST /public/agendamentos` / `POST
+/public/pacotes`, gravado em `Atendimento.origemLinkBarbeiroId` /
+`VendaDePacote.origemLinkBarbeiroId`. **Isso é SÓ REGISTRO** — nenhuma regra de negócio
+depende desse campo nesta sessão, e não existe tela de relatório. Motivo: é um dado que
+não dá pra recuperar retroativamente (se não registrar agora, nunca mais vai saber que
+aquele agendamento veio do marketing pessoal daquele barbeiro); responde depois a
+"quais agendamentos vieram do link de cada barbeiro" quando/se isso virar uma pergunta
+de negócio real. Não inventar métrica ou dashboard agora sobre isso.
+
 ---
 
 ## 9. Testes — onde investir
@@ -946,3 +1133,5 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Desconto progressivo por volume no carrinho | Mecânica distinta do pacote pré-pago; sem evidência operacional | Regra de precificação nova no catálogo |
 | App mobile nativo | Web responsiva resolve; app da v1 morreu sem resolver problema real | PWA primeiro; nativo só se surgir necessidade que só ele resolve |
 | Divisão de lucro entre sócios | Contabilidade da empresa, **não** domínio do produto | Fora do produto — planilha/contador, a partir dos números do sistema |
+| Resgate cruzado de crédito entre barbeiros | `VendaDePacote.barbeiroId` (sessão-B, Fase 2) trava o crédito ao dono; deixar outro barbeiro consumir quebra a relação preço-do-dono ↔ rateio congelado, sem regra de negócio definida pra isso ainda | Precisaria de uma decisão explícita de como converter/rebalancear o rateio entre barbeiros — decisão futura, registrada em DECISOES_PENDENTES |
+| Relatório/dashboard de origemLink | `origemLinkBarbeiroId` (§8.5, Fase 4c) é só registro nesta sessão — não há tela nem métrica | Read model simples quando "quanto cada barbeiro converte pelo próprio link" virar pergunta de negócio real |

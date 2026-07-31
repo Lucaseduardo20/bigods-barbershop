@@ -62,6 +62,7 @@ async function criarVenda(
       id: vendaId,
       companyId,
       clienteId,
+      barbeiroId,
       valorPagoCentavos: valorPago,
       saldoResidualCentavos: saldoResidual,
       compradoEm: new Date(),
@@ -107,10 +108,18 @@ beforeAll(async () => {
 
   await prisma.company.create({ data: { id: companyId, nome: 'Bigod Cockpit', timezone: 'America/Sao_Paulo' } });
   await prisma.servico.create({ data: { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30 } });
-  await prisma.barbeiro.create({ data: { id: barbeiroId, companyId, nome: 'Gabriel Cockpit', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 } });
+  await prisma.barbeiro.create({ data: { id: barbeiroId, companyId, nome: 'Gabriel Cockpit', slug: 'gabriel-cockpit', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 } });
   await prisma.barbeiroServico.create({ data: { barbeiroId, servicoId: corteId } });
   await prisma.pacoteOferta.create({
-    data: { id: ofertaDemoId, companyId, nome: '3 Cortes', servicoId: corteId, quantidade: 3, precoCentavos: 10000, ativo: true },
+    data: {
+      id: ofertaDemoId,
+      companyId,
+      barbeiroId,
+      nome: '3 Cortes',
+      precoCentavos: 10000,
+      ativo: true,
+      itens: { create: [{ id: randomUUID(), servicoId: corteId, quantidade: 3 }] },
+    },
   });
   await prisma.disponibilidade.create({
     data: {
@@ -162,8 +171,9 @@ afterAll(async () => {
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
-  await prisma.barbeiro.deleteMany({ where: { companyId } });
+  await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
+  await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PacotesController } from './presentation/pacotes.controller';
 import { PacotesPublicoController } from './presentation/pacotes-publico.controller';
+import { PacoteOfertasController } from './presentation/pacote-ofertas.controller';
 import { ParametrosController } from './presentation/parametros.controller';
 import { VenderPacoteUseCase } from './application/vender-pacote.usecase';
 import { ConfirmarPagamentoPresencialUseCase } from './application/confirmar-pagamento-presencial.usecase';
@@ -12,7 +13,7 @@ import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [PaymentsModule],
-  controllers: [PacotesController, PacotesPublicoController, ParametrosController],
+  controllers: [PacotesController, PacotesPublicoController, PacoteOfertasController, ParametrosController],
   providers: [
     VenderPacoteUseCase,
     ConfirmarPagamentoPresencialUseCase,

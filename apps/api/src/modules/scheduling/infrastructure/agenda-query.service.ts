@@ -67,12 +67,16 @@ export class AgendaQueryService {
   private async mapearTodos(atendimentos: AtendimentoComItens[]): Promise<AtendimentoDTO[]> {
     if (atendimentos.length === 0) return [];
 
+    const barbeiroIds = new Set(atendimentos.map((a) => a.barbeiroId));
+    for (const a of atendimentos) {
+      if (a.origemLinkBarbeiroId) barbeiroIds.add(a.origemLinkBarbeiroId);
+    }
     const [clientes, barbeiros, servicos, produtos, intencoes] = await Promise.all([
       this.prisma.cliente.findMany({
         where: { id: { in: [...new Set(atendimentos.map((a) => a.clienteId))] } },
       }),
       this.prisma.barbeiro.findMany({
-        where: { id: { in: [...new Set(atendimentos.map((a) => a.barbeiroId))] } },
+        where: { id: { in: [...barbeiroIds] } },
       }),
       this.prisma.servico.findMany(),
       this.prisma.produto.findMany(),
@@ -95,6 +99,7 @@ export class AgendaQueryService {
         a,
         clientePorId.get(a.clienteId),
         barbeiroPorId.get(a.barbeiroId),
+        barbeiroPorId,
         servicoNomePorId,
         produtoNomePorId,
         intencaoPagaPorAtendimento.get(a.id),
@@ -106,6 +111,7 @@ export class AgendaQueryService {
     a: AtendimentoComItens,
     cliente: ClienteRow | undefined,
     barbeiro: BarbeiroRow | undefined,
+    barbeiroPorId: Map<string, BarbeiroRow>,
     servicoNomePorId: Map<string, string>,
     produtoNomePorId: Map<string, string>,
     intencaoPaga: IntencaoRow | undefined,
@@ -142,6 +148,8 @@ export class AgendaQueryService {
       valorTotalCentavos: valorItens + valorProdutos,
       pagoOnline: intencaoPaga !== undefined,
       valorPagoOnlineCentavos: intencaoPaga?.valorCentavos ?? 0,
+      origemLinkBarbeiroId: a.origemLinkBarbeiroId,
+      origemLinkBarbeiroNome: a.origemLinkBarbeiroId ? (barbeiroPorId.get(a.origemLinkBarbeiroId)?.nome ?? null) : null,
     };
   }
 }

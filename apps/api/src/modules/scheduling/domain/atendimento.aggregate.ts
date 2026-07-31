@@ -58,6 +58,12 @@ export interface AtendimentoProps {
   origem: OrigemAtendimento;
   formaPagamento: FormaPagamento | null;
   motivoCancelamento: string | null;
+  /**
+   * Fase 4c (sessão-B): registro de que o agendamento veio do link pessoal de
+   * marketing de um barbeiro — barbeiroId de quem divulgou, ou null se veio do
+   * funil genérico. SÓ registro, sem regra de negócio associada nesta sessão.
+   */
+  origemLinkBarbeiroId: BarbeiroId | null;
 }
 
 export interface AgendarParams {
@@ -71,6 +77,7 @@ export interface AgendarParams {
   disponibilidades: DisponibilidadeBarbeiro[];
   /** Atendimentos AGENDADO do mesmo barbeiro que possam conflitar (projeção de leitura; o EXCLUDE do Postgres é a rede de segurança). */
   atendimentosAtivos: Atendimento[];
+  origemLinkBarbeiroId?: BarbeiroId | null;
 }
 
 export class Atendimento extends AggregateRoot {
@@ -138,6 +145,7 @@ export class Atendimento extends AggregateRoot {
       origem,
       formaPagamento: null,
       motivoCancelamento: null,
+      origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
     });
     atendimento.adicionarEvento(
       new AtendimentoAgendado(
@@ -307,4 +315,5 @@ export class Atendimento extends AggregateRoot {
   get origem() { return this.props.origem; }
   get formaPagamento() { return this.props.formaPagamento; }
   get motivoCancelamento() { return this.props.motivoCancelamento; }
+  get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
 }

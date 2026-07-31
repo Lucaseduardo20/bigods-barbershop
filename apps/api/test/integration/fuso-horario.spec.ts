@@ -37,7 +37,7 @@ beforeAll(async () => {
     data: { id: servicoId, companyId, nome: 'Corte Teste', precoAvulsoCentavos: 4000, duracaoMinutos: 30 },
   });
   await prisma.barbeiro.create({
-    data: { id: barbeiroId, companyId, nome: 'Barbeiro Teste', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 },
+    data: { id: barbeiroId, companyId, nome: 'Barbeiro Teste', slug: 'barbeiro-teste-tz', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 },
   });
   await prisma.cliente.create({
     data: { id: clienteId, companyId, nome: 'Cliente Teste', telefone: `+55119${Date.now() % 100000000}` },
@@ -134,6 +134,7 @@ describe('Job de expiração — não expira "hoje" local mesmo quando UTC disco
         id: vendaId,
         companyId,
         clienteId,
+        barbeiroId,
         valorPagoCentavos: 4000,
         compradoEm: falta,
         statusPagamento: 'PAGO',

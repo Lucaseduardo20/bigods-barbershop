@@ -54,6 +54,24 @@ export function sessaoDaQuery(search: string): SessaoCliente | null {
   return { token, cliente: { id, nome, telefone } };
 }
 
+/**
+ * BUG DE SEGURANÇA (E.7, sessão-C): decide qual sessão vale quando o app
+ * monta — o handoff da URL (prova FRESCA de identidade, acabou de confirmar
+ * o OTP na compra) precisa SEMPRE vencer qualquer sessão já salva no
+ * navegador, nunca o contrário. `carregarSessao() ?? sessaoDaQuery(...)`
+ * fazia o oposto: um dispositivo/navegador compartilhado (tablet da
+ * barbearia, celular do barbeiro emprestado pro cliente "criar acesso")
+ * com uma sessão de um cliente A ainda salva fazia o cliente B, que acabou
+ * de comprar e clicou no link de handoff, cair direto na conta de A —
+ * vazamento real de sessão entre clientes distintos, não só reuso benigno
+ * do mesmo dispositivo pela mesma pessoa. Mesmo princípio já aplicado no
+ * link pessoal de barbeiro do funil de agendamento: prova nova sempre
+ * vence estado salvo.
+ */
+export function resolverSessaoInicial(query: string, sessaoSalva: SessaoCliente | null): SessaoCliente | null {
+  return sessaoDaQuery(query) ?? sessaoSalva;
+}
+
 /** Remove os parâmetros de handoff da URL depois de consumidos (não persistir na barra de endereço). */
 export function limparParametrosDeSessaoNaUrl(): void {
   try {

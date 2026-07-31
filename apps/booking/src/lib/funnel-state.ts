@@ -1,13 +1,16 @@
 import type { ServicoDTO } from '@bigods/contracts';
 
 /**
- * Passos do funil. O passo Barbeiro é pulado quando só há um barbeiro que
- * atende os serviços escolhidos (barbeiroAuto=true).
+ * Passos do funil. §4a: barbeiro vem ANTES de serviço/pacote nas duas
+ * trilhas — com preço por barbeiro, mostrar preço sem saber o barbeiro é
+ * mostrar preço errado. O passo Barbeiro é pulado quando só existe um
+ * barbeiro na casa (barbeiroAuto=true) ou quando veio de um link pessoal
+ * (barbeiroFixadoPorLink=true, §4b).
  */
 export const PASSO = {
   LANDING: 0,
-  SERVICOS: 1,
-  BARBEIRO: 2,
+  BARBEIRO: 1,
+  SERVICOS: 2,
   DATA_HORA: 3,
   DADOS: 4,
   CONFIRMACAO: 5,
@@ -25,8 +28,10 @@ export interface FunnelState {
   servicoIds: string[];
   barbeiroId: string | null;
   barbeiroNome: string | null; // snapshot para exibir na confirmação/sucesso
-  /** true quando o barbeiro foi pré-selecionado por ser o único disponível. */
+  /** true quando o barbeiro foi pré-selecionado por ser o único da casa. */
   barbeiroAuto: boolean;
+  /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
+  barbeiroFixadoPorLink: boolean;
   data: string | null; // YYYY-MM-DD, dia civil local
   horaInicio: string | null; // "HH:mm" local
   nome: string;
@@ -48,6 +53,7 @@ export const estadoInicial: FunnelState = {
   barbeiroId: null,
   barbeiroNome: null,
   barbeiroAuto: false,
+  barbeiroFixadoPorLink: false,
   data: null,
   horaInicio: null,
   nome: '',
@@ -71,6 +77,23 @@ export function sanitizarEstadoCarregado(bruto: Partial<FunnelState>): FunnelSta
   const estado = { ...estadoInicial, ...bruto };
   if (estado.concluido) return estadoInicial;
   return estado;
+}
+
+/**
+ * §4b: um link pessoal de barbeiro SEMPRE vence o estado salvo — se havia
+ * progresso de uma visita anterior (possivelmente com outro barbeiro), ele é
+ * descartado, não só sobrescrito no campo barbeiroId (senão um serviço já
+ * selecionado que o barbeiro do link não atende ficaria "escolhido" sem
+ * sentido). Fica só em LANDING — a escolha avulso/pacote continua acontecendo
+ * normalmente, só a etapa de ESCOLHER barbeiro é que é pulada depois.
+ */
+export function aplicarBarbeiroDoLink(barbeiroId: string, barbeiroNome: string): FunnelState {
+  return {
+    ...estadoInicial,
+    barbeiroId,
+    barbeiroNome,
+    barbeiroFixadoPorLink: true,
+  };
 }
 
 /** Persistência do progresso — sobrevive a refresh. É sessionStorage, NÃO o banco. */

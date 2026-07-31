@@ -83,29 +83,20 @@ que suporta `metadata.externalId` direto e retorna `brCode`/`brCodeBase64`. A ba
 versão/base, ajustar `ABACATEPAY_BASE_URL` (e, se os nomes dos campos diferirem,
 apenas o mapeamento em `AbacatePayGateway` — a porta `PaymentGateway` não muda).
 
-## 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio
+## 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio — ✅ RESOLVIDO (sessão-B, Fase 1)
 
-O funil pede "ofereça pacotes daquele serviço com o desconto vs. avulso visível
-(dado que já existe no catálogo)". Mas o **DOMAIN.md não modela template/catálogo
-de pacote** — §3.6 `VendaDePacote` é uma venda ad-hoc, e §11 não lista "template
-de pacote" nem "precificação/desconto de pacote". Ou seja: **de onde sai o preço
-com desconto e a composição do pacote não estava especificado.** Por CLAUDE.md
-("não invente decisão de domínio"), NÃO criei regra de precificação dentro de um
-agregado.
+~~O funil pede "ofereça pacotes daquele serviço com o desconto vs. avulso visível~~
+~~(dado que já existe no catálogo)". Mas o DOMAIN.md não modela template/catálogo~~
+~~de pacote...~~
 
-**Mínimo implementado:** um **read model** `PacoteOferta` (id, nome, servicoId,
-quantidade, precoCentavos, ativo) — puro catálogo de leitura, **fora dos
-agregados**. A venda pública expande a oferta nos serviços reais
-(`Array(quantidade).fill(servicoId)`) e passa pelo `VendaDePacoteUseCase`/rateio
-(§3.6) sem tocar em nada do domínio. As ofertas são **semeadas** (2 exemplos no
-`seed.ts`); o `precoAvulsoTotalCentavos` (referência do desconto) é derivado do
-catálogo vigente, não congelado.
-
-**A confirmar com o negócio:** (a) política de desconto/preço dos pacotes; (b) se
-o admin deve ter CRUD de ofertas (hoje: só seed — **CRUD no admin fica pendente**,
-não bloqueia o funil); (c) se "pacote" deveria virar um conceito de catálogo de
-primeira classe (aí entra no DOMAIN.md como agregado/entidade nova). Enquanto
-isso, mudar oferta = editar o seed / a tabela, sem migração de domínio.
+**Resolvido na sessão-B:** `PacoteOferta` virou agregado de domínio de primeira
+classe (§3.11 do DOMAIN.md) — dono (`barbeiroId`), composição MISTA, preço como
+única fonte de verdade (percentual sempre derivado), workflow de aprovação
+(§4.3), CRUD completo no admin. Todas as três perguntas abertas aqui foram
+respondidas pelo brief explícito da sessão-B: (a) preço é sempre o que se
+persiste, dois modos de ENTRADA (%/R$) só no frontend; (b) CRUD implementado
+(barbeiro dono ou admin criam/editam; só admin aprova); (c) sim, virou catálogo
+de primeira classe. Mantido aqui riscado por histórico — não reabrir sem motivo novo.
 
 ## 11. Webhook do AbacatePay só é MONTADO com o gateway real
 
@@ -128,15 +119,13 @@ pronto. Ver DOMAIN.md §11 (fora de escopo).
 (medir primeiro, mesma filosofia do §4.2 sobre `saldoResidual` — não automatizar um
 caminho antes de saber a frequência real).
 
-## 14. CRUD de ofertas de pacote (DECISOES #10) e CRUD de produtos: consistência a médio prazo
+## 14. CRUD de ofertas de pacote (DECISOES #10) e CRUD de produtos: consistência a médio prazo — ✅ RESOLVIDO (sessão-B, Fase 1)
 
-A sessão de pacotes (2026-07-15) deixou `PacoteOferta` como read model só-seed, sem CRUD
-no admin. Esta sessão (2026-07-16) **implementou CRUD completo para Produto** (que é
-estruturalmente parecido — catálogo simples com preço e soft-disable). Vale considerar,
-numa sessão futura, se `PacoteOferta` deveria ganhar o mesmo tratamento (CRUD no admin)
-para não ficar como a única exceção "só editável no banco/seed" — mas isso depende da
-decisão de negócio pendente no item #10 sobre se "pacote" vira catálogo de primeira
-classe. Não é uma inconsistência técnica, é uma sequência natural de prioridade.
+~~A sessão de pacotes (2026-07-15) deixou PacoteOferta como read model só-seed...~~
+
+**Resolvido:** `PacoteOferta` ganhou CRUD completo no admin (sessão-B, ver #12
+acima) — já não é mais a exceção "só editável no banco/seed". Consistente com
+`Produto`/`Servico` (mesmo padrão de soft-disable + CRUD).
 
 ## 15. Granularidade do expediente: uma janela por dia na UI do admin
 
@@ -166,3 +155,67 @@ Não há tela de edição de perfil no cockpit para a pessoa corrigir isso depoi
 prática — hoje ele existe mais como rede de segurança de UX (não deixar ninguém preso no
 OTP) do que como um fluxo de cadastro esperado — vale adicionar um passo de "como você se
 chama?" no onboarding do cockpit, ou uma tela de editar nome/perfil.
+
+## 17. RASCUNHO de `PacoteOferta`: nenhum gatilho de UI o produz (sessão-B, Fase 3)
+
+O brief da sessão-B listou os 4 estados da máquina de aprovação (RASCUNHO →
+PENDENTE_APROVACAO → APROVADO | REJEITADO) mas só descreveu o gatilho de criação
+como "barbeiro cria/edita → PENDENTE" — nenhuma menção a um fluxo de "salvar
+como rascunho" separado de "enviar pra aprovação". Por CLAUDE.md ("não invente
+decisão de domínio"), implementei o mínimo que a máquina de estado exige
+(`RASCUNHO` existe, `enviarParaAprovacao()` existe e é testado) sem inventar
+uma tela/checkbox de "salvar rascunho" no admin.
+
+**Mínimo implementado:** `PacoteOferta.criar()` sempre nasce em
+`PENDENTE_APROVACAO` por padrão; `RASCUNHO` só é alcançável passando o status
+explicitamente (hoje, só usado em teste de domínio). Nenhuma UI cria um
+rascunho.
+
+**A confirmar com o negócio:** se barbeiros vão querer montar uma oferta aos
+poucos (nome + composição parcial) antes de mandar pra aprovação — se sim, cabe
+um botão "salvar rascunho" separado de "enviar" na UI, usando o
+`enviarParaAprovacao()` que já existe no domínio.
+
+## 18. Preço por barbeiro (`precoPara`) estendido ao agendamento avulso direto — ✅ RESOLVIDO (sessão-C)
+
+~~O brief da Fase 2 pediu explicitamente: "o rateio de pacote passa a usar o
+preço DO BARBEIRO". Não pediu (e eu não estendi) o mesmo pro preço de um
+`Atendimento` avulso agendado direto — inconsistência observável: dois
+barbeiros com preços diferentes pro mesmo serviço cobravam igual no avulso,
+mas o mesmo pacote rateava diferente entre eles.~~
+
+**Resolvido na sessão-C:** decisão de negócio confirmada pelo dono — preço
+por barbeiro vale GERAL, inclusive avulso. `precoDeReferencia(servico,
+barbeiro)` (antes só usada no rateio de pacote) agora também alimenta:
+`AgendarAvulsoUseCase` (valorCobrado do item), `AdicionarItemAtendimentoUseCase`
+(walk-in add-on) e `GET /public/servicos` (preço exibido no funil, já
+filtrado pelo barbeiro escolhido). `AgendarComCreditoUseCase` **não precisou
+mudar** — já usava `item.valorRateado`, o valor congelado na venda, nunca
+recalculado do catálogo (snapshot, §3.5). Testado ponta-a-ponta (não só a
+função isolada) em `preco-por-barbeiro.e2e.spec.ts`: mesmo serviço com preço
+diferente entre dois barbeiros via `GET /public/servicos`; mesma composição de
+oferta comprada com dois barbeiros gera rateios diferentes; avulso pelo funil
+público cobra o override, não a referência.
+
+## 19. Resgate cruzado de crédito entre barbeiros (sessão-B, Fase 2 — fora de escopo explícito)
+
+`VendaDePacote.barbeiroId` (Fase 2) trava o consumo do crédito ao barbeiro
+dono — `agendarItem` recusa qualquer outro barbeiro
+(`InvarianteVioladaError`). O brief pediu explicitamente que isso ficasse
+**fora desta sessão**, registrado como decisão futura. Ver DOMAIN.md §11.
+
+**Quando reconsiderar:** se um cliente comprar um pacote com um barbeiro e
+depois quiser (ou precisar, por exemplo se o barbeiro sair da empresa) usar o
+crédito com outro, alguém vai ter que decidir como isso afeta o rateio já
+congelado (recalcular? manter o valor rateado original mesmo cobrando de um
+barbeiro diferente pro qual o serviço custa outra coisa?). Não é só destravar
+a invariante — é uma decisão de precificação nova.
+
+## 20. Slug do barbeiro: unicidade só por empresa, não global (sessão-B, Fase 4b)
+
+`Barbeiro.slug` é único por `(companyId, slug)`, não globalmente — decisão de
+implementação (não de domínio) consistente com a costura de multi-tenant do
+resto do sistema (§2.4: `companyId` em todo agregado, sem isolamento dinâmico
+de tenant). Como só existe uma `Company` semeada hoje, essa distinção não é
+observável na prática, mas fica registrada pra não ser "corrigida" por engano
+numa sessão futura que mexa em multi-tenant de verdade.

@@ -4,6 +4,8 @@ import { VendaDePacote } from '../domain/venda-de-pacote.aggregate';
 import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
+import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { precoDeReferencia } from '../domain/precificacao-pacote';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
@@ -14,6 +16,8 @@ import { DomainEvent } from '../../../shared/events/domain-event';
 export interface VenderPacoteInput {
   companyId: string;
   cliente: { nome: string; telefone: string };
+  /** Dono do pacote (Fase 2) — o rateio usa o preço deste barbeiro, vigente agora. */
+  barbeiroId: string;
   /** serviços do pacote — repetir o id para múltiplas unidades do mesmo serviço */
   servicoIds: string[];
   valorPagoCentavos: number;
@@ -25,6 +29,8 @@ export interface VenderPacoteInput {
    * Default `true` para preservar o comportamento anterior (admin online = PIX).
    */
   gerarCobranca?: boolean;
+  /** Fase 4c: veio do link pessoal de marketing de qual barbeiro, se veio de algum. */
+  origemLinkBarbeiroId?: string | null;
 }
 
 export interface VenderPacoteOutput {
@@ -39,12 +45,17 @@ export interface VenderPacoteOutput {
 export class VenderPacoteUseCase {
   constructor(
     @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
+    @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
   ) {}
 
   async executar(input: VenderPacoteInput): Promise<VenderPacoteOutput> {
+    const barbeiro = await this.barbeiros.porId(input.barbeiroId);
+    if (!barbeiro || barbeiro.companyId !== input.companyId) {
+      throw new NotFoundException('Barbeiro não encontrado');
+    }
     const unicos = [...new Set(input.servicoIds)];
     const servicos = await this.servicos.porIds(unicos);
     if (servicos.length !== unicos.length) {
@@ -76,13 +87,17 @@ export class VenderPacoteUseCase {
         id: vendaId,
         companyId: input.companyId,
         clienteId: cliente.id,
+        barbeiroId: input.barbeiroId,
         valorPago: Dinheiro.deCentavos(input.valorPagoCentavos),
+        // Peso do rateio é o preço DO BARBEIRO vigente agora (Fase 2) — snapshot
+        // congelado no rateio; mudar o preço do barbeiro depois NÃO afeta esta venda.
         itens: input.servicoIds.map((servicoId) => ({
           itemId: randomUUID(),
           servicoId,
-          precoAvulsoNaVenda: porId.get(servicoId)!.precoAvulso,
+          precoAvulsoNaVenda: precoDeReferencia(porId.get(servicoId)!, barbeiro),
         })),
         compradoEm: new Date(),
+        origemLinkBarbeiroId: input.origemLinkBarbeiroId,
       });
 
       const intencao = IntencaoDePagamento.criar({

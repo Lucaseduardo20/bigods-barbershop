@@ -122,6 +122,19 @@ body {
   box-sizing: border-box;
 }
 .input:focus, .select:focus { border-color: var(--accent-primary); }
+.currency-input {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface-card);
+  padding-left: 12px;
+  box-sizing: border-box;
+}
+.currency-input:focus-within { border-color: var(--accent-primary); }
+.currency-prefix { font: 600 13px var(--font-ui); color: var(--text-muted); flex-shrink: 0; }
+.currency-input .input { border: none; padding-left: 6px; }
+.currency-input .input:focus { border: none; }
 .label {
   display: block;
   font: 700 12px var(--font-ui);

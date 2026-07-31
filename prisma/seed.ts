@@ -98,24 +98,6 @@ async function main() {
     update: {},
   });
 
-  // ---- Ofertas de pacote (read model do funil — não é agregado de domínio) ----
-  // Preço com desconto vs. avulso. A venda expande na quantidade de serviços e o
-  // rateio do domínio (§3.6) congela por cima. Ver DECISOES_PENDENTES: template +
-  // desconto não são modelados no domínio; CRUD no admin fica pendente.
-  const ofertas = [
-    // 5 cortes: R$40×5 = R$200 avulso → R$170 (desconto)
-    { id: 'oferta-5-cortes', nome: '5 Cortes', servicoId: corteId, quantidade: 5, precoCentavos: 17000 },
-    // 4 barbas: R$30×4 = R$120 avulso → R$100
-    { id: 'oferta-4-barbas', nome: '4 Barbas', servicoId: barbaId, quantidade: 4, precoCentavos: 10000 },
-  ];
-  for (const o of ofertas) {
-    await prisma.pacoteOferta.upsert({
-      where: { id: o.id },
-      create: { ...o, companyId, ativo: true },
-      update: {},
-    });
-  }
-
   // ---- Produtos (item 4 da sessão 2026-07-16 — venda mínima, sem estoque) ----
   const gelId = 'prod-gel';
   const pomadaId = 'prod-pomada';
@@ -138,6 +120,7 @@ async function main() {
       id: gabrielId,
       companyId,
       nome: 'Gabriel',
+      slug: 'gabriel',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
       comissaoProdutosBp: 1000, // 10% — percentual único, sem matriz por produto
@@ -155,13 +138,45 @@ async function main() {
   });
   await seedarExpediente(gabrielId, '09:00', '18:00');
 
+  // ---- Ofertas de pacote (agregado PacoteOferta — sessão-B): cada uma tem um
+  // dono (barbeiroId) e composição mista (N serviços, cada um com quantidade).
+  // Preço é a fonte de verdade persistida; o percentual de desconto é sempre
+  // derivado na exibição (nunca armazenado).
+  const ofertas: { id: string; nome: string; precoCentavos: number; itens: { servicoId: string; quantidade: number }[] }[] = [
+    // 5 cortes: R$40×5 = R$200 avulso → R$170 (desconto)
+    { id: 'oferta-5-cortes', nome: '5 Cortes', precoCentavos: 17000, itens: [{ servicoId: corteId, quantidade: 5 }] },
+    // 4 barbas: R$30×4 = R$120 avulso → R$100
+    { id: 'oferta-4-barbas', nome: '4 Barbas', precoCentavos: 10000, itens: [{ servicoId: barbaId, quantidade: 4 }] },
+    // pacote MISTO: 2 cortes + 2 barbas = R$140 avulso → R$120
+    {
+      id: 'oferta-combo-corte-barba',
+      nome: 'Combo Corte + Barba',
+      precoCentavos: 12000,
+      itens: [
+        { servicoId: corteId, quantidade: 2 },
+        { servicoId: barbaId, quantidade: 2 },
+      ],
+    },
+  ];
+  for (const o of ofertas) {
+    await prisma.pacoteOferta.upsert({
+      where: { id: o.id },
+      create: { id: o.id, companyId, barbeiroId: gabrielId, nome: o.nome, precoCentavos: o.precoCentavos, ativo: true },
+      update: { nome: o.nome, precoCentavos: o.precoCentavos },
+    });
+    await prisma.pacoteOfertaItem.deleteMany({ where: { ofertaId: o.id } });
+    await prisma.pacoteOfertaItem.createMany({
+      data: o.itens.map((i) => ({ id: randomUUID(), ofertaId: o.id, servicoId: i.servicoId, quantidade: i.quantidade })),
+    });
+  }
+
   // ---- Admins de gestão (não atendem — só acesso ao painel) ----
   // DECISAO_PENDENTE: "admin" aqui é só o papel ADMIN sem BARBEIRO, seguindo a
   // leitura de que "2 admins" e "2 barbeiros" no pedido são categorias
   // distintas (diferente de Gabriel, que acumula os dois papéis).
   const admins = [
-    { id: 'bar-lkt', nome: 'LKT', login: 'lkt' },
-    { id: 'bar-rafael-grigio', nome: 'Rafael Grigio', login: 'rafaelgrigio' },
+    { id: 'bar-lkt', nome: 'LKT', slug: 'lkt', login: 'lkt' },
+    { id: 'bar-rafael-grigio', nome: 'Rafael Grigio', slug: 'rafael-grigio', login: 'rafaelgrigio' },
   ];
   for (const admin of admins) {
     await prisma.barbeiro.upsert({
@@ -170,6 +185,7 @@ async function main() {
         id: admin.id,
         companyId,
         nome: admin.nome,
+        slug: admin.slug,
         papeis: ['ADMIN'],
         comissaoPadraoBp: 0,
         login: admin.login,
@@ -188,8 +204,11 @@ async function main() {
       id: lucasId,
       companyId,
       nome: 'Lucas Andrade',
+      slug: 'lucas-andrade',
       papeis: ['BARBEIRO'],
       comissaoPadraoBp: 4000, // 40%
+      login: 'lucasandrade',
+      senhaHash: hashSenha(SENHA_PADRAO),
     },
     update: {},
   });
@@ -209,8 +228,11 @@ async function main() {
       id: pedroId,
       companyId,
       nome: 'Pedro Martins',
+      slug: 'pedro-martins',
       papeis: ['BARBEIRO'],
       comissaoPadraoBp: 3500, // 35% padrão
+      login: 'pedromartins',
+      senhaHash: hashSenha(SENHA_PADRAO)
     },
     update: {},
   });
@@ -258,6 +280,7 @@ async function main() {
         id: vendaId,
         companyId,
         clienteId,
+        barbeiroId: gabrielId,
         valorPagoCentavos: 6000,
         compradoEm: new Date(),
         statusPagamento: 'PAGO',

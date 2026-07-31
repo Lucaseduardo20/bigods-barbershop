@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AtendimentoDTO, ProdutoDTO, ServicoDTO } from '@bigods/contracts';
 import { FormaPagamento, OrigemAtendimento, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
+import { valorACobrarNaConclusao, valorNaoCobertoPorCredito } from '../lib/conclusao';
 import { dataCurta, dinheiro, hora } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
@@ -67,10 +68,18 @@ export function AtendimentoDetalheDialog({
   // Mesma regra de `Atendimento.concluir()` (domínio): exige forma de
   // pagamento se há item avulso ou produto — a menos que o pagamento online já
   // cubra o total (sem adicional).
-  const semAdicionalPagoOnline = !!a && a.pagoOnline && a.valorPagoOnlineCentavos >= a.valorTotalCentavos;
+  //
+  // Bug financeiro (sessão-C): `valorAdicional` tem que ser só a parte NÃO
+  // coberta por crédito de pacote — antes usava `a.valorTotalCentavos`, que
+  // soma TODOS os itens (inclusive os com `itemDoPacoteId` preenchido, já
+  // pagos pelo pacote). Um add-on num atendimento de crédito cobrava de novo
+  // o item original que o crédito já cobria (ver `lib/conclusao.ts` e seu
+  // teste — mesmo critério de `exigeFormaPagamento` no domínio).
+  const naoCoberto = a ? valorNaoCobertoPorCredito(a) : 0;
+  const semAdicionalPagoOnline = !!a && a.pagoOnline && a.valorPagoOnlineCentavos >= naoCoberto;
   const precisaFormaPagamento =
     !!a && !semAdicionalPagoOnline && (a.itens.some((i) => i.itemDoPacoteId === null) || a.produtos.length > 0);
-  const valorAdicional = a ? Math.max(0, a.valorTotalCentavos - a.valorPagoOnlineCentavos) : 0;
+  const valorAdicional = a ? valorACobrarNaConclusao(a) : 0;
 
   const acao = async (fn: () => Promise<unknown>) => {
     setOcupado(true);
@@ -123,6 +132,9 @@ export function AtendimentoDetalheDialog({
               {hora(a.inicio, tz)}–{hora(a.fim, tz)} · {a.barbeiro.nome}
             </div>
             {a.motivoCancelamento && <div>Motivo do cancelamento: {a.motivoCancelamento}</div>}
+            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              {a.origemLinkBarbeiroNome ? <>via link de {a.origemLinkBarbeiroNome}</> : 'sem link de origem'}
+            </div>
           </div>
 
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>

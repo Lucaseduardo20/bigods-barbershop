@@ -10,8 +10,10 @@ import type {
 } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api, limparSessao } from '../lib/api';
+import { BOOKING_URL } from '../lib/config';
 import { dinheiro } from '../lib/format';
-import { Badge, Dialog, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
+import { centavosParaTextoMoeda } from '../lib/moeda';
+import { Badge, CurrencyInput, Dialog, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 
 export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
@@ -43,6 +45,9 @@ export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
         <>
           <Servicos />
           <Produtos />
+          <LinksDeAgendamento />
+          <PrecosPorBarbeiro />
+          <ServicosPorBarbeiro />
           <Expediente />
           <Parametros />
         </>
@@ -59,24 +64,23 @@ function Servicos() {
   const { dados, erro, carregando, recarregar } = useApi(() => api<ServicoDTO[]>('/servicos'), []);
   const [novoAberto, setNovoAberto] = useState(false);
   const [nome, setNome] = useState('');
-  const [preco, setPreco] = useState('');
+  const [precoCentavos, setPrecoCentavos] = useState(0);
   const [duracao, setDuracao] = useState('30');
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
+  const [editandoPrecoId, setEditandoPrecoId] = useState<string | null>(null);
+  const [precoEditado, setPrecoEditado] = useState(0);
+  const [salvandoPreco, setSalvandoPreco] = useState(false);
 
   const criar = async () => {
     setErroSalvar(null);
     try {
       await api('/servicos', {
         method: 'POST',
-        body: {
-          nome,
-          precoAvulsoCentavos: Math.round(parseFloat(preco.replace(',', '.')) * 100),
-          duracaoMinutos: parseInt(duracao, 10),
-        },
+        body: { nome, precoAvulsoCentavos: precoCentavos, duracaoMinutos: parseInt(duracao, 10) },
       });
       setNovoAberto(false);
       setNome('');
-      setPreco('');
+      setPrecoCentavos(0);
       recarregar();
     } catch (e) {
       setErroSalvar(String((e as Error).message));
@@ -88,6 +92,17 @@ function Servicos() {
     recarregar();
   };
 
+  const salvarPreco = async (id: string) => {
+    setSalvandoPreco(true);
+    try {
+      await api(`/servicos/${id}`, { method: 'PATCH', body: { precoAvulsoCentavos: precoEditado } });
+      setEditandoPrecoId(null);
+      recarregar();
+    } finally {
+      setSalvandoPreco(false);
+    }
+  };
+
   return (
     <div className="mb-5">
       <div className="flex items-center justify-between mb-2">
@@ -96,31 +111,57 @@ function Servicos() {
           + Novo
         </button>
       </div>
+      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+        Preço de referência da casa — cada barbeiro pode ter um override próprio (ver "Preços por barbeiro" abaixo).
+      </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
       {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum serviço cadastrado." />}
       <div className="flex flex-col gap-2">
         {(dados ?? []).map((s) => (
-          <div key={s.id} className="card flex items-center justify-between">
-            <div>
+          <div key={s.id} className="card flex items-center justify-between gap-2">
+            <div className="min-w-0">
               <div className="text-[14px] font-bold">{s.nome}</div>
-              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                {dinheiro(s.precoAvulsoCentavos)} · {s.duracaoMinutos} min
+              {editandoPrecoId === s.id ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <CurrencyInput centavos={precoEditado} onChange={setPrecoEditado} style={{ width: 110 }} />
+                  <button className="btn btn-sm" disabled={salvandoPreco || precoEditado <= 0} onClick={() => salvarPreco(s.id)}>
+                    Salvar
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditandoPrecoId(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                  {dinheiro(s.precoAvulsoCentavos)} · {s.duracaoMinutos} min
+                </div>
+              )}
+            </div>
+            {editandoPrecoId !== s.id && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Badge tone={s.ativo ? 'success' : 'neutral'}>{s.ativo ? 'Ativo' : 'Inativo'}</Badge>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setEditandoPrecoId(s.id);
+                    setPrecoEditado(s.precoAvulsoCentavos);
+                  }}
+                >
+                  Editar preço
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(s)}>
+                  {s.ativo ? 'Desativar' : 'Reativar'}
+                </button>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge tone={s.ativo ? 'success' : 'neutral'}>{s.ativo ? 'Ativo' : 'Inativo'}</Badge>
-              <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(s)}>
-                {s.ativo ? 'Desativar' : 'Reativar'}
-              </button>
-            </div>
+            )}
           </div>
         ))}
       </div>
       <Dialog open={novoAberto} onClose={() => setNovoAberto(false)} title="Novo serviço">
         <div className="flex flex-col gap-3">
           <input className="input" placeholder="Nome" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <input className="input" placeholder="Preço (R$)" value={preco} onChange={(e) => setPreco(e.target.value)} />
+          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} placeholder="Preço (R$)" />
           <input
             className="input"
             type="number"
@@ -129,7 +170,7 @@ function Servicos() {
             onChange={(e) => setDuracao(e.target.value)}
           />
           {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}
-          <button className="btn" disabled={!nome || !preco || !duracao} onClick={criar}>
+          <button className="btn" disabled={!nome || precoCentavos <= 0 || !duracao} onClick={criar}>
             Salvar serviço
           </button>
         </div>
@@ -142,19 +183,16 @@ function Produtos() {
   const { dados, erro, carregando, recarregar } = useApi(() => api<ProdutoDTO[]>('/produtos'), []);
   const [novoAberto, setNovoAberto] = useState(false);
   const [nome, setNome] = useState('');
-  const [preco, setPreco] = useState('');
+  const [precoCentavos, setPrecoCentavos] = useState(0);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
 
   const criar = async () => {
     setErroSalvar(null);
     try {
-      await api('/produtos', {
-        method: 'POST',
-        body: { nome, precoCentavos: Math.round(parseFloat(preco.replace(',', '.')) * 100) },
-      });
+      await api('/produtos', { method: 'POST', body: { nome, precoCentavos } });
       setNovoAberto(false);
       setNome('');
-      setPreco('');
+      setPrecoCentavos(0);
       recarregar();
     } catch (e) {
       setErroSalvar(String((e as Error).message));
@@ -201,13 +239,280 @@ function Produtos() {
       <Dialog open={novoAberto} onClose={() => setNovoAberto(false)} title="Novo produto">
         <div className="flex flex-col gap-3">
           <input className="input" placeholder="Nome" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <input className="input" placeholder="Preço (R$)" value={preco} onChange={(e) => setPreco(e.target.value)} />
+          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} placeholder="Preço (R$)" />
           {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}
-          <button className="btn" disabled={!nome || !preco} onClick={criar}>
+          <button className="btn" disabled={!nome || precoCentavos <= 0} onClick={criar}>
             Salvar produto
           </button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+/** §4b: link pessoal de cada barbeiro pra ele divulgar (status, Instagram, cartão). */
+function LinksDeAgendamento() {
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [novoSlug, setNovoSlug] = useState('');
+  const [erro, setErro] = useState<string | null>(null);
+  const [copiadoId, setCopiadoId] = useState<string | null>(null);
+
+  const link = (slug: string) => `${BOOKING_URL}/?barbeiro=${slug}`;
+
+  const copiar = async (b: BarbeiroDTO) => {
+    await navigator.clipboard.writeText(link(b.slug));
+    setCopiadoId(b.id);
+    setTimeout(() => setCopiadoId((id) => (id === b.id ? null : id)), 2000);
+  };
+
+  const salvarSlug = async (id: string) => {
+    setErro(null);
+    try {
+      await api(`/barbeiros/${id}/slug`, { method: 'PUT', body: { slug: novoSlug } });
+      setEditandoId(null);
+      barbeirosReq.recarregar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    }
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="label mb-2">Links de agendamento</div>
+      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+        Cada barbeiro tem um link pessoal — quem entra por ele já cai com esse barbeiro
+        pré-selecionado no funil (status do WhatsApp, Instagram, cartão de visita).
+      </div>
+      {barbeirosReq.carregando && <Loading />}
+      <div className="flex flex-col gap-2">
+        {barbeirosQueAtendem.map((b) => (
+          <div key={b.id} className="card">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-bold">{b.nome}</div>
+                {editandoId === b.id ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <input className="input" style={{ width: 160 }} value={novoSlug} onChange={(e) => setNovoSlug(e.target.value)} />
+                    <button className="btn btn-sm" onClick={() => salvarSlug(b.id)}>
+                      Salvar
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditandoId(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                    {link(b.slug)}
+                  </div>
+                )}
+              </div>
+              {editandoId !== b.id && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button className="btn btn-sm" onClick={() => copiar(b)}>
+                    {copiadoId === b.id ? 'Copiado!' : 'Copiar'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setEditandoId(b.id);
+                      setNovoSlug(b.slug);
+                      setErro(null);
+                    }}
+                  >
+                    Editar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+    </div>
+  );
+}
+
+function PrecosPorBarbeiro() {
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const servicosReq = useApi(() => api<ServicoDTO[]>('/servicos'), []);
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  const servicos = (servicosReq.dados ?? []).filter((s) => s.ativo);
+
+  const [barbeiroId, setBarbeiroId] = useState('');
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const barbeiroIdEfetivo = barbeiroId || barbeirosQueAtendem[0]?.id || '';
+  const barbeiroAtual = barbeirosQueAtendem.find((b) => b.id === barbeiroIdEfetivo);
+
+  useEffect(() => {
+    if (!barbeiroAtual) return;
+    const mapa: Record<string, number> = {};
+    for (const p of barbeiroAtual.precosServicos) {
+      mapa[p.servicoId] = p.precoCentavos;
+    }
+    setOverrides(mapa);
+    setSalvo(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeiroIdEfetivo]);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    setSalvo(false);
+    try {
+      const precos = Object.entries(overrides)
+        .filter(([, centavos]) => centavos > 0)
+        .map(([servicoId, precoCentavos]) => ({ servicoId, precoCentavos }));
+      await api(`/barbeiros/${barbeiroIdEfetivo}/precos`, { method: 'PUT', body: { precos } });
+      setSalvo(true);
+      barbeirosReq.recarregar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="label mb-2">Preços por barbeiro</div>
+      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+        Cada barbeiro cobra o preço de REFERÊNCIA da casa por padrão. Preencher um valor aqui
+        cria um override só para ele; deixar em branco volta a usar a referência.
+      </div>
+      {barbeirosQueAtendem.length > 0 && (
+        <select
+          className="select mb-3"
+          value={barbeiroIdEfetivo}
+          onChange={(e) => setBarbeiroId(e.target.value)}
+        >
+          {barbeirosQueAtendem.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.nome}
+            </option>
+          ))}
+        </select>
+      )}
+      {servicosReq.carregando && <Loading />}
+      <div className="flex flex-col gap-2">
+        {servicos.map((s) => {
+          const temOverride = (overrides[s.id] ?? 0) > 0;
+          return (
+            <div key={s.id} className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[13px] font-semibold">{s.nome}</div>
+                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  referência da casa: {dinheiro(s.precoAvulsoCentavos)}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {temOverride && <Badge tone="gold">override</Badge>}
+                <CurrencyInput
+                  centavos={overrides[s.id] ?? 0}
+                  onChange={(centavos) => setOverrides((o) => ({ ...o, [s.id]: centavos }))}
+                  placeholder={centavosParaTextoMoeda(s.precoAvulsoCentavos)}
+                  style={{ width: 110 }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+      {salvo && <div className="text-[13px] mt-2" style={{ color: 'var(--status-success)' }}>Preços salvos.</div>}
+      <button className="btn btn-sm mt-3" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
+        {salvando ? 'Salvando…' : 'Salvar preços'}
+      </button>
+    </div>
+  );
+}
+
+/** Quais serviços cada barbeiro atende — sem isso, a invariante "oferta só
+ * pode compor serviço que o barbeiro dono atende" não tem como ser
+ * configurada na prática (o backend já valida; faltava só a UI). */
+function ServicosPorBarbeiro() {
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const servicosReq = useApi(() => api<ServicoDTO[]>('/servicos'), []);
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  const servicos = (servicosReq.dados ?? []).filter((s) => s.ativo);
+
+  const [barbeiroId, setBarbeiroId] = useState('');
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const barbeiroIdEfetivo = barbeiroId || barbeirosQueAtendem[0]?.id || '';
+  const barbeiroAtual = barbeirosQueAtendem.find((b) => b.id === barbeiroIdEfetivo);
+
+  useEffect(() => {
+    if (!barbeiroAtual) return;
+    setSelecionados(new Set(barbeiroAtual.servicosAtendidos));
+    setSalvo(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeiroIdEfetivo]);
+
+  const alternar = (servicoId: string) => {
+    setSelecionados((s) => {
+      const novo = new Set(s);
+      if (novo.has(servicoId)) novo.delete(servicoId);
+      else novo.add(servicoId);
+      return novo;
+    });
+  };
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    setSalvo(false);
+    try {
+      await api(`/barbeiros/${barbeiroIdEfetivo}/servicos`, { method: 'PUT', body: { servicoIds: [...selecionados] } });
+      setSalvo(true);
+      barbeirosReq.recarregar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="label mb-2">Serviços por barbeiro</div>
+      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
+        Quais serviços cada barbeiro atende — só agenda avulso, crédito de pacote e oferta de
+        pacote podem usar serviços marcados aqui para o barbeiro dono.
+      </div>
+      {barbeirosQueAtendem.length > 0 && (
+        <select className="select mb-3" value={barbeiroIdEfetivo} onChange={(e) => setBarbeiroId(e.target.value)}>
+          {barbeirosQueAtendem.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.nome}
+            </option>
+          ))}
+        </select>
+      )}
+      {servicosReq.carregando && <Loading />}
+      <div className="flex flex-col gap-1.5">
+        {servicos.map((s) => (
+          <label key={s.id} className="flex items-center gap-2 text-[13px] py-1">
+            <input type="checkbox" checked={selecionados.has(s.id)} onChange={() => alternar(s.id)} />
+            <span>
+              {s.nome} <span style={{ color: 'var(--text-muted)' }}>({dinheiro(s.precoAvulsoCentavos)})</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+      {salvo && <div className="text-[13px] mt-2" style={{ color: 'var(--status-success)' }}>Salvo.</div>}
+      <button className="btn btn-sm mt-3" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
+        {salvando ? 'Salvando…' : 'Salvar serviços atendidos'}
+      </button>
     </div>
   );
 }

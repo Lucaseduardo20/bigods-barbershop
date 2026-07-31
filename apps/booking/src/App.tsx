@@ -14,6 +14,7 @@ import { dinheiro, hojeISO } from './lib/format';
 import { telefoneValido } from './lib/telefone';
 import { mascararTelefone } from './lib/telefone';
 import {
+  aplicarBarbeiroDoLink,
   carregarEstado,
   duracaoMinutos,
   estadoInicial,
@@ -44,7 +45,26 @@ export function App() {
   );
 }
 
-const ROTULOS_PASSO = ['Serviços', 'Barbeiro', 'Horário', 'Dados', 'Confirmar'];
+const ROTULOS_PASSO = ['Barbeiro', 'Serviços', 'Horário', 'Dados', 'Confirmar'];
+
+/** §4b: parâmetro de query do link pessoal do barbeiro — "/?barbeiro=gabriel". */
+function slugDoLinkNaUrl(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('barbeiro');
+  } catch {
+    return null;
+  }
+}
+
+function limparParametroDeLinkNaUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('barbeiro');
+    window.history.replaceState({}, '', url.toString());
+  } catch {
+    /* ignore */
+  }
+}
 
 function Funil() {
   const empresa = useEmpresa();
@@ -55,7 +75,6 @@ function Funil() {
 
   const [estado, setEstado] = useState<FunnelState>(() => carregarEstado());
   const [pago, setPago] = useState(false);
-  const [avancando, setAvancando] = useState(false); // transição serviços→barbeiro
   const [erroDecisao, setErroDecisao] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
@@ -66,6 +85,32 @@ function Funil() {
   useEffect(() => {
     salvarEstado(estado);
   }, [estado]);
+
+  // §4b: link pessoal do barbeiro SEMPRE vence o estado salvo — roda uma vez,
+  // no mount; slug inválido/inexistente simplesmente não faz nada (o funil
+  // segue normal, nunca um erro na cara do cliente).
+  useEffect(() => {
+    const slug = slugDoLinkNaUrl();
+    if (!slug) return;
+    limparParametroDeLinkNaUrl();
+    api<BarbeiroPublicoDTO>(`/public/barbeiro-por-slug?companyId=${encodeURIComponent(COMPANY_ID)}&slug=${encodeURIComponent(slug)}`)
+      .then((b) => setEstado(aplicarBarbeiroDoLink(b.id, b.nome)))
+      .catch(() => {
+        /* slug inválido/inexistente → cai no funil normal, de propósito */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Serviços que o barbeiro ESCOLHIDO atende — só busca depois de saber quem é
+  // (§4a: barbeiro vem antes de serviço). A lista completa (servicosReq, sem
+  // filtro) continua alimentando preço/duração em qualquer passo por id.
+  const servicosDoBarbeiroReq = useApi(
+    () =>
+      estado.barbeiroId
+        ? api<ServicoDTO[]>(`/public/servicos?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${estado.barbeiroId}`)
+        : Promise.resolve([]),
+    [estado.barbeiroId],
+  );
 
   const patch = (p: Partial<FunnelState>) => setEstado((e) => ({ ...e, ...p }));
 
@@ -122,12 +167,19 @@ function Funil() {
     );
   }
 
+  // §4b: barbeiro já fixado (link ou única opção da casa) pula a etapa de escolha.
+  const barbeiroJaResolvido = !!estado.barbeiroId && (estado.barbeiroFixadoPorLink || estado.barbeiroAuto);
+
   if (estado.step === PASSO.LANDING) {
     return (
       <Landing
         nomeEmpresa={empresa.nome}
-        onAgendar={() => patch({ modo: 'avulso', step: PASSO.SERVICOS })}
-        onComprarPacote={() => patch({ modo: 'pacote', step: PASSO.PACOTE_OFERTA })}
+        onAgendar={() =>
+          patch({ modo: 'avulso', step: barbeiroJaResolvido ? PASSO.SERVICOS : PASSO.BARBEIRO })
+        }
+        onComprarPacote={() =>
+          patch({ modo: 'pacote', step: barbeiroJaResolvido ? PASSO.PACOTE_OFERTA : PASSO.BARBEIRO })
+        }
       />
     );
   }
@@ -140,52 +192,39 @@ function Funil() {
       return {
         ...e,
         servicoIds: has ? e.servicoIds.filter((x) => x !== id) : [...e.servicoIds, id],
-        barbeiroId: null,
-        barbeiroNome: null,
-        barbeiroAuto: false,
         data: null,
         horaInicio: null,
       };
     });
   };
 
-  const continuarDeServicos = async () => {
-    setAvancando(true);
-    setErroDecisao(null);
-    try {
-      const barbeiros = await api<BarbeiroPublicoDTO[]>(
-        `/public/barbeiros?companyId=${encodeURIComponent(COMPANY_ID)}&servicoIds=${estado.servicoIds.join(',')}`,
-      );
-      if (barbeiros.length === 0) {
-        setErroDecisao('Nenhum barbeiro atende essa combinação de serviços. Ajuste sua escolha.');
-        return;
-      }
-      if (barbeiros.length === 1) {
-        patch({
-          barbeiroId: barbeiros[0].id,
-          barbeiroNome: barbeiros[0].nome,
-          barbeiroAuto: true,
-          step: PASSO.DATA_HORA,
-          data: estado.data ?? hojeISO(empresa.timezone),
-        });
-        return;
-      }
-      const aindaValido = !!estado.barbeiroId && barbeiros.some((b) => b.id === estado.barbeiroId);
-      patch({
-        barbeiroAuto: false,
-        step: PASSO.BARBEIRO,
-        barbeiroId: aindaValido ? estado.barbeiroId : null,
-        barbeiroNome: aindaValido ? estado.barbeiroNome : null,
-      });
-    } catch (e) {
-      setErroDecisao(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setAvancando(false);
-    }
+  const escolherBarbeiro = (id: string, nome: string, auto: boolean) => {
+    patch({
+      barbeiroId: id,
+      barbeiroNome: nome,
+      barbeiroAuto: auto,
+      barbeiroFixadoPorLink: false,
+      servicoIds: [],
+      data: null,
+      horaInicio: null,
+      step: estado.modo === 'pacote' ? PASSO.PACOTE_OFERTA : PASSO.SERVICOS,
+    });
   };
 
+  const verOutrosProfissionais = () =>
+    patch({
+      barbeiroId: null,
+      barbeiroNome: null,
+      barbeiroAuto: false,
+      barbeiroFixadoPorLink: false,
+      servicoIds: [],
+      data: null,
+      horaInicio: null,
+      step: PASSO.BARBEIRO,
+    });
+
   const avancar = () => {
-    if (estado.step === PASSO.BARBEIRO) {
+    if (estado.step === PASSO.SERVICOS) {
       patch({ step: PASSO.DATA_HORA, data: estado.data ?? hojeISO(empresa.timezone) });
     } else if (estado.step === PASSO.DATA_HORA) {
       patch({ step: PASSO.DADOS });
@@ -199,15 +238,16 @@ function Funil() {
     // ficar "grudado" ao voltar e refazer o fluxo com outros dados.
     setErroEnvio(null);
     switch (estado.step) {
-      case PASSO.SERVICOS:
-      case PASSO.PACOTE_OFERTA:
+      case PASSO.BARBEIRO:
         patch({ step: PASSO.LANDING });
         break;
-      case PASSO.BARBEIRO:
-        patch({ step: PASSO.SERVICOS });
+      case PASSO.SERVICOS:
+      case PASSO.PACOTE_OFERTA:
+        // barbeiro fixo (link/único) não tinha etapa própria pra voltar — volta pra landing direto
+        patch({ step: barbeiroJaResolvido ? PASSO.LANDING : PASSO.BARBEIRO });
         break;
       case PASSO.DATA_HORA:
-        patch({ step: estado.barbeiroAuto ? PASSO.SERVICOS : PASSO.BARBEIRO });
+        patch({ step: PASSO.SERVICOS });
         break;
       case PASSO.DADOS:
         patch({ step: estado.modo === 'pacote' ? PASSO.PACOTE_OFERTA : PASSO.DATA_HORA });
@@ -223,11 +263,15 @@ function Funil() {
     setErroEnvio(null);
     const cliente = { nome: estado.nome.trim(), telefone: estado.telefone };
     const online = estado.formaPagamento === 'online';
+    // §4c: só registra de qual link pessoal veio quando o barbeiro FOI mesmo
+    // fixado por um link — escolha manual ou barbeiro único da casa não conta
+    // como "veio de marketing individual".
+    const origemLinkBarbeiroId = estado.barbeiroFixadoPorLink ? estado.barbeiroId : null;
     try {
       if (estado.modo === 'pacote') {
         const r = await api<VenderPacotePublicoResponse>('/public/pacotes', {
           method: 'POST',
-          body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, formaPagamento: estado.formaPagamento },
+          body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, formaPagamento: estado.formaPagamento, origemLinkBarbeiroId },
         });
         if (online && r.cobranca) {
           setCobranca(r.cobranca);
@@ -247,6 +291,7 @@ function Funil() {
             horaInicio: estado.horaInicio,
             cliente,
             formaPagamento: estado.formaPagamento,
+            origemLinkBarbeiroId,
           },
         });
         if (online && r.cobranca) {
@@ -266,24 +311,26 @@ function Funil() {
 
   // ---- Corpo do passo atual ----
   let corpo: JSX.Element = <div />;
-  if (estado.step === PASSO.SERVICOS) {
-    corpo = <Servicos servicos={servicos} selecionados={estado.servicoIds} onToggle={toggleServico} erroDecisao={erroDecisao} />;
+  if (estado.step === PASSO.BARBEIRO) {
+    corpo = <Barbeiro selecionado={estado.barbeiroId} onSelect={escolherBarbeiro} />;
+  } else if (estado.step === PASSO.SERVICOS) {
+    corpo = (
+      <Servicos
+        servicos={servicosDoBarbeiroReq.dados ?? []}
+        selecionados={estado.servicoIds}
+        onToggle={toggleServico}
+        erroDecisao={erroDecisao}
+        carregando={servicosDoBarbeiroReq.carregando}
+      />
+    );
   } else if (estado.step === PASSO.PACOTE_OFERTA) {
     corpo = (
       <Pacote
+        barbeiroId={estado.barbeiroId}
         ofertaId={estado.ofertaId}
         onSelect={(o: PacoteOfertaDTO) =>
           patch({ ofertaId: o.id, ofertaNome: o.nome, ofertaPrecoCentavos: o.precoCentavos, step: PASSO.DADOS })
         }
-      />
-    );
-  } else if (estado.step === PASSO.BARBEIRO) {
-    corpo = (
-      <Barbeiro
-        servicoIds={estado.servicoIds}
-        selecionado={estado.barbeiroId}
-        onSelect={(id, nome) => patch({ barbeiroId: id, barbeiroNome: nome, data: null, horaInicio: null })}
-        aoVoltar={() => patch({ step: PASSO.SERVICOS })}
       />
     );
   } else if (estado.step === PASSO.DATA_HORA && estado.barbeiroId) {
@@ -320,17 +367,17 @@ function Funil() {
     );
   }
 
+  // §4b: banner "Agendando com X" — visível em qualquer passo depois de saber
+  // o barbeiro, pra o cliente sempre ver com quem está marcando; a saída
+  // discreta "ver outros profissionais" só existe quando veio de um link
+  // (escolha manual/única da casa não precisa de escape hatch).
+  const mostrarBannerBarbeiro = estado.step !== PASSO.BARBEIRO && estado.step !== PASSO.LANDING && estado.barbeiroNome;
+
   // ---- CTA da barra de resumo (confirmação e oferta têm fluxo próprio) ----
   const cta = (() => {
     switch (estado.step) {
       case PASSO.SERVICOS:
-        return {
-          label: avancando ? 'Verificando…' : 'Continuar',
-          disabled: estado.servicoIds.length === 0 || avancando,
-          onClick: continuarDeServicos,
-        };
-      case PASSO.BARBEIRO:
-        return { label: 'Continuar', disabled: !estado.barbeiroId, onClick: avancar };
+        return { label: 'Continuar', disabled: estado.servicoIds.length === 0, onClick: avancar };
       case PASSO.DATA_HORA:
         return { label: 'Continuar', disabled: !estado.horaInicio, onClick: avancar };
       case PASSO.DADOS:
@@ -354,14 +401,32 @@ function Funil() {
   return (
     <div className="funnel-shell">
       <StepHeader step={estado.step} modo={estado.modo} onBack={voltar} />
-      <div className="flex-1 px-5 py-4">{corpo}</div>
+      <div className="flex-1 px-5 py-4">
+        {mostrarBannerBarbeiro && (
+          <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
+            <span>
+              Agendando com <strong>{estado.barbeiroNome}</strong>
+            </span>
+            {estado.barbeiroFixadoPorLink && (
+              <button
+                className="btn-ghost"
+                style={{ fontSize: 12, fontWeight: 600, textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                onClick={verOutrosProfissionais}
+              >
+                ver outros profissionais
+              </button>
+            )}
+          </div>
+        )}
+        {corpo}
+      </div>
       {cta && <SummaryBar resumo={resumo} total={total} duracao={duracao} cta={cta} />}
     </div>
   );
 }
 
 function StepHeader({ step, modo, onBack }: { step: number; modo: string; onBack: () => void }) {
-  const ativo = step - 1; // SERVICOS(1) → índice 0
+  const ativo = step - 1; // BARBEIRO(1) → índice 0
   const titulo = modo === 'pacote' ? 'Comprar pacote' : 'Agendar horário';
   return (
     <div className="step-header">

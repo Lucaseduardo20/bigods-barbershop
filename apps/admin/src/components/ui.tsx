@@ -1,8 +1,39 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { ApiError } from '../lib/api';
+import { centavosParaTextoMoeda, textoParaCentavosMoeda } from '../lib/moeda';
 
 export function Badge({ tone, children }: { tone: string; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+/**
+ * Campo de valor em R$ com máscara por dígitos (preenche da direita, sem
+ * depender de separador decimal digitado à mão) — sempre trabalha em
+ * centavos por fora, nunca expõe string crua pro chamador.
+ */
+export function CurrencyInput({
+  centavos,
+  onChange,
+  placeholder,
+  style,
+}: {
+  centavos: number;
+  onChange: (centavos: number) => void;
+  placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div className="currency-input" style={style}>
+      <span className="currency-prefix">R$</span>
+      <input
+        className="input"
+        inputMode="numeric"
+        placeholder={placeholder ?? '0,00'}
+        value={centavos > 0 ? centavosParaTextoMoeda(centavos) : ''}
+        onChange={(e) => onChange(textoParaCentavosMoeda(e.target.value))}
+      />
+    </div>
+  );
 }
 
 export function Dialog({

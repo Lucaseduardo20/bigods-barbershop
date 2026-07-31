@@ -6,6 +6,7 @@ import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import {
   DISPONIBILIDADE_REPOSITORY,
   DisponibilidadeRepository,
@@ -33,6 +34,8 @@ export interface AgendarAvulsoInput {
   cliente: { nome: string; telefone: string };
   /** Funil público gera cobrança PIX na hora; painel admin cobra na conclusão. */
   gerarCobranca?: boolean;
+  /** Fase 4c: veio do link pessoal de marketing de qual barbeiro, se veio de algum. */
+  origemLinkBarbeiroId?: string | null;
 }
 
 export interface AgendarAvulsoOutput {
@@ -102,9 +105,12 @@ export class AgendarAvulsoUseCase {
         companyId: input.companyId,
         clienteId: cliente.id,
         barbeiro,
+        // ★ Decisão de negócio confirmada pelo dono (sessão-C): preço por
+        // barbeiro vale GERAL, inclusive avulso direto — não só rateio de
+        // pacote (DECISOES_PENDENTES #18, resolvida).
         itens: servicos.map((s) => ({
           servicoId: s.id,
-          valorCobrado: s.precoAvulso,
+          valorCobrado: precoDeReferencia(s, barbeiro),
           duracao: s.duracao,
           itemDoPacoteId: null,
         })),
@@ -112,6 +118,7 @@ export class AgendarAvulsoUseCase {
         origem: OrigemAtendimento.AVULSO,
         disponibilidades,
         atendimentosAtivos: ativos,
+        origemLinkBarbeiroId: input.origemLinkBarbeiroId,
       });
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());

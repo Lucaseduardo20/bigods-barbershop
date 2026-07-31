@@ -45,6 +45,14 @@ export enum OrigemComissao {
   PRODUTO = 'PRODUTO',
 }
 
+/** Workflow de aprovação de PacoteOferta (sessão-B, Fase 3). */
+export enum StatusAprovacaoPacoteOferta {
+  RASCUNHO = 'RASCUNHO',
+  PENDENTE_APROVACAO = 'PENDENTE_APROVACAO',
+  APROVADO = 'APROVADO',
+  REJEITADO = 'REJEITADO',
+}
+
 /** Origem de uma janela de Disponibilidade: gerada pelo ExpedienteSemanal ou editada manualmente. */
 export enum OrigemDisponibilidade {
   EXPEDIENTE = 'EXPEDIENTE',

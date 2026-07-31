@@ -11,7 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsIn, IsString, MinLength, ValidateNested } from 'class-validator';
+import { IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import {
   FormaPagamentoFunil,
@@ -39,6 +39,8 @@ class VenderPacotePublicoDto {
   @IsString() @MinLength(1) ofertaId!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   @IsIn(['online', 'presencial']) formaPagamento!: FormaPagamentoFunil;
+  /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
+  @IsOptional() @IsString() origemLinkBarbeiroId?: string;
 }
 
 /**
@@ -64,10 +66,10 @@ export class PacotesPublicoController {
   @Get('pacotes')
   async listarOfertas(
     @Query('companyId') companyId?: string,
-    @Query('servicoId') servicoId?: string,
+    @Query('barbeiroId') barbeiroId?: string,
   ): Promise<PacoteOfertaDTO[]> {
     if (!companyId) throw new BadRequestException('Parâmetro companyId obrigatório');
-    return this.ofertas.listar(companyId, servicoId);
+    return this.ofertas.listar(companyId, barbeiroId);
   }
 
   @Publico()
@@ -80,8 +82,10 @@ export class PacotesPublicoController {
     const resultado = await this.venderPacote.executar({
       companyId: body.companyId,
       cliente: body.cliente,
-      // expande a oferta nos serviços reais (o rateio congela por cima destes)
-      servicoIds: Array(oferta.quantidade).fill(oferta.servicoId),
+      barbeiroId: oferta.barbeiroId,
+      origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
+      // expande a composição nos serviços reais (o rateio congela por cima destes)
+      servicoIds: oferta.servicoIds,
       valorPagoCentavos: oferta.precoCentavos,
       pagamentoImediato: false,
       gerarCobranca: body.formaPagamento === 'online',

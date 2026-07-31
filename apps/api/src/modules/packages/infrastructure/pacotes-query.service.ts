@@ -14,14 +14,22 @@ export class PacotesQueryService {
     });
     if (vendas.length === 0) return [];
 
-    const [clientes, servicos] = await Promise.all([
+    const barbeiroIds = new Set(vendas.map((v) => v.barbeiroId));
+    for (const v of vendas) {
+      if (v.origemLinkBarbeiroId) barbeiroIds.add(v.origemLinkBarbeiroId);
+    }
+    const [clientes, servicos, barbeiros] = await Promise.all([
       this.prisma.cliente.findMany({
         where: { id: { in: [...new Set(vendas.map((v) => v.clienteId))] } },
       }),
       this.prisma.servico.findMany(),
+      this.prisma.barbeiro.findMany({
+        where: { id: { in: [...barbeiroIds] } },
+      }),
     ]);
     const clientePorId = new Map(clientes.map((c) => [c.id, c]));
     const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
+    const barbeiroPorId = new Map(barbeiros.map((b) => [b.id, b]));
 
     return vendas.map((v) => {
       const cliente = clientePorId.get(v.clienteId);
@@ -32,10 +40,14 @@ export class PacotesQueryService {
           nome: cliente?.nome ?? '?',
           telefone: cliente?.telefone ?? '',
         },
+        barbeiroId: v.barbeiroId,
+        barbeiroNome: barbeiroPorId.get(v.barbeiroId)?.nome ?? '?',
         valorPagoCentavos: v.valorPagoCentavos,
         saldoResidualCentavos: v.saldoResidualCentavos,
         compradoEm: v.compradoEm.toISOString(),
         statusPagamento: StatusPagamento[v.statusPagamento],
+        origemLinkBarbeiroId: v.origemLinkBarbeiroId,
+        origemLinkBarbeiroNome: v.origemLinkBarbeiroId ? (barbeiroPorId.get(v.origemLinkBarbeiroId)?.nome ?? null) : null,
         itens: v.itens.map((i) => ({
           id: i.id,
           servicoId: i.servicoId,

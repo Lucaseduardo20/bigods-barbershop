@@ -10,15 +10,21 @@ import { ErroEstado, Loading, useApi } from '../components/ui';
  * Mostra o desconto vs. avulso quando existe.
  */
 export function Pacote({
+  barbeiroId,
   ofertaId,
   onSelect,
 }: {
+  /** §4a: barbeiro já escolhido antes deste passo — só as ofertas DELE aparecem. */
+  barbeiroId: string | null;
   ofertaId: string | null;
   onSelect: (o: PacoteOfertaDTO) => void;
 }) {
   const req = useApi(
-    () => api<PacoteOfertaDTO[]>(`/public/pacotes?companyId=${encodeURIComponent(COMPANY_ID)}`),
-    [],
+    () =>
+      api<PacoteOfertaDTO[]>(
+        `/public/pacotes?companyId=${encodeURIComponent(COMPANY_ID)}${barbeiroId ? `&barbeiroId=${barbeiroId}` : ''}`,
+      ),
+    [barbeiroId],
   );
 
   if (req.carregando) return <Loading />;
@@ -41,7 +47,7 @@ export function Pacote({
         </div>
       </div>
       {req.dados.map((o) => {
-        const desconto = o.precoAvulsoTotalCentavos - o.precoCentavos;
+        const composicaoTexto = o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ');
         return (
           <button
             key={o.id}
@@ -53,19 +59,17 @@ export function Pacote({
               <span className="font-extrabold text-[15px]">{o.nome}</span>
               <span className="font-extrabold text-[16px]">{dinheiro(o.precoCentavos)}</span>
             </div>
-            <div className="flex justify-between items-center text-[12.5px]" style={{ color: 'var(--text-muted)' }}>
-              <span>
-                {o.quantidade}× {o.servicoNome}
-              </span>
-              {desconto > 0 && (
-                <span style={{ color: 'var(--brand-gold-700)', fontWeight: 700 }}>
-                  <span style={{ textDecoration: 'line-through', color: 'var(--text-muted)', fontWeight: 500 }}>
-                    {dinheiro(o.precoAvulsoTotalCentavos)}
-                  </span>{' '}
-                  economize {dinheiro(desconto)}
+            <div className="text-[12.5px]" style={{ color: 'var(--text-muted)' }}>{composicaoTexto}</div>
+            {o.economiaCentavos > 0 && (
+              <div className="flex justify-between items-center text-[12.5px]">
+                <span style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}>
+                  em vez de {dinheiro(o.precoAvulsoTotalCentavos)}
                 </span>
-              )}
-            </div>
+                <span style={{ color: 'var(--brand-gold-700)', fontWeight: 700 }}>
+                  você economiza {dinheiro(o.economiaCentavos)} ({o.economiaPercentual.toFixed(1)}%)
+                </span>
+              </div>
+            )}
           </button>
         );
       })}

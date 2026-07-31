@@ -75,6 +75,7 @@ beforeAll(async () => {
       id: barbeiroId,
       companyId,
       nome: 'Barbeiro Conclusão',
+      slug: 'barbeiro-conclusao',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 5000, // 50%
       comissaoProdutosBp: 2000, // 20%

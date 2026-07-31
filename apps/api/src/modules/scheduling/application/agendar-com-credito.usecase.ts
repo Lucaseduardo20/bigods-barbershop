@@ -83,8 +83,9 @@ export class AgendarComCreditoUseCase {
       const venda = await repos.vendasDePacote.porId(input.vendaId);
       if (!venda) throw new NotFoundException('Pacote não encontrado');
 
-      // (a) item vira AGENDADO — valida status do item e pagamento do pacote
-      venda.agendarItem(input.itemId, atendimentoId);
+      // (a) item vira AGENDADO — valida status do item, pagamento do pacote
+      // e que o barbeiro escolhido é o dono do pacote (Fase 2)
+      venda.agendarItem(input.itemId, atendimentoId, input.barbeiroId);
 
       // (b) Atendimento com valorCobrado = valor RATEADO (nunca o preço avulso)
       const atendimento = Atendimento.agendar({

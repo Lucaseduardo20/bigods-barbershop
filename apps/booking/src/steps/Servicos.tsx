@@ -1,17 +1,31 @@
 import type { ServicoDTO } from '@bigods/contracts';
 import { dinheiro } from '../lib/format';
+import { Loading } from '../components/ui';
 
 export function Servicos({
   servicos,
   selecionados,
   onToggle,
   erroDecisao,
+  carregando,
 }: {
   servicos: ServicoDTO[];
   selecionados: string[];
   onToggle: (id: string) => void;
   erroDecisao: string | null;
+  /** Bug "tela branca" (sessão-C): logo depois do skip de barbeiro único, a
+   * lista filtrada por barbeiro ainda não chegou — sem isto, a etapa
+   * renderizava título + lista vazia, sem nenhum indicativo de carregamento. */
+  carregando?: boolean;
 }) {
+  if (carregando && servicos.length === 0) {
+    return (
+      <div className="flex flex-col gap-2.5">
+        <div className="text-[22px] font-extrabold">O que vai ser?</div>
+        <Loading texto="Buscando serviços…" />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-[22px] font-extrabold">O que vai ser?</div>

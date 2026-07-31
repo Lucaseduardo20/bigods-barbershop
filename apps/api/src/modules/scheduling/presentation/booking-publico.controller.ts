@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
   Post,
   Query,
 } from '@nestjs/common';
@@ -28,6 +29,7 @@ import {
 } from '@bigods/contracts';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
@@ -56,6 +58,8 @@ class AgendarPublicoDto {
   @Matches(HORA_HHMM) horaInicio!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   @IsOptional() @IsIn(['online', 'presencial']) formaPagamento?: FormaPagamentoFunil;
+  /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
+  @IsOptional() @IsString() origemLinkBarbeiroId?: string;
 }
 
 /**
@@ -88,16 +92,25 @@ export class BookingPublicoController {
 
   @Publico()
   @Get('servicos')
-  async servicosAtivos(@Query('companyId') companyId?: string): Promise<ServicoDTO[]> {
+  async servicosAtivos(
+    @Query('companyId') companyId?: string,
+    @Query('barbeiroId') barbeiroId?: string,
+  ): Promise<ServicoDTO[]> {
     const id = this.exigirCompanyId(companyId);
     await this.empresaQuery.empresa(id); // valida tenant (404 se inexistente)
+    // §4a: com barbeiro escolhido primeiro, a lista de serviços já vem filtrada
+    // pro que ELE atende — mostrar serviço que ele não faz seria fluxo morto.
+    const barbeiro = barbeiroId ? await this.barbeiros.porId(barbeiroId) : null;
     const servicos = await this.servicos.listar(id);
     return servicos
-      .filter((s) => s.ativo)
+      .filter((s) => s.ativo && (!barbeiro || barbeiro.atende(s.id)))
       .map((s) => ({
         id: s.id,
         nome: s.nome,
-        precoAvulsoCentavos: s.precoAvulso.centavos,
+        // §3.2.2: preço do BARBEIRO escolhido (override ?? referência) — sem
+        // barbeiro selecionado ainda, mostra a referência da casa (mesma regra
+        // de precoPara com barbeiroDono=null tratada como "sem override").
+        precoAvulsoCentavos: (barbeiro ? precoDeReferencia(s, barbeiro) : s.precoAvulso).centavos,
         duracaoMinutos: s.duracao.minutos,
         ativo: s.ativo,
       }));
@@ -116,6 +129,27 @@ export class BookingPublicoController {
     return barbeiros
       .filter((b) => b.ativo && ids.every((servicoId) => b.atende(servicoId)))
       .map((b) => ({ id: b.id, nome: b.nome }));
+  }
+
+  /**
+   * Link pessoal do barbeiro (§4b) — resolve o slug pra pré-selecionar o
+   * barbeiro no funil. Slug inválido/inexistente devolve 404: o FRONT trata
+   * isso caindo no funil normal, nunca mostrando erro feio pro cliente.
+   */
+  @Publico()
+  @Get('barbeiro-por-slug')
+  async barbeiroPorSlug(
+    @Query('companyId') companyId?: string,
+    @Query('slug') slug?: string,
+  ): Promise<BarbeiroPublicoDTO> {
+    const id = this.exigirCompanyId(companyId);
+    await this.empresaQuery.empresa(id);
+    if (!slug) throw new BadRequestException('Parâmetro slug obrigatório');
+    const barbeiro = await this.barbeiros.porSlug(id, slug);
+    if (!barbeiro || !barbeiro.ativo) {
+      throw new NotFoundException('Barbeiro não encontrado');
+    }
+    return { id: barbeiro.id, nome: barbeiro.nome };
   }
 
   @Publico()
@@ -153,6 +187,7 @@ export class BookingPublicoController {
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
       cliente: body.cliente,
       gerarCobranca: online,
+      origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
     });
     return {
       atendimentoId: resultado.atendimentoId,

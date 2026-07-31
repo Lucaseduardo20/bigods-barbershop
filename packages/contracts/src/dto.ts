@@ -4,6 +4,7 @@ import {
   OrigemComissao,
   OrigemDisponibilidade,
   Papel,
+  StatusAprovacaoPacoteOferta,
   StatusAtendimento,
   StatusItemPacote,
   StatusPagamento,
@@ -49,9 +50,17 @@ export interface ExcecaoComissaoDTO {
   servicoId: string;
   percentual: number; // porcentagem (ex: 60)
 }
+// Override de preço por serviço (sessão-B, Fase 2) — ausência = usa
+// Servico.precoAvulso (referência da casa). Mesmo padrão de ExcecaoComissaoDTO.
+export interface ExcecaoPrecoDTO {
+  servicoId: string;
+  precoCentavos: number;
+}
 export interface BarbeiroDTO {
   id: string;
   nome: string;
+  /** Link pessoal de marketing (§4b) — "/?barbeiro={slug}". Único por empresa. */
+  slug: string;
   papeis: Papel[];
   comissaoPadrao: number; // porcentagem (ex: 45)
   excecoesComissao: ExcecaoComissaoDTO[];
@@ -62,6 +71,8 @@ export interface BarbeiroDTO {
    * por margens de mão de obra distintas; produto é revenda). Default 0%.
    */
   comissaoProdutos: number; // porcentagem
+  /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
+  precosServicos: ExcecaoPrecoDTO[];
   ativo: boolean;
 }
 export interface CriarBarbeiroRequest {
@@ -76,6 +87,12 @@ export interface AtualizarComissaoRequest {
   comissaoPadrao: number;
   excecoes: ExcecaoComissaoDTO[];
   comissaoProdutos: number;
+}
+export interface AtualizarPrecosRequest {
+  precos: ExcecaoPrecoDTO[];
+}
+export interface AtualizarSlugRequest {
+  slug: string;
 }
 
 // ---------- Expediente semanal recorrente ----------
@@ -153,6 +170,9 @@ export interface AtendimentoDTO {
   pagoOnline: boolean;
   /** Valor já coberto pelo pagamento online (0 se não pago online). */
   valorPagoOnlineCentavos: number;
+  /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou este agendamento, se veio de algum. Só registro, sem métrica. */
+  origemLinkBarbeiroId: string | null;
+  origemLinkBarbeiroNome: string | null;
 }
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
@@ -211,13 +231,20 @@ export interface ItemDoPacoteDTO {
 export interface VendaDePacoteDTO {
   id: string;
   cliente: { id: string; nome: string; telefone: string };
+  /** Dono do pacote (Fase 2) — crédito só pode ser consumido com ele. */
+  barbeiroId: string;
+  barbeiroNome: string;
   valorPagoCentavos: number;
   saldoResidualCentavos: number;
   compradoEm: string;
   statusPagamento: StatusPagamento;
   itens: ItemDoPacoteDTO[];
+  /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou esta compra, se veio de algum. Só registro, sem métrica. */
+  origemLinkBarbeiroId: string | null;
+  origemLinkBarbeiroNome: string | null;
 }
 export interface VenderPacoteRequest {
+  barbeiroId: string;
   cliente: { nome: string; telefone: string };
   servicoIds: string[];
   valorPagoCentavos: number;
@@ -370,22 +397,58 @@ export interface PerfilClienteDTO {
   proximosAgendamentos: AgendamentoClienteDTO[];
 }
 
-// ---------- Ofertas de pacote (read model do funil) ----------
-// NÃO é um agregado de domínio: é um catálogo de leitura (o que a barbearia
-// oferece como pacote e por quanto). A venda em si continua passando por
-// VendaDePacote/rateio (§3.6). Ver DECISOES_PENDENTES: template + desconto de
-// pacote não são modelados no domínio; hoje vêm semeados. (§ catálogo)
-export interface PacoteOfertaDTO {
-  id: string;
-  nome: string;
+// ---------- Ofertas de pacote (agregado PacoteOferta — sessão-B) ----------
+// PacoteOferta é agregado de domínio com dono (barbeiroId) e composição MISTA
+// (N serviços distintos, cada um com sua quantidade). O preço é a fonte de
+// verdade persistida; o percentual de desconto é sempre DERIVADO na exibição.
+export interface ItemComposicaoPacoteDTO {
   servicoId: string;
   servicoNome: string;
-  /** Quantas unidades do serviço o pacote inclui. */
   quantidade: number;
-  /** Preço do pacote (o que o cliente paga). */
+  /** Preço de referência unitário usado no cálculo da economia (§ preço por barbeiro, Fase 2). */
+  precoUnitarioCentavos: number;
+}
+export interface PacoteOfertaDTO {
+  id: string;
+  barbeiroId: string;
+  barbeiroNome: string;
+  nome: string;
+  composicao: ItemComposicaoPacoteDTO[];
+  /** Preço do pacote (o que o cliente paga) — única fonte de verdade. */
   precoCentavos: number;
-  /** Soma dos preços avulsos das unidades — referência para exibir o desconto. */
+  /** Soma dos preços de referência da composição — base do desconto exibido. */
   precoAvulsoTotalCentavos: number;
+  /** economia = precoAvulsoTotalCentavos - precoCentavos (nunca negativa). */
+  economiaCentavos: number;
+  /** Percentual de desconto DERIVADO (1 casa decimal) — nunca persistido. */
+  economiaPercentual: number;
+  ativo: boolean;
+  /** Workflow de aprovação (Fase 3) — só APROVADO aparece no funil público. */
+  statusAprovacao: StatusAprovacaoPacoteOferta;
+  /** Preenchido só quando REJEITADO. */
+  motivoRejeicao: string | null;
+}
+
+export interface ItemComposicaoPacoteRequest {
+  servicoId: string;
+  quantidade: number;
+}
+export interface CriarPacoteOfertaRequest {
+  barbeiroId: string;
+  nome: string;
+  composicao: ItemComposicaoPacoteRequest[];
+  precoCentavos: number;
+}
+export interface AtualizarPacoteOfertaRequest {
+  nome: string;
+  composicao: ItemComposicaoPacoteRequest[];
+  precoCentavos: number;
+}
+export interface AtualizarStatusPacoteOfertaRequest {
+  ativo: boolean;
+}
+export interface RejeitarPacoteOfertaRequest {
+  motivo: string;
 }
 
 // ---------- Compra de pacote pública (funil) ----------

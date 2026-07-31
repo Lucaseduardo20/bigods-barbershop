@@ -62,6 +62,14 @@ enum OrigemComissao {
   PRODUTO
 }
 
+// Workflow de aprovação de PacoteOferta (sessão-B, Fase 3).
+enum StatusAprovacaoPacoteOferta {
+  RASCUNHO
+  PENDENTE_APROVACAO
+  APROVADO
+  REJEITADO
+}
+
 model Company {
   id                     String @id
   nome                   String
@@ -81,6 +89,7 @@ model Company {
   vendasProduto VendaDeProduto[]
   lancamentos   LancamentoComissao[]
   intencoes     IntencaoDePagamento[]
+  pacoteOfertas PacoteOferta[]
 }
 
 model Servico {
@@ -110,20 +119,45 @@ model Produto {
   @@index([companyId])
 }
 
-// Read model do CATÁLOGO de ofertas de pacote (não é agregado de domínio — a
-// venda em si continua em VendaDePacote/rateio, §3.6). Define o que a barbearia
-// oferece como pacote e por quanto. Hoje semeado; CRUD no admin fica pendente
-// (ver DECISOES_PENDENTES). Uma oferta = N unidades de um serviço por um preço.
+// PacoteOferta (raiz, agregado de domínio — sessão "sessão-B"): catálogo de
+// pacotes que a barbearia oferece, com dono (barbeiroId) e composição mista
+// (N serviços distintos, cada um com sua quantidade). O que se PERSISTE é
+// sempre o preço em centavos — percentual de desconto é sempre DERIVADO na
+// exibição, nunca fonte de verdade (mesma disciplina de snapshot do resto do
+// sistema: dinheiro é congelado, o resto é recalculado). A venda em si
+// continua passando por VendaDePacote/rateio (§3.6) — este agregado só
+// define O QUE está à venda e por quanto, não o rateio.
 model PacoteOferta {
-  id            String  @id
-  companyId     String
-  nome          String
-  servicoId     String
-  quantidade    Int
-  precoCentavos Int
-  ativo         Boolean @default(true)
+  id             String                      @id
+  companyId      String
+  barbeiroId     String
+  nome           String
+  precoCentavos  Int
+  ativo          Boolean                     @default(true)
+  // Workflow de aprovação (Fase 3): só APROVADO aparece no funil público.
+  // Default APROVADO — ofertas semeadas antes desta sessão continuam visíveis.
+  statusAprovacao StatusAprovacaoPacoteOferta @default(APROVADO)
+  motivoRejeicao  String?
+
+  company  Company            @relation(fields: [companyId], references: [id])
+  barbeiro Barbeiro           @relation(fields: [barbeiroId], references: [id])
+  itens    PacoteOfertaItem[]
 
   @@index([companyId])
+  @@index([barbeiroId])
+}
+
+// Composição da oferta: quais serviços (e em que quantidade) o pacote inclui.
+// Suporta pacote MISTO (ex.: 2 cortes + 2 barbas no mesmo pacote).
+model PacoteOfertaItem {
+  id         String @id @default(uuid())
+  ofertaId   String
+  servicoId  String
+  quantidade Int
+
+  oferta PacoteOferta @relation(fields: [ofertaId], references: [id])
+
+  @@index([ofertaId])
 }
 
 model Barbeiro {
@@ -137,6 +171,9 @@ model Barbeiro {
   // matriz de serviços). Default 0%.
   comissaoProdutosBp Int     @default(0)
   ativo              Boolean @default(true)
+  // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"
+  // em vez de UUID. Único por empresa, gerado no cadastro, editável pelo admin.
+  slug               String
 
   // credenciais da autenticação local (infra — não fazem parte do domínio)
   login     String? @unique
@@ -144,10 +181,14 @@ model Barbeiro {
 
   company           Company            @relation(fields: [companyId], references: [id])
   excecoesComissao  ExcecaoComissao[]
+  excecoesPreco     ExcecaoPreco[]
   servicosAtendidos BarbeiroServico[]
   disponibilidades  Disponibilidade[]
   expedienteJanelas ExpedienteJanela[]
+  pacoteOfertas     PacoteOferta[]
+  vendasDePacote    VendaDePacote[]
 
+  @@unique([companyId, slug])
   @@index([companyId])
 }
 
@@ -173,6 +214,19 @@ model ExcecaoComissao {
   barbeiroId   String
   servicoId    String
   percentualBp Int
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+
+  @@id([barbeiroId, servicoId])
+}
+
+// Preço por barbeiro (sessão-B, Fase 2) — MESMO padrão de ExcecaoComissao:
+// override por (barbeiro, serviço); ausência = usa Servico.precoAvulso (a
+// referência da casa). `precoPara(servicoId, barbeiroId)` no domínio.
+model ExcecaoPreco {
+  barbeiroId    String
+  servicoId     String
+  precoCentavos Int
 
   barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
 
@@ -230,6 +284,10 @@ model Atendimento {
   origem             OrigemAtendimento
   formaPagamento     FormaPagamento?
   motivoCancelamento String?
+  // Fase 4c: registro de que o agendamento veio do link pessoal de um
+  // barbeiro (marketing individual) — barbeiroId de quem divulgou, ou null se
+  // veio do funil genérico. SÓ registro nesta sessão, sem tela de relatório.
+  origemLinkBarbeiroId String?
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
@@ -272,16 +330,24 @@ model VendaDePacote {
   id                    String          @id
   companyId             String
   clienteId             String
+  // Dono do pacote (sessão-B, Fase 2) — o rateio (§3.6) usa o preço DESTE
+  // barbeiro no momento da venda; crédito só é consumido com ele (§8.2).
+  barbeiroId            String
   valorPagoCentavos     Int
   saldoResidualCentavos Int             @default(0)
   compradoEm            DateTime        @db.Timestamptz(3)
   statusPagamento       StatusPagamento
+  // Fase 4c: registro do link pessoal de barbeiro que originou a compra — só
+  // registro, sem tela de relatório nesta sessão.
+  origemLinkBarbeiroId  String?
 
-  company Company        @relation(fields: [companyId], references: [id])
-  itens   ItemDoPacote[]
+  company  Company        @relation(fields: [companyId], references: [id])
+  barbeiro Barbeiro       @relation(fields: [barbeiroId], references: [id])
+  itens    ItemDoPacote[]
 
   @@index([clienteId])
   @@index([companyId])
+  @@index([barbeiroId])
 }
 
 model ItemDoPacote {

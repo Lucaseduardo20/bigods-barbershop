@@ -5,6 +5,7 @@ import { Timezone } from '../../../shared/domain/timezone';
 import { fimDoDiaCivilMaisDias } from '../../../shared/domain/calendario';
 import {
   AtendimentoId,
+  BarbeiroId,
   ClienteId,
   CompanyId,
   ItemDoPacoteId,
@@ -33,11 +34,19 @@ export interface VendaDePacoteProps {
   id: VendaDePacoteId;
   companyId: CompanyId;
   clienteId: ClienteId;
+  /** Dono do pacote (Fase 2) — rateio usa o preço deste barbeiro; crédito só é consumido por ele. */
+  barbeiroId: BarbeiroId;
   valorPago: Dinheiro;
   itens: ItemDoPacote[];
   saldoResidual: Dinheiro;
   compradoEm: Date;
   statusPagamento: StatusPagamento;
+  /**
+   * Fase 4c (sessão-B): registro do link pessoal de barbeiro que originou a
+   * compra — barbeiroId de quem divulgou, ou null se veio do funil genérico.
+   * SÓ registro, sem regra de negócio associada nesta sessão.
+   */
+  origemLinkBarbeiroId: BarbeiroId | null;
 }
 
 export interface ItemParaVenda {
@@ -61,9 +70,11 @@ export class VendaDePacote extends AggregateRoot {
     id: VendaDePacoteId;
     companyId: CompanyId;
     clienteId: ClienteId;
+    barbeiroId: BarbeiroId;
     valorPago: Dinheiro;
     itens: ItemParaVenda[];
     compradoEm: Date;
+    origemLinkBarbeiroId?: BarbeiroId | null;
   }): VendaDePacote {
     if (params.itens.length === 0) {
       throw new InvarianteVioladaError('Pacote exige ao menos um item');
@@ -102,11 +113,13 @@ export class VendaDePacote extends AggregateRoot {
       id: params.id,
       companyId: params.companyId,
       clienteId: params.clienteId,
+      barbeiroId: params.barbeiroId,
       valorPago: params.valorPago,
       itens,
       saldoResidual: Dinheiro.zero(),
       compradoEm: params.compradoEm,
       statusPagamento: StatusPagamento.AGUARDANDO,
+      origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
     });
     venda.verificarInvarianteDeSoma();
     venda.adicionarEvento(
@@ -141,8 +154,17 @@ export class VendaDePacote extends AggregateRoot {
   }
 
   /** DISPONIVEL | SEGUNDA_CHANCE → AGENDADO. Exige pacote PAGO. */
-  agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId): void {
+  /**
+   * `barbeiroId` é quem vai atender — precisa ser o dono do pacote (Fase 2:
+   * o rateio deste pacote foi calculado com o preço DESTE barbeiro; deixar
+   * outro barbeiro consumir o crédito quebraria essa relação). Resgate
+   * cruzado entre barbeiros fica fora desta sessão (decisão futura).
+   */
+  agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId, barbeiroId: BarbeiroId): void {
     this.exigirPago();
+    if (barbeiroId !== this.props.barbeiroId) {
+      throw new InvarianteVioladaError('Crédito só pode ser consumido pelo barbeiro dono do pacote');
+    }
     const item = this.item(itemId);
     if (
       item.status !== StatusItemPacote.DISPONIVEL &&
@@ -278,9 +300,11 @@ export class VendaDePacote extends AggregateRoot {
   get id() { return this.props.id; }
   get companyId() { return this.props.companyId; }
   get clienteId() { return this.props.clienteId; }
+  get barbeiroId() { return this.props.barbeiroId; }
   get valorPago() { return this.props.valorPago; }
   get itens(): readonly Readonly<ItemDoPacote>[] { return this.props.itens; }
   get saldoResidual() { return this.props.saldoResidual; }
   get compradoEm() { return this.props.compradoEm; }
   get statusPagamento() { return this.props.statusPagamento; }
+  get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
 }

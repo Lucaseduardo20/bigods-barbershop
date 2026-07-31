@@ -18,6 +18,7 @@ const barbeiro = Barbeiro.criar({
   id: 'bar-1',
   companyId: 'co-1',
   nome: 'Gabriel',
+  slug: 'gabriel',
   papeis: new Set([Papel.BARBEIRO]),
   comissaoPadrao: Percentual.dePorcentagem(45),
   servicosAtendidos: new Set(['svc-corte', 'svc-barba']),

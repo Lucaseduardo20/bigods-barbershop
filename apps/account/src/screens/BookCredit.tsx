@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type {
   AgendarComCreditoContaResponse,
-  BarbeiroPublicoDTO,
   HorariosDisponiveisDTO,
   PerfilClienteDTO,
 } from '@bigods/contracts';
@@ -16,6 +15,9 @@ interface CreditoLivre {
   itemId: string;
   servicoId: string;
   servicoNome: string;
+  /** Dono do pacote — crédito só pode ser consumido com ele (§ preço por barbeiro). */
+  barbeiroId: string;
+  barbeiroNome: string;
 }
 
 export function BookCredit({
@@ -41,7 +43,14 @@ export function BookCredit({
       if (v.statusPagamento !== 'PAGO') continue;
       for (const i of v.itens) {
         if (i.status === StatusItemPacote.DISPONIVEL || i.status === StatusItemPacote.SEGUNDA_CHANCE) {
-          out.push({ vendaId: v.id, itemId: i.id, servicoId: i.servicoId, servicoNome: i.servicoNome });
+          out.push({
+            vendaId: v.id,
+            itemId: i.id,
+            servicoId: i.servicoId,
+            servicoNome: i.servicoNome,
+            barbeiroId: v.barbeiroId,
+            barbeiroNome: v.barbeiroNome,
+          });
         }
       }
     }
@@ -62,7 +71,6 @@ export function BookCredit({
   const [servicoId, setServicoId] = useState<string | null>(
     preselOk ? servicoPreselecionado : servicos.length === 1 ? servicos[0]!.servicoId : null,
   );
-  const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
   const [data, setData] = useState<string>(() => hojeISO(tz));
   const [hora, setHora] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
@@ -77,14 +85,14 @@ export function BookCredit({
   }
 
   const confirmar = async () => {
-    if (!credito || !barbeiroId || !hora) return;
+    if (!credito || !hora) return;
     setEnviando(true);
     setErro(null);
     try {
       await api<AgendarComCreditoContaResponse>('/conta/agendamentos', {
         method: 'POST',
         token,
-        body: { vendaId: credito.vendaId, itemId: credito.itemId, barbeiroId, data, horaInicio: hora },
+        body: { vendaId: credito.vendaId, itemId: credito.itemId, barbeiroId: credito.barbeiroId, data, horaInicio: hora },
       });
       const r = rotuloDia(data);
       setSucesso({ dia: r.longo, hora });
@@ -122,31 +130,24 @@ export function BookCredit({
         </Secao>
       )}
 
-      {servicoId && (
+      {servicoId && credito && (
         <>
-          <EscolhaBarbeiro
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+            Com <strong>{credito.barbeiroNome}</strong> — dono deste pacote, o crédito só pode ser usado com ele.
+          </div>
+          <QuandoBloco
+            tz={tz}
+            barbeiroId={credito.barbeiroId}
             servicoId={servicoId}
-            selecionado={barbeiroId}
-            onSelect={(id) => {
-              setBarbeiroId(id);
+            data={data}
+            hora={hora}
+            onDia={(d) => {
+              setData(d);
               setHora(null);
             }}
+            onHora={setHora}
           />
-          {barbeiroId && (
-            <QuandoBloco
-              tz={tz}
-              barbeiroId={barbeiroId}
-              servicoId={servicoId}
-              data={data}
-              hora={hora}
-              onDia={(d) => {
-                setData(d);
-                setHora(null);
-              }}
-              onHora={setHora}
-            />
-          )}
-          <button className="btn btn-block btn-lg" style={{ marginTop: 8 }} disabled={!hora || !barbeiroId} onClick={() => setConfirmando(true)}>
+          <button className="btn btn-block btn-lg" style={{ marginTop: 8 }} disabled={!hora} onClick={() => setConfirmando(true)}>
             Confirmar horário
           </button>
         </>
@@ -174,44 +175,6 @@ export function BookCredit({
         </div>
       )}
     </div>
-  );
-}
-
-function EscolhaBarbeiro({
-  servicoId,
-  selecionado,
-  onSelect,
-}: {
-  servicoId: string;
-  selecionado: string | null;
-  onSelect: (id: string) => void;
-}) {
-  const req = useApi(
-    () => api<BarbeiroPublicoDTO[]>(`/public/barbeiros?companyId=${encodeURIComponent(COMPANY_ID)}&servicoIds=${servicoId}`),
-    [servicoId],
-  );
-
-  // Auto-seleciona quando só há um barbeiro que atende o serviço (via efeito —
-  // nunca setar estado do pai durante o render).
-  const unico = req.dados && req.dados.length === 1 ? req.dados[0]!.id : null;
-  useEffect(() => {
-    if (unico && selecionado !== unico) onSelect(unico);
-  }, [unico, selecionado, onSelect]);
-
-  if (req.dados && req.dados.length <= 1) return null; // barbeiro único → sem passo
-
-  return (
-    <Secao titulo="Com quem?">
-      {req.carregando && <Loading />}
-      {req.erro && <ErroEstado erro={req.erro} aoTentar={req.recarregar} />}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {req.dados?.map((b) => (
-          <button key={b.id} className={`selectable ${selecionado === b.id ? 'selected' : ''}`} onClick={() => onSelect(b.id)}>
-            <div style={{ fontWeight: 700 }}>{b.nome}</div>
-          </button>
-        ))}
-      </div>
-    </Secao>
   );
 }
 

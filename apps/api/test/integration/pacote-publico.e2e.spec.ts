@@ -40,6 +40,7 @@ import { Telefone } from '../../src/shared/domain/telefone';
 
 const companyId = `co-pacpub-${randomUUID()}`;
 const corteId = `svc-pacpub-${randomUUID()}`;
+const barbeiroId = `bar-pacpub-${randomUUID()}`;
 const ofertaId = `oferta-pacpub-${randomUUID()}`;
 const sufixo = String(Date.now()).slice(-6);
 const e164 = (t: string) => Telefone.de(t).e164;
@@ -64,8 +65,17 @@ beforeAll(async () => {
 
   await prisma.company.create({ data: { id: companyId, nome: 'Bigod PacPub' } });
   await prisma.servico.create({ data: { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30 } });
+  await prisma.barbeiro.create({ data: { id: barbeiroId, companyId, nome: 'Barbeiro PacPub', slug: 'barbeiro-pacpub', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 } });
   await prisma.pacoteOferta.create({
-    data: { id: ofertaId, companyId, nome: '5 Cortes', servicoId: corteId, quantidade: 5, precoCentavos: 17000, ativo: true },
+    data: {
+      id: ofertaId,
+      companyId,
+      barbeiroId,
+      nome: '5 Cortes',
+      precoCentavos: 17000,
+      ativo: true,
+      itens: { create: [{ id: randomUUID(), servicoId: corteId, quantidade: 5 }] },
+    },
   });
 });
 
@@ -75,7 +85,9 @@ afterAll(async () => {
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
   await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
+  await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
+  await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();

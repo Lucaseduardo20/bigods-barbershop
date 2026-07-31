@@ -24,6 +24,7 @@ class ClienteInlineDto {
 }
 
 class VenderPacoteDto {
+  @IsString() @MinLength(1) barbeiroId!: string;
   @ValidateNested() @Type(() => ClienteInlineDto) cliente!: ClienteInlineDto;
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) servicoIds!: string[];
   @IsInt() @IsPositive() valorPagoCentavos!: number;
@@ -54,6 +55,7 @@ export class PacotesController {
     return this.venderPacote.executar({
       companyId: usuario.companyId,
       cliente: body.cliente,
+      barbeiroId: body.barbeiroId,
       servicoIds: body.servicoIds,
       valorPagoCentavos: body.valorPagoCentavos,
       pagamentoImediato: body.pagamentoImediato,

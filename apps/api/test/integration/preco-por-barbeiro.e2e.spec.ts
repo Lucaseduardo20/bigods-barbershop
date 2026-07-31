@@ -1,0 +1,397 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { randomUUID } from 'node:crypto';
+
+process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+
+// eslint-disable-next-line import/first
+import { AppModule } from '../../src/app.module';
+// eslint-disable-next-line import/first
+import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
+// eslint-disable-next-line import/first
+import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
+
+/**
+ * E2E do preço por barbeiro (sessão-B, Fase 2): `precoPara` (override ??
+ * referência da casa) alimenta o rateio de VendaDePacote; e — o teste
+ * OBRIGATÓRIO desta fase — snapshots já congelados (valorRateado da venda,
+ * valorBase/valorComissao do lançamento) NÃO mudam retroativamente quando o
+ * preço do barbeiro muda depois.
+ */
+
+const companyId = `co-pxb-${randomUUID()}`;
+const corteId = `svc-pxb-corte-${randomUUID()}`;
+const barbaId = `svc-pxb-barba-${randomUUID()}`;
+const barbeiroId = `bar-pxb-${randomUUID()}`;
+const barbeiroId2 = `bar-pxb2-${randomUUID()}`;
+const adminLogin = `admin-${randomUUID().slice(0, 8)}`;
+const admin2Login = `admin2-${randomUUID().slice(0, 8)}`;
+const SENHA = 'bigods123';
+const DIA = '2030-06-14'; // sexta futura, longe de qualquer seed
+
+let app: INestApplication;
+let prisma: PrismaService;
+let http: ReturnType<typeof request>;
+let tokenAdmin: string;
+let tokenAdmin2: string;
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  app = moduleRef.createNestApplication();
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  await app.init();
+  prisma = app.get(PrismaService);
+  http = request(app.getHttpServer());
+
+  await prisma.company.create({ data: { id: companyId, nome: 'Bigod PrecoBarbeiro', timezone: 'America/Sao_Paulo' } });
+  await prisma.servico.create({ data: { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30 } });
+  await prisma.servico.create({ data: { id: barbaId, companyId, nome: 'Barba', precoAvulsoCentavos: 3000, duracaoMinutos: 20 } });
+  await prisma.barbeiro.create({
+    data: {
+      id: barbeiroId,
+      companyId,
+      nome: 'Barbeiro PrecoBarbeiro',
+      slug: 'barbeiro-precobarbeiro',
+      papeis: ['ADMIN', 'BARBEIRO'],
+      comissaoPadraoBp: 5000, // 50%, número redondo pra conferir comissão fácil
+      login: adminLogin,
+      senhaHash: hashSenha(SENHA),
+    },
+  });
+  await prisma.barbeiro.create({
+    data: {
+      id: barbeiroId2,
+      companyId,
+      nome: 'Barbeiro PrecoBarbeiro Dois',
+      slug: 'barbeiro-precobarbeiro-dois',
+      papeis: ['ADMIN', 'BARBEIRO'],
+      comissaoPadraoBp: 5000,
+      login: admin2Login,
+      senhaHash: hashSenha(SENHA),
+    },
+  });
+  await prisma.barbeiroServico.createMany({
+    data: [
+      { barbeiroId, servicoId: corteId },
+      { barbeiroId, servicoId: barbaId },
+      { barbeiroId: barbeiroId2, servicoId: corteId },
+      { barbeiroId: barbeiroId2, servicoId: barbaId },
+    ],
+  });
+  await prisma.disponibilidade.createMany({
+    data: [
+      {
+        id: `disp-${randomUUID()}`,
+        barbeiroId,
+        data: DIA,
+        inicio: new Date(`${DIA}T12:00:00.000Z`), // 09:00 local
+        fim: new Date(`${DIA}T21:00:00.000Z`), // 18:00 local
+      },
+      {
+        id: `disp-${randomUUID()}`,
+        barbeiroId: barbeiroId2,
+        data: DIA,
+        inicio: new Date(`${DIA}T12:00:00.000Z`),
+        fim: new Date(`${DIA}T21:00:00.000Z`),
+      },
+    ],
+  });
+
+  const login = await http.post('/auth/login').send({ login: adminLogin, senha: SENHA }).expect(201);
+  tokenAdmin = login.body.token;
+  const login2 = await http.post('/auth/login').send({ login: admin2Login, senha: SENHA }).expect(201);
+  tokenAdmin2 = login2.body.token;
+});
+
+afterAll(async () => {
+  await prisma.lancamentoComissao.deleteMany({ where: { barbeiroId: { in: [barbeiroId, barbeiroId2] } } });
+  await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
+  await prisma.atendimento.deleteMany({ where: { companyId } });
+  await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
+  await prisma.vendaDePacote.deleteMany({ where: { companyId } });
+  await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.cliente.deleteMany({ where: { companyId } });
+  await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
+  await prisma.pacoteOferta.deleteMany({ where: { companyId } });
+  await prisma.excecaoPreco.deleteMany({ where: { barbeiroId: { in: [barbeiroId, barbeiroId2] } } });
+  await prisma.disponibilidade.deleteMany({ where: { barbeiroId: { in: [barbeiroId, barbeiroId2] } } });
+  await prisma.barbeiroServico.deleteMany({ where: { barbeiroId: { in: [barbeiroId, barbeiroId2] } } });
+  await prisma.barbeiro.deleteMany({ where: { companyId } });
+  await prisma.servico.deleteMany({ where: { companyId } });
+  await prisma.company.delete({ where: { id: companyId } });
+  await app.close();
+});
+
+describe('precoPara: override do barbeiro alimenta o rateio de VendaDePacote', () => {
+  it('barbeiro sem override usa o preço avulso da casa (referência)', async () => {
+    const res = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        barbeiroId,
+        cliente: { nome: 'Cliente Sem Override', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        servicoIds: [corteId, barbaId],
+        valorPagoCentavos: 6000,
+        pagamentoImediato: true,
+      })
+      .expect(201);
+    const itens = await prisma.itemDoPacote.findMany({ where: { vendaId: res.body.vendaId }, orderBy: { valorRateadoCentavos: 'desc' } });
+    // Peso da casa: corte 4000, barba 3000 (mesmo exemplo do §3.6 da spec)
+    expect(itens.map((i) => i.valorRateadoCentavos)).toEqual([3429, 2571]);
+  });
+
+  it('override de preço do barbeiro muda o PESO do rateio (não é o preço avulso da casa)', async () => {
+    // Corte custa R$50 para ESTE barbeiro (casa cobra R$40) — barba sem override.
+    await http
+      .put(`/barbeiros/${barbeiroId}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 5000 }] })
+      .expect(200);
+
+    const res = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        barbeiroId,
+        cliente: { nome: 'Cliente Com Override', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        servicoIds: [corteId, barbaId],
+        valorPagoCentavos: 6000,
+        pagamentoImediato: true,
+      })
+      .expect(201);
+    const itens = await prisma.itemDoPacote.findMany({ where: { vendaId: res.body.vendaId }, orderBy: { valorRateadoCentavos: 'desc' } });
+    // Peso 5000:3000 (não mais 4000:3000): 6000×5000/8000=3750, 6000×3000/8000=2250
+    expect(itens.map((i) => i.valorRateadoCentavos)).toEqual([3750, 2250]);
+
+    // limpa o override pros testes seguintes partirem de novo do zero
+    await http.put(`/barbeiros/${barbeiroId}/precos`).set('Authorization', `Bearer ${tokenAdmin}`).send({ precos: [] }).expect(200);
+  });
+});
+
+describe('★ Snapshot protegido — TESTE OBRIGATÓRIO (Fase 2): venda antiga e comissão NÃO mudam retroativamente', () => {
+  it('venda + comissão de credito já concluído permanecem byte a byte idênticos depois que o preço do barbeiro muda', async () => {
+    // 1) barbeiro com override de R$50 no corte
+    await http
+      .put(`/barbeiros/${barbeiroId}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 5000 }] })
+      .expect(200);
+
+    // 2) vende um pacote misto (corte + barba) — rateio usa o preço vigente AGORA
+    const venda = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        barbeiroId,
+        cliente: { nome: 'Cliente Snapshot', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        servicoIds: [corteId, barbaId],
+        valorPagoCentavos: 6000,
+        pagamentoImediato: true,
+      })
+      .expect(201);
+    const itensAntes = await prisma.itemDoPacote.findMany({
+      where: { vendaId: venda.body.vendaId },
+      orderBy: { servicoId: 'asc' },
+    });
+    const itemCorte = itensAntes.find((i) => i.servicoId === corteId)!;
+    expect(itemCorte.valorRateadoCentavos).toBe(3750); // 6000×5000/8000, com o override
+
+    // 3) agenda com crédito e conclui — gera comissão sobre o valor RATEADO (não o avulso)
+    const agendar = await http
+      .post('/atendimentos/com-credito')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ vendaId: venda.body.vendaId, itemId: itemCorte.id, barbeiroId, data: DIA, horaInicio: '10:00' })
+      .expect(201);
+    await http
+      .post(`/atendimentos/${agendar.body.atendimentoId}/concluir`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ formaPagamento: 'PIX' })
+      .expect(201);
+
+    const lancamentoAntes = await prisma.lancamentoComissao.findFirstOrThrow({
+      where: { atendimentoId: agendar.body.atendimentoId },
+    });
+    expect(lancamentoAntes.valorBaseCentavos).toBe(3750); // valor RATEADO, não o preço avulso nem o override bruto
+    expect(lancamentoAntes.valorComissaoCentavos).toBe(1875); // 50% de 3750
+
+    // snapshot completo ANTES da mudança de preço (já com o item CONSUMIDO e a
+    // comissão gerada — o estado "final" desta venda) — comparação byte a byte depois
+    const itemDoPacoteAntes = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: itemCorte.id } });
+    const lancamentoSnapshot = { ...lancamentoAntes };
+
+    // 4) muda o preço do barbeiro DEPOIS da venda/conclusão já feitas
+    await http
+      .put(`/barbeiros/${barbeiroId}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 9999 }] })
+      .expect(200);
+
+    // 5) a venda antiga e o lançamento de comissão continuam EXATAMENTE iguais
+    const itemDoPacoteDepois = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: itemCorte.id } });
+    expect(itemDoPacoteDepois).toEqual(itemDoPacoteAntes);
+    expect(itemDoPacoteDepois.valorRateadoCentavos).toBe(3750);
+
+    const lancamentoDepois = await prisma.lancamentoComissao.findUniqueOrThrow({ where: { id: lancamentoAntes.id } });
+    expect(lancamentoDepois).toEqual(lancamentoSnapshot);
+    expect(lancamentoDepois.valorBaseCentavos).toBe(3750);
+    expect(lancamentoDepois.valorComissaoCentavos).toBe(1875);
+
+    // uma venda NOVA, feita agora, já usa o preço novo (R$99,99) — prova que a
+    // proteção é só sobre o que já existe, não trava o preço do barbeiro pra sempre
+    const vendaNova = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        barbeiroId,
+        cliente: { nome: 'Cliente Depois', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
+        servicoIds: [corteId],
+        valorPagoCentavos: 9999,
+        pagamentoImediato: true,
+      })
+      .expect(201);
+    const itemNovo = await prisma.itemDoPacote.findFirstOrThrow({ where: { vendaId: vendaNova.body.vendaId } });
+    expect(itemNovo.valorRateadoCentavos).toBe(9999); // item único = 100% do valor pago, mas prova que a venda foi aceita com o novo preço vigente
+  });
+});
+
+/**
+ * BUG-RAIZ (sessão-C): a sessão anterior deixou `precoPara` testado só no
+ * domínio/rateio isolado — nunca no caminho ponta-a-ponta que o cliente/admin
+ * realmente percorre (funil público → rateio real → agendamento avulso). Os
+ * 233-291 testes anteriores passavam porque nenhum deles exercitava
+ * `GET /public/servicos`, `POST /public/pacotes` com dois barbeiros distintos,
+ * nem `POST /public/agendamentos` — exatamente os pontos que estavam usando o
+ * preço fixo da casa em vez de `precoPara`. Estes testes cobrem só isso.
+ */
+describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint real, não função isolada', () => {
+  it('GET /public/servicos mostra preços DIFERENTES pro mesmo serviço entre dois barbeiros com override diferente', async () => {
+    await http
+      .put(`/barbeiros/${barbeiroId}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 5500 }] })
+      .expect(200);
+    await http
+      .put(`/barbeiros/${barbeiroId2}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin2}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 7700 }] })
+      .expect(200);
+
+    const servicosB1 = await http.get(`/public/servicos?companyId=${companyId}&barbeiroId=${barbeiroId}`).expect(200);
+    const servicosB2 = await http.get(`/public/servicos?companyId=${companyId}&barbeiroId=${barbeiroId2}`).expect(200);
+    const corteB1 = servicosB1.body.find((s: { id: string }) => s.id === corteId);
+    const corteB2 = servicosB2.body.find((s: { id: string }) => s.id === corteId);
+
+    expect(corteB1.precoAvulsoCentavos).toBe(5500);
+    expect(corteB2.precoAvulsoCentavos).toBe(7700);
+    expect(corteB1.precoAvulsoCentavos).not.toBe(corteB2.precoAvulsoCentavos);
+
+    // sem barbeiro escolhido ainda (etapa anterior do funil, §4a): mostra a
+    // referência da casa, nunca um override de qualquer barbeiro por acaso.
+    const semBarbeiro = await http.get(`/public/servicos?companyId=${companyId}`).expect(200);
+    expect(semBarbeiro.body.find((s: { id: string }) => s.id === corteId).precoAvulsoCentavos).toBe(4000);
+  });
+
+  it('comprar a MESMA composição de oferta com dois barbeiros diferentes gera rateios diferentes, cada um coerente com o preço do respectivo barbeiro', async () => {
+    // overrides do teste anterior: b1 corte=5500, b2 corte=7700; barba sem override (3000 pros dois)
+    const composicao = [
+      { servicoId: corteId, quantidade: 1 },
+      { servicoId: barbaId, quantidade: 1 },
+    ];
+    const ofertaB1 = await http
+      .post('/pacote-ofertas')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ barbeiroId, nome: 'Combo Ponta-a-Ponta B1', composicao, precoCentavos: 7000 })
+      .expect(201);
+    const ofertaB2 = await http
+      .post('/pacote-ofertas')
+      .set('Authorization', `Bearer ${tokenAdmin2}`)
+      .send({ barbeiroId: barbeiroId2, nome: 'Combo Ponta-a-Ponta B2', composicao, precoCentavos: 7000 })
+      .expect(201);
+    await http.patch(`/pacote-ofertas/${ofertaB1.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
+    await http.patch(`/pacote-ofertas/${ofertaB2.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin2}`).expect(200);
+
+    const compraB1 = await http
+      .post('/public/pacotes')
+      .send({
+        companyId,
+        ofertaId: ofertaB1.body.id,
+        cliente: { nome: 'Cliente Funil B1', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        formaPagamento: 'presencial',
+      })
+      .expect(201);
+    const compraB2 = await http
+      .post('/public/pacotes')
+      .send({
+        companyId,
+        ofertaId: ofertaB2.body.id,
+        cliente: { nome: 'Cliente Funil B2', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
+        formaPagamento: 'presencial',
+      })
+      .expect(201);
+
+    const itensB1 = await prisma.itemDoPacote.findMany({ where: { vendaId: compraB1.body.vendaId } });
+    const itensB2 = await prisma.itemDoPacote.findMany({ where: { vendaId: compraB2.body.vendaId } });
+    const corteB1 = itensB1.find((i) => i.servicoId === corteId)!.valorRateadoCentavos;
+    const corteB2 = itensB2.find((i) => i.servicoId === corteId)!.valorRateadoCentavos;
+
+    // peso B1: 5500:3000 (soma 8500) — peso B2: 7700:3000 (soma 10700)
+    expect(corteB1).toBe(Math.round((7000 * 5500) / 8500));
+    expect(corteB2).toBe(Math.round((7000 * 7700) / 10700));
+    expect(corteB1).not.toBe(corteB2);
+    // invariante do rateio continua valendo nos dois (§2.5): soma == valor pago
+    expect(itensB1.reduce((acc, i) => acc + i.valorRateadoCentavos, 0)).toBe(7000);
+    expect(itensB2.reduce((acc, i) => acc + i.valorRateadoCentavos, 0)).toBe(7000);
+  });
+
+  it('agendar avulso pelo FUNIL PÚBLICO com barbeiro que tem override cobra o OVERRIDE, não a referência da casa', async () => {
+    await http
+      .put(`/barbeiros/${barbeiroId}/precos`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ precos: [{ servicoId: corteId, precoCentavos: 5500 }] })
+      .expect(200);
+
+    const resp = await http
+      .post('/public/agendamentos')
+      .send({
+        companyId,
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: '16:00',
+        cliente: { nome: 'Cliente Avulso Override', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        formaPagamento: 'presencial',
+      })
+      .expect(201);
+
+    const item = await prisma.itemAtendido.findFirstOrThrow({ where: { atendimentoId: resp.body.atendimentoId } });
+    expect(item.valorCobradoCentavos).toBe(5500); // override do barbeiro, não os 4000 de referência da casa
+
+    // limpa pro próximo teste não herdar o override
+    await http.put(`/barbeiros/${barbeiroId}/precos`).set('Authorization', `Bearer ${tokenAdmin}`).send({ precos: [] }).expect(200);
+  });
+
+  it('criar oferta com serviço que o barbeiro dono NÃO atende é rejeitado com mensagem clara, via endpoint real (não só no domínio)', async () => {
+    const servicoForaId = `svc-pxb-fora-${randomUUID()}`;
+    await prisma.servico.create({
+      data: { id: servicoForaId, companyId, nome: 'Serviço Que Ninguém Atende', precoAvulsoCentavos: 1000, duracaoMinutos: 10 },
+    });
+
+    const resp = await http
+      .post('/pacote-ofertas')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        barbeiroId,
+        nome: 'Oferta Inválida',
+        composicao: [{ servicoId: servicoForaId, quantidade: 1 }],
+        precoCentavos: 500,
+      })
+      .expect(422);
+
+    expect(resp.body.message).toMatch(/não atende/i);
+    expect(await prisma.pacoteOferta.count({ where: { nome: 'Oferta Inválida' } })).toBe(0);
+
+    await prisma.servico.delete({ where: { id: servicoForaId } });
+  });
+});

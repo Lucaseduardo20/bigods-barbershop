@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { ATENDIMENTO_REPOSITORY, AtendimentoRepository } from '../domain/atendimento.repository';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 import { autorizarDonoOuAdmin } from './concluir-atendimento.usecase';
 
@@ -14,8 +15,9 @@ export interface AdicionarItemAtendimentoInput {
 /**
  * Item 3 da sessão 2026-07-16 (walk-in add-on): cliente agendou um corte, na
  * cadeira decidiu fazer a barba também. Adiciona um serviço avulso a um
- * Atendimento AGENDADO, ANTES de concluir. Preço = snapshot do avulso
- * vigente no momento. Sem transação multi-agregado: um único aggregate
+ * Atendimento AGENDADO, ANTES de concluir. Preço = snapshot do preço DO
+ * BARBEIRO vigente no momento (§3.2.2 — preço por barbeiro vale geral,
+ * DECISOES_PENDENTES #18). Sem transação multi-agregado: um único aggregate
  * mutado (Atendimento).
  */
 @Injectable()
@@ -42,7 +44,7 @@ export class AdicionarItemAtendimentoUseCase {
       throw new NotFoundException('Barbeiro não encontrado');
     }
 
-    atendimento.adicionarItem(servico.id, servico.precoAvulso, servico.duracao, barbeiro);
+    atendimento.adicionarItem(servico.id, precoDeReferencia(servico, barbeiro), servico.duracao, barbeiro);
     await this.atendimentos.salvar(atendimento);
   }
 }

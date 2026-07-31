@@ -48,7 +48,7 @@ beforeAll(async () => {
     ],
   });
   await prisma.barbeiro.create({
-    data: { id: barbeiroId, companyId, nome: 'Gabriel', papeis: ['ADMIN', 'BARBEIRO'], comissaoPadraoBp: 4500 },
+    data: { id: barbeiroId, companyId, nome: 'Gabriel', slug: 'gabriel-booking-pub', papeis: ['ADMIN', 'BARBEIRO'], comissaoPadraoBp: 4500 },
   });
   await prisma.barbeiroServico.createMany({
     data: [

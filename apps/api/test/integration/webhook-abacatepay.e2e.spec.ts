@@ -65,7 +65,7 @@ async function venderPacoteComCobranca(telefone: string): Promise<string> {
   const res = await http
     .post('/pacotes')
     .set('Authorization', `Bearer ${tokenAdmin}`)
-    .send({ cliente: { nome: 'Cliente WH', telefone }, servicoIds: [corteId], valorPagoCentavos: 4000, pagamentoImediato: false })
+    .send({ barbeiroId: adminId, cliente: { nome: 'Cliente WH', telefone }, servicoIds: [corteId], valorPagoCentavos: 4000, pagamentoImediato: false })
     .expect(201);
   const intencaoId = res.body.cobranca.intencaoId as string;
   const intencao = await prisma.intencaoDePagamento.findUnique({ where: { id: intencaoId } });
@@ -89,6 +89,7 @@ beforeAll(async () => {
       id: adminId,
       companyId,
       nome: 'Admin WH',
+      slug: 'admin-wh',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
       login: adminLogin,

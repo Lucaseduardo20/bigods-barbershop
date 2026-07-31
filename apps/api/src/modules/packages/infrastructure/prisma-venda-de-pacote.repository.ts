@@ -17,10 +17,12 @@ function paraDominio(row: Row): VendaDePacote {
     id: row.id,
     companyId: row.companyId,
     clienteId: row.clienteId,
+    barbeiroId: row.barbeiroId,
     valorPago: Dinheiro.deCentavos(row.valorPagoCentavos),
     saldoResidual: Dinheiro.deCentavos(row.saldoResidualCentavos),
     compradoEm: row.compradoEm,
     statusPagamento: StatusPagamento[row.statusPagamento],
+    origemLinkBarbeiroId: row.origemLinkBarbeiroId,
     itens: row.itens.map((i) => ({
       id: i.id,
       servicoId: i.servicoId,
@@ -78,10 +80,12 @@ export class PrismaVendaDePacoteRepository implements VendaDePacoteRepository {
     const dadosVenda = {
       companyId: venda.companyId,
       clienteId: venda.clienteId,
+      barbeiroId: venda.barbeiroId,
       valorPagoCentavos: venda.valorPago.centavos,
       saldoResidualCentavos: venda.saldoResidual.centavos,
       compradoEm: venda.compradoEm,
       statusPagamento: venda.statusPagamento,
+      origemLinkBarbeiroId: venda.origemLinkBarbeiroId,
     };
     await this.db.vendaDePacote.upsert({
       where: { id: venda.id },

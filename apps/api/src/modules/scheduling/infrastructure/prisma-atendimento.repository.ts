@@ -41,6 +41,7 @@ function paraDominio(row: Row): Atendimento {
     origem: OrigemAtendimento[row.origem],
     formaPagamento: row.formaPagamento ? FormaPagamento[row.formaPagamento] : null,
     motivoCancelamento: row.motivoCancelamento,
+    origemLinkBarbeiroId: row.origemLinkBarbeiroId,
   });
 }
 
@@ -98,6 +99,7 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       origem: atendimento.origem,
       formaPagamento: atendimento.formaPagamento,
       motivoCancelamento: atendimento.motivoCancelamento,
+      origemLinkBarbeiroId: atendimento.origemLinkBarbeiroId,
     };
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {

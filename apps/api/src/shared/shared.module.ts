@@ -16,6 +16,7 @@ import { PARAMETROS_DA_EMPRESA_REPOSITORY } from '../modules/packages/domain/par
 import { PRODUTO_REPOSITORY } from '../modules/products/domain/produto.repository';
 import { VENDA_DE_PRODUTO_REPOSITORY } from '../modules/products/domain/venda-de-produto.repository';
 import { EXPEDIENTE_SEMANAL_REPOSITORY } from '../modules/staff/domain/expediente-semanal.repository';
+import { PACOTE_OFERTA_REPOSITORY } from '../modules/packages/domain/pacote-oferta.repository';
 import { PrismaServicoRepository } from '../modules/catalog/infrastructure/prisma-servico.repository';
 import { PrismaBarbeiroRepository } from '../modules/staff/infrastructure/prisma-barbeiro.repository';
 import { PrismaDisponibilidadeRepository } from '../modules/staff/infrastructure/prisma-disponibilidade.repository';
@@ -28,6 +29,7 @@ import { PrismaIntencaoDePagamentoRepository } from '../modules/payments/infrast
 import { PrismaParametrosRepository } from '../modules/packages/infrastructure/prisma-parametros.repository';
 import { PrismaProdutoRepository } from '../modules/products/infrastructure/prisma-produto.repository';
 import { PrismaVendaDeProdutoRepository } from '../modules/products/infrastructure/prisma-venda-de-produto.repository';
+import { PrismaPacoteOfertaRepository } from '../modules/packages/infrastructure/prisma-pacote-oferta.repository';
 
 const repositorios = [
   { provide: SERVICO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaServicoRepository(p), inject: [PrismaService] },
@@ -42,6 +44,7 @@ const repositorios = [
   { provide: PARAMETROS_DA_EMPRESA_REPOSITORY, useClass: PrismaParametrosRepository },
   { provide: PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaProdutoRepository(p), inject: [PrismaService] },
   { provide: VENDA_DE_PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDeProdutoRepository(p), inject: [PrismaService] },
+  { provide: PACOTE_OFERTA_REPOSITORY, useFactory: (p: PrismaService) => new PrismaPacoteOfertaRepository(p), inject: [PrismaService] },
 ];
 
 @Global()

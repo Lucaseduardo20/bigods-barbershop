@@ -39,7 +39,7 @@ beforeAll(async () => {
     data: { id: servicoId, companyId, nome: 'Corte Teste', precoAvulsoCentavos: 4000, duracaoMinutos: 30 },
   });
   await prisma.barbeiro.create({
-    data: { id: barbeiroId, companyId, nome: 'Barbeiro Teste', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 },
+    data: { id: barbeiroId, companyId, nome: 'Barbeiro Teste', slug: 'barbeiro-teste-int', papeis: ['BARBEIRO'], comissaoPadraoBp: 4500 },
   });
   await prisma.cliente.create({
     data: { id: clienteId, companyId, nome: 'Cliente Teste', telefone: `+55119${Date.now() % 100000000}` },
@@ -106,6 +106,7 @@ describe('transação de crédito — rollback completo', () => {
         id: vendaId,
         companyId,
         clienteId,
+        barbeiroId,
         valorPagoCentavos: 4000,
         compradoEm: new Date(),
         statusPagamento: 'PAGO',
@@ -121,7 +122,7 @@ describe('transação de crédito — rollback completo', () => {
     await expect(
       uow.transacao(async (repos) => {
         const venda = await repos.vendasDePacote.porId(vendaId);
-        venda!.agendarItem(itemId, atendimentoId);
+        venda!.agendarItem(itemId, atendimentoId, barbeiroId);
         await repos.vendasDePacote.salvar(venda!); // efeito 1 gravado na tx
         // efeito 2 viola a constraint → a transação INTEIRA deve reverter
         await prisma.atendimento.create({
@@ -148,6 +149,7 @@ describe('webhook de pagamento — idempotência', () => {
         id: vendaId,
         companyId,
         clienteId,
+        barbeiroId,
         valorPagoCentavos: 4000,
         compradoEm: new Date(),
         statusPagamento: 'AGUARDANDO',

@@ -53,7 +53,7 @@ async function venderPacote(nome: string, telefone: string) {
   await http
     .post('/pacotes')
     .set('Authorization', `Bearer ${tokenAdmin}`)
-    .send({ cliente: { nome, telefone }, servicoIds: [corteId], valorPagoCentavos: 4000, pagamentoImediato: true })
+    .send({ barbeiroId: adminId, cliente: { nome, telefone }, servicoIds: [corteId], valorPagoCentavos: 4000, pagamentoImediato: true })
     .expect(201);
 }
 
@@ -84,6 +84,7 @@ beforeAll(async () => {
       id: adminId,
       companyId,
       nome: 'Admin Conta',
+      slug: 'admin-conta',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
       login: adminLogin,
@@ -253,6 +254,7 @@ describe('Bug 8 — admin confirma pagamento presencial de um pacote AGUARDANDO'
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
+        barbeiroId: adminId,
         cliente: { nome: 'Presencial Bug8', telefone: fone('7777') },
         servicoIds: [corteId],
         valorPagoCentavos: 4000,
