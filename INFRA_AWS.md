@@ -1,9 +1,17 @@
 # Estratégia de infraestrutura na AWS — documento de decisão
 
+> ✅ **DECIDIDO (2026-08-11):** Estratégia A, com os frontends em S3+CloudFront
+> em vez de container (refinamento discutido depois da recomendação original
+> abaixo) — EC2 (API + `whatsapp-otp` + Caddy) + RDS Postgres + S3/CloudFront
+> (admin/booking/account). **O passo a passo completo pra criar isso está em
+> [`AWS_SETUP.md`](./AWS_SETUP.md)** — este documento aqui é o raciocínio por
+> trás da escolha; aquele é o runbook executável. `docker-compose.aws.yml`,
+> `Caddyfile`, `scripts/deploy-frontends.sh` e `scripts/fetch-secrets-ssm.sh`
+> já implementam essa topologia no repo.
+
 Este documento existe pra **decidirmos juntos** como hospedar o Bigod's Barber
-na AWS — não é uma implementação, é a base pra escolher o caminho antes de eu
-escrever Terraform/CDK ou o que for. Ele parte do que já existe e já está
-validado nesta sessão (containers, `docker-compose.prod.yml`,
+na AWS — era a base pra escolher o caminho antes de partir pra implementação.
+Ele parte do que já existia (containers, `docker-compose.prod.yml`,
 `scripts/deploy.sh`) e considera o que ainda vai entrar (webhook de pagamento
 real, mais tráfego, etc).
 
@@ -44,7 +52,7 @@ forçá-la num molde que não serve.
 |---|---|---|---|
 | `apps/api` | EC2 (Docker Compose) | ECS Fargate atrás de ALB | App Runner |
 | `services/whatsapp-otp` | EC2 (mesma instância, Docker Compose) | ECS Fargate + volume EFS | EC2/Lightsail dedicada (só pra este serviço) |
-| `admin`/`booking`/`account` | EC2 (Docker Compose, `docker/static-server`) | S3 + CloudFront (elimina o static-server) | S3 + CloudFront |
+| `admin`/`booking`/`account` | **S3 + CloudFront** (refinado — ver nota no topo do documento; elimina o `docker/static-server` da produção) | S3 + CloudFront | S3 + CloudFront |
 | Postgres | **RDS Postgres** (todas as 3 estratégias) | RDS Postgres | RDS Postgres |
 | Segredos | SSM Parameter Store (SecureString) | SSM Parameter Store ou Secrets Manager | SSM Parameter Store |
 | TLS / domínio | Caddy (container extra, HTTPS automático) OU ALB + ACM | ALB + ACM (obrigatório com ECS) | App Runner (TLS automático) + CloudFront (TLS automático) |

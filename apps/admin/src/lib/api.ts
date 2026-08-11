@@ -1,6 +1,10 @@
 import type { LoginResponse, UsuarioDTO } from '@bigods/contracts';
 
-const BASE = '/api';
+// Relativo em dev/staging (proxy do Vite ou docker/static-server cuida do
+// /api). Em produção AWS (S3+CloudFront), o frontend e a API vivem em
+// domínios/origens diferentes — VITE_API_URL (setado no build) aponta pra
+// URL absoluta da API. CORS já está liberado em apps/api/src/main.ts.
+const BASE = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
 
 export class ApiError extends Error {
   constructor(

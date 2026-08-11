@@ -1,11 +1,16 @@
-# Overlay pra staging/produção — combine com o docker-compose.yml base:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Overlay pra STAGING (rehearsal completo, autocontido, roda em qualquer
+# máquina — inclusive seu laptop, sem precisar de nenhum recurso AWS real):
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
 # (scripts/deploy.sh já faz isso por você — ver ali antes de rodar isto na mão)
 #
 # O docker-compose.yml base só tem o Postgres (também usado no dev local sem
 # Docker, via scripts/env-up.sh) — este overlay ADICIONA a API, o serviço de
 # OTP por WhatsApp e os 3 frontends como containers supervisionados
 # (restart: unless-stopped), sem tocar no que já existia.
+#
+# ⚠️ Isto NÃO é o que roda na AWS de verdade — lá o banco é RDS (não
+# container) e os frontends são S3+CloudFront (não container). Ver
+# `docker-compose.aws.yml` e `AWS_SETUP.md` pra produção real.
 version: "3.8"
 services:
   api:

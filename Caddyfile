@@ -1,0 +1,19 @@
+# Proxy reverso + TLS automático (Let's Encrypt) pra API — só isso roda na
+# EC2 atrás de domínio público. Os 3 frontends são S3+CloudFront, à parte.
+#
+# Variáveis vêm do .env (docker-compose.aws.yml injeta via env_file):
+#   API_DOMAIN=api.suabarbearia.com
+#   ACME_EMAIL=voce@suabarbearia.com   (aviso de expiração de certificado, exigido pela Let's Encrypt)
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_DOMAIN} {
+	reverse_proxy api:3000
+
+	# Access log básico — útil pra depurar sem entrar no container da API.
+	log {
+		output stdout
+		format console
+	}
+}

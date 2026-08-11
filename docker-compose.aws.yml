@@ -1,0 +1,54 @@
+# Topologia REAL de produção na AWS — roda sozinho na instância EC2, SEM o
+# docker-compose.yml base (o Postgres é RDS, um recurso AWS externo, não um
+# container aqui). Ver AWS_SETUP.md pro passo a passo completo de infra.
+#
+#   docker compose -f docker-compose.aws.yml up -d --build
+#
+# O que roda aqui: API (NestJS) + whatsapp-otp (Baileys) + Caddy (proxy
+# reverso com TLS automático via Let's Encrypt). Os 3 frontends (admin/
+# booking/account) NÃO rodam aqui — são build estático publicado em S3 +
+# CloudFront (`scripts/deploy-frontends.sh`), site à parte desta instância.
+version: "3.8"
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: bigods-api
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "3000"
+
+  whatsapp-otp:
+    build:
+      context: services/whatsapp-otp
+    container_name: bigods-whatsapp-otp
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - whatsapp_session:/app/session
+    # Nunca exposto publicamente — só a API (na mesma rede Docker) fala com
+    # ele, pelo nome do serviço (WHATSAPP_OTP_SERVICE_URL=http://whatsapp-otp:3100).
+    expose:
+      - "3100"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: bigods-caddy
+    restart: unless-stopped
+    env_file: .env # usa API_DOMAIN e ACME_EMAIL, ver Caddyfile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  whatsapp_session:
+  caddy_data:
+  caddy_config:

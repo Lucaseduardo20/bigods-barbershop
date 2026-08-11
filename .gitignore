@@ -3,6 +3,7 @@ dist/
 .turbo/
 *.log
 .env
+.env.frontends
 .DS_Store
 coverage/
 .dev-logs/
