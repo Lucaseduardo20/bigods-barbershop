@@ -3,6 +3,7 @@ import { VendaDePacoteRepository } from '../../modules/packages/domain/venda-de-
 import { ClienteRepository } from '../../modules/customers/domain/cliente.repository';
 import { IntencaoDePagamentoRepository } from '../../modules/payments/domain/intencao-de-pagamento.repository';
 import { LancamentoComissaoRepository } from '../../modules/payroll/domain/lancamento-comissao.repository';
+import { SolicitacaoDeReembolsoRepository } from '../../modules/packages/domain/solicitacao-de-reembolso.repository';
 
 /** Repositórios enxergando a mesma transação de banco. */
 export interface RepositoriosTransacionais {
@@ -11,6 +12,7 @@ export interface RepositoriosTransacionais {
   clientes: ClienteRepository;
   intencoesDePagamento: IntencaoDePagamentoRepository;
   lancamentosComissao: LancamentoComissaoRepository;
+  solicitacoesReembolso: SolicitacaoDeReembolsoRepository;
 }
 
 /**

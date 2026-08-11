@@ -170,6 +170,12 @@ export function AtendimentoDetalheDialog({
                 )}
               </div>
             )}
+            {a.valorAbatidoSaldoCentavos > 0 && (
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                {dinheiro(a.valorAbatidoSaldoCentavos)} abatido de saldo residual
+                {valorAdicional > 0 && <> + <strong>{dinheiro(valorAdicional)} a cobrar agora</strong></>}
+              </div>
+            )}
           </div>
 
           {agendado && (

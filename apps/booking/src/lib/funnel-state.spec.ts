@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { aplicarBarbeiroDoLink, estadoInicial, PASSO, sanitizarEstadoCarregado } from './funnel-state';
+import {
+  aplicarBarbeiroDoLink,
+  barbeiroParaAutoSelecionar,
+  estadoInicial,
+  PASSO,
+  sanitizarEstadoCarregado,
+  totalCentavos,
+} from './funnel-state';
 
 describe('sanitizarEstadoCarregado', () => {
   it('mantém o estado salvo quando a compra não foi concluída', () => {
@@ -21,6 +28,53 @@ describe('sanitizarEstadoCarregado', () => {
     const saneado = sanitizarEstadoCarregado(brutoPosCompra);
     expect(saneado.step).toBe(PASSO.LANDING);
     expect(saneado).toEqual(estadoInicial);
+  });
+});
+
+describe('barbeiroParaAutoSelecionar', () => {
+  it('BUG "loading eterno" (sessão-D): com um único barbeiro na casa, resolve ele mesmo sem nenhuma escolha manual', () => {
+    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel' }];
+    expect(barbeiroParaAutoSelecionar(barbeiros, null)).toEqual({ id: 'bar-gabriel', nome: 'Gabriel' });
+  });
+
+  it('não repete a resolução se o barbeiro já é o mesmo (evita loop de re-aplicação)', () => {
+    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel' }];
+    expect(barbeiroParaAutoSelecionar(barbeiros, 'bar-gabriel')).toBeNull();
+  });
+
+  it('com mais de um barbeiro, não resolve sozinho — precisa de escolha manual', () => {
+    const barbeiros = [
+      { id: 'bar-gabriel', nome: 'Gabriel' },
+      { id: 'bar-lucas', nome: 'Lucas' },
+    ];
+    expect(barbeiroParaAutoSelecionar(barbeiros, null)).toBeNull();
+  });
+
+  it('sem barbeiros carregados ainda (null) ou lista vazia, não resolve', () => {
+    expect(barbeiroParaAutoSelecionar(null, null)).toBeNull();
+    expect(barbeiroParaAutoSelecionar([], null)).toBeNull();
+  });
+});
+
+describe('totalCentavos — bug de preço errado desde a primeira tela (sessão-D)', () => {
+  const servicoId = 'svc-corte';
+
+  it('usa o preço que vem na lista alimentada — tem que ser SEMPRE a lista já filtrada/precificada pelo barbeiro (GET /public/servicos?barbeiroId=), nunca a referência', () => {
+    // A app.tsx NÃO pode chamar isto com a lista genérica (sem barbeiroId) —
+    // este teste fixa o contrato: dada a lista com o preço JÁ correto do
+    // barbeiro (que o backend já entrega, testado em
+    // preco-por-barbeiro.e2e.spec.ts), o total bate com o override, não com
+    // a referência da casa.
+    const listaComOverrideDoBarbeiro = [
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 5500, duracaoMinutos: 30, ativo: true },
+    ];
+    const listaReferenciaDaCasa = [
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30, ativo: true },
+    ];
+
+    expect(totalCentavos(listaComOverrideDoBarbeiro, [servicoId])).toBe(5500);
+    expect(totalCentavos(listaReferenciaDaCasa, [servicoId])).toBe(4000);
+    expect(totalCentavos(listaComOverrideDoBarbeiro, [servicoId])).not.toBe(totalCentavos(listaReferenciaDaCasa, [servicoId]));
   });
 });
 

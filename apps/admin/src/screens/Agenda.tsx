@@ -194,6 +194,10 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
                           <Badge tone={toneStatus[a.status]}>{labelStatus[a.status]}</Badge>
                           {ehPacote ? <Badge tone="gold">Pacote</Badge> : <Badge tone="neutral">Avulso</Badge>}
                           {a.pagoOnline && <Badge tone="success">Pago online</Badge>}
+                          {/* R.12 (sessão-D): origem de link mais visível — antes só
+                              aparecia apagada no detalhe; agora também no card, mesmo
+                              tratamento visual dos outros badges. */}
+                          {a.origemLinkBarbeiroNome && <Badge tone="info">via link de {a.origemLinkBarbeiroNome}</Badge>}
                         </div>
                       </div>
                     </button>

@@ -1,4 +1,4 @@
-import type { ServicoDTO } from '@bigods/contracts';
+import type { BarbeiroPublicoDTO, ServicoDTO } from '@bigods/contracts';
 
 /**
  * Passos do funil. §4a: barbeiro vem ANTES de serviço/pacote nas duas
@@ -121,6 +121,28 @@ export function limparEstado(): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * BUG (sessão-D) — "loading eterno" com barbeiro único: a decisão de
+ * auto-selecionar era tomada dentro do componente `Barbeiro` (via um efeito
+ * próprio, isolado do componente pai `Funil`), que chamava `onSelect` pra
+ * avisar o pai. O disparo da busca de serviços por barbeiro
+ * (`GET /public/servicos?barbeiroId=`) mora em `Funil`, reage a
+ * `estado.barbeiroId` — dependia inteiramente desse round-trip
+ * filho→callback→pai acontecer sem nenhum imprevisto de timing entre dois
+ * componentes diferentes. Movida pra cá: `Funil` decide sozinho, no mesmo
+ * componente que já dispara a busca de serviços, eliminando essa
+ * dependência entre componentes. Função pura, testável sem DOM/efeito.
+ */
+export function barbeiroParaAutoSelecionar(
+  barbeiros: BarbeiroPublicoDTO[] | null,
+  barbeiroIdAtual: string | null,
+): { id: string; nome: string } | null {
+  if (!barbeiros || barbeiros.length !== 1) return null;
+  const unico = barbeiros[0]!;
+  if (barbeiroIdAtual === unico.id) return null; // já resolvido — evita reaplicar em loop
+  return { id: unico.id, nome: unico.nome };
 }
 
 export function servicosSelecionados(servicos: ServicoDTO[], ids: string[]): ServicoDTO[] {

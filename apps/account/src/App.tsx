@@ -19,9 +19,12 @@ import { ErroEstado, Loading, useApi } from './components/ui';
 import { Login, Otp } from './screens/Auth';
 import { Home } from './screens/Home';
 import { BookCredit } from './screens/BookCredit';
+import { Historico } from './screens/Historico';
+import { AtendimentoDetalhe } from './screens/AtendimentoDetalhe';
+import { UsarSaldoResidual } from './screens/UsarSaldoResidual';
 import { Header } from './screens/Header';
 
-type Tela = 'login' | 'otp' | 'home' | 'book';
+type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo';
 
 export function App() {
   return (
@@ -128,6 +131,8 @@ function Conta() {
           setServicoPreselecionado(servicoId);
           setTela('book');
         }}
+        onVerHistorico={() => setTela('historico')}
+        onUsarSaldo={() => setTela('saldo')}
         onVoltarHome={() => {
           setServicoPreselecionado(null);
           setTela('home');
@@ -145,6 +150,8 @@ function CockpitOuBook({
   tela,
   servicoPreselecionado,
   onAgendar,
+  onVerHistorico,
+  onUsarSaldo,
   onVoltarHome,
   aoDeslogar,
 }: {
@@ -153,6 +160,8 @@ function CockpitOuBook({
   tela: Tela;
   servicoPreselecionado: string | null;
   onAgendar: (servicoId: string | null) => void;
+  onVerHistorico: () => void;
+  onUsarSaldo: () => void;
   onVoltarHome: () => void;
   aoDeslogar: () => void;
 }) {
@@ -160,6 +169,9 @@ function CockpitOuBook({
     () => api<PerfilClienteDTO>('/conta/perfil', { token: sessao.token }),
     [sessao.token],
   );
+  // FASE 1 (sessão-E): detalhe de atendimento — overlay independente da tela
+  // ativa embaixo (abre tanto do "próximo agendamento" quanto do Histórico).
+  const [atendimentoAbertoId, setAtendimentoAbertoId] = useState<string | null>(null);
 
   if (perfil.carregando) {
     return (
@@ -179,8 +191,9 @@ function CockpitOuBook({
     return <ErroEstado erro={perfil.erro ?? 'Falha ao carregar'} aoTentar={perfil.recarregar} />;
   }
 
+  let corpo;
   if (tela === 'book') {
-    return (
+    corpo = (
       <BookCredit
         token={sessao.token}
         tz={empresaTz}
@@ -193,9 +206,52 @@ function CockpitOuBook({
         }}
       />
     );
+  } else if (tela === 'historico') {
+    corpo = <Historico token={sessao.token} tz={empresaTz} onVoltar={onVoltarHome} />;
+  } else if (tela === 'saldo') {
+    corpo = (
+      <UsarSaldoResidual
+        token={sessao.token}
+        tz={empresaTz}
+        perfil={perfil.dados}
+        onVoltar={onVoltarHome}
+        onAgendado={() => {
+          perfil.recarregar();
+          onVoltarHome();
+        }}
+      />
+    );
+  } else {
+    corpo = (
+      <Home
+        perfil={perfil.dados}
+        tz={empresaTz}
+        onAgendar={onAgendar}
+        onVerHistorico={onVerHistorico}
+        onUsarSaldo={onUsarSaldo}
+        onAbrirAtendimento={setAtendimentoAbertoId}
+      />
+    );
   }
 
-  return <Home perfil={perfil.dados} tz={empresaTz} onAgendar={onAgendar} />;
+  return (
+    <>
+      {corpo}
+      {atendimentoAbertoId && (
+        <AtendimentoDetalhe
+          atendimentoId={atendimentoAbertoId}
+          token={sessao.token}
+          tz={empresaTz}
+          onFechar={() => setAtendimentoAbertoId(null)}
+          onCancelado={perfil.recarregar}
+          onReagendado={(novoId) => {
+            perfil.recarregar();
+            setAtendimentoAbertoId(novoId);
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 // Fallback de loading exportado para consistência (não usado diretamente aqui).

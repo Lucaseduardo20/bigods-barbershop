@@ -19,6 +19,28 @@ export class PrismaParametrosRepository implements ParametrosDaEmpresaRepository
     });
   }
 
+  async janelaCancelamentoHoras(companyId: CompanyId): Promise<number> {
+    return (await this.buscarOuFalhar(companyId)).janelaCancelamentoHoras;
+  }
+
+  async definirJanelaCancelamentoHoras(companyId: CompanyId, horas: number): Promise<void> {
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { janelaCancelamentoHoras: horas },
+    });
+  }
+
+  async janelaReagendamentoHoras(companyId: CompanyId): Promise<number> {
+    return (await this.buscarOuFalhar(companyId)).janelaReagendamentoHoras;
+  }
+
+  async definirJanelaReagendamentoHoras(companyId: CompanyId, horas: number): Promise<void> {
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { janelaReagendamentoHoras: horas },
+    });
+  }
+
   async timezone(companyId: CompanyId): Promise<Timezone> {
     return Timezone.de((await this.buscarOuFalhar(companyId)).timezone);
   }

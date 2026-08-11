@@ -8,6 +8,7 @@ import {
   StatusAtendimento,
   StatusItemPacote,
   StatusPagamento,
+  StatusSolicitacaoReembolso,
 } from './enums';
 
 // ---------- Auth ----------
@@ -173,6 +174,8 @@ export interface AtendimentoDTO {
   /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou este agendamento, se veio de algum. Só registro, sem métrica. */
   origemLinkBarbeiroId: string | null;
   origemLinkBarbeiroNome: string | null;
+  /** FASE 4a (sessão-E, §8.7) — quanto deste atendimento foi abatido com saldo residual de pacote (0 = nenhum). */
+  valorAbatidoSaldoCentavos: number;
 }
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
@@ -236,12 +239,32 @@ export interface VendaDePacoteDTO {
   barbeiroNome: string;
   valorPagoCentavos: number;
   saldoResidualCentavos: number;
+  /** FASE 4a (sessão-E, §8.7) — soma já abatida em agendamentos avulsos. */
+  saldoUtilizadoCentavos: number;
+  /** FASE 4b — reservado por uma SolicitacaoDeReembolso PENDENTE (já saiu do saldo residual). */
+  saldoReservadoReembolsoCentavos: number;
+  /** FASE 4b — confirmado e devolvido manualmente pelo admin. */
+  saldoReembolsadoCentavos: number;
+  /** FASE 4b — prazo pra pedir reembolso deste saldo residual; `null` se não há saldo disponível. */
+  prazoReembolsoAte: string | null;
   compradoEm: string;
   statusPagamento: StatusPagamento;
   itens: ItemDoPacoteDTO[];
   /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou esta compra, se veio de algum. Só registro, sem métrica. */
   origemLinkBarbeiroId: string | null;
   origemLinkBarbeiroNome: string | null;
+}
+
+/** FASE 4b (sessão-E, §8.7): pedido de reembolso manual do saldo residual de um pacote. */
+export interface SolicitacaoDeReembolsoDTO {
+  id: string;
+  vendaDePacoteId: string;
+  cliente: { id: string; nome: string; telefone: string };
+  valorCentavos: number;
+  criadaEm: string;
+  prazoLimiteEm: string;
+  status: StatusSolicitacaoReembolso;
+  reembolsadaEm: string | null;
 }
 export interface VenderPacoteRequest {
   barbeiroId: string;
@@ -295,6 +318,10 @@ export interface ExtratoComissaoDTO {
 // ---------- Parâmetros ----------
 export interface ParametrosDTO {
   prazoReagendamentoDias: number;
+  /** §8.6 (sessão-E): até quantas horas antes o cliente pode cancelar sozinho pelo cockpit. */
+  janelaCancelamentoHoras: number;
+  /** §8.6 (sessão-E): até quantas horas antes o cliente pode reagendar sozinho pelo cockpit. */
+  janelaReagendamentoHoras: number;
   /** Fuso IANA da empresa (ex: "America/Sao_Paulo"). Frontend deve SEMPRE renderizar
    * datas/horas neste fuso — nunca no fuso do navegador/dispositivo do usuário. */
   timezone: string;

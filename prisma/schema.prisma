@@ -45,6 +45,7 @@ enum FormaPagamento {
   CARTAO_DEBITO
   CARTAO_CREDITO
   PIX_ONLINE
+  SALDO_RESIDUAL
 }
 
 enum ReferenciaPagamento {
@@ -75,6 +76,14 @@ model Company {
   nome                   String
   // ParametrosDaEmpresa: prazo da segunda chance (§4.2), ajustável pelo admin
   prazoReagendamentoDias Int    @default(10)
+  // ParametrosDaEmpresa (sessão-E, §8.6): até quantas horas antes do horário
+  // marcado o CLIENTE pode cancelar sozinho pelo cockpit — depois disso, o
+  // app recusa e orienta a falar por WhatsApp. Ajustável pelo admin.
+  janelaCancelamentoHoras Int  @default(2)
+  // ParametrosDaEmpresa (sessão-E, §8.6): até quantas horas antes o CLIENTE
+  // pode reagendar sozinho pelo cockpit (mover pra outra data/hora,
+  // preservando serviço/barbeiro/crédito). Ajustável pelo admin.
+  janelaReagendamentoHoras Int @default(12)
   // Fuso IANA da empresa (ex: "America/Sao_Paulo"). Propriedade da Company,
   // não constante global — outras barbearias em outros fusos usarão o sistema.
   // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
@@ -288,6 +297,13 @@ model Atendimento {
   // barbeiro (marketing individual) — barbeiroId de quem divulgou, ou null se
   // veio do funil genérico. SÓ registro nesta sessão, sem tela de relatório.
   origemLinkBarbeiroId String?
+  // FASE 4a (sessão-E, §8.7): quanto do total deste atendimento foi abatido
+  // com saldo residual de um pacote (0 = nenhum abatimento). `vendaAbatidaId`
+  // aponta pra QUAL pacote — auditoria (§ regra "não é coluna de saldo
+  // mutável sem lastro": aqui é rastro de UM atendimento específico, não um
+  // acumulador solto).
+  valorAbatidoSaldoCentavos Int    @default(0)
+  vendaAbatidaId            String?
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
@@ -335,19 +351,67 @@ model VendaDePacote {
   barbeiroId            String
   valorPagoCentavos     Int
   saldoResidualCentavos Int             @default(0)
+  // FASE 4a (sessão-E, §8.7): quanto do saldo residual já foi GASTO
+  // (abatido em algum avulso) historicamente — só cresce. Existe pra manter
+  // a invariante de conservação de dinheiro auditável mesmo depois que o
+  // saldo é usado: Σvalorrateado(ativos) + saldoResidual + saldoUtilizado
+  // == valorPago, sempre.
+  saldoUtilizadoCentavos Int            @default(0)
+  // FASE 4b (sessão-E, §8.7): saldo RESERVADO pra uma SolicitacaoDeReembolso
+  // PENDENTE — sai de saldoResidual assim que a solicitação é criada (não
+  // espera o admin confirmar), exatamente pra impedir abater (FASE 4a) e
+  // reembolsar (FASE 4b) o MESMO dinheiro ao mesmo tempo: o abatimento só
+  // enxerga `saldoResidual`, então dinheiro reservado já está fora do
+  // alcance dele estruturalmente, não por uma checagem solta.
+  saldoReservadoReembolsoCentavos Int   @default(0)
+  // Saldo efetivamente devolvido (reembolso CONFIRMADO pelo admin) — só cresce.
+  saldoReembolsadoCentavos Int          @default(0)
+  // Instante da expiração mais recente que alimentou saldoResidual — âncora
+  // do prazo de 45 dias pra pedir reembolso (§8.7). Null enquanto nunca
+  // houve expiração nesta venda.
+  saldoResidualDesde    DateTime?       @db.Timestamptz(3)
   compradoEm            DateTime        @db.Timestamptz(3)
   statusPagamento       StatusPagamento
   // Fase 4c: registro do link pessoal de barbeiro que originou a compra — só
   // registro, sem tela de relatório nesta sessão.
   origemLinkBarbeiroId  String?
 
-  company  Company        @relation(fields: [companyId], references: [id])
-  barbeiro Barbeiro       @relation(fields: [barbeiroId], references: [id])
-  itens    ItemDoPacote[]
+  company              Company                  @relation(fields: [companyId], references: [id])
+  barbeiro             Barbeiro                 @relation(fields: [barbeiroId], references: [id])
+  itens                ItemDoPacote[]
+  solicitacoesReembolso SolicitacaoDeReembolso[]
 
   @@index([clienteId])
   @@index([companyId])
   @@index([barbeiroId])
+}
+
+// FASE 4b (sessão-E, §8.7): pedido de reembolso do saldo residual — MANUAL
+// (o dono confirmou: sem integração com gateway, sem estorno automático). O
+// admin devolve o dinheiro por fora (PIX manual) e marca aqui quando feito.
+enum StatusSolicitacaoReembolso {
+  PENDENTE
+  REEMBOLSADO
+}
+
+model SolicitacaoDeReembolso {
+  id              String                     @id
+  companyId       String
+  vendaDePacoteId String
+  clienteId       String
+  valorCentavos   Int
+  criadaEm        DateTime                   @db.Timestamptz(3)
+  // Prazo pra pedir: 45 dias civis a contar de `VendaDePacote.saldoResidualDesde`.
+  // Congelado na criação — nunca recalculado depois.
+  prazoLimiteEm   DateTime                   @db.Timestamptz(3)
+  status          StatusSolicitacaoReembolso
+  reembolsadaEm   DateTime?                  @db.Timestamptz(3)
+
+  venda VendaDePacote @relation(fields: [vendaDePacoteId], references: [id])
+
+  @@index([companyId, status])
+  @@index([vendaDePacoteId])
+  @@index([clienteId])
 }
 
 model ItemDoPacote {

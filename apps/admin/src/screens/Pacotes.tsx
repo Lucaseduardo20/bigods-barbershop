@@ -5,6 +5,7 @@ import type {
   ItemDoPacoteDTO,
   PacoteOfertaDTO,
   ServicoDTO,
+  SolicitacaoDeReembolsoDTO,
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
@@ -37,25 +38,84 @@ const tonePagamento: Record<StatusPagamento, string> = {
   [StatusPagamento.FALHOU]: 'danger',
 };
 
-type Aba = 'vendidos' | 'catalogo';
+type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
 
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
   const [aba, setAba] = useState<Aba>('vendidos');
 
   return (
     <div className="px-5">
-      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Pacotes</h1>
+      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Pacotes & Ofertas</h1>
       <Tabs
         value={aba}
         onChange={setAba}
         tabs={[
           { value: 'vendidos', label: 'Vendidos' },
           { value: 'catalogo', label: 'Catálogo de ofertas' },
+          { value: 'reembolsos', label: 'Reembolsos' },
         ]}
       />
       <div className="mt-3">
         {aba === 'vendidos' && <PacotesVendidos usuario={usuario} />}
         {aba === 'catalogo' && <CatalogoDeOfertas usuario={usuario} />}
+        {aba === 'reembolsos' && <ReembolsosPendentes />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * FASE 4b (sessão-E, §8.7): fila de pedidos de reembolso manual — o dinheiro
+ * já saiu do saldo residual do cliente na hora do pedido (reservado); aqui o
+ * admin só confirma que devolveu por fora (PIX). Sem gateway, sem estorno
+ * automático.
+ */
+function ReembolsosPendentes() {
+  const tz = useTimezone();
+  const [confirmando, setConfirmando] = useState<string | null>(null);
+  const { dados, erro, carregando, recarregar } = useApi(
+    () => api<SolicitacaoDeReembolsoDTO[]>('/pacotes/reembolsos/pendentes'),
+    [],
+  );
+
+  const confirmar = async (id: string) => {
+    setConfirmando(id);
+    try {
+      await api(`/pacotes/reembolsos/${id}/confirmar`, { method: 'POST' });
+      recarregar();
+    } finally {
+      setConfirmando(null);
+    }
+  };
+
+  return (
+    <div>
+      {carregando && <Loading />}
+      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
+      {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum reembolso pendente." />}
+      <div className="flex flex-col gap-2.5">
+        {(dados ?? []).map((s) => (
+          <div key={s.id} className="card">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-bold text-[14px]">{s.cliente.nome}</div>
+                <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                  pedido em {dataCurta(s.criadaEm, tz)} · prazo era até {dataCurta(s.prazoLimiteEm, tz)}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="font-bold text-[16px]">{dinheiro(s.valorCentavos)}</div>
+              </div>
+            </div>
+            <button
+              className="btn btn-sm mt-2"
+              disabled={confirmando === s.id}
+              onClick={() => confirmar(s.id)}
+            >
+              {confirmando === s.id ? 'Confirmando…' : 'Marcar como reembolsado (PIX enviado)'}
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -104,6 +164,12 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
                   {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)} · {v.barbeiroNome}
                   {v.saldoResidualCentavos > 0 && (
                     <> · saldo residual {dinheiro(v.saldoResidualCentavos)}</>
+                  )}
+                  {v.saldoReservadoReembolsoCentavos > 0 && (
+                    <> · {dinheiro(v.saldoReservadoReembolsoCentavos)} reservado p/ reembolso</>
+                  )}
+                  {v.saldoReembolsadoCentavos > 0 && (
+                    <> · {dinheiro(v.saldoReembolsadoCentavos)} já reembolsado</>
                   )}
                 </div>
                 <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>

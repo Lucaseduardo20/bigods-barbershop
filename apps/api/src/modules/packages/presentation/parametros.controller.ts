@@ -10,6 +10,8 @@ import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 
 class AtualizarParametrosDto {
   @IsInt() @IsPositive() prazoReagendamentoDias!: number;
+  @IsInt() @IsPositive() janelaCancelamentoHoras!: number;
+  @IsInt() @IsPositive() janelaReagendamentoHoras!: number;
 }
 
 @Controller('parametros')
@@ -21,11 +23,13 @@ export class ParametrosController {
 
   @Get()
   async obter(@UsuarioAtual() usuario: UsuarioAutenticado): Promise<ParametrosDTO> {
-    const [prazoReagendamentoDias, tz] = await Promise.all([
+    const [prazoReagendamentoDias, janelaCancelamentoHoras, janelaReagendamentoHoras, tz] = await Promise.all([
       this.parametros.prazoReagendamentoDias(usuario.companyId),
+      this.parametros.janelaCancelamentoHoras(usuario.companyId),
+      this.parametros.janelaReagendamentoHoras(usuario.companyId),
       this.parametros.timezone(usuario.companyId),
     ]);
-    return { prazoReagendamentoDias, timezone: tz.iana };
+    return { prazoReagendamentoDias, janelaCancelamentoHoras, janelaReagendamentoHoras, timezone: tz.iana };
   }
 
   @Papeis(Papel.ADMIN)
@@ -34,11 +38,17 @@ export class ParametrosController {
     @Body() body: AtualizarParametrosDto,
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<ParametrosDTO> {
-    await this.parametros.definirPrazoReagendamentoDias(
-      usuario.companyId,
-      body.prazoReagendamentoDias,
-    );
+    await Promise.all([
+      this.parametros.definirPrazoReagendamentoDias(usuario.companyId, body.prazoReagendamentoDias),
+      this.parametros.definirJanelaCancelamentoHoras(usuario.companyId, body.janelaCancelamentoHoras),
+      this.parametros.definirJanelaReagendamentoHoras(usuario.companyId, body.janelaReagendamentoHoras),
+    ]);
     const tz = await this.parametros.timezone(usuario.companyId);
-    return { prazoReagendamentoDias: body.prazoReagendamentoDias, timezone: tz.iana };
+    return {
+      prazoReagendamentoDias: body.prazoReagendamentoDias,
+      janelaCancelamentoHoras: body.janelaCancelamentoHoras,
+      janelaReagendamentoHoras: body.janelaReagendamentoHoras,
+      timezone: tz.iana,
+    };
   }
 }

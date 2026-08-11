@@ -98,7 +98,15 @@
       "Bash(curl -s \"http://localhost:3000/public/empresa?companyId=bigods\")",
       "Bash(docker-compose version *)",
       "Bash(chmod +x /home/lkt/work/bigods-barber-v2/scripts/env-up.sh /home/lkt/work/bigods-barber-v2/scripts/env-down.sh)",
-      "Bash(tee /tmp/claude-1000/-home-lkt-work-bigods-barber-v2/26977804-07e0-45b9-ae2c-20c3e3d7ffae/scratchpad/multitz-full.log)"
+      "Bash(tee /tmp/claude-1000/-home-lkt-work-bigods-barber-v2/26977804-07e0-45b9-ae2c-20c3e3d7ffae/scratchpad/multitz-full.log)",
+      "Bash(curl -s \"http://localhost:3000/public/barbeiros?companyId=bigods\")",
+      "Bash(time curl -s \"http://localhost:3000/public/servicos?companyId=bigods&barbeiroId=bar-gabriel\")",
+      "Bash(time curl -s \"http://localhost:5174/api/servicos?companyId=bigods\" -o /dev/null -w \"http:%{http_code}\\\\n\")",
+      "Bash(curl -s \"http://localhost:5174/api/public/servicos?companyId=bigods&barbeiroId=bar-gabriel\")",
+      "Bash(grep -n \"estado.step === PASSO.BARBEIRO\\\\|totalCentavos\\(servicos\\\\|duracaoMinutos\\(servicos\\\\|Confirmacao\\\\s*$\\\\|servicos={servicos}\\\\|const total = \\\\|const duracao = \\\\|const valor = \" /home/lkt/work/bigods-barber-v2/apps/booking/src/App.tsx)",
+      "WebSearch",
+      "WebFetch(domain:docs.openwa.dev)",
+      "WebFetch(domain:www.npmjs.com)"
     ],
     "additionalDirectories": [
       "/tmp"

@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.turbo
+**/coverage
+.git
+.dev-logs
+*.log
+.env
+.env.*
+!.env.example
+services/whatsapp-otp/session
+services/whatsapp-otp/node_modules

@@ -37,6 +37,8 @@ export enum FormaPagamento {
   CARTAO_CREDITO = 'CARTAO_CREDITO',
   /** Pago antecipadamente online (AbacatePay) — distinto do PIX cobrado no balcão. */
   PIX_ONLINE = 'PIX_ONLINE',
+  /** Quitado (total ou parcialmente) com saldo residual de pacote (sessão-E, §8.7). */
+  SALDO_RESIDUAL = 'SALDO_RESIDUAL',
 }
 
 /** Origem de um LancamentoComissao: serviço prestado ou produto revendido. */
@@ -57,4 +59,10 @@ export enum StatusAprovacaoPacoteOferta {
 export enum OrigemDisponibilidade {
   EXPEDIENTE = 'EXPEDIENTE',
   MANUAL = 'MANUAL',
+}
+
+/** Estado de uma SolicitacaoDeReembolso (sessão-E, §8.7) — reembolso é sempre manual, sem gateway. */
+export enum StatusSolicitacaoReembolso {
+  PENDENTE = 'PENDENTE',
+  REEMBOLSADO = 'REEMBOLSADO',
 }

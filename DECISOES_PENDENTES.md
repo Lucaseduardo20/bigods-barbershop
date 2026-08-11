@@ -219,3 +219,122 @@ resto do sistema (§2.4: `companyId` em todo agregado, sem isolamento dinâmico
 de tenant). Como só existe uma `Company` semeada hoje, essa distinção não é
 observável na prática, mas fica registrada pra não ser "corrigida" por engano
 numa sessão futura que mexa em multi-tenant de verdade.
+
+## 21. Prazo de 45 dias para reembolso quando a venda tem MÚLTIPLOS itens expirados em datas diferentes (sessão-E, FASE 4b)
+
+O brief pediu "prazo de 45 dias a contar da EXPIRAÇÃO do item que gerou o saldo" — frase que
+pressupõe implicitamente um único item/uma única expiração. `saldoResidual` é um **pool fungível**
+(§3.6): quando um segundo item do mesmo pacote expira meses depois do primeiro, os dois valores se
+somam no mesmo `saldoResidual`, sem rastro de qual centavo veio de qual item.
+
+**Mínimo implementado:** `VendaDePacote.saldoResidualDesde` guarda a expiração **mais recente**
+(atualizado toda vez que `expirarItem` roda) e o prazo de 45 dias conta a partir dela — a leitura
+mais **generosa** possível ao cliente (a alternativa, contar da mais antiga, encurtaria o prazo
+disponível pra parte do saldo). Ver `docs/DOMAIN.md` §8.7.
+
+**A confirmar com o negócio:** se o critério correto for por item (cada fatia do saldo com seu
+próprio prazo, exigindo rastrear a origem de cada centavo dentro do pool) ou a partir da data do
+**pedido** de reembolso em vez da expiração — qualquer um dos dois exigiria um redesenho do
+`saldoResidual` de "pool único" para "lista de créditos com prazo individual", mudança de modelo,
+não só de regra.
+
+## 22. Reagendar (cockpit) de um avulso PAGO ONLINE não devolve nem reaplica o pagamento (sessão-E, FASE 3)
+
+`ReagendarAtendimentoClienteUseCase`, caminho `AVULSO`: cria o novo atendimento via
+`AgendarAvulsoUseCase` com `gerarCobranca: false` (nunca cobra de novo) e cancela o antigo. Se o
+atendimento antigo tinha sido **pago antecipadamente online** (PIX_ONLINE, §8.1) antes do
+reagendamento, esse valor já pago **não é** transferido pro novo atendimento nem estornado — o
+`Atendimento` cancelado guarda o histórico de que foi pago (snapshot, §3.5), mas o novo nasce sem
+nenhum registro de pagamento prévio. Marcado inline com `// DECISAO_PENDENTE` em
+`reagendar-atendimento-cliente.usecase.ts`.
+
+**Por que não bloqueei:** o caminho mais comum (reagendar um avulso comum, sem pagamento online
+antecipado) funciona corretamente hoje, e cobrar duas vezes por engano seria pior que deixar o caso
+raro sem solução automática — a barbearia consegue resolver manualmente (webhook/painel) até essa
+decisão ser tomada.
+
+**A confirmar com o negócio:** se o valor pago online deveria migrar automaticamente pro novo
+atendimento (viraria uma espécie de "abatimento" parecido com o de saldo residual, §8.7) ou se o
+fluxo correto é orientar o cliente a pedir reembolso do pagamento antecipado separadamente.
+
+## 23. Cognito removido do fluxo de produção — substituído por WhatsApp (sessão de lançamento, 2026-07-31)
+
+O pedido desta sessão foi explícito: lançar em produção o mais rápido possível, com OTP por
+WhatsApp no lugar do Cognito, e "nada além disso". O brief permitia duas leituras —
+manter o Cognito como opção paralela, ou tirá-lo do fluxo — dando a escolha de implementação para
+quem executasse ("não precisa deletar o arquivo se for trabalhoso — basta não ser mais uma opção
+default e sair do fluxo").
+
+**Implementado:** tirei o Cognito da `identity.module.ts` inteiramente — `IDENTITY_PROVIDER=cognito`
+agora lança erro explícito no boot (`IDENTITY_PROVIDER='cognito' desconhecido`), em vez de cair
+silenciosamente no provider demo (o que seria um fallback perigoso, contra o princípio já usado no
+resto do sistema de "sem configuração explícita → erro, nunca chute"). O arquivo
+`cognito-identity.provider.ts` e sua suíte de testes (9 casos) continuam no repositório, intactos e
+verdes — só não são mais alcançáveis por nenhuma variável de ambiente. `assertConfiguracaoSegura`
+(boot-guard) também passou a aceitar só `whatsapp` como provider válido em produção.
+
+**Por que tirei em vez de manter as duas opções:** o brief pediu "substituindo o Cognito" (não
+"além do Cognito"), o lançamento é presencial-only sem nenhuma dependência de AWS por decisão
+explícita, e manter os dois caminhos simultaneamente como opções de produção "vivas" adicionaria
+superfície de configuração (dois conjuntos de env vars válidos, dois caminhos a testar em produção)
+sem nenhum caso de uso pedido nesta sessão para justificar.
+
+**A confirmar com o negócio:** se algum dia fizer sentido oferecer Cognito de novo (ex.: outra
+barbearia cliente que já tem AWS configurada), a reintegração é só devolver o branch `'cognito'` na
+factory de `identity.module.ts` — a classe e os testes já existem prontos, não precisa reescrever
+nada.
+
+## 24. Tabelas `DemoIdentidade`/`DemoDesafioLogin` agora guardam identidade de produção real (nome desatualizado, não renomeado)
+
+A lógica de código-com-hash/expiração/uso-único/rate-limit foi extraída para
+`OtpIdentityProviderBase` e agora é compartilhada por `DemoIdentityProvider` **e**
+`WhatsAppIdentityProvider` — ou seja, em produção, dados reais de clientes passam a viver em
+tabelas chamadas `DemoIdentidade`/`DemoDesafioLogin`, nome que ficou de quando só o modo demo
+existia.
+
+**Por que não renomeei:** renomear exigiria uma migration de tabela + tocar ~18 pontos do código e
+dos testes e2e que já referenciam esses nomes (incluindo fixtures desta e de sessões anteriores) —
+risco/esforço desproporcional para uma sessão marcada como "nada além do essencial, o mais rápido
+possível". O prefixo do `sub` gerado já foi diferenciado (`demo-<uuid>` vs `whatsapp-<uuid>`) para
+que registros de produção pelo menos sejam identificáveis na tabela, mesmo com o nome da tabela em
+si desatualizado.
+
+**Quando reconsiderar:** numa sessão sem pressão de lançamento, vale uma migration simples
+(`ALTER TABLE ... RENAME TO ...`, o Prisma suporta via `@@map`) para `IdentidadeExterna`/
+`DesafioDeLogin` ou nomes equivalentes — puramente cosmético/organizacional, sem risco de dado.
+
+## 25. `services/whatsapp-otp` trocou de `@open-wa/wa-automate` pra Baileys (2026-08-10)
+
+Ao testar o fluxo de OTP com WhatsApp de verdade (usuário escaneando o QR pra valer, não mais um
+teste automatizado), dois problemas reais apareceram na lib original — nenhum dos dois era o que a
+sessão de lançamento suspeitava ("rede do ambiente de teste"), ver `RELATORIO_SESSAO.md` (seção
+"Migração open-wa → Baileys") pro relato completo da investigação:
+
+1. **QR nunca aparecia** — bug real na lib: ela embute um User-Agent com `Chrome/104.0.0.0`
+   hardcoded, e o WhatsApp Web hoje rejeita isso ("atualize seu Chrome"). A opção de config pra
+   sobrescrever (`customUserAgent`) tem, no código-fonte da lib, um bug próprio — só é lida se
+   você também passar `inDocker: true`, mesmo fora de Docker. Achado lendo o source publicado no
+   npm diretamente, não estava documentado.
+2. **"Not a contact"** — a versão gratuita da lib bloqueia mandar mensagem pra quem não é contato
+   salvo no WhatsApp. Isso inviabiliza o caso de uso inteiro (clientes da barbearia nunca vão estar
+   salvos no chip descartável). Desbloquear exige uma licença paga (~£10-15/mês) sujeita a
+   aprovação externa de prazo incerto.
+
+**Decisão tomada com o dono:** reescrever `services/whatsapp-otp` sobre
+[Baileys](https://github.com/WhiskeySockets/Baileys) (`baileys` no npm, MIT, pinado na versão
+estável `6.7.24`) — implementa o protocolo do WhatsApp direto por WebSocket, sem navegador/Chrome,
+sem a trava de contato, e busca a versão do protocolo mais recente a cada boot (elimina de raiz o
+tipo de bug do item 1, já que não há mais nenhuma versão hardcoded pra ficar desatualizada). O
+contrato HTTP externo do serviço (`GET /status`, `POST /enviar`) não mudou — o resto do sistema
+(`WhatsAppIdentityProvider`, `HttpWhatsAppOtpClient`, Docker Compose) não precisou de nenhuma
+alteração além do próprio `services/whatsapp-otp/Dockerfile` (ficou bem mais simples, sem instalar
+Chrome). Confirmado funcionando de ponta a ponta com WhatsApp real: QR escaneado, mensagem de OTP
+de produção recebida de verdade num número que não era contato salvo.
+
+**Efeito colateral positivo:** imagem Docker e `node_modules` muito mais enxutos (153 pacotes / 0
+vulnerabilidades reportadas, contra 933 pacotes / 37 vulnerabilidades com
+open-wa+Puppeteer+Chrome) — não era o objetivo da troca, mas reforçou que era a escolha certa.
+
+**A confirmar com o negócio:** nenhuma pendência de domínio aqui — decisão de biblioteca/implementação
+(CLAUDE.md: "decisões de implementação... você toma sozinho"), registrada por ter sido uma mudança
+grande de rumo dentro da mesma sessão de lançamento, não por exigir aprovação de regra de negócio.

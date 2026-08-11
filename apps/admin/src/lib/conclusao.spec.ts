@@ -33,18 +33,33 @@ describe('valorNaoCobertoPorCredito', () => {
 
 describe('valorACobrarNaConclusao', () => {
   it('desconta o que já foi pago online do valor não coberto por crédito', () => {
-    const a = { itens: [item(4000, null)], produtos: [], valorPagoOnlineCentavos: 4000 };
+    const a = { itens: [item(4000, null)], produtos: [], valorPagoOnlineCentavos: 4000, valorAbatidoSaldoCentavos: 0 };
     expect(valorACobrarNaConclusao(a)).toBe(0);
   });
 
   it('add-on em atendimento pago online: cobra só o adicional, não o valor já pago', () => {
     // pagou online o corte (4000); adicionou barba avulsa (3000) na cadeira
-    const a = { itens: [item(4000, null), item(3000, null)], produtos: [], valorPagoOnlineCentavos: 4000 };
+    const a = { itens: [item(4000, null), item(3000, null)], produtos: [], valorPagoOnlineCentavos: 4000, valorAbatidoSaldoCentavos: 0 };
     expect(valorACobrarNaConclusao(a)).toBe(3000);
   });
 
   it('nunca fica negativo mesmo se o pago online exceder o não-coberto (ex.: só item de pacote + pago online por engano)', () => {
-    const a = { itens: [item(3429, 'item-pacote-1')], produtos: [], valorPagoOnlineCentavos: 100 };
+    const a = { itens: [item(3429, 'item-pacote-1')], produtos: [], valorPagoOnlineCentavos: 100, valorAbatidoSaldoCentavos: 0 };
     expect(valorACobrarNaConclusao(a)).toBe(0);
+  });
+
+  it('FASE 4a (sessão-E): desconta o que foi abatido de saldo residual, igual ao pago online', () => {
+    const a = { itens: [item(4000, null)], produtos: [], valorPagoOnlineCentavos: 0, valorAbatidoSaldoCentavos: 4000 };
+    expect(valorACobrarNaConclusao(a)).toBe(0);
+  });
+
+  it('FASE 4a: abatimento PARCIAL de saldo — cobra só a diferença', () => {
+    const a = { itens: [item(4000, null)], produtos: [], valorPagoOnlineCentavos: 0, valorAbatidoSaldoCentavos: 1500 };
+    expect(valorACobrarNaConclusao(a)).toBe(2500);
+  });
+
+  it('FASE 4a: pago online E abatido de saldo somam pra cobrir o total (add-on cobre só o resto)', () => {
+    const a = { itens: [item(4000, null), item(3000, null)], produtos: [], valorPagoOnlineCentavos: 4000, valorAbatidoSaldoCentavos: 2000 };
+    expect(valorACobrarNaConclusao(a)).toBe(1000);
   });
 });

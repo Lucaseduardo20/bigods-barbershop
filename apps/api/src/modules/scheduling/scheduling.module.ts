@@ -5,6 +5,8 @@ import { AgendarAvulsoUseCase } from './application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
+import { CancelarAtendimentoClienteUseCase } from './application/cancelar-atendimento-cliente.usecase';
+import { ReagendarAtendimentoClienteUseCase } from './application/reagendar-atendimento-cliente.usecase';
 import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-comparecimento.usecase';
 import { AdicionarItemAtendimentoUseCase } from './application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from './application/adicionar-produto-atendimento.usecase';
@@ -22,6 +24,8 @@ import { PaymentsModule } from '../payments/payments.module';
     AgendarComCreditoUseCase,
     ConcluirAtendimentoUseCase,
     CancelarAtendimentoUseCase,
+    CancelarAtendimentoClienteUseCase,
+    ReagendarAtendimentoClienteUseCase,
     RegistrarNaoComparecimentoUseCase,
     AdicionarItemAtendimentoUseCase,
     AdicionarProdutoAtendimentoUseCase,
@@ -30,8 +34,15 @@ import { PaymentsModule } from '../payments/payments.module';
     HorariosDisponiveisQueryService,
     AgendamentosClienteQueryService,
   ],
-  // Exportado para a área logada do cliente (identity) agendar com crédito e
-  // listar os próximos agendamentos no cockpit.
-  exports: [AgendarComCreditoUseCase, AgendamentosClienteQueryService],
+  // Exportado para a área logada do cliente (identity) agendar com crédito,
+  // avulso, cancelar, e listar/detalhar os próprios agendamentos.
+  exports: [
+    AgendarAvulsoUseCase,
+    AgendarComCreditoUseCase,
+    CancelarAtendimentoClienteUseCase,
+    ReagendarAtendimentoClienteUseCase,
+    AgendaQueryService,
+    AgendamentosClienteQueryService,
+  ],
 })
 export class SchedulingModule {}

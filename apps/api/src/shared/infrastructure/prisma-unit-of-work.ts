@@ -7,6 +7,7 @@ import { PrismaVendaDePacoteRepository } from '../../modules/packages/infrastruc
 import { PrismaClienteRepository } from '../../modules/customers/infrastructure/prisma-cliente.repository';
 import { PrismaIntencaoDePagamentoRepository } from '../../modules/payments/infrastructure/prisma-intencao-de-pagamento.repository';
 import { PrismaLancamentoComissaoRepository } from '../../modules/payroll/infrastructure/prisma-lancamento-comissao.repository';
+import { PrismaSolicitacaoDeReembolsoRepository } from '../../modules/packages/infrastructure/prisma-solicitacao-de-reembolso.repository';
 
 export function repositoriosDe(db: Db): RepositoriosTransacionais {
   return {
@@ -15,6 +16,7 @@ export function repositoriosDe(db: Db): RepositoriosTransacionais {
     clientes: new PrismaClienteRepository(db),
     intencoesDePagamento: new PrismaIntencaoDePagamentoRepository(db),
     lancamentosComissao: new PrismaLancamentoComissaoRepository(db),
+    solicitacoesReembolso: new PrismaSolicitacaoDeReembolsoRepository(db),
   };
 }
 

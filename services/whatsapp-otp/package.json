@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-otp-service",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Serviço separado que mantém a sessão do WhatsApp (Baileys) e envia códigos OTP a pedido do backend do Bigod's Barber. Processo Node próprio — se o WhatsApp cair, a API principal continua no ar.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "baileys": "6.7.24",
+    "express": "^4.19.2",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

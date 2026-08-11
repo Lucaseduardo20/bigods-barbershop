@@ -15,7 +15,13 @@ export function valorNaoCobertoPorCredito(a: Pick<AtendimentoDTO, 'itens' | 'pro
   return itens + produtos;
 }
 
-/** Valor efetivamente a cobrar agora — desconta o que já foi pago online. */
-export function valorACobrarNaConclusao(a: Pick<AtendimentoDTO, 'itens' | 'produtos' | 'valorPagoOnlineCentavos'>): number {
-  return Math.max(0, valorNaoCobertoPorCredito(a) - a.valorPagoOnlineCentavos);
+/**
+ * Valor efetivamente a cobrar agora — desconta o que já foi pago online E o
+ * que já foi abatido de saldo residual (FASE 4a, sessão-E, §8.7) — mesmo
+ * critério: dinheiro já coberto por outro mecanismo nunca é cobrado de novo.
+ */
+export function valorACobrarNaConclusao(
+  a: Pick<AtendimentoDTO, 'itens' | 'produtos' | 'valorPagoOnlineCentavos' | 'valorAbatidoSaldoCentavos'>,
+): number {
+  return Math.max(0, valorNaoCobertoPorCredito(a) - a.valorPagoOnlineCentavos - a.valorAbatidoSaldoCentavos);
 }

@@ -12,7 +12,9 @@
     "lint": "turbo run lint",
     "dev": "turbo run dev",
     "env:up": "bash scripts/env-up.sh",
-    "env:down": "bash scripts/env-down.sh"
+    "env:down": "bash scripts/env-down.sh",
+    "deploy:staging": "bash scripts/deploy.sh staging",
+    "deploy:production": "bash scripts/deploy.sh production"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

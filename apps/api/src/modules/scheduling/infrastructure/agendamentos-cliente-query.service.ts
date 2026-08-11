@@ -17,6 +17,27 @@ export class AgendamentosClienteQueryService {
       include: { itens: true },
       orderBy: { inicio: 'asc' },
     });
+    return this.mapear(atendimentos);
+  }
+
+  /**
+   * FASE 1 (sessão-E): histórico do cliente — tudo que NÃO está mais
+   * AGENDADO (concluído, cancelado, faltou), do mais recente ao mais
+   * antigo. Leitura pura — projeção de leitura (§2.1), reusa o mesmo mapeamento
+   * de `proximos`.
+   */
+  async historico(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
+    const atendimentos = await this.prisma.atendimento.findMany({
+      where: { companyId, clienteId, status: { not: 'AGENDADO' } },
+      include: { itens: true },
+      orderBy: { inicio: 'desc' },
+    });
+    return this.mapear(atendimentos);
+  }
+
+  private async mapear(
+    atendimentos: Array<{ id: string; inicio: Date; barbeiroId: string; origem: string; status: string; itens: { servicoId: string }[] }>,
+  ): Promise<AgendamentoClienteDTO[]> {
     if (atendimentos.length === 0) return [];
 
     const [servicos, barbeiros] = await Promise.all([
@@ -33,8 +54,8 @@ export class AgendamentosClienteQueryService {
       inicioIso: a.inicio.toISOString(),
       servicoNomes: a.itens.map((i) => servicoNome.get(i.servicoId) ?? '?'),
       barbeiroNome: barbeiroNome.get(a.barbeiroId) ?? '?',
-      origem: OrigemAtendimento[a.origem],
-      status: StatusAtendimento[a.status],
+      origem: OrigemAtendimento[a.origem as keyof typeof OrigemAtendimento],
+      status: StatusAtendimento[a.status as keyof typeof StatusAtendimento],
     }));
   }
 }

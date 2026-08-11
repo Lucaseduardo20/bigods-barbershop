@@ -34,14 +34,21 @@ export function Home({
   perfil,
   tz,
   onAgendar,
+  onVerHistorico,
+  onUsarSaldo,
+  onAbrirAtendimento,
 }: {
   perfil: PerfilClienteDTO;
   tz: string;
   onAgendar: (servicoId: string | null) => void;
+  onVerHistorico: () => void;
+  onUsarSaldo: () => void;
+  onAbrirAtendimento: (atendimentoId: string) => void;
 }) {
   const proximo = perfil.proximosAgendamentos[0] ?? null;
   const agendamentoPorAtId = new Map(perfil.proximosAgendamentos.map((a) => [a.atendimentoId, a]));
   const temPacoteAtivo = perfil.pacotes.some(temCreditoLivre);
+  const temSaldoResidual = perfil.pacotes.some((p) => p.saldoResidualCentavos > 0);
 
   // 1) Alertas de segunda chance (prazo correndo) — só quando existem.
   const emPrazo = perfil.pacotes.flatMap((p) =>
@@ -76,8 +83,29 @@ export function Home({
 
       {/* 2) Próximo agendamento (ou CTA agendar) */}
       <div style={{ marginBottom: 24 }}>
-        <ProximoBloco proximo={proximo} tz={tz} temPacoteAtivo={temPacoteAtivo} onAgendar={onAgendar} />
+        <ProximoBloco
+          proximo={proximo}
+          tz={tz}
+          temPacoteAtivo={temPacoteAtivo}
+          onAgendar={onAgendar}
+          onAbrirAtendimento={onAbrirAtendimento}
+        />
       </div>
+
+      {/* 2b) Saldo residual disponível (FASE 4a, sessão-E) */}
+      {temSaldoResidual && (
+        <button
+          onClick={onUsarSaldo}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', border: '1px dashed var(--accent-primary)', background: 'var(--surface-brand-tint)', borderRadius: 'var(--radius-lg)', padding: 14, marginBottom: 24, cursor: 'pointer' }}
+        >
+          <Icon name="coins" size={20} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Você tem saldo residual</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Use pra abater num próximo agendamento avulso.</div>
+          </div>
+          <Icon name="arrow-right" size={16} />
+        </button>
+      )}
 
       {/* 3) Pacotes ativos */}
       {perfil.pacotes.length > 0 && (
@@ -100,8 +128,14 @@ export function Home({
         </div>
       )}
 
-      {/* 4) Histórico (discreto) — serviços já consumidos do pacote */}
-      <Historico pacotes={perfil.pacotes} />
+      {/* 4) Ver histórico completo — leva pra tela dedicada (FASE 1) */}
+      <button
+        onClick={onVerHistorico}
+        className="btn btn-ghost btn-block"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+      >
+        Ver histórico completo <Icon name="arrow-right" size={16} />
+      </button>
     </div>
   );
 }
@@ -111,16 +145,21 @@ function ProximoBloco({
   tz,
   temPacoteAtivo,
   onAgendar,
+  onAbrirAtendimento,
 }: {
   proximo: AgendamentoClienteDTO | null;
   tz: string;
   temPacoteAtivo: boolean;
   onAgendar: (servicoId: string | null) => void;
+  onAbrirAtendimento: (atendimentoId: string) => void;
 }) {
   if (proximo) {
     const { dia, hora } = rotuloDataHora(proximo.inicioIso, tz);
     return (
-      <div style={{ background: 'var(--surface-brand)', borderRadius: 'var(--radius-lg)', padding: 18, color: 'var(--brand-cream)' }}>
+      <button
+        onClick={() => onAbrirAtendimento(proximo.atendimentoId)}
+        style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', background: 'var(--surface-brand)', borderRadius: 'var(--radius-lg)', padding: 18, color: 'var(--brand-cream)' }}
+      >
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--brand-beige)', marginBottom: 8 }}>
           Próximo agendamento
         </div>
@@ -131,7 +170,7 @@ function ProximoBloco({
           {proximo.servicoNomes.join(' + ')} com {proximo.barbeiroNome}
           {proximo.origem === 'CREDITO_PACOTE' && ' · crédito do pacote'}
         </div>
-      </div>
+      </button>
     );
   }
   return (
@@ -253,23 +292,3 @@ function Credito({ item, agendamento, tz }: { item: ItemDoPacoteDTO; agendamento
   );
 }
 
-function Historico({ pacotes }: { pacotes: VendaDePacoteDTO[] }) {
-  const consumidos = pacotes.flatMap((p) => p.itens.filter((i) => i.status === StatusItemPacote.CONSUMIDO));
-  if (consumidos.length === 0) return null;
-  return (
-    <div>
-      <div className="section-label">Histórico</div>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {consumidos.map((h, i) => (
-          <div
-            key={h.id}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 2px', borderBottom: i < consumidos.length - 1 ? '1px solid var(--border-subtle)' : 'none', fontSize: 13 }}
-          >
-            <div style={{ fontWeight: 700 }}>{h.servicoNome}</div>
-            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>crédito do pacote</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}

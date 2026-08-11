@@ -4,11 +4,11 @@ import { assertConfiguracaoSegura, ConfiguracaoInseguraError } from './config-se
 describe('assertConfiguracaoSegura', () => {
   it('recusa DEMO_MODE=true com NODE_ENV=production (código OTP vazaria)', () => {
     expect(() =>
-      assertConfiguracaoSegura({ DEMO_MODE: 'true', NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito' }),
+      assertConfiguracaoSegura({ DEMO_MODE: 'true', NODE_ENV: 'production', IDENTITY_PROVIDER: 'whatsapp' }),
     ).toThrow(ConfiguracaoInseguraError);
   });
 
-  it('recusa IDENTITY_PROVIDER=demo em produção (não envia SMS real)', () => {
+  it('recusa IDENTITY_PROVIDER=demo em produção (não envia OTP real)', () => {
     expect(() =>
       assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'demo', DEMO_MODE: 'false' }),
     ).toThrow(ConfiguracaoInseguraError);
@@ -18,51 +18,69 @@ describe('assertConfiguracaoSegura', () => {
     expect(() => assertConfiguracaoSegura({ NODE_ENV: 'production' })).toThrow(ConfiguracaoInseguraError);
   });
 
+  it('recusa produção com IDENTITY_PROVIDER=cognito — saiu do fluxo, não é mais uma opção válida', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito', PAYMENT_GATEWAY: 'fake' }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
+  it('recusa produção com IDENTITY_PROVIDER desconhecido/inválido (fail closed, nunca cai num default)', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'xyz', PAYMENT_GATEWAY: 'fake' }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
   it('aceita dev com DEMO_MODE=true (default de desenvolvimento)', () => {
     expect(() =>
       assertConfiguracaoSegura({ DEMO_MODE: 'true', IDENTITY_PROVIDER: 'demo' }),
     ).not.toThrow();
   });
 
-  it('aceita produção com cognito e sem DEMO_MODE', () => {
+  it('aceita produção com whatsapp e sem DEMO_MODE', () => {
     expect(() =>
-      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito', PAYMENT_GATEWAY: 'fake' }),
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'whatsapp', PAYMENT_GATEWAY: 'fake' }),
     ).not.toThrow();
   });
 
-  it('aceita produção com cognito mesmo com DEMO_MODE=false explícito', () => {
+  it('aceita produção com whatsapp mesmo com DEMO_MODE=false explícito', () => {
     expect(() =>
       assertConfiguracaoSegura({
         NODE_ENV: 'production',
-        IDENTITY_PROVIDER: 'cognito',
+        IDENTITY_PROVIDER: 'whatsapp',
         DEMO_MODE: 'false',
         PAYMENT_GATEWAY: 'fake',
       }),
     ).not.toThrow();
   });
 
-  const cognitoProd = { NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito' } as const;
+  it('aceita produção com whatsapp + PAYMENT_GATEWAY=fake (essencial: presencial-only sem AWS nem gateway online)', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'whatsapp', PAYMENT_GATEWAY: 'fake' }),
+    ).not.toThrow();
+  });
+
+  const whatsappProd = { NODE_ENV: 'production', IDENTITY_PROVIDER: 'whatsapp' } as const;
 
   it('recusa PAYMENT_GATEWAY=abacatepay sem ABACATEPAY_API_KEY', () => {
     expect(() =>
-      assertConfiguracaoSegura({ ...cognitoProd, PAYMENT_GATEWAY: 'abacatepay', ABACATEPAY_WEBHOOK_SECRET: 's' }),
+      assertConfiguracaoSegura({ ...whatsappProd, PAYMENT_GATEWAY: 'abacatepay', ABACATEPAY_WEBHOOK_SECRET: 's' }),
     ).toThrow(ConfiguracaoInseguraError);
   });
 
   it('recusa abacatepay sem ABACATEPAY_WEBHOOK_SECRET (webhook exposto sem validação)', () => {
     expect(() =>
-      assertConfiguracaoSegura({ ...cognitoProd, PAYMENT_GATEWAY: 'abacatepay', ABACATEPAY_API_KEY: 'k' }),
+      assertConfiguracaoSegura({ ...whatsappProd, PAYMENT_GATEWAY: 'abacatepay', ABACATEPAY_API_KEY: 'k' }),
     ).toThrow(ConfiguracaoInseguraError);
   });
 
   it('recusa produção com gateway default (abacatepay) sem credenciais', () => {
-    expect(() => assertConfiguracaoSegura({ ...cognitoProd })).toThrow(ConfiguracaoInseguraError);
+    expect(() => assertConfiguracaoSegura({ ...whatsappProd })).toThrow(ConfiguracaoInseguraError);
   });
 
   it('aceita abacatepay com API key e webhook secret', () => {
     expect(() =>
       assertConfiguracaoSegura({
-        ...cognitoProd,
+        ...whatsappProd,
         PAYMENT_GATEWAY: 'abacatepay',
         ABACATEPAY_API_KEY: 'k',
         ABACATEPAY_WEBHOOK_SECRET: 's',

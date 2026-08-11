@@ -21,6 +21,26 @@ foi diagnosticada (causa C: teste mal dimensionado no tempo, não bug de
 produção) e corrigida. **233 testes verdes no backend, 100%**, idênticos sob
 `TZ=UTC`, `TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo` (`npm run test:multitz`).
 
+Sessão-E (2026-07-31, "autonomia do cliente no cockpit" — ver seção dedicada
+perto do fim deste arquivo): 5 fases (histórico/detalhe, cancelar, reagendar,
+abater saldo residual em avulso, reembolso manual), cada uma fechada com a
+suíte verde antes de avançar para a próxima. **328 testes verdes no backend**
+(21 novos e2e num arquivo dedicado, 33 de domínio de `VendaDePacote`, incluindo
+7 novos de `reservarSaldoParaReembolso`/`confirmarReembolso`), idênticos sob os
+3 fusos (`npm run test:multitz`). `turbo run build` verde nos 5 pacotes.
+
+Sessão de lançamento (2026-07-31/2026-08-10, "OTP por WhatsApp + produção
+presencial-only + deploy abstraído" — ver seções dedicadas perto do fim deste
+arquivo): Cognito substituído por OTP via WhatsApp, novo serviço separado em
+`services/whatsapp-otp/` (primeiro com `@open-wa/wa-automate`, depois trocado
+por **Baileys** — sem Chrome, sem a trava de "só manda pra contato salvo" que
+inviabilizava o open-wa gratuito, ver DECISOES_PENDENTES #23/#25), produção
+confirmada subindo com `IDENTITY_PROVIDER=whatsapp` + `PAYMENT_GATEWAY=fake`,
+sem nenhuma dependência de AWS, e testada de ponta a ponta com WhatsApp REAL
+(QR escaneado, mensagem de OTP recebida de verdade). **344 testes verdes no
+backend**, idênticos sob os 3 fusos. `turbo run build` verde. Deploy abstraído
+num comando só (`scripts/deploy.sh local|staging|production` — ver `DEPLOY.md`).
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -1030,6 +1050,627 @@ precisam de smoke test manual num navegador antes de considerar esta sessão
   rápido, apagar, colar um valor) — comportamento esperado é preencher da
   direita como uma calculadora de banco.
 
+## Re-smoke: 2 bugs bloqueantes + reorganização de navegação do admin (sessão-D) ✅
+
+Sessão em duas frentes separadas — bugs de comportamento primeiro (com a
+suíte verde ao fim), reorganização de layout depois (sem tocar lógica).
+
+### PARTE 1 — Bugs
+
+**BUG 1 — funil não carrega serviços com barbeiro único/auto-selecionado ("loading eterno")**
+
+Causa estrutural: a decisão de auto-selecionar o barbeiro (quando só existe
+um na casa) morava DENTRO do componente filho `Barbeiro` — ele buscava
+`/public/barbeiros` sozinho, e ao decidir auto-selecionar, avisava o pai
+(`Funil`, em `App.tsx`) via callback (`onSelect`). Quem dispara a busca de
+serviços por barbeiro (`servicosDoBarbeiroReq`, reage a `estado.barbeiroId`)
+vive no PAI. Ou seja, o caminho "auto-select" e o caminho "clique manual"
+pareciam equivalentes no código, mas o automático dependia de um
+round-trip filho→callback→pai que o manual não precisa (o clique já
+acontece dentro do próprio pai, via `escolherBarbeiro` direto).
+
+Não foi possível reproduzir isto interativamente (sem ferramenta de
+browser neste ambiente, e o seed de dev tem 3 barbeiros, não 1) — a busca
+`/public/servicos?barbeiroId=` foi confirmada rápida e correta via curl
+direto contra o backend real, então o problema não é de rede/backend.
+Em vez de caçar o exato instante de dessincronia entre os dois componentes,
+a correção **elimina a classe inteira do problema**: a busca de barbeiros e
+a decisão de auto-selecionar foram movidas pra dentro do PRÓPRIO `Funil`
+(`barbeiroParaAutoSelecionar`, função pura em `funnel-state.ts`), no MESMO
+componente que já dispara `servicosDoBarbeiroReq` — sem callback, sem
+round-trip entre componentes, sem depender de nenhuma ordem de efeitos
+entre dois componentes diferentes. `Barbeiro.tsx` virou puramente
+apresentacional (recebe a lista pronta via props).
+
+Teste: `barbeiroParaAutoSelecionar` (`funnel-state.spec.ts`) cobre 1
+barbeiro → resolve; 1 barbeiro já resolvido → não repete (evita loop); 2+
+barbeiros → não resolve sozinho; sem dados ainda → não resolve. Não foi
+possível cobrir no nível de integração/e2e real (exigiria driver de
+browser, que este ambiente não tem) — mas a reestruturação em si (mover o
+disparo pro mesmo componente) remove o mecanismo que causava o bug,
+independente da causa exata não ter sido 100% isolada por observação direta.
+
+**BUG 2 (dinheiro errado) — preço do barbeiro errado desde a PRIMEIRA tela do funil**
+
+Confirmado pelo dono: já na tela de seleção de serviço, o total mostrado na
+barra de resumo usava o preço de REFERÊNCIA da casa, não o override do
+barbeiro — e como todas as telas seguintes (resumo, PIX, confirmação)
+herdam o mesmo `estado`, o valor errado se propagava até o fim.
+
+Causa raiz encontrada: `App.tsx` tinha DUAS listas de serviços —
+`servicosReq` (sem `barbeiroId`, preço de referência — usada só pra gate de
+loading/erro inicial da página) e `servicosDoBarbeiroReq` (com
+`barbeiroId`, preço correto via `precoDeReferencia` do backend — usada só
+pra RENDERIZAR a lista de serviços no passo "O que vai ser?"). O cálculo do
+TOTAL (`totalCentavos(servicos, ...)`, usado na `SummaryBar`, no valor do
+PIX e passado pra tela de Confirmação) usava `servicosReq` — a lista ERRADA
+— mesmo a listagem de itens já usando a lista certa. Corrigido: todo
+cálculo de preço/duração do avulso (`total`, `duracao`, `resumo`, valor do
+PIX, prop `servicos` de `<Confirmacao>`) passou a usar exclusivamente
+`servicosDoBarbeiroReq.dados` (`servicosParaPreco`, nunca cai de volta pra
+`servicosReq` — fallback é lista vazia, nunca a lista errada).
+
+Teste: `totalCentavos` (`funnel-state.spec.ts`) prova que o mesmo
+`servicoId` com preço de override vs. preço de referência produz totais
+diferentes — fixa o contrato de que a função SÓ deve ser alimentada com a
+lista já precificada pelo barbeiro. A ponte "isso bate com o que o backend
+realmente cobra" já está coberta do lado do backend
+(`preco-por-barbeiro.e2e.spec.ts`, sessão anterior, prova que `GET
+/public/servicos?barbeiroId=` devolve o preço certo) — não foi construído
+um teste full-stack automatizado (exigiria driver de browser).
+
+### PARTE 2 — Reorganização da navegação do admin (nenhuma lógica/endpoint mudou)
+
+"Ajustes" tinha virado depósito (serviços, preços, serviços-por-barbeiro,
+expediente, produtos — tudo junto, cada um com seu próprio seletor de
+barbeiro repetido). Reorganizado em 6 abas com propósito claro — mesmos
+endpoints, mesmo comportamento, só o agrupamento visual mudou:
+
+- **Agenda** — inalterada. Ganhou o badge "via link de {barbeiro}" no CARD
+  do agendamento (R.12), mesmo tratamento visual dos badges Pacote/Avulso/Pago
+  online — antes só aparecia (discreto) no modal de detalhe.
+- **Barbeiros** (nova) — tudo que é config de UM barbeiro, com um seletor
+  ÚNICO no topo em vez de 4 dropdowns repetidos: dados (nome/papéis/ativo,
+  somente leitura — nenhuma edição nova foi criada), link pessoal
+  (slug), preços (override por serviço), serviços que atende, expediente
+  semanal. Mesmos 5 endpoints de antes (`/barbeiros`, `/barbeiros/:id/slug`,
+  `/barbeiros/:id/precos`, `/barbeiros/:id/servicos`, `/expediente/:id`),
+  só consolidados numa tela.
+  - `R.5`/`R.7` (re-smoke anterior) resolvidos por consequência: antes era
+    fácil editar o preço/serviço do barbeiro errado por trocar de dropdown
+    sem perceber (4 seletores independentes); agora é um seletor só,
+    compartilhado por todas as seções.
+- **Catálogo** (nova) — Serviços + Produtos (preço de referência da casa,
+  ativar/desativar), com abas internas. O que a barbearia oferece "no
+  geral", sem depender de barbeiro.
+- **Pacotes & Ofertas** — renomeada (pedido do dono, R.14); já reunia
+  Vendidos + Catálogo de ofertas desde a sessão anterior, sem mudança de
+  conteúdo aqui.
+- **Comissão** — inalterada.
+- **Ajustes** — enxuta: usuário logado (nome/papéis/sair) + Parâmetros
+  (prazo de reagendamento). Só isso sobrou depois da consolidação acima.
+
+Permissões preservadas: Barbeiros e Catálogo são admin-only (mesmo gate
+`ehAdmin` que existia dentro de Ajustes, replicado em cada tela nova — a
+aba aparece pra todo mundo no menu, igual já acontecia com Ajustes, mas o
+conteúdo mostra "restrito ao admin" pra quem não é). O acesso do barbeiro
+não-admin ao próprio catálogo de ofertas (sessão anterior) não foi tocado.
+
+### Verificação
+
+`npm run test` (**295 backend / 15 admin / 9 booking / 13 account**, todos
+verdes) e `npm run test:multitz` (`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`)
+**100% idênticos nos 3 fusos**. `turbo run build` verde nos 5 pacotes.
+Confirmado ANTES de começar a Parte 1, e de novo ao fim da Parte 1 antes de
+iniciar a Parte 2, e de novo ao final — suíte nunca ficou vermelha entre as
+partes.
+
+### O que precisa de smoke test manual
+
+**Parte 1:**
+- Com um único barbeiro cadastrado (ou testando o caminho manual com 2+):
+  confirmar que a etapa "O que vai ser?" carrega a lista de serviços sem
+  loading infinito, logo após o skip automático de "Com quem?".
+- Escolher um barbeiro com override de preço, ver o total na barra de
+  resumo JÁ na tela de seleção de serviço — comparar com o que o backend
+  realmente cobra ao confirmar (checar no admin/agenda o valor do
+  atendimento criado).
+
+**Parte 2:**
+- Navegar pelas novas abas Barbeiros/Catálogo como admin — confirmar que
+  todos os 5 fluxos de antes (link, preços, serviços atendidos, expediente,
+  criar/editar serviço e produto) continuam funcionando exatamente igual,
+  só que num lugar novo.
+- Logar como barbeiro não-admin — confirmar que Barbeiros/Catálogo mostram
+  "restrito ao admin" e que o acesso ao próprio catálogo de ofertas
+  (Pacotes & Ofertas) continua funcionando normalmente.
+- Conferir o badge "via link de X" nos cards da Agenda pra um agendamento
+  que veio de um link pessoal de barbeiro.
+
+## Sessão-E (2026-07-31) — autonomia do cliente no cockpit ✅
+
+Sessão grande, feita em 5 fases, suíte verde ao fim de **cada uma** (não só no
+final) — pedido explícito do dono, dado que dinheiro está envolvido
+(abatimento de saldo, reembolso). Regras de negócio confirmadas antes de
+começar: cliente cancela sozinho até 2h antes; reagenda sozinho até 12h antes;
+fora das janelas, mensagem orienta o WhatsApp da barbearia (sem inventar
+canal); cancelamento/reagendamento de item de pacote reusa a regra de
+falta/segunda-chance já existente; saldo residual pode abater um avulso OU
+virar pedido de reembolso manual em até 45 dias — nunca as duas coisas sobre o
+mesmo dinheiro.
+
+### FASE 1 — Histórico e detalhe no cockpit (leitura pura)
+
+`GET /conta/historico` (reusa o read model de `proximos`, mesmo
+`AgendamentosClienteQueryService`) e `GET /conta/atendimentos/:id` (reusa o
+read model rico do admin, `AgendaQueryService`, com posse conferida na borda).
+Zero regra de domínio nova — só leitura. UI: `Historico.tsx` (lista) +
+`AtendimentoDetalhe.tsx` (bottom sheet), acessíveis a partir de "ver histórico
+completo" na Home do cockpit.
+
+### FASE 2 — Cancelar pelo cockpit (§8.6)
+
+`CancelarAtendimentoClienteUseCase`, caso de uso PRÓPRIO (audiência/janela
+diferentes do cancelamento de staff) mas reusando o **mesmo** método de
+domínio `Atendimento.cancelar()` — nenhuma regra duplicada. Janela de 2h
+parametrizável em `Company` (`janelaCancelamentoHoras`, editável em Ajustes →
+Parâmetros), nunca número mágico. Fora da janela: `422` com mensagem
+orientando o WhatsApp. O evento `AtendimentoCancelado(antecipado=true)`
+aciona o handler de pacote já existente — item de crédito libera sem falta,
+mesma regra de sempre.
+
+### FASE 3 — Reagendar pelo cockpit (§8.6)
+
+`ReagendarAtendimentoClienteUseCase` — por baixo é cancelar + criar novo
+(nunca existiu transição "reagendado" no `Atendimento`), mas pro cliente
+parece só mover o horário. Janela de 12h (sempre maior que a de cancelamento,
+por decisão de produto — evita qualquer conflito entre as duas checagens).
+Ordem das transações é assimétrica por design: avulso cria o novo **antes** de
+cancelar o antigo (nunca perde o agendamento se o novo horário falhar);
+crédito de pacote cancela **antes** (o item não pode ser consumido 2x
+`AGENDADO`) — se o novo falhar, o crédito volta pra `DISPONIVEL`/`SEGUNDA_CHANCE`,
+nunca se perde. UI reusa o seletor de data/hora do funil, extraído para
+`components/QuandoBloco.tsx` (generalizado de `servicoId` único para
+`servicoIds[]`, compartilhado agora por 3 fluxos).
+
+### FASE 4a — Abater saldo residual em avulso (§8.7) 💰
+
+**Regra do resto**, testada nos dois casos ao centavo:
+`valorAbatido = min(saldoResidual, preço)`. Saldo menor que o preço → abate
+tudo, cliente paga a diferença, saldo zera. Saldo maior ou igual → abate só o
+preço, serviço fica quitado, sobra saldo (nunca abate além do necessário).
+`VendaDePacote.aplicarSaldoResidual()` move dinheiro de `saldoResidual` pra
+`saldoUtilizado` na MESMA transação da criação do `Atendimento` — nunca
+"flutua" entre os dois estados. `Atendimento` ganhou `valorAbatidoSaldo`/
+`vendaAbatidaId` como snapshot (histórico nunca recalcula do saldo atual).
+Novo `FormaPagamento.SALDO_RESIDUAL` estendendo o netting que já existia pra
+`PIX_ONLINE` na conclusão — mesmo padrão, migration `ALTER TYPE ... ADD VALUE`.
+
+**Testes de dinheiro (destacados, e2e + domínio):**
+- `saldo MENOR que o preço do serviço: abate tudo, paga a diferença, saldo
+  zera` e `saldo MAIOR OU IGUAL ao preço: serviço fica quitado, sobra saldo`
+  (`cockpit-cliente-autonomia.e2e.spec.ts`) — os dois braços da regra do
+  resto, ponta a ponta, com conferência de `saldoResidual + saldoUtilizado ==
+  valorPago` ao centavo depois da operação.
+- 5 testes de domínio em `venda-de-pacote.spec.ts` (`aplicarSaldoResidual`):
+  abatimento parcial, abatimento total, nunca fica negativo (rejeita abater
+  mais do que existe), rejeita valor zero/negativo, dois abatimentos
+  sucessivos acumulam corretamente.
+- `não é possível abater o saldo de OUTRO cliente — 403, nada muda`.
+
+### FASE 4b — Reembolso manual (SolicitacaoDeReembolso, §8.7) 💰
+
+Reembolso é sempre **manual** — sem gateway, sem estorno automático. Desenho
+central: o **"balde reservado"**. `VendaDePacote.reservarSaldoParaReembolso()`
+move TODO o `saldoResidual` pra `saldoReservadoReembolso` no momento do
+**pedido** (não espera confirmação do admin) — isso torna abatimento (4a) e
+reembolso (4b) mutuamente exclusivos **por construção**: depois de reservado,
+`saldoResidual` é zero, e o abatimento só enxerga esse campo. Zero mudança
+precisou ser feita no código da FASE 4a pra essa exclusão valer.
+`confirmarReembolso()` move tudo de `saldoReservadoReembolso` pra
+`saldoReembolsado` (só cresce — histórico de quanto já foi devolvido).
+Invariante de soma estendida pros 4 baldes: `Σ itens ativos + saldoResidual +
+saldoUtilizado + saldoReservadoReembolso + saldoReembolsado == valorPago`.
+
+Prazo de 45 dias (fixo, não parametrizável — diferente das janelas de
+cancelar/reagendar) conta a partir de `saldoResidualDesde`, atualizado toda
+vez que um item expira; se vencido, `SolicitacaoDeReembolso.criar()` rejeita
+**antes** de reservar qualquer saldo. Fluxo: cliente pede
+(`POST /conta/pacotes/:vendaId/reembolso`) → reserva + cria a solicitação numa
+transação → admin vê a fila (aba "Reembolsos" em Pacotes & Ofertas) → devolve
+por fora (PIX manual) → confirma (`POST /pacotes/reembolsos/:id/confirmar`) →
+saldo migra pra `saldoReembolsado`, solicitação fecha (`PENDENTE` →
+`REEMBOLSADO`, estado final).
+
+**Testes de dinheiro (destacados, e2e + domínio):**
+- `pedir reembolso cria solicitação PENDENTE e reserva o saldo (some do
+  saldoResidual)` — prova a reserva imediata.
+- `admin marca como reembolsado: saldo reservado vira saldoReembolsado,
+  solicitação fecha` — com conferência da soma dos 4 baldes == valorPago ao
+  centavo.
+- `não dá pra confirmar o mesmo reembolso duas vezes` (422 na segunda
+  chamada) e `não dá pra abater um saldo que já foi reservado/reembolsado` —
+  provam a exclusão mútua na prática, não só na leitura do código.
+- `prazo de 45 dias vencido barra o pedido — 422 com orientação de WhatsApp,
+  nada muda` — nada é reservado se o pedido falha.
+- `pedir reembolso de saldo de OUTRO cliente é recusado — 403, nada muda`.
+- 7 testes de domínio em `venda-de-pacote.spec.ts`
+  (`reservarSaldoParaReembolso`/`confirmarReembolso`): reserva total,
+  exclusão mútua com `aplicarSaldoResidual`, rejeita reservar sem saldo,
+  confirma e move pro balde final, rejeita confirmar 2x, rejeita confirmar
+  sem nada reservado, `saldoResidualDesde` registrado na expiração.
+
+### FASE 5 — DOMAIN.md atualizado
+
+Novas seções **§8.6** (janelas de cancelamento/reagendamento do cliente) e
+**§8.7** (abatimento em avulso + `SolicitacaoDeReembolso`, com o desenho do
+"balde reservado" explicado). Tabela de campos de `VendaDePacote` (§3.6)
+estendida com os 4 baldes de saldo; invariante de soma atualizada. A nota
+antiga "escopo MVP: aplicação de saldo residual é manual, não automatizar" foi
+removida — o que ela descrevia como fora de escopo é exatamente o que esta
+sessão implementou (o item correspondente em §11, "fora de escopo", também
+foi atualizado, não deletado, pra manter o histórico da decisão).
+
+Duas decisões novas em `DECISOES_PENDENTES.md`: **#21** (prazo de 45 dias
+quando a venda tem múltiplos itens expirados em datas diferentes — usei a
+expiração mais recente, mais generosa ao cliente, já que o brief não cobriu
+esse caso) e **#22** (reagendar um avulso que foi pago online antecipadamente
+não migra nem estorna o pagamento — caso raro, marcado inline no código com
+`// DECISAO_PENDENTE`).
+
+### Verificação
+
+`npm run test` (**328 backend / 18 admin / 9 booking / 13 account**, todos
+verdes) e `npm run test:multitz` (`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`)
+**100% idênticos nos 3 fusos**. `turbo run build` verde nos 5 pacotes. Suíte
+confirmada verde ao final de CADA fase (1 a 4b), não só no final da sessão.
+
+### O que precisa de smoke test manual
+
+**FASE 1:** abrir "ver histórico completo" no cockpit, confirmar que
+concluídos/cancelados/faltas aparecem do mais recente ao mais antigo e que
+tocar num item abre o detalhe certo.
+
+**FASE 2:** cancelar um agendamento de verdade dentro da janela de 2h (some da
+agenda do admin); tentar cancelar um de amanhã cedo faltando menos de 2h e
+conferir a mensagem de WhatsApp; cancelar um item de pacote e ver o crédito
+voltar pro cockpit sem falta.
+
+**FASE 3:** reagendar um avulso e um de crédito de pacote pelo cockpit,
+conferir no admin que o antigo virou CANCELADO e o novo AGENDADO no horário
+certo; tentar reagendar faltando menos de 12h e ver a mensagem de WhatsApp.
+
+**FASE 4a:** gerar um saldo residual de verdade (2 faltas no mesmo item),
+usar "Você tem saldo residual" no cockpit, agendar um avulso abatendo — nos
+dois cenários (saldo cobre tudo / saldo cobre só parte) — e conferir no admin,
+ao concluir o atendimento, que o valor cobrado na cadeira já desconta o
+abatimento.
+
+**FASE 4b:** com saldo residual disponível, escolher "Pedir reembolso" no
+cockpit, ver o pedido cair na aba "Reembolsos" do admin (Pacotes & Ofertas),
+clicar "Marcar como reembolsado" e confirmar que o saldo some da tela do
+cliente. Verificar visualmente que, depois de pedir reembolso, o pacote some
+da lista de "usar saldo" (porque `saldoResidualCentavos` virou 0).
+
+## Sessão de lançamento (2026-07-31) — OTP por WhatsApp + produção presencial-only ✅
+
+Contexto: a barbearia está operando com a agenda quebrada — objetivo era subir em produção **o
+mais rápido possível** com o essencial (agendamento presencial, admin, cockpit do cliente) e OTP
+de login por WhatsApp no lugar do Cognito. Escopo deliberadamente estreito: "nada além disso".
+
+### PARTE 1 — OTP por WhatsApp via OpenWA
+
+**Novo serviço separado, `services/whatsapp-otp/`** (fora do workspace npm de propósito — processo
+Node próprio, dependências pesadas do OpenWA/Puppeteer isoladas do resto do monorepo). Mantém a
+sessão do WhatsApp viva (`@open-wa/wa-automate`) e expõe só `POST /enviar` (protegido por um token
+interno compartilhado, `X-Internal-Token`) e `GET /status`. Rodar como processo separado é
+deliberado: se a sessão do WhatsApp cair (ela É instável — QR, browser headless, reconexão), quem
+cai é esse processo, **nunca a API principal**.
+
+**Lógica de OTP extraída pra ser reusada, não reescrita.** `OtpIdentityProviderBase` (novo) contém
+a lógica que já existia só no `DemoIdentityProvider` — código de 6 dígitos, hash HMAC, expiração,
+uso único, rate limit de 5 tentativas por desafio — e agora é herdada tanto por `DemoIdentityProvider`
+quanto pelo novo `WhatsAppIdentityProvider`. Cada subclasse só decide COMO o código chega ao
+cliente (`enviarCodigo`) e o que aparece no campo de depuração `codigoDemo` (sempre `null` no
+WhatsApp real). `iniciarLogin` chama `enviarCodigo` **antes** de persistir o desafio no banco — se
+o envio falhar, nada fica gravado (nunca existe um desafio "órfão" que o cliente não tem como
+responder porque o código nunca chegou).
+
+`WhatsAppIdentityProvider` fala com o serviço separado através de `HttpWhatsAppOtpClient` (POST
+`/enviar`, timeout curto — default 8s, nunca trava o request de login) — mockável nos testes via a
+interface `WhatsAppOtpClient`. Qualquer falha (timeout, conexão recusada, resposta não-OK) vira
+`ServiceUnavailableException` com mensagem limpa ("Não foi possível enviar o código agora..."):
+nunca a exceção crua (jargão de rede/HTTP) chega no cliente, e a API nunca cai por causa do
+WhatsApp estar fora.
+
+`identity.module.ts`: a factory ganhou o caso `'whatsapp'`; o Cognito **saiu do fluxo** (decisão
+registrada — DECISOES_PENDENTES #23). Setar `IDENTITY_PROVIDER` pra qualquer valor desconhecido
+(incluindo `'cognito'`) agora lança erro explícito no boot, em vez de cair silenciosamente no
+provider demo — mesmo princípio de "fail closed" já usado no resto do sistema (tenant, gateway de
+pagamento). O arquivo `cognito-identity.provider.ts` e seus 9 testes continuam no repositório,
+intactos, só não são mais alcançáveis por env var.
+
+### PARTE 2 — Produção sobe com pagamento online desligado
+
+Nenhum código novo aqui — a app já suportava "presencial-only" desde a sessão de produtos
+(DECISOES_PENDENTES #11: com `PAYMENT_GATEWAY=fake`, `PaymentsModule` nem monta o
+`WebhooksController`). O trabalho desta parte foi **confirmar e provar** isso com um teste e2e de
+verdade (não só ler o código): `whatsapp-otp-boot.e2e.spec.ts` sobe o `AppModule` completo com
+`IDENTITY_PROVIDER=whatsapp` + `PAYMENT_GATEWAY=fake`, e verifica que `POST /webhooks/abacatepay`
+devolve `404` (rota nem existe) enquanto o login OTP completo funciona normalmente.
+
+**`assertConfiguracaoSegura` (boot-guard, chamado em `main.ts` antes de qualquer coisa subir):**
+lista explícita de providers válidos em produção — hoje só `['whatsapp']` — em vez de só recusar
+`'demo'` (a versão antiga aceitava implicitamente qualquer valor que não fosse `'demo'`, o que já
+deixaria `'whatsapp'` passar sem ajuste nenhum, mas também deixaria qualquer erro de digitação
+passar despercebido). A checagem de `DEMO_MODE=true` em produção continua igual.
+
+### Testes
+
+- `whatsapp-otp.client.spec.ts` (4 testes, `fetch` mockado): corpo/headers da requisição corretos,
+  resposta não-OK, erro de rede e timeout — todos os três últimos convertidos pro mesmo erro limpo
+  (`WhatsAppEnvioIndisponivelError`), nunca a exceção crua.
+- `whatsapp-identity-provider.e2e.spec.ts` (6 testes, Postgres real, cliente OpenWA mockado em
+  memória): provisiona + envia + confirma com sucesso; telefone não provisionado → resposta
+  neutra, nada enviado; código errado falha e uso único (mesmo código não funciona 2×); código
+  expirado falha; **rate limit — 5 tentativas erradas esgotam o desafio, a 6ª falha mesmo com o
+  código certo**; falha no envio → erro limpo E nenhum desafio órfão persistido, provider segue
+  funcionando depois. Testado direto no provider (sem HTTP) porque os endpoints `/conta/login/*`
+  são limitados a 5 requisições/telefone/10min na borda (`TelefoneOuIpThrottlerGuard`) — testar o
+  rate limit interno do desafio via HTTP estouraria esse throttle antes de chegar lá.
+- `whatsapp-otp-boot.e2e.spec.ts` (3 testes, Postgres real + servidor HTTP local fazendo o papel do
+  OpenWA): prova de fiação ponta a ponta — app sobe com `IDENTITY_PROVIDER=whatsapp` sem tocar AWS
+  em nenhum ponto, login completo funciona contra o serviço mockado (com verificação do token
+  interno enviado), webhook não monta com `PAYMENT_GATEWAY=fake`, e o cenário de resiliência:
+  serviço OpenWA fora do ar → erro limpo (nunca 500 cru com stack/jargão), e a API continua
+  respondendo normalmente pra próxima requisição.
+- `config-seguranca.spec.ts` (14 testes, +5 novos/ajustados): `whatsapp+production` sobe;
+  `demo+production` recusa; `cognito+production` recusa (saiu do fluxo); provider desconhecido em
+  produção recusa (fail closed); `whatsapp+fake` (a combinação real de lançamento) aceita.
+
+### Verificação
+
+`npm run test` (**344 backend / 18 admin / 9 booking / 13 account**, todos verdes) e
+`npm run test:multitz` (`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`) **100% idênticos nos 3 fusos**.
+`turbo run build` verde nos 5 pacotes do workspace (o novo `services/whatsapp-otp/` fica
+propositalmente FORA do workspace — processo de deploy próprio, `npm install` separado, ver seu
+README).
+
+### Como rodar o serviço OpenWA e conectar o número
+
+Resumo (detalhe completo em `services/whatsapp-otp/README.md`):
+
+```bash
+cd services/whatsapp-otp
+npm install
+export WHATSAPP_OTP_INTERNAL_TOKEN="<token longo aleatório — openssl rand -hex 32>"
+npm start
+```
+
+Na primeira execução aparece um QR code em ASCII no terminal — escaneie com o WhatsApp do número
+**descartável** (nunca o oficial da barbearia — risco de ban por automação, decisão do dono). A
+sessão fica salva em `./session`; reinícios seguintes reconectam sozinhos, sem pedir QR de novo.
+Para produção de verdade, rodar sob `pm2` (ou systemd) com auto-restart — instruções no README.
+
+### Variáveis de ambiente que mudaram
+
+- `IDENTITY_PROVIDER`: aceita `"demo"` (dev) ou `"whatsapp"` (produção). `"cognito"` não é mais
+  aceito em nenhum ambiente.
+- Removidas do `.env.example`: `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`,
+  `COGNITO_OTP_TTL_MINUTOS`.
+- Novas: `WHATSAPP_OTP_SERVICE_URL`, `WHATSAPP_OTP_INTERNAL_TOKEN`, `WHATSAPP_OTP_TIMEOUT_MS`
+  (default 8000), `WHATSAPP_OTP_TTL_MINUTOS` (default 5).
+
+### Confirmação: produção sobe com whatsapp+presencial, sem AWS
+
+Provado por teste automatizado (`whatsapp-otp-boot.e2e.spec.ts`), não só por leitura de código: com
+`IDENTITY_PROVIDER=whatsapp`, `identity.module.ts` nunca importa nem instancia nada do
+`@aws-sdk/client-cognito-identity-provider` — o SDK da AWS simplesmente não entra no grafo de
+módulos carregado. Com `PAYMENT_GATEWAY=fake`, nenhuma rota de webhook é exposta. O boot-guard
+(`assertConfiguracaoSegura`, chamado em `main.ts`) recusa subir em produção com qualquer outra
+combinação de `IDENTITY_PROVIDER`.
+
+### O que precisa de smoke test manual
+
+- **Essencial, com número de teste real:** rodar `services/whatsapp-otp` de verdade, escanear o QR
+  com um chip descartável, configurar `IDENTITY_PROVIDER=whatsapp` + `WHATSAPP_OTP_SERVICE_URL` +
+  `WHATSAPP_OTP_INTERNAL_TOKEN` na API, e completar um login OTP de ponta a ponta pelo cockpit
+  (`apps/account`) — confirmar que a mensagem chega no WhatsApp de verdade, com o código certo, e
+  que o login completa. Nenhum teste automatizado toca o WhatsApp real — isto é o único elo não
+  coberto por CI.
+- Derrubar o processo `whatsapp-otp` de propósito (Ctrl+C) e tentar logar pelo cockpit — confirmar
+  que a tela mostra "não foi possível enviar o código agora" (não uma tela de erro genérica/branca),
+  e que subir o serviço de novo volta a funcionar sem precisar reiniciar a API.
+- Reiniciar o `services/whatsapp-otp` depois de já ter escaneado o QR uma vez — confirmar que
+  reconecta sozinho, sem pedir QR de novo.
+- Subir a API completa com `NODE_ENV=production` + `IDENTITY_PROVIDER=whatsapp` +
+  `PAYMENT_GATEWAY=fake` num ambiente real (não só nos testes) e confirmar o fluxo de agendamento
+  presencial ponta a ponta (funil público → admin → conclusão sem nenhum passo de pagamento
+  online).
+
+## Deploy abstraído: um comando pra local/staging/produção (2026-08-10) ✅
+
+Pedido de continuação da sessão de lançamento (mesmo dia): abstrair o "subir o
+ambiente" inteiro atrás de um único comando, cobrindo os 3 contextos. Decisões
+de topologia fechadas com o dono antes de implementar (evitando arquitetura
+errada por suposição, dado que o repo não tinha nenhum Dockerfile/CI/CD
+prévio): staging/produção rodam **na própria máquina** (sem deploy remoto),
+supervisionadas por **Docker** (`restart: unless-stopped`), frontends servidos
+por um servidor estático mínimo em Node (não nginx).
+
+**Entregue:** `scripts/deploy.sh <local|staging|production> [comando] [opções]`
+— `local` delega pro fluxo de dev já existente (`env-up.sh`, sem Docker,
+hot-reload); `staging`/`production` orquestram Docker Compose (5 imagens novas:
+API, whatsapp-otp, admin, booking, account — Postgres já existia). Comandos
+`up|down|status|logs [serviço]|migrate`; flags `--no-build`/`--seed`
+(bloqueado em `production`, de propósito)/`--pull`. Detecta sozinho `docker
+compose` v2 vs `docker-compose` v1 (esta máquina só tinha v1). Guard-rails
+antes de tocar em Docker: `.env` ausente → copia de `.env.docker.example` e
+PARA pedindo pra preencher segredos (nunca sobe com placeholder); variáveis
+essenciais vazias/erradas (`AUTH_SECRET` default, `IDENTITY_PROVIDER` != 
+whatsapp, `DATABASE_URL` apontando pra `localhost` em vez do serviço
+`postgres`) bloqueiam antes do build; porta já ocupada por processo que não é
+container deste stack também bloqueia com mensagem clara (aprendido testando
+nesta máquina — ver "Testado de verdade" abaixo).
+
+Frontends (`admin`/`booking`/`account`) só chamam a API por caminho relativo
+`/api/...` (resolvido pelo proxy do Vite em dev) — em produção, sem Vite dev
+server, algo precisa fazer esse proxy. Solução: `docker/static-server/`, um
+Express mínimo (fora do workspace npm, como o whatsapp-otp) que serve o
+`dist/` do Vite e faz proxy de `/api` pra API pelo nome do serviço Docker.
+`VITE_COMPANY_ID`/`VITE_BOOKING_URL` são `ARG` de build (Vite embute em
+build-time, não runtime — mudar exige rebuildar a imagem, documentado).
+
+Dois `.env.*.example` propositalmente diferentes: `.env.example` (local, sem
+Docker, `DATABASE_URL` com `localhost`) e `.env.docker.example` (staging/
+produção, hostnames de serviço Docker: `postgres`, `whatsapp-otp`) — dentro de
+um container, "localhost" é o PRÓPRIO container, nunca outro serviço.
+
+### Testado de verdade nesta máquina (não só escrito)
+
+- `apps/api/Dockerfile`: build ok; container rodou de verdade contra o
+  `bigods-postgres` real (mesmo container/dados do dev local), respondeu `200`
+  numa rota pública com dado real do banco. Bug pego e corrigido: a ordem
+  original gerava o Prisma Client DEPOIS do `tsc`, e o build TS falhava
+  ("no exported member") — client tem que vir antes.
+- `apps/admin/Dockerfile` + `docker/static-server`: build ok; container
+  serviu o `index.html` compilado, fez proxy de `/api/comissao/...` até a API
+  de verdade (`401` correto, sem token — provando que o proxy chegou na API
+  real, não um erro de rede) e de `/api/public/empresa` (dado real do banco).
+  `apps/booking/Dockerfile`/`apps/account/Dockerfile` buildaram limpos
+  (mesma estrutura, não repeti o teste de proxy nos 3).
+- `services/whatsapp-otp/Dockerfile`: build ok; Chrome instala e sobe;
+  Puppeteer navega até o WhatsApp Web e injeta os scripts de automação —
+  mas a inicialização do WhatsApp Web (aparecimento de `window.Debug`, um
+  objeto interno deles) travou em 30s sem nunca chegar a gerar o QR, de forma
+  consistente (2 tentativas). Bug real encontrado e corrigido no caminho:
+  o `apt-get purge`/`autoremove` depois de instalar o Chrome via `.deb` local
+  estava REMOVENDO o Chrome de novo (apt não marcava o pacote como
+  "instalado manualmente" do mesmo jeito que pacotes instalados por nome) —
+  corrigido removendo o purge. Mas o travamento no carregamento do WhatsApp
+  Web em si **não foi resolvido nem isolado** — não dá pra saber se é
+  particularidade de rede/IP deste ambiente sandboxado (bem plausível — IPs
+  de datacenter/cloud às vezes são tratados diferente pelo WhatsApp) ou algo
+  que também acontece na máquina real de staging/produção. **Precisa ser
+  testado na máquina real antes de considerar resolvido** — ver
+  `services/whatsapp-otp/README.md` (seção de troubleshooting) e `DEPLOY.md`.
+- `docker-compose.prod.yml` via `scripts/deploy.sh staging` de ponta a ponta:
+  as 5 imagens buildaram, Postgres subiu saudável, mas o `api` esbarrou num
+  conflito de porta real (3000 já estava em uso por um processo `node
+  apps/api/dist/main` rodando fora do Docker desde antes deste teste — não foi
+  morto, propositalmente, por poder ser algo do próprio usuário). Confirma que
+  o script SURFACIA o erro de verdade do Docker em vez de mascarar — e motivou
+  adicionar a checagem de porta ocupada citada acima. Ambiente de teste foi
+  desfeito (`docker-compose down`, sem `-v` — dados preservados) e o `.env`
+  local original restaurado ao final; confirmado que o Postgres do dev local
+  voltou saudável com os mesmos dados de antes (contagem de `Cliente`
+  conferida).
+
+### Verificação
+
+Suíte do backend não foi tocada nesta parte (é infraestrutura de deploy, não
+código de domínio/aplicação) — `npm run test` continua nos mesmos 344/18/9/13
+verdes de antes. `docker build` de todas as 5 imagens confirmado com sucesso
+nesta máquina (ver acima).
+
+### O que precisa de smoke test manual
+
+- ~~Confirmar se o whatsapp-otp consegue de fato gerar o QR e conectar~~ —
+  **resolvido na sessão seguinte** (ver "Migração open-wa → Baileys" abaixo):
+  não era rede/sandbox, era um bug real na lib antiga. Testado com WhatsApp
+  real, QR escaneado, mensagem de OTP recebida de verdade.
+- Confirmar que `scripts/deploy.sh production --pull` funciona num redeploy
+  real (`git pull` + rebuild + up) sem downtime inaceitável.
+- Testar reinício da máquina inteira (reboot) e confirmar que os containers
+  voltam sozinhos (`restart: unless-stopped` + Docker configurado pra iniciar
+  no boot do SO, que é o comportamento padrão do daemon Docker mas vale
+  confirmar no host real).
+
+## Migração open-wa → Baileys (2026-08-10) ✅
+
+Continuação direta da sessão de lançamento: testando o fluxo de OTP por
+WhatsApp de ponta a ponta com o usuário escaneando o QR de verdade (não mais
+num teste automatizado), dois problemas REAIS apareceram — nenhum dos dois era
+o que a seção anterior suspeitava ("rede do sandbox").
+
+### Problema 1: `@open-wa/wa-automate` nunca gerava o QR (nem em Docker, nem fora)
+
+O mesmo travamento (`TimeoutError` esperando `window.Debug` aparecer, depois
+de "Page loaded") reproduziu **idêntico** rodando direto na máquina, fora de
+Docker — eliminando a suspeita de rede/container da sessão anterior.
+Investigação com Puppeteer conectado à sessão do browser via CDP (Chrome
+DevTools Protocol) revelou a causa real: a página estava mostrando a tela
+"O WhatsApp funciona no Google Chrome 100 ou posterior" — a lib embute um
+User-Agent com `Chrome/104.0.0.0` **hardcoded**, e o WhatsApp Web hoje rejeita
+isso. `customUserAgent` existe na config da lib pra resolver exatamente isso,
+mas tem um bug: a extração dessa opção (`customUserAgent = config.customUserAgent`)
+está, no código-fonte, dentro do bloco `if (config.inDocker) {...}` — só é lida
+se você TAMBÉM passar `inDocker: true`, mesmo rodando fora de container. Achado
+lendo o source publicado no npm diretamente (`unpkg.com`), não documentado em
+lugar nenhum. Com os dois ajustes (UA moderno + `inDocker: true`), o QR passou
+a aparecer em segundos.
+
+### Problema 2: "Not a contact" — trava comercial que inviabiliza o caso de uso
+
+Com o QR resolvido e a sessão conectada de verdade, mandar uma mensagem de
+teste pra um número que NÃO é contato salvo no WhatsApp descartável falhou:
+`ERROR: Not a contact. Unlock this feature and support open-wa by getting a
+license`. Confirmado por pesquisa: a versão gratuita do open-wa bloqueia
+mensagem a não-contato de propósito — desbloquear exige uma "Restricted
+License Key" (~£10-15/mês, **sujeita a aprovação**, prazo incerto). Isso
+inviabiliza o open-wa gratuito pro caso de uso inteiro desta feature: o
+objetivo é mandar OTP pra CLIENTES da barbearia, que nunca vão estar salvos
+como contato no chip descartável.
+
+### Decisão (com o dono): trocar pra Baileys
+
+Apresentadas 3 opções (pagar a licença / trocar pra `whatsapp-web.js` — mesma
+base Puppeteer/Chrome / trocar pra Baileys — protocolo direto, sem Chrome).
+Escolhido **Baileys** (`baileys`, antigo `@whiskeysockets/baileys`, MIT,
+pinado na versão estável `6.7.24` em vez do `7.0.0-rc*` que é release
+candidate). `services/whatsapp-otp` foi reescrito do zero sobre essa lib:
+
+- Mesmo contrato HTTP externo (`GET /status`, `POST /enviar` com
+  `X-Internal-Token`) — **zero mudança** do lado da API (`WhatsAppIdentityProvider`/
+  `HttpWhatsAppOtpClient` não sabem nem precisam saber qual lib está por
+  baixo).
+- `useMultiFileAuthState` (sessão em arquivos, análogo ao `sessionDataPath` de
+  antes) + `fetchLatestBaileysVersion` (busca a versão do protocolo mais
+  recente A CADA BOOT — elimina de raiz o tipo de bug de versão-hardcoded-
+  desatualizada do Problema 1; não é possível esse bug específico acontecer de
+  novo).
+- JID de destino mudou de `@c.us` (open-wa/whatsapp-web.js) pra
+  `@s.whatsapp.net` (Baileys) — confirmado direto no source da lib
+  (`jid-utils.d.ts`), não por suposição.
+- `package.json` da lib é `"type": "module"` (ESM-only) — o serviço inteiro
+  foi convertido de CommonJS pra ESM (`import`/`export`), isolado, sem afetar
+  o resto do monorepo (que continua CJS via `tsc`).
+- Sem contato prévio necessário: mensagem enviada e recebida de verdade num
+  número NÃO salvo, confirmando que o Problema 2 está resolvido.
+- **Dockerfile drasticamente mais simples**: sem `apt-get install` de Chrome,
+  sem `PUPPETEER_*` env vars, sem `--no-sandbox`/`chromiumArgs` — só Node puro.
+  `npm install` local: **153 pacotes / 0 vulnerabilidades** (era 933 pacotes /
+  37 vulnerabilidades com open-wa+Puppeteer).
+
+### Verificado de ponta a ponta, com WhatsApp real (não mockado)
+
+1. `npm start` local → QR apareceu em poucos segundos (sem abrir navegador).
+2. Usuário escaneou com o número descartável de verdade.
+3. `GET /status` → `{"conectado":true}`.
+4. `POST /enviar` direto → mensagem chegou no WhatsApp real.
+5. `.env` trocado pra `IDENTITY_PROVIDER=whatsapp`, API reiniciada.
+6. Confirmado no log: `IdentityProvider: WhatsApp (Baileys)`.
+7. Fluxo de login OTP real através da API (`/conta/login/iniciar`) enviando a
+   mensagem de produção de verdade (não mais frase de teste) — pendente só de
+   um clique final do usuário pra confirmar o código recebido (ver seção
+   seguinte pra status exato).
+
+Toda menção a "OpenWA"/`@open-wa/wa-automate` no código, testes, READMEs e
+`.env.example`/`.env.docker.example` foi atualizada pra refletir Baileys —
+histórico da lib anterior preservado só nos comentários que explicam O PORQUÊ
+da troca (aqui, em `DECISOES_PENDENTES.md`, e no cabeçalho de
+`services/whatsapp-otp/src/index.js`).
+
 ## Como rodar localmente
 
 ```bash
@@ -1084,5 +1725,6 @@ npm run dev -w @bigods/booking
 # 3) curl -X POST localhost:3000/conta/login/confirmar -H 'Content-Type: application/json' \
 #      -d '{"companyId":"bigods","telefone":"11 98888-7777","codigo":"<codigoDemo>","desafio":"<desafio>"}'
 #    → { token }  (usar como Bearer em GET /conta/perfil)
-# Produção: IDENTITY_PROVIDER=cognito + vars do Cognito (ver .env.example e infra/cognito-triggers/).
+# Produção: IDENTITY_PROVIDER=whatsapp + vars do WhatsApp OTP (ver .env.example
+# e services/whatsapp-otp/README.md) + PAYMENT_GATEWAY=fake para presencial-only.
 ```

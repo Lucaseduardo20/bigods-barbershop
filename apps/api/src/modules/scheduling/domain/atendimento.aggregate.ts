@@ -11,6 +11,7 @@ import {
   ItemDoPacoteId,
   ProdutoId,
   ServicoId,
+  VendaDePacoteId,
 } from '../../../shared/domain/ids';
 import {
   ConflitoDeHorarioError,
@@ -64,6 +65,14 @@ export interface AtendimentoProps {
    * funil genérico. SÓ registro, sem regra de negócio associada nesta sessão.
    */
   origemLinkBarbeiroId: BarbeiroId | null;
+  /**
+   * FASE 4a (sessão-E, §8.7): quanto deste atendimento foi abatido com
+   * saldo residual de um pacote (0 = nenhum abatimento) — e de qual venda.
+   * Snapshot no momento do agendamento, como `valorCobrado`; nunca
+   * recalculado. Só se aplica a AVULSO (crédito de pacote já não cobra nada).
+   */
+  valorAbatidoSaldo: Dinheiro;
+  vendaAbatidaId: VendaDePacoteId | null;
 }
 
 export interface AgendarParams {
@@ -78,6 +87,9 @@ export interface AgendarParams {
   /** Atendimentos AGENDADO do mesmo barbeiro que possam conflitar (projeção de leitura; o EXCLUDE do Postgres é a rede de segurança). */
   atendimentosAtivos: Atendimento[];
   origemLinkBarbeiroId?: BarbeiroId | null;
+  /** FASE 4a (sessão-E): abatimento de saldo residual aplicado neste agendamento avulso, se houver. */
+  valorAbatidoSaldo?: Dinheiro;
+  vendaAbatidaId?: VendaDePacoteId | null;
 }
 
 export class Atendimento extends AggregateRoot {
@@ -146,6 +158,8 @@ export class Atendimento extends AggregateRoot {
       formaPagamento: null,
       motivoCancelamento: null,
       origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
+      valorAbatidoSaldo: params.valorAbatidoSaldo ?? Dinheiro.zero(),
+      vendaAbatidaId: params.vendaAbatidaId ?? null,
     });
     atendimento.adicionarEvento(
       new AtendimentoAgendado(
@@ -316,4 +330,6 @@ export class Atendimento extends AggregateRoot {
   get formaPagamento() { return this.props.formaPagamento; }
   get motivoCancelamento() { return this.props.motivoCancelamento; }
   get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
+  get valorAbatidoSaldo() { return this.props.valorAbatidoSaldo; }
+  get vendaAbatidaId() { return this.props.vendaAbatidaId; }
 }

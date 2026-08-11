@@ -27,11 +27,16 @@ export function assertConfiguracaoSegura(env: NodeJS.ProcessEnv = process.env): 
     );
   }
 
-  // Em produção com o provider demo, o login não teria SMS real — sinal de
-  // configuração errada. Não bloqueia o boot, mas é um erro de operação.
-  if (producao && (env.IDENTITY_PROVIDER ?? 'demo') === 'demo') {
+  // Em produção, só um provider que envia o código de verdade é aceito —
+  // lista explícita (fail closed) em vez de só recusar 'demo': qualquer
+  // valor desconhecido também não sobe, nunca cai num fallback silencioso.
+  // Hoje só 'whatsapp' (Baileys) — o Cognito saiu do fluxo de produção nesta
+  // sessão (arquivo/testes continuam existindo, só não é mais uma opção).
+  const PROVIDERS_VALIDOS_EM_PRODUCAO = ['whatsapp'];
+  const identityProvider = (env.IDENTITY_PROVIDER ?? 'demo').toLowerCase();
+  if (producao && !PROVIDERS_VALIDOS_EM_PRODUCAO.includes(identityProvider)) {
     throw new ConfiguracaoInseguraError(
-      'IDENTITY_PROVIDER=demo em produção não envia SMS real. Configure IDENTITY_PROVIDER=cognito.',
+      `IDENTITY_PROVIDER=${identityProvider} não é válido em produção (não envia OTP real). Configure IDENTITY_PROVIDER=whatsapp.`,
     );
   }
 

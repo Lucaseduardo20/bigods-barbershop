@@ -197,59 +197,59 @@ async function main() {
 
   // ---- Barbeiros fictícios (só atendem — para testar seleção de barbeiro,
   // serviços por barbeiro, comissão por exceção e janelas de horário distintas) ----
-  const lucasId = 'bar-lucas-andrade';
+  const igorId = 'bar-molinho';
   await prisma.barbeiro.upsert({
-    where: { id: lucasId },
+    where: { id: igorId },
     create: {
-      id: lucasId,
+      id: igorId,
       companyId,
-      nome: 'Lucas Andrade',
-      slug: 'lucas-andrade',
+      nome: 'Igor Molinho',
+      slug: 'igor-molinho',
       papeis: ['BARBEIRO'],
       comissaoPadraoBp: 4000, // 40%
-      login: 'lucasandrade',
+      login: 'igormolinho',
       senhaHash: hashSenha(SENHA_PADRAO),
     },
     update: {},
   });
   await prisma.barbeiroServico.createMany({
     data: [
-      { barbeiroId: lucasId, servicoId: corteId },
-      { barbeiroId: lucasId, servicoId: barbaId },
+      { barbeiroId: igorId, servicoId: corteId },
+      { barbeiroId: igorId, servicoId: barbaId },
     ],
     skipDuplicates: true,
   });
-  await seedarExpediente(lucasId, '12:00', '20:00'); // turno da tarde/noite, seg-sáb
+  await seedarExpediente(igorId, '12:00', '20:00'); // turno da tarde/noite, seg-sáb
 
-  const pedroId = 'bar-pedro-martins';
+  const erickId = 'bar-erick-yan';
   await prisma.barbeiro.upsert({
-    where: { id: pedroId },
+    where: { id: erickId },
     create: {
-      id: pedroId,
+      id: erickId,
       companyId,
-      nome: 'Pedro Martins',
-      slug: 'pedro-martins',
+      nome: 'Erick Yan',
+      slug: 'erick-yan',
       papeis: ['BARBEIRO'],
       comissaoPadraoBp: 3500, // 35% padrão
-      login: 'pedromartins',
+      login: 'erickyan',
       senhaHash: hashSenha(SENHA_PADRAO)
     },
     update: {},
   });
   await prisma.barbeiroServico.createMany({
     data: [
-      { barbeiroId: pedroId, servicoId: corteId },
-      { barbeiroId: pedroId, servicoId: barbaId },
+      { barbeiroId: erickId, servicoId: corteId },
+      { barbeiroId: erickId, servicoId: barbaId },
     ],
     skipDuplicates: true,
   });
   // exceção: comissão de Barba é 60% para Pedro (matriz de comissão, DOMAIN.md §3.2)
   await prisma.excecaoComissao.upsert({
-    where: { barbeiroId_servicoId: { barbeiroId: pedroId, servicoId: barbaId } },
-    create: { barbeiroId: pedroId, servicoId: barbaId, percentualBp: 6000 },
+    where: { barbeiroId_servicoId: { barbeiroId: erickId, servicoId: barbaId } },
+    create: { barbeiroId: erickId, servicoId: barbaId, percentualBp: 6000 },
     update: { percentualBp: 6000 },
   });
-  await seedarExpediente(pedroId, '09:00', '13:00'); // só manhãs, seg-sáb
+  await seedarExpediente(erickId, '09:00', '13:00'); // só manhãs, seg-sáb
 
   // Disponibilidade dos próximos DIAS_DE_DISPONIBILIDADE dias, HORÁRIO DE SÃO
   // PAULO (não UTC — o bug que motivou a correção de fuso de uma sessão

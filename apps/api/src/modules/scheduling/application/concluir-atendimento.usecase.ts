@@ -39,12 +39,19 @@ export class ConcluirAtendimentoUseCase {
       // Se sobrou valor além do que foi pago online (itens/produtos
       // adicionados na conclusão, item 3/4a), a conclusão AINDA exige a forma
       // de pagamento — mas só para cobrir esse adicional.
+      //
+      // FASE 4a (sessão-E, §8.7): mesmo raciocínio pro abatimento de saldo
+      // residual — `valorAbatidoSaldo` (snapshot no agendamento) também
+      // cobre parte (ou tudo) do total, exatamente como o pago online.
       const intencaoPaga = await this.intencaoPagaDoAtendimento(atendimento.id);
       const valorTotal = atendimento.valorTotal().centavos;
       const valorPagoOnline = intencaoPaga?.valor.centavos ?? 0;
-      const semAdicional = intencaoPaga !== null && valorTotal <= valorPagoOnline;
+      const valorAbatido = atendimento.valorAbatidoSaldo.centavos;
+      const valorCoberto = valorPagoOnline + valorAbatido;
+      const semAdicional = valorCoberto > 0 && valorTotal <= valorCoberto;
+      const formaPagamentoCoberta = valorPagoOnline > 0 ? FormaPagamento.PIX_ONLINE : FormaPagamento.SALDO_RESIDUAL;
 
-      atendimento.concluir(semAdicional ? FormaPagamento.PIX_ONLINE : input.formaPagamento);
+      atendimento.concluir(semAdicional ? formaPagamentoCoberta : input.formaPagamento);
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
 

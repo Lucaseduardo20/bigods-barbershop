@@ -1,14 +1,10 @@
 import { useMemo, useState } from 'react';
-import type {
-  AgendarComCreditoContaResponse,
-  HorariosDisponiveisDTO,
-  PerfilClienteDTO,
-} from '@bigods/contracts';
+import type { AgendarComCreditoContaResponse, PerfilClienteDTO } from '@bigods/contracts';
 import { StatusItemPacote } from '@bigods/contracts';
 import { api, ApiError } from '../lib/api';
-import { COMPANY_ID } from '../lib/config';
-import { diasDaSemana, hojeISO, rotuloDia, rotuloSemana } from '../lib/format';
-import { ErroEstado, Icon, Loading, Spinner, useApi } from '../components/ui';
+import { hojeISO, rotuloDia } from '../lib/format';
+import { Icon, Spinner } from '../components/ui';
+import { QuandoBloco } from '../components/QuandoBloco';
 
 interface CreditoLivre {
   vendaId: string;
@@ -138,7 +134,7 @@ export function BookCredit({
           <QuandoBloco
             tz={tz}
             barbeiroId={credito.barbeiroId}
-            servicoId={servicoId}
+            servicoIds={[servicoId]}
             data={data}
             hora={hora}
             onDia={(d) => {
@@ -175,87 +171,6 @@ export function BookCredit({
         </div>
       )}
     </div>
-  );
-}
-
-function QuandoBloco({
-  tz,
-  barbeiroId,
-  servicoId,
-  data,
-  hora,
-  onDia,
-  onHora,
-}: {
-  tz: string;
-  barbeiroId: string;
-  servicoId: string;
-  data: string;
-  hora: string | null;
-  onDia: (d: string) => void;
-  onHora: (h: string) => void;
-}) {
-  // Navegação por SEMANA: 7 dias por vez, avançando/voltando com as setas.
-  // `semana` = deslocamento em semanas a partir de hoje (0 = semana atual).
-  const [semana, setSemana] = useState(0);
-  const dias = useMemo(() => diasDaSemana(tz, semana), [tz, semana]);
-  const req = useApi(
-    () =>
-      api<HorariosDisponiveisDTO>(
-        `/public/horarios?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${barbeiroId}&data=${data}&servicoIds=${servicoId}`,
-      ),
-    [barbeiroId, servicoId, data],
-  );
-
-  return (
-    <Secao titulo="Quando?">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <button
-          className="icon-btn"
-          aria-label="Semana anterior"
-          disabled={semana === 0}
-          onClick={() => setSemana((s) => Math.max(0, s - 1))}
-          style={semana === 0 ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-        >
-          <Icon name="arrow-left" size={16} />
-        </button>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
-          {semana === 0 ? 'Esta semana' : rotuloSemana(dias)}
-        </span>
-        <button className="icon-btn" aria-label="Próxima semana" onClick={() => setSemana((s) => s + 1)}>
-          <Icon name="arrow-right" size={16} />
-        </button>
-      </div>
-      <div className="daypicker">
-        {dias.map((d) => {
-          const r = rotuloDia(d);
-          return (
-            <button key={d} className={`day ${data === d ? 'selected' : ''}`} onClick={() => onDia(d)}>
-              <div className="day-dow">{r.dow}</div>
-              <div className="day-num">{r.num}</div>
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ marginTop: 12 }}>
-        {req.carregando && <Loading />}
-        {req.erro && <ErroEstado erro={req.erro} aoTentar={req.recarregar} />}
-        {req.dados && req.dados.horarios.length === 0 && (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
-            Sem horários livres neste dia. Tente outro.
-          </div>
-        )}
-        {req.dados && req.dados.horarios.length > 0 && (
-          <div className="slot-grid">
-            {req.dados.horarios.map((h) => (
-              <button key={h.horaInicio} className={`chip ${hora === h.horaInicio ? 'selected' : ''}`} onClick={() => onHora(h.horaInicio)}>
-                {h.horaInicio}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </Secao>
   );
 }
 

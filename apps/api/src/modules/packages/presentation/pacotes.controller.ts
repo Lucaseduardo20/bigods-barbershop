@@ -11,9 +11,10 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
+import { SolicitacaoDeReembolsoDTO, VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
 import { VenderPacoteUseCase } from '../application/vender-pacote.usecase';
 import { ConfirmarPagamentoPresencialUseCase } from '../application/confirmar-pagamento-presencial.usecase';
+import { ConfirmarReembolsoUseCase } from '../application/confirmar-reembolso.usecase';
 import { PacotesQueryService } from '../infrastructure/pacotes-query.service';
 import { UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
@@ -36,6 +37,7 @@ export class PacotesController {
   constructor(
     private readonly venderPacote: VenderPacoteUseCase,
     private readonly confirmarPagamentoPresencial: ConfirmarPagamentoPresencialUseCase,
+    private readonly confirmarReembolso: ConfirmarReembolsoUseCase,
     private readonly consulta: PacotesQueryService,
   ) {}
 
@@ -73,5 +75,34 @@ export class PacotesController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<{ processado: boolean }> {
     return this.confirmarPagamentoPresencial.executar({ companyId: usuario.companyId, vendaId: id });
+  }
+
+  /**
+   * FASE 4b (sessão-E, §8.7): lista de solicitações de reembolso PENDENTES —
+   * admin vê e decide devolver por fora (PIX manual).
+   */
+  @Get('reembolsos/pendentes')
+  async reembolsosPendentes(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<SolicitacaoDeReembolsoDTO[]> {
+    return this.consulta.reembolsosPendentes(usuario.companyId);
+  }
+
+  /**
+   * Admin confirma que já devolveu o dinheiro (reembolso é sempre manual,
+   * sem gateway) — fecha a solicitação e move o saldo reservado pra
+   * `saldoReembolsado` no pacote.
+   */
+  @Post('reembolsos/:id/confirmar')
+  async confirmarReembolsoSolicitado(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.confirmarReembolso.executar({
+      solicitacaoId: id,
+      companyId: usuario.companyId,
+      hoje: new Date(),
+    });
+    return { ok: true };
   }
 }

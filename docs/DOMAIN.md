@@ -427,7 +427,11 @@ itens individuais, cada um com ciclo de vida próprio.
 | `barbeiroId` | BarbeiroId | **dono do pacote** (sessão-B, Fase 2) — ver regra abaixo |
 | `valorPago` | Dinheiro | valor total efetivamente pago |
 | `itens` | List\<ItemDoPacote\> | entidades internas |
-| `saldoResidual` | Dinheiro | acumula valor de itens expirados (§4.2) |
+| `saldoResidual` | Dinheiro | acumula valor de itens expirados (§4.2); dinheiro **disponível** — pode ser abatido (§8.7) ou reembolsado (§8.7) |
+| `saldoUtilizado` | Dinheiro | soma já abatida em agendamentos avulsos (§8.7) |
+| `saldoReservadoReembolso` | Dinheiro | reservado por uma `SolicitacaoDeReembolso` PENDENTE (§8.7) — sai de `saldoResidual` no momento do pedido, antes da confirmação do admin |
+| `saldoReembolsado` | Dinheiro | confirmado e devolvido manualmente pelo admin (§8.7) — só cresce |
+| `saldoResidualDesde` | Instante \| null | expiração mais recente que alimentou `saldoResidual` — âncora do prazo de 45 dias pra reembolso (§8.7) |
 | `compradoEm` | Timestamp | |
 | `statusPagamento` | StatusPagamento | ver §3.8 |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
@@ -479,7 +483,7 @@ Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) +
 - Soma: R$60,00 ✓
 
 **Invariantes:**
-- `Σ item.valorRateado + saldoResidual == valorPago` — **sempre**, em qualquer estado.
+- `Σ item.valorRateado (não expirado) + saldoResidual + saldoUtilizado + saldoReservadoReembolso + saldoReembolsado == valorPago` — **sempre**, em qualquer estado (§8.7).
 - Um item nunca tem mais de 1 falta computada (na segunda, expira).
 - Um item não pode ir para `AGENDADO` se não estiver `DISPONIVEL` ou `SEGUNDA_CHANCE`.
 - Não é possível consumir item de um pacote com `statusPagamento != PAGO`.
@@ -758,15 +762,11 @@ vinculado aconteceu antes do `intervalo.inicio` agendado (`AtendimentoCancelado.
 - Máximo de faltas antes de expirar: **1** (na segunda, expira).
 
 **Sobre `saldoResidual`:** quando um item expira, seu `valorRateado` **não desaparece** — migra para
-`pacote.saldoResidual`. O cliente não perde o dinheiro; perde aquele *serviço específico*.
+`pacote.saldoResidual`, e `saldoResidualDesde` é atualizado para o instante da expiração. O cliente
+não perde o dinheiro; perde aquele *serviço específico*.
 
-**Escopo MVP:** o `saldoResidual` é **registrado** (estado) mas sua **aplicação** é manual — o
-admin/barbeiro decide onde usar ao criar o próximo agendamento. Não construir lógica automática de
-realocação agora.
-
-**Por quê:** isso só ocorre quando um cliente falha **duas vezes no mesmo item**. Deve ser raro.
-Automatizar um caminho raro antes de conhecer sua frequência é otimização prematura. **Medir
-primeiro** (a barbearia é o laboratório), automatizar depois se o volume justificar.
+**Aplicação do saldo (sessão-E, §8.7):** o cliente decide sozinho, pelo cockpit, entre abater o
+saldo num novo agendamento avulso ou pedir reembolso manual — ver §8.7 para as duas regras.
 
 **Expiração por prazo** é verificada por um job agendado (cron diário) que varre itens em
 `SEGUNDA_CHANCE` com `prazoReagendamentoAte < hoje`. Como `prazoReagendamentoAte` já foi congelado
@@ -1060,6 +1060,134 @@ de negócio real. Não inventar métrica ou dashboard agora sobre isso.
 
 ---
 
+### 8.6 Autonomia do cliente no cockpit — cancelar e reagendar (sessão-E)
+
+O cliente autenticado (`ClienteAutenticado`, guard separado do staff — §7) pode cancelar ou
+reagendar o **próprio** `Atendimento` sozinho, sem falar com a barbearia, dentro de uma janela de
+tempo. Fora da janela, a ação fica indisponível e a mensagem orienta o WhatsApp da barbearia — **sem
+inventar nenhum canal específico** (não existe integração de WhatsApp nesta sessão; é só texto).
+
+| Ação | Janela | Parâmetro (`ParametrosDaEmpresa`, em `Company`) | Default |
+|---|---|---|---|
+| Cancelar | até N horas antes do horário marcado | `janelaCancelamentoHoras` | 2h |
+| Reagendar | até N horas antes do horário marcado | `janelaReagendamentoHoras` | 12h |
+
+Ambas parametrizáveis pelo admin (Ajustes), mesmo padrão de `prazoReagendamentoDias` (§4.2) —
+**nunca número mágico no código**.
+
+**Cancelar (`CancelarAtendimentoClienteUseCase`):** caso de uso PRÓPRIO (audiência e janela
+diferentes do cancelamento de staff), mas reusa o **mesmo** método de domínio
+`Atendimento.cancelar(motivo)` — nenhuma regra de domínio duplicada, só orquestração de aplicação
+diferente. O evento `AtendimentoCancelado(antecipado=true)` dispara o handler de pacote já
+existente (§4.2, §5) sem nenhuma regra nova: item de crédito volta pra `DISPONIVEL` (ou
+`SEGUNDA_CHANCE`, preservando prazo, se já tinha uma falta), **nunca conta falta** — mesma regra de
+cancelamento antecipado do staff.
+
+**Reagendar (`ReagendarAtendimentoClienteUseCase`):** por baixo é **cancelar + criar novo**
+(mesmo padrão do §4.1 — não existe transição de estado "reagendado" no `Atendimento`), mas para o
+cliente parece só mover o horário. A janela do reagendar (12h) é **sempre maior** que a do
+cancelamento (2h) por decisão de produto, o que evita qualquer conflito entre as duas checagens (o
+reagendar chama o cancelamento por baixo, cujo próprio limite de 2h nunca é o que barra, já que o
+reagendar barrou antes, em 12h).
+
+- **Origem `AVULSO`:** cria o novo atendimento **primeiro**, cancela o antigo **depois** — se o
+  novo horário falhar (ex.: conflito), o atendimento original nunca é perdido.
+- **Origem `CREDITO_PACOTE`:** cancela **primeiro** (libera o item do pacote, que não pode ser
+  consumido duas vezes enquanto `AGENDADO`), cria o novo **depois**, consumindo o **mesmo**
+  `ItemDoPacote` — mesmo `valorRateado` preservado ao centavo, sem falta computada. Se o novo
+  horário falhar, o crédito fica de volta em `DISPONIVEL`/`SEGUNDA_CHANCE`, o cliente pode tentar de
+  novo — nunca perde o crédito.
+
+**Em ambos os casos:** posse é sempre conferida no caso de uso (`clienteId` do token, nunca do
+corpo da requisição) — tentar agir sobre agendamento de outro cliente é `403`, nunca modifica nada.
+
+---
+
+### 8.7 Saldo residual — abatimento em avulso e reembolso manual (sessão-E)
+
+Depois que um `ItemDoPacote` expira (§4.2) e seu valor migra para `saldoResidual`, o cliente escolhe
+**pelo cockpit** o que fazer com o dinheiro: abater num próximo agendamento avulso, ou pedir
+reembolso. As duas opções nunca coexistem sobre o mesmo real — ver invariante estrutural abaixo.
+
+**Abatimento em avulso — regra do resto (`AgendarAvulsoUseCase`, campo opcional
+`abaterSaldoDeVendaId`):**
+
+```
+valorAbatido = min(venda.saldoResidual, valorTotalDoAvulso)
+
+se saldoResidual <  preço → abate tudo (valorAbatido = saldoResidual), cliente paga a diferença,
+                            saldoResidual zera
+se saldoResidual >= preço → abate só o preço (valorAbatido = preço), serviço fica quitado,
+                            sobra saldo (nunca abate além do necessário)
+```
+
+Calculado **antes** de criar o `Atendimento` (a ordem importa: primeiro sabe quanto abater, depois
+cria o atendimento já com o abatimento no snapshot — nunca o contrário). `Atendimento` guarda
+`valorAbatidoSaldo` (Dinheiro) e `vendaAbatidaId` — snapshot, igual a qualquer outro valor cobrado
+(§2.4/§3.5): histórico nunca recalcula a partir do saldo atual do pacote. Na conclusão
+(`ConcluirAtendimentoUseCase`), `valorAbatidoSaldo` entra na mesma lógica de netting que
+`valorPagoOnline` já usava — cobra só o que sobrou depois de somar os dois. Se o cliente pediu
+abatimento de uma venda cujo `saldoResidual` já é zero (porque foi todo reservado para reembolso, ver
+abaixo), `valorAbatidoCentavos` calcula `0` e o agendamento segue normal, sem abatimento — nunca um
+erro nem um abatimento "fantasma".
+
+**`VendaDePacote.aplicarSaldoResidual(valor)`:** move `valor` de `saldoResidual` para
+`saldoUtilizado`, na mesma transação da criação do `Atendimento` (dinheiro nunca "flutua" entre os
+dois estados). Rejeita valor não-positivo ou maior que o `saldoResidual` disponível
+(`InvarianteVioladaError`) — nunca deixa o saldo negativo.
+
+**`SolicitacaoDeReembolso` (reembolso manual — sem gateway, sem estorno automático):**
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | SolicitacaoDeReembolsoId | |
+| `companyId` | CompanyId | |
+| `vendaDePacoteId` | VendaDePacoteId | |
+| `clienteId` | ClienteId | |
+| `valor` | Dinheiro | congelado no pedido — **todo** o `saldoResidual` disponível na hora |
+| `criadaEm` | Timestamp | |
+| `prazoLimiteEm` | Instante | fim do dia civil local, 45 dias depois de `saldoResidualDesde` (§2.6) |
+| `status` | StatusSolicitacaoReembolso | `PENDENTE` → `REEMBOLSADO` (final) |
+| `reembolsadaEm` | Instante \| null | preenchido só na confirmação |
+
+```
+PENDENTE ──── admin confirma (marcarReembolsada) ────► REEMBOLSADO (final)
+```
+
+**Padrão do "balde reservado" — por que abatimento e reembolso nunca coexistem sobre o mesmo saldo:**
+`VendaDePacote.reservarSaldoParaReembolso()` move **todo** o `saldoResidual` disponível para
+`saldoReservadoReembolso` **no momento do pedido** (não espera a confirmação do admin). A partir
+daí, `saldoResidual` fica em zero — e o abatimento (regra do resto acima) só enxerga
+`saldoResidual`, nunca `saldoReservadoReembolso`. A exclusão mútua é **estrutural** (o dinheiro
+literalmente não está mais no balde que o abatimento lê), não uma checagem solta espalhada entre as
+duas features. Pelo mesmo motivo, `UsarSaldoResidual` (tela do cockpit) automaticamente para de
+oferecer aquele pacote pra abatimento assim que o saldo é reservado — sem código especial, porque
+`saldoResidualCentavos` já é `0`.
+
+`VendaDePacote.confirmarReembolso()` move **todo** o `saldoReservadoReembolso` para
+`saldoReembolsado` (só cresce — histórico de quanto já foi devolvido). Ambos os métodos rejeitam
+operar sobre um balde vazio (`InvarianteVioladaError`) — impossível reservar duas vezes ou confirmar
+duas vezes o mesmo dinheiro.
+
+**Prazo de 45 dias:** fixo, **não parametrizável** pelo admin (diferente das janelas do §8.6, que o
+brief pediu explicitamente como configuráveis). Conta a partir de `saldoResidualDesde` — a expiração
+**mais recente** que alimentou o saldo (se a venda nunca teve `saldoResidualDesde` registrado,
+usa `compradoEm` como fallback, caso defensivo que não deveria ocorrer com saldo > 0). **Decisão
+registrada em DECISOES_PENDENTES:** quando uma venda tem múltiplos itens expirados em datas
+diferentes, o prazo usa a expiração mais recente (mais generosa ao cliente) — o brief não especificou
+esse caso multi-item, e a alternativa (contar da mais antiga, ou por item) não foi confirmada com o
+dono. Pedido fora do prazo é rejeitado (`InvarianteVioladaError`, mensagem orienta WhatsApp) **antes**
+de tocar em qualquer saldo — nada é reservado se o pedido falha.
+
+**Fluxo completo:** cliente pede pelo cockpit (`POST /conta/pacotes/:vendaId/reembolso`) → reserva o
+saldo e cria a `SolicitacaoDeReembolso` numa única transação → admin vê a fila de pendentes
+(painel, aba "Reembolsos") → devolve o dinheiro **por fora** (PIX manual, fora do sistema) → admin
+confirma (`POST /pacotes/reembolsos/:id/confirmar`) → saldo migra pra `saldoReembolsado`, solicitação
+fecha. Nenhuma integração com gateway de pagamento neste fluxo — é sempre um humano confirmando que
+o dinheiro já saiu.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -1129,7 +1257,7 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Controle de estoque de produto | Venda de produto (§3.9/§3.10) já implementada (sessão 2026-07-16), mas **sem** quantidade/fornecedor/estoque — decisão consciente, não medida ainda | Campo de quantidade no `Produto` + lançamentos de entrada/saída, quando o volume justificar |
 | Vale, saque, débito do barbeiro | Só faz sentido com barbeiro contratado; hoje o único barbeiro é sócio | Lançamento **negativo** no ledger existente |
 | Isolamento multi-tenant dinâmico | Nenhum segundo tenant existe para validar contra | `companyId` já está nos agregados (costura pronta) |
-| Aplicação automática de saldo residual | Caminho raro (exige 2 faltas no mesmo item). Medir frequência primeiro | Estado já é registrado; falta só a lógica |
+| Aplicação **automática** de saldo residual (sem o cliente escolher) | Implementado na sessão-E (§8.7) como escolha do cliente (abater OU reembolsar) — nunca aplicado sozinho pelo sistema sem pedido explícito | N/A — já resolvido |
 | Desconto progressivo por volume no carrinho | Mecânica distinta do pacote pré-pago; sem evidência operacional | Regra de precificação nova no catálogo |
 | App mobile nativo | Web responsiva resolve; app da v1 morreu sem resolver problema real | PWA primeiro; nativo só se surgir necessidade que só ele resolve |
 | Divisão de lucro entre sócios | Contabilidade da empresa, **não** domínio do produto | Fora do produto — planilha/contador, a partir dos números do sistema |

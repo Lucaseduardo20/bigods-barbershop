@@ -166,6 +166,121 @@ describe('ItemDoPacote — transições legais', () => {
   });
 });
 
+describe('VendaDePacote — aplicarSaldoResidual (FASE 4a, sessão-E, §8.7)', () => {
+  /** Expira o item i1 (2 faltas) — mesmo caminho já testado acima — e devolve a venda com saldoResidual pronto pra abater. */
+  const venderComSaldoExpirado = (valorPagoCentavos: number) => {
+    const v = venderPago(valorPagoCentavos, [item('i1', 'corte', valorPagoCentavos)]);
+    v.agendarItem('i1', 'at-1', 'bar-1');
+    v.computarFalta('i1', 10, hoje, tz);
+    v.agendarItem('i1', 'at-2', 'bar-1');
+    v.computarFalta('i1', 10, hoje, tz);
+    return v;
+  };
+
+  it('abate uma parte do saldo — reduz saldoResidual e aumenta saldoUtilizado, conservando o total', () => {
+    const v = venderComSaldoExpirado(6000);
+    expect(v.saldoResidual.centavos).toBe(6000);
+    v.aplicarSaldoResidual(Dinheiro.deCentavos(2500));
+    expect(v.saldoResidual.centavos).toBe(3500);
+    expect(v.saldoUtilizado.centavos).toBe(2500);
+    expect(somaRateadosNaoExpirados(v) + v.saldoResidual.centavos + v.saldoUtilizado.centavos).toBe(6000);
+  });
+
+  it('abate o saldo INTEIRO — saldoResidual zera', () => {
+    const v = venderComSaldoExpirado(4000);
+    v.aplicarSaldoResidual(Dinheiro.deCentavos(4000));
+    expect(v.saldoResidual.centavos).toBe(0);
+    expect(v.saldoUtilizado.centavos).toBe(4000);
+  });
+
+  it('nunca deixa o saldo negativo — abater mais do que existe lança InvarianteVioladaError, nada muda', () => {
+    const v = venderComSaldoExpirado(3000);
+    expect(() => v.aplicarSaldoResidual(Dinheiro.deCentavos(3001))).toThrow(InvarianteVioladaError);
+    expect(v.saldoResidual.centavos).toBe(3000); // intacto
+    expect(v.saldoUtilizado.centavos).toBe(0);
+  });
+
+  it('valor zero ou negativo é rejeitado — abatimento tem que ser positivo', () => {
+    const v = venderComSaldoExpirado(3000);
+    expect(() => v.aplicarSaldoResidual(Dinheiro.zero())).toThrow(InvarianteVioladaError);
+  });
+
+  it('dois abatimentos sucessivos se acumulam corretamente em saldoUtilizado', () => {
+    const v = venderComSaldoExpirado(10000);
+    v.aplicarSaldoResidual(Dinheiro.deCentavos(3000));
+    v.aplicarSaldoResidual(Dinheiro.deCentavos(4000));
+    expect(v.saldoResidual.centavos).toBe(3000);
+    expect(v.saldoUtilizado.centavos).toBe(7000);
+    expect(somaRateadosNaoExpirados(v) + v.saldoResidual.centavos + v.saldoUtilizado.centavos).toBe(10000);
+  });
+});
+
+describe('VendaDePacote — reservarSaldoParaReembolso / confirmarReembolso (FASE 4b, sessão-E, §8.7)', () => {
+  const venderComSaldoExpirado = (valorPagoCentavos: number) => {
+    const v = venderPago(valorPagoCentavos, [item('i1', 'corte', valorPagoCentavos)]);
+    v.agendarItem('i1', 'at-1', 'bar-1');
+    v.computarFalta('i1', 10, hoje, tz);
+    v.agendarItem('i1', 'at-2', 'bar-1');
+    v.computarFalta('i1', 10, hoje, tz);
+    return v;
+  };
+
+  const somaTotal = (v: VendaDePacote) =>
+    somaRateadosNaoExpirados(v) +
+    v.saldoResidual.centavos +
+    v.saldoUtilizado.centavos +
+    v.saldoReservadoReembolso.centavos +
+    v.saldoReembolsado.centavos;
+
+  it('expirar item registra saldoResidualDesde = hoje', () => {
+    const v = venderComSaldoExpirado(4000);
+    expect(v.saldoResidualDesde?.getTime()).toBe(hoje.getTime());
+  });
+
+  it('reserva TODO o saldo residual — move pra saldoReservadoReembolso, saldoResidual zera', () => {
+    const v = venderComSaldoExpirado(6000);
+    const reservado = v.reservarSaldoParaReembolso();
+    expect(reservado.centavos).toBe(6000);
+    expect(v.saldoResidual.centavos).toBe(0);
+    expect(v.saldoReservadoReembolso.centavos).toBe(6000);
+    expect(somaTotal(v)).toBe(6000);
+  });
+
+  it('depois de reservado, não há mais nada pra abater (FASE 4a e 4b mutuamente exclusivos por construção)', () => {
+    const v = venderComSaldoExpirado(4000);
+    v.reservarSaldoParaReembolso();
+    expect(() => v.aplicarSaldoResidual(Dinheiro.deCentavos(1))).toThrow(InvarianteVioladaError);
+  });
+
+  it('reservar sem saldo residual disponível lança InvarianteVioladaError', () => {
+    const v = venderComSaldoExpirado(4000);
+    v.aplicarSaldoResidual(Dinheiro.deCentavos(4000)); // zera o saldo residual via abatimento
+    expect(() => v.reservarSaldoParaReembolso()).toThrow(InvarianteVioladaError);
+  });
+
+  it('confirmarReembolso move TODO o saldo reservado pra saldoReembolsado', () => {
+    const v = venderComSaldoExpirado(5000);
+    v.reservarSaldoParaReembolso();
+    const confirmado = v.confirmarReembolso();
+    expect(confirmado.centavos).toBe(5000);
+    expect(v.saldoReservadoReembolso.centavos).toBe(0);
+    expect(v.saldoReembolsado.centavos).toBe(5000);
+    expect(somaTotal(v)).toBe(5000);
+  });
+
+  it('não dá pra confirmar reembolso duas vezes — segunda chamada lança InvarianteVioladaError', () => {
+    const v = venderComSaldoExpirado(3000);
+    v.reservarSaldoParaReembolso();
+    v.confirmarReembolso();
+    expect(() => v.confirmarReembolso()).toThrow(InvarianteVioladaError);
+  });
+
+  it('confirmar sem nada reservado lança InvarianteVioladaError', () => {
+    const v = venderComSaldoExpirado(3000);
+    expect(() => v.confirmarReembolso()).toThrow(InvarianteVioladaError);
+  });
+});
+
 describe('ItemDoPacote — transições ilegais', () => {
   it('não agenda item de pacote não pago', () => {
     const v = vender(4000, [item('i1', 'corte', 4000)]);

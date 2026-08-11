@@ -17,6 +17,7 @@ import { PRODUTO_REPOSITORY } from '../modules/products/domain/produto.repositor
 import { VENDA_DE_PRODUTO_REPOSITORY } from '../modules/products/domain/venda-de-produto.repository';
 import { EXPEDIENTE_SEMANAL_REPOSITORY } from '../modules/staff/domain/expediente-semanal.repository';
 import { PACOTE_OFERTA_REPOSITORY } from '../modules/packages/domain/pacote-oferta.repository';
+import { SOLICITACAO_DE_REEMBOLSO_REPOSITORY } from '../modules/packages/domain/solicitacao-de-reembolso.repository';
 import { PrismaServicoRepository } from '../modules/catalog/infrastructure/prisma-servico.repository';
 import { PrismaBarbeiroRepository } from '../modules/staff/infrastructure/prisma-barbeiro.repository';
 import { PrismaDisponibilidadeRepository } from '../modules/staff/infrastructure/prisma-disponibilidade.repository';
@@ -30,6 +31,7 @@ import { PrismaParametrosRepository } from '../modules/packages/infrastructure/p
 import { PrismaProdutoRepository } from '../modules/products/infrastructure/prisma-produto.repository';
 import { PrismaVendaDeProdutoRepository } from '../modules/products/infrastructure/prisma-venda-de-produto.repository';
 import { PrismaPacoteOfertaRepository } from '../modules/packages/infrastructure/prisma-pacote-oferta.repository';
+import { PrismaSolicitacaoDeReembolsoRepository } from '../modules/packages/infrastructure/prisma-solicitacao-de-reembolso.repository';
 
 const repositorios = [
   { provide: SERVICO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaServicoRepository(p), inject: [PrismaService] },
@@ -45,6 +47,7 @@ const repositorios = [
   { provide: PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaProdutoRepository(p), inject: [PrismaService] },
   { provide: VENDA_DE_PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDeProdutoRepository(p), inject: [PrismaService] },
   { provide: PACOTE_OFERTA_REPOSITORY, useFactory: (p: PrismaService) => new PrismaPacoteOfertaRepository(p), inject: [PrismaService] },
+  { provide: SOLICITACAO_DE_REEMBOLSO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaSolicitacaoDeReembolsoRepository(p), inject: [PrismaService] },
 ];
 
 @Global()

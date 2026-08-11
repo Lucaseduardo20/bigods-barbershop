@@ -39,6 +39,29 @@ export interface VendaDePacoteProps {
   valorPago: Dinheiro;
   itens: ItemDoPacote[];
   saldoResidual: Dinheiro;
+  /**
+   * FASE 4a (sessão-E, §8.7): total historicamente GASTO do saldo residual
+   * (abatido em algum avulso) — só cresce, nunca diminui. Existe pra manter
+   * a conservação de dinheiro auditável mesmo depois que o saldo é gasto:
+   * ver `verificarInvarianteDeSoma`.
+   */
+  saldoUtilizado: Dinheiro;
+  /**
+   * FASE 4b (sessão-E, §8.7): saldo reservado pra uma SolicitacaoDeReembolso
+   * PENDENTE — sai de `saldoResidual` assim que a solicitação é criada
+   * (não espera confirmação do admin). Estruturalmente impede abater (4a) e
+   * reembolsar (4b) o mesmo dinheiro: o abatimento só enxerga
+   * `saldoResidual`, nunca este campo.
+   */
+  saldoReservadoReembolso: Dinheiro;
+  /** Reembolso CONFIRMADO pelo admin — só cresce. */
+  saldoReembolsado: Dinheiro;
+  /**
+   * Instante da expiração mais recente que alimentou `saldoResidual` —
+   * âncora do prazo de 45 dias pra pedir reembolso (§8.7). `null` enquanto
+   * nunca houve expiração nesta venda.
+   */
+  saldoResidualDesde: Date | null;
   compradoEm: Date;
   statusPagamento: StatusPagamento;
   /**
@@ -117,6 +140,10 @@ export class VendaDePacote extends AggregateRoot {
       valorPago: params.valorPago,
       itens,
       saldoResidual: Dinheiro.zero(),
+      saldoUtilizado: Dinheiro.zero(),
+      saldoReservadoReembolso: Dinheiro.zero(),
+      saldoReembolsado: Dinheiro.zero(),
+      saldoResidualDesde: null,
       compradoEm: params.compradoEm,
       statusPagamento: StatusPagamento.AGUARDANDO,
       origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
@@ -231,7 +258,7 @@ export class VendaDePacote extends AggregateRoot {
       item.status = StatusItemPacote.SEGUNDA_CHANCE;
       item.prazoReagendamentoAte = fimDoDiaCivilMaisDias(hoje, prazoReagendamentoDias, tz);
     } else {
-      this.expirarItem(item);
+      this.expirarItem(item, hoje);
     }
     this.verificarInvarianteDeSoma();
   }
@@ -245,7 +272,7 @@ export class VendaDePacote extends AggregateRoot {
         item.prazoReagendamentoAte !== null &&
         item.prazoReagendamentoAte.getTime() < hoje.getTime()
       ) {
-        this.expirarItem(item);
+        this.expirarItem(item, hoje);
         expirados.push(item.id);
       }
     }
@@ -253,26 +280,94 @@ export class VendaDePacote extends AggregateRoot {
     return expirados;
   }
 
-  private expirarItem(item: ItemDoPacote): void {
+  private expirarItem(item: ItemDoPacote, hoje: Date): void {
     item.status = StatusItemPacote.EXPIRADO;
     this.props.saldoResidual = this.props.saldoResidual.somar(item.valorRateado);
+    // FASE 4b (sessão-E, §8.7): âncora do prazo de 45 dias pra reembolso —
+    // sempre a expiração mais RECENTE (o pool de saldo é fungível; usar a
+    // mais recente dá o prazo mais generoso possível ao cliente).
+    this.props.saldoResidualDesde = hoje;
     this.adicionarEvento(
       new ItemDoPacoteExpirado(this.props.id, item.id, item.valorRateado.centavos),
     );
   }
 
   /**
-   * INVARIANTE: Σ valorRateado (itens não expirados) + saldoResidual == valorPago.
+   * FASE 4a (sessão-E, §8.7): gasta (parte d)o saldo residual — abatimento
+   * num agendamento avulso. `valor` é sempre o que o CALLER já decidiu
+   * abater (a regra do resto — `min(saldoResidual, precoDoServico)` — é
+   * política de aplicação, não invariante de domínio; aqui só garante que
+   * nunca fica negativo, em Dinheiro, nunca float). Move valor de
+   * `saldoResidual` pra `saldoUtilizado` — conservação de dinheiro, nunca
+   * um "gasto" que só desaparece.
+   */
+  aplicarSaldoResidual(valor: Dinheiro): void {
+    if (!valor.ehPositivo()) {
+      throw new InvarianteVioladaError('Valor a abater do saldo residual deve ser maior que zero');
+    }
+    if (valor.centavos > this.props.saldoResidual.centavos) {
+      throw new InvarianteVioladaError('Saldo residual insuficiente para este abatimento');
+    }
+    this.props.saldoResidual = Dinheiro.deCentavos(this.props.saldoResidual.centavos - valor.centavos);
+    this.props.saldoUtilizado = this.props.saldoUtilizado.somar(valor);
+    this.verificarInvarianteDeSoma();
+  }
+
+  /**
+   * FASE 4b (sessão-E, §8.7): reserva TODO o saldo residual atual pra uma
+   * SolicitacaoDeReembolso recém-criada — sai de `saldoResidual` já na hora
+   * do pedido, não espera confirmação do admin. É isso que torna abatimento
+   * (4a) e reembolso (4b) mutuamente exclusivos por construção: depois desta
+   * chamada `saldoResidual` fica zerado, então `aplicarSaldoResidual` não tem
+   * mais nada pra abater. Retorna o valor reservado (= valor da solicitação).
+   */
+  reservarSaldoParaReembolso(): Dinheiro {
+    if (!this.props.saldoResidual.ehPositivo()) {
+      throw new InvarianteVioladaError('Não há saldo residual disponível para reembolso');
+    }
+    const valor = this.props.saldoResidual;
+    this.props.saldoResidual = Dinheiro.zero();
+    this.props.saldoReservadoReembolso = this.props.saldoReservadoReembolso.somar(valor);
+    this.verificarInvarianteDeSoma();
+    return valor;
+  }
+
+  /**
+   * FASE 4b: admin confirma o reembolso manual (PIX por fora) — move TODO o
+   * saldo reservado pra `saldoReembolsado` (só cresce, nunca some do total).
+   * Retorna o valor confirmado.
+   */
+  confirmarReembolso(): Dinheiro {
+    if (!this.props.saldoReservadoReembolso.ehPositivo()) {
+      throw new InvarianteVioladaError('Não há saldo reservado para confirmar reembolso');
+    }
+    const valor = this.props.saldoReservadoReembolso;
+    this.props.saldoReservadoReembolso = Dinheiro.zero();
+    this.props.saldoReembolsado = this.props.saldoReembolsado.somar(valor);
+    this.verificarInvarianteDeSoma();
+    return valor;
+  }
+
+  /**
+   * INVARIANTE: Σ valorRateado (itens não expirados) + saldoResidual +
+   * saldoUtilizado + saldoReservadoReembolso + saldoReembolsado == valorPago.
    * O valorRateado do item expirado é mantido para auditoria, mas seu valor
-   * econômico migrou para o saldoResidual — por isso sai da soma.
+   * econômico migrou pro saldoResidual (e, dali, pra um dos dois destinos
+   * finais: gasto em avulso ou reembolsado) — por isso sai da soma dos ativos.
    */
   private verificarInvarianteDeSoma(): void {
     const somaAtivos = this.props.itens
       .filter((i) => i.status !== StatusItemPacote.EXPIRADO)
       .reduce((acc, i) => acc + i.valorRateado.centavos, 0);
-    if (somaAtivos + this.props.saldoResidual.centavos !== this.props.valorPago.centavos) {
+    const total =
+      somaAtivos +
+      this.props.saldoResidual.centavos +
+      this.props.saldoUtilizado.centavos +
+      this.props.saldoReservadoReembolso.centavos +
+      this.props.saldoReembolsado.centavos;
+    if (total !== this.props.valorPago.centavos) {
       throw new InvarianteVioladaError(
-        `Invariante de soma violada: ${somaAtivos} + ${this.props.saldoResidual.centavos} != ${this.props.valorPago.centavos}`,
+        `Invariante de soma violada: ${somaAtivos} + ${this.props.saldoResidual.centavos} + ${this.props.saldoUtilizado.centavos} + ${this.props.saldoReservadoReembolso.centavos} + ${this.props.saldoReembolsado.centavos} != ${this.props.valorPago.centavos}`,
       );
     }
   }
@@ -304,6 +399,10 @@ export class VendaDePacote extends AggregateRoot {
   get valorPago() { return this.props.valorPago; }
   get itens(): readonly Readonly<ItemDoPacote>[] { return this.props.itens; }
   get saldoResidual() { return this.props.saldoResidual; }
+  get saldoUtilizado() { return this.props.saldoUtilizado; }
+  get saldoReservadoReembolso() { return this.props.saldoReservadoReembolso; }
+  get saldoReembolsado() { return this.props.saldoReembolsado; }
+  get saldoResidualDesde() { return this.props.saldoResidualDesde; }
   get compradoEm() { return this.props.compradoEm; }
   get statusPagamento() { return this.props.statusPagamento; }
   get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }

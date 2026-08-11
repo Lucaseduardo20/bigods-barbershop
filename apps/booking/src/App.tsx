@@ -15,6 +15,7 @@ import { telefoneValido } from './lib/telefone';
 import { mascararTelefone } from './lib/telefone';
 import {
   aplicarBarbeiroDoLink,
+  barbeiroParaAutoSelecionar,
   carregarEstado,
   duracaoMinutos,
   estadoInicial,
@@ -72,6 +73,14 @@ function Funil() {
     () => api<ServicoDTO[]>(`/public/servicos?companyId=${encodeURIComponent(COMPANY_ID)}`),
     [],
   );
+  // §4a: lista de barbeiros da casa — vive aqui (não mais dentro do passo
+  // Barbeiro) pra que a decisão de auto-selecionar e o disparo da busca de
+  // serviços por barbeiro fiquem no MESMO componente (ver bug "loading
+  // eterno" abaixo).
+  const barbeirosReq = useApi(
+    () => api<BarbeiroPublicoDTO[]>(`/public/barbeiros?companyId=${encodeURIComponent(COMPANY_ID)}`),
+    [],
+  );
 
   const [estado, setEstado] = useState<FunnelState>(() => carregarEstado());
   const [pago, setPago] = useState(false);
@@ -101,9 +110,27 @@ function Funil() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // BUG "loading eterno" (sessão-D): quando só existe um barbeiro na casa, a
+  // resolução automática precisa acontecer NESTE componente — é ele quem
+  // dispara `servicosDoBarbeiroReq` a partir de `estado.barbeiroId` logo
+  // abaixo. Antes, essa decisão morava dentro do componente filho `Barbeiro`
+  // (efeito próprio + callback pro pai); mesmo parecendo equivalente, isso
+  // dependia de um round-trip entre dois componentes, em vez do mesmo
+  // componente que já dispara a busca de serviços logo abaixo. Resolver
+  // aqui, direto, elimina essa dependência entre componentes.
+  useEffect(() => {
+    const alvo = barbeiroParaAutoSelecionar(barbeirosReq.dados, estado.barbeiroId);
+    if (alvo) {
+      setEstado((e) => ({ ...e, barbeiroId: alvo.id, barbeiroNome: alvo.nome, barbeiroAuto: true, barbeiroFixadoPorLink: false }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeirosReq.dados]);
+
   // Serviços que o barbeiro ESCOLHIDO atende — só busca depois de saber quem é
   // (§4a: barbeiro vem antes de serviço). A lista completa (servicosReq, sem
-  // filtro) continua alimentando preço/duração em qualquer passo por id.
+  // filtro) só alimenta o passo Barbeiro (nomes) — preço/duração de qualquer
+  // item selecionado usa SEMPRE esta lista com o preço do barbeiro (bug de
+  // preço errado herdado até a confirmação, sessão-D).
   const servicosDoBarbeiroReq = useApi(
     () =>
       estado.barbeiroId
@@ -128,7 +155,17 @@ function Funil() {
       </div>
     );
   }
-  const servicos = servicosReq.dados;
+  // BUG (sessão-D): preço errado desde a PRIMEIRA tela do funil — o total
+  // que vai compondo "a conta do cliente" (SummaryBar, PIX, confirmação)
+  // usava `servicosReq.dados` (lista SEM barbeiro, preço de referência da
+  // casa), não `servicosDoBarbeiroReq.dados` (com `precoDeReferencia` do
+  // barbeiro já aplicado no backend). A listagem de serviços em si já usava
+  // a lista certa — só o cálculo do total/"conta" que ficou preso na lista
+  // errada, e por herdar o mesmo `estado` em todas as telas seguintes, o
+  // valor errado se propagava até a confirmação. `servicosReq` continua
+  // servindo só pra gate de loading/erro inicial da página (abaixo) — nunca
+  // mais alimenta preço, pra não reintroduzir o bug por acidente.
+  const servicosParaPreco = servicosDoBarbeiroReq.dados ?? [];
 
   const reset = () => {
     limparEstado();
@@ -145,7 +182,7 @@ function Funil() {
 
   // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO.
   if (cobranca && intencaoId) {
-    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicos, estado.servicoIds);
+    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicosParaPreco, estado.servicoIds);
     return (
       <div className="funnel-shell">
         <PixAguardando
@@ -312,7 +349,16 @@ function Funil() {
   // ---- Corpo do passo atual ----
   let corpo: JSX.Element = <div />;
   if (estado.step === PASSO.BARBEIRO) {
-    corpo = <Barbeiro selecionado={estado.barbeiroId} onSelect={escolherBarbeiro} />;
+    corpo = (
+      <Barbeiro
+        barbeiros={barbeirosReq.dados ?? []}
+        carregando={barbeirosReq.carregando}
+        erro={barbeirosReq.erro}
+        aoTentarDeNovo={barbeirosReq.recarregar}
+        selecionado={estado.barbeiroId}
+        onSelect={escolherBarbeiro}
+      />
+    );
   } else if (estado.step === PASSO.SERVICOS) {
     corpo = (
       <Servicos
@@ -358,7 +404,7 @@ function Funil() {
     corpo = (
       <Confirmacao
         estado={estado}
-        servicos={servicos}
+        servicos={servicosParaPreco}
         enviando={enviando}
         erroEnvio={erroEnvio}
         onFormaPagamento={(f: FormaPagamento) => patch({ formaPagamento: f })}
@@ -392,11 +438,11 @@ function Funil() {
   })();
 
   const ehPacote = estado.modo === 'pacote';
-  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicos, estado.servicoIds);
-  const duracao = ehPacote ? 0 : duracaoMinutos(servicos, estado.servicoIds);
+  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicosParaPreco, estado.servicoIds);
+  const duracao = ehPacote ? 0 : duracaoMinutos(servicosParaPreco, estado.servicoIds);
   const resumo = ehPacote
     ? (estado.ofertaNome ?? 'Pacote')
-    : servicosSelecionados(servicos, estado.servicoIds).map((s) => s.nome).join(' · ') || 'Nenhum serviço selecionado';
+    : servicosSelecionados(servicosParaPreco, estado.servicoIds).map((s) => s.nome).join(' · ') || 'Nenhum serviço selecionado';
 
   return (
     <div className="funnel-shell">

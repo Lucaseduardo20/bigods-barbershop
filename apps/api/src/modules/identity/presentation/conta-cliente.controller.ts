@@ -5,12 +5,15 @@ import {
   Get,
   Inject,
   NotFoundException,
+  Param,
   Post,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsString, Length, Matches, MinLength } from 'class-validator';
+import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
 import {
+  AgendamentoClienteDTO,
   AgendarComCreditoContaResponse,
+  AtendimentoDTO,
   ConfirmarLoginClienteResponse,
   IniciarLoginClienteResponse,
   PerfilClienteDTO,
@@ -22,7 +25,12 @@ import { ClienteAtual, ContaCliente } from './cliente.guard';
 import { ClienteAutenticado } from '../infrastructure/cliente-sessao.service';
 import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
 import { PacotesQueryService } from '../../packages/infrastructure/pacotes-query.service';
+import { AgendarAvulsoUseCase } from '../../scheduling/application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from '../../scheduling/application/agendar-com-credito.usecase';
+import { CancelarAtendimentoClienteUseCase } from '../../scheduling/application/cancelar-atendimento-cliente.usecase';
+import { ReagendarAtendimentoClienteUseCase } from '../../scheduling/application/reagendar-atendimento-cliente.usecase';
+import { SolicitarReembolsoUseCase } from '../../packages/application/solicitar-reembolso.usecase';
+import { AgendaQueryService } from '../../scheduling/infrastructure/agenda-query.service';
 import { AgendamentosClienteQueryService } from '../../scheduling/infrastructure/agendamentos-cliente-query.service';
 import {
   VENDA_DE_PACOTE_REPOSITORY,
@@ -60,6 +68,20 @@ class AgendarComCreditoContaDto {
   @Matches(HORA_HHMM) horaInicio!: string;
 }
 
+class ReagendarContaDto {
+  @Matches(DATA_ISO) data!: string;
+  @Matches(HORA_HHMM) horaInicio!: string;
+}
+
+class AgendarAvulsoContaDto {
+  @IsString() @MinLength(1) barbeiroId!: string;
+  @IsArray() @ArrayNotEmpty() @IsString({ each: true }) servicoIds!: string[];
+  @Matches(DATA_ISO) data!: string;
+  @Matches(HORA_HHMM) horaInicio!: string;
+  /** FASE 4a (sessão-E, §8.7): abate o saldo residual desta venda, se informado. */
+  @IsOptional() @IsString() abaterSaldoDeVendaId?: string;
+}
+
 /**
  * Área logada do cliente final (não confundir com o painel de staff).
  * `iniciar`/`confirmar` são públicos (ainda não há sessão) mas rate-limited por
@@ -72,7 +94,12 @@ export class ContaClienteController {
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
+    private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
+    private readonly cancelarAtendimento: CancelarAtendimentoClienteUseCase,
+    private readonly reagendarAtendimento: ReagendarAtendimentoClienteUseCase,
+    private readonly solicitarReembolso: SolicitarReembolsoUseCase,
+    private readonly agenda: AgendaQueryService,
     private readonly agendamentosCliente: AgendamentosClienteQueryService,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendas: VendaDePacoteRepository,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
@@ -117,6 +144,105 @@ export class ContaClienteController {
   }
 
   /**
+   * FASE 1 (sessão-E): histórico do cliente — atendimentos que já saíram de
+   * AGENDADO (concluídos, cancelados, faltas), do mais recente ao mais
+   * antigo. Leitura pura, reusa o read model de `proximos`.
+   */
+  @ContaCliente()
+  @Get('historico')
+  async historico(@ClienteAtual() atual: ClienteAutenticado): Promise<AgendamentoClienteDTO[]> {
+    return this.agendamentosCliente.historico(atual.companyId, atual.clienteId);
+  }
+
+  /**
+   * Detalhe de UM atendimento do cliente — reusa o read model rico do
+   * painel admin (`AgendaQueryService`, já traz itens/produtos/valores/
+   * origem de link). A posse é conferida aqui, na borda (o read model não
+   * sabe de cliente autenticado) — mesmo padrão de `agendar()` abaixo.
+   */
+  @ContaCliente()
+  @Get('atendimentos/:id')
+  async detalheAtendimento(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Param('id') id: string,
+  ): Promise<AtendimentoDTO> {
+    const atendimento = await this.agenda.porId(id, atual.companyId);
+    if (!atendimento || atendimento.cliente.id !== atual.clienteId) {
+      throw new NotFoundException('Atendimento não encontrado');
+    }
+    return atendimento;
+  }
+
+  /**
+   * FASE 2 (sessão-E, §8.6): cliente cancela o PRÓPRIO agendamento, sozinho.
+   * Autorização (posse) e janela de tempo são checadas no caso de uso — a
+   * borda só repassa `clienteId` do token, nunca confia em nada do corpo.
+   */
+  @ContaCliente()
+  @Post('atendimentos/:id/cancelar')
+  async cancelar(@ClienteAtual() atual: ClienteAutenticado, @Param('id') id: string): Promise<{ ok: true }> {
+    await this.cancelarAtendimento.executar({
+      atendimentoId: id,
+      companyId: atual.companyId,
+      clienteId: atual.clienteId,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * FASE 3 (sessão-E, §8.6): reagendar o PRÓPRIO agendamento — pro cliente
+   * parece só mover a data/hora; por baixo, cancela + cria novo, mesmo
+   * serviço/barbeiro, crédito de pacote preservado quando aplicável
+   * (`ReagendarAtendimentoClienteUseCase`).
+   */
+  @ContaCliente()
+  @Post('atendimentos/:id/reagendar')
+  async reagendar(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Param('id') id: string,
+    @Body() body: ReagendarContaDto,
+  ): Promise<{ atendimentoId: string }> {
+    const tz = await this.parametros.timezone(atual.companyId);
+    const resultado = await this.reagendarAtendimento.executar({
+      atendimentoId: id,
+      companyId: atual.companyId,
+      clienteId: atual.clienteId,
+      novoInicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
+    });
+    return { atendimentoId: resultado.novoAtendimentoId };
+  }
+
+  /**
+   * FASE 4a (sessão-E, §8.7): agenda um AVULSO pelo cockpit, com abatimento
+   * OPCIONAL de saldo residual de um pacote (regra do resto —
+   * `AgendarAvulsoUseCase` já cuida disso). Reusa o mesmo caso de uso do
+   * funil público/admin — zero regra duplicada. Nome/telefone vêm do
+   * PRÓPRIO cliente autenticado, nunca do corpo da requisição.
+   */
+  @ContaCliente()
+  @Post('agendamentos/avulso')
+  async agendarAvulsoConta(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: AgendarAvulsoContaDto,
+  ): Promise<{ atendimentoId: string }> {
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== atual.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+    const tz = await this.parametros.timezone(atual.companyId);
+    const resultado = await this.agendarAvulso.executar({
+      companyId: atual.companyId,
+      barbeiroId: body.barbeiroId,
+      servicoIds: body.servicoIds,
+      inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
+      cliente: { nome: cliente.nome, telefone: cliente.telefone.e164 },
+      gerarCobranca: false,
+      abaterSaldoDeVendaId: body.abaterSaldoDeVendaId ?? null,
+    });
+    return { atendimentoId: resultado.atendimentoId };
+  }
+
+  /**
    * Agenda consumindo um crédito de pacote (§8.2) para o CLIENTE autenticado.
    * Reusa `AgendarComCreditoUseCase` (dois agregados na mesma transação, §2.2) —
    * zero regra duplicada. Confere que o pacote é do próprio cliente antes de
@@ -142,5 +268,25 @@ export class ContaClienteController {
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
     });
     return { atendimentoId: resultado.atendimentoId };
+  }
+
+  /**
+   * FASE 4b (sessão-E, §8.7): cliente pede reembolso MANUAL do saldo residual
+   * de UM pacote (`vendaId`). Reserva o saldo na hora do pedido — depois
+   * disso o abatimento (FASE 4a) não enxerga mais nada pra abater nesse
+   * pacote. Sem gateway: admin devolve por fora e confirma depois.
+   */
+  @ContaCliente()
+  @Post('pacotes/:vendaId/reembolso')
+  async pedirReembolso(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Param('vendaId') vendaId: string,
+  ): Promise<{ solicitacaoId: string; valorCentavos: number }> {
+    return this.solicitarReembolso.executar({
+      vendaDePacoteId: vendaId,
+      companyId: atual.companyId,
+      clienteId: atual.clienteId,
+      hoje: new Date(),
+    });
   }
 }

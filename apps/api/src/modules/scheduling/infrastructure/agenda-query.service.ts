@@ -150,6 +150,7 @@ export class AgendaQueryService {
       valorPagoOnlineCentavos: intencaoPaga?.valorCentavos ?? 0,
       origemLinkBarbeiroId: a.origemLinkBarbeiroId,
       origemLinkBarbeiroNome: a.origemLinkBarbeiroId ? (barbeiroPorId.get(a.origemLinkBarbeiroId)?.nome ?? null) : null,
+      valorAbatidoSaldoCentavos: a.valorAbatidoSaldoCentavos,
     };
   }
 }

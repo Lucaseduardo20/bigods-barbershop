@@ -1,0 +1,11 @@
+{
+  "name": "bigods-static-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Servidor estático mínimo usado pelas imagens Docker de admin/booking/account: serve o build do Vite e faz proxy de /api pra API. Só existe dentro dos Dockerfiles dos frontends — não faz parte do workspace npm.",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^2.0.6"
+  }
+}

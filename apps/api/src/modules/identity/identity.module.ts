@@ -1,10 +1,10 @@
 import { Global, Logger, Module } from '@nestjs/common';
-import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { AUTH_PROVIDER } from './domain/auth-provider';
 import { IDENTITY_PROVIDER, IdentityProvider } from './domain/identity-provider';
 import { LocalAuthProvider } from './infrastructure/local-auth.provider';
 import { DemoIdentityProvider } from './infrastructure/demo-identity.provider';
-import { CognitoIdentityProvider } from './infrastructure/cognito-identity.provider';
+import { WhatsAppIdentityProvider } from './infrastructure/whatsapp-identity.provider';
+import { HttpWhatsAppOtpClient } from './infrastructure/whatsapp-otp.client';
 import { ClienteSessaoService } from './infrastructure/cliente-sessao.service';
 import { AuthController } from './presentation/auth.controller';
 import { ContaClienteController } from './presentation/conta-cliente.controller';
@@ -18,31 +18,39 @@ import { SchedulingModule } from '../scheduling/scheduling.module';
 
 /**
  * Escolhe o IdentityProvider por variável de ambiente. Esta factory é o ÚNICO
- * ponto que conhece os dois adapters — trocar demo↔cognito é só `IDENTITY_PROVIDER`,
+ * ponto que conhece os adapters — trocar demo↔whatsapp é só `IDENTITY_PROVIDER`,
  * zero mudança de código de aplicação/domínio.
+ *
+ * O Cognito (`CognitoIdentityProvider`) saiu do fluxo nesta sessão — o arquivo
+ * continua no repositório (funcional, com sua própria suíte de testes), mas
+ * não é mais uma opção aqui. Produção sem AWS: `IDENTITY_PROVIDER=whatsapp`
+ * não importa nem toca o SDK da AWS em nenhum ponto do boot.
  */
 function criarIdentityProvider(prisma: PrismaService): IdentityProvider {
   const kind = (process.env.IDENTITY_PROVIDER ?? 'demo').toLowerCase();
-  if (kind === 'cognito') {
-    const region = exigir('COGNITO_REGION');
-    const userPoolId = exigir('COGNITO_USER_POOL_ID');
-    const clientId = exigir('COGNITO_CLIENT_ID');
-    const client = new CognitoIdentityProviderClient({ region });
-    Logger.log('IdentityProvider: Cognito', 'IdentityModule');
-    return new CognitoIdentityProvider(client, {
-      userPoolId,
-      clientId,
-      ttlMinutos: Number(process.env.COGNITO_OTP_TTL_MINUTOS ?? '3') || 3,
-    });
+  if (kind === 'whatsapp') {
+    const baseUrl = exigir('WHATSAPP_OTP_SERVICE_URL');
+    const internalToken = exigir('WHATSAPP_OTP_INTERNAL_TOKEN');
+    const timeoutMs = Number(process.env.WHATSAPP_OTP_TIMEOUT_MS ?? '8000') || 8000;
+    const ttlMinutos = Number(process.env.WHATSAPP_OTP_TTL_MINUTOS ?? '5') || 5;
+    Logger.log('IdentityProvider: WhatsApp (Baileys)', 'IdentityModule');
+    return new WhatsAppIdentityProvider(
+      prisma,
+      new HttpWhatsAppOtpClient(baseUrl, internalToken, timeoutMs),
+      ttlMinutos,
+    );
   }
-  Logger.log(`IdentityProvider: Demo (DEMO_MODE=${process.env.DEMO_MODE === 'true'})`, 'IdentityModule');
-  return new DemoIdentityProvider(prisma);
+  if (kind === 'demo') {
+    Logger.log(`IdentityProvider: Demo (DEMO_MODE=${process.env.DEMO_MODE === 'true'})`, 'IdentityModule');
+    return new DemoIdentityProvider(prisma);
+  }
+  throw new Error(`IDENTITY_PROVIDER='${kind}' desconhecido. Valores aceitos: 'demo', 'whatsapp'.`);
 }
 
 function exigir(nome: string): string {
   const valor = process.env[nome];
   if (!valor) {
-    throw new Error(`Variável de ambiente ${nome} é obrigatória com IDENTITY_PROVIDER=cognito`);
+    throw new Error(`Variável de ambiente ${nome} é obrigatória com IDENTITY_PROVIDER=whatsapp`);
   }
   return valor;
 }

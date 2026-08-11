@@ -7,6 +7,22 @@ export function horaLocal(iso: string, tz: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: tz });
 }
 
+/** Data curta ("12/07/2026") de um instante ISO, no fuso da empresa. */
+export function dataCurtaLocal(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: tz });
+}
+
+/** Data + dia da semana ("seg, 12 de julho"), no fuso da empresa. */
+export function dataLongaLocal(iso: string, tz: string): string {
+  const texto = new Date(iso).toLocaleDateString('pt-BR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'long',
+    timeZone: tz,
+  });
+  return texto.replace('.', '');
+}
+
 /** Dia civil de "hoje" no fuso da empresa, como YYYY-MM-DD. */
 export function hojeISO(tz: string): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: tz });
