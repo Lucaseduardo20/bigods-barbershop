@@ -1,4 +1,4 @@
-import { OrigemComissao } from '@bigods/contracts';
+import { OrigemComissao, TipoLancamento } from '@bigods/contracts';
 import { LancamentoComissao as LancamentoPrisma } from '@prisma/client';
 import { Db } from '../../../shared/infrastructure/db';
 import { LancamentoComissao } from '../domain/lancamento-comissao.aggregate';
@@ -12,13 +12,16 @@ function paraDominio(row: LancamentoPrisma): LancamentoComissao {
     id: row.id,
     companyId: row.companyId,
     barbeiroId: row.barbeiroId,
-    origem: OrigemComissao[row.origem],
+    tipo: TipoLancamento[row.tipo],
+    origem: row.origem ? OrigemComissao[row.origem] : null,
     atendimentoId: row.atendimentoId,
     vendaDeProdutoId: row.vendaDeProdutoId,
     servicoId: row.servicoId,
     produtoId: row.produtoId,
-    valorBase: Dinheiro.deCentavos(row.valorBaseCentavos),
-    percentualAplicado: Percentual.dePontosBase(row.percentualAplicadoBp),
+    valeId: row.valeId,
+    registradoPorId: row.registradoPorId,
+    valorBase: row.valorBaseCentavos !== null ? Dinheiro.deCentavos(row.valorBaseCentavos) : null,
+    percentualAplicado: row.percentualAplicadoBp !== null ? Percentual.dePontosBase(row.percentualAplicadoBp) : null,
     valorComissao: Dinheiro.deCentavos(row.valorComissaoCentavos),
     ocorridoEm: row.ocorridoEm,
   });
@@ -60,13 +63,16 @@ export class PrismaLancamentoComissaoRepository implements LancamentoComissaoRep
         id: lancamento.id,
         companyId: lancamento.companyId,
         barbeiroId: lancamento.barbeiroId,
+        tipo: lancamento.tipo,
         origem: lancamento.origem,
         atendimentoId: lancamento.atendimentoId,
         vendaDeProdutoId: lancamento.vendaDeProdutoId,
         servicoId: lancamento.servicoId,
         produtoId: lancamento.produtoId,
-        valorBaseCentavos: lancamento.valorBase.centavos,
-        percentualAplicadoBp: lancamento.percentualAplicado.pontosBase,
+        valeId: lancamento.valeId,
+        registradoPorId: lancamento.registradoPorId,
+        valorBaseCentavos: lancamento.valorBase?.centavos ?? null,
+        percentualAplicadoBp: lancamento.percentualAplicado?.pontosBase ?? null,
         valorComissaoCentavos: lancamento.valorComissao.centavos,
         ocorridoEm: lancamento.ocorridoEm,
       },

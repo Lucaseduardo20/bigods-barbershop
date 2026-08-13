@@ -9,6 +9,8 @@ import {
   StatusItemPacote,
   StatusPagamento,
   StatusSolicitacaoReembolso,
+  StatusVale,
+  TipoLancamento,
 } from './enums';
 
 // ---------- Auth ----------
@@ -304,31 +306,40 @@ export interface VenderPacoteResponse {
   cobranca: CobrancaDTO | null;
 }
 
-// ---------- Comissão ----------
-// Generalizado para cobrir origem SERVICO (via Atendimento) e PRODUTO (via
-// Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente um par
-// (atendimentoId|vendaDeProdutoId) e (servicoNome|produtoNome) é preenchido.
+// ---------- Comissão / ledger de 3 direções ----------
+// COMISSAO (+, origem SERVICO via Atendimento ou PRODUTO via Atendimento —
+// add-on — ou VendaDeProduto avulsa) | VALE (−, adiantamento pago) |
+// PAGAMENTO (−, quitação registrada pelo admin). `origem`/`valorBaseCentavos`/
+// `percentualAplicado` só existem quando tipo=COMISSAO. `valorComissaoCentavos`
+// é sempre a MAGNITUDE (positiva) do lançamento — o sinal no saldo líquido
+// vem de `tipo`, nunca inverta o número aqui.
 export interface LancamentoComissaoDTO {
   id: string;
   barbeiroId: string;
-  origem: OrigemComissao;
+  tipo: TipoLancamento;
+  origem: OrigemComissao | null;
   atendimentoId: string | null;
   vendaDeProdutoId: string | null;
   servicoNome: string | null;
   produtoNome: string | null;
-  valorBaseCentavos: number;
-  percentualAplicado: number; // porcentagem
+  valorBaseCentavos: number | null;
+  percentualAplicado: number | null; // porcentagem, null se não for COMISSAO
   valorComissaoCentavos: number;
-  /** Quando o lançamento foi registrado (conclusão do atendimento / venda). */
+  /** Quando o lançamento foi registrado (conclusão do atendimento / venda / pagamento). */
   ocorridoEm: string;
-  clienteNome: string;
-  clienteTelefone: string;
+  clienteNome: string | null;
+  clienteTelefone: string | null;
   /** Data/hora REAL do atendimento (pode diferir de `ocorridoEm`), quando origem=SERVICO/atendimento. */
   atendimentoInicio: string | null;
+  /** Só tipo=VALE — rastreia até o pedido original. */
+  valeId: string | null;
+  /** Só tipo=VALE|PAGAMENTO — quem confirmou que o dinheiro se moveu (admin). */
+  registradoPorNome: string | null;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.
- * Nunca somar os dois (projeção pode ser cancelada).
+ * Nunca somar os dois (projeção pode ser cancelada). `saldoRealCentavos`
+ * pode ser NEGATIVO (barbeiro deve à casa) — ver `calcularSaldoCentavos`.
  */
 export interface SaldoComissaoDTO {
   barbeiroId: string;
@@ -338,6 +349,58 @@ export interface SaldoComissaoDTO {
 export interface ExtratoComissaoDTO {
   saldo: SaldoComissaoDTO;
   lancamentos: LancamentoComissaoDTO[];
+}
+
+// ---------- Vale (adiantamento de comissão) ----------
+export interface ValeDTO {
+  id: string;
+  barbeiroId: string;
+  barbeiroNome: string;
+  valorCentavos: number;
+  motivo: string | null;
+  status: StatusVale;
+  solicitadoEm: string;
+  decididoPorId: string | null;
+  decididoPorNome: string | null;
+  decididoEm: string | null;
+  motivoNegacao: string | null;
+  pagoPorId: string | null;
+  pagoPorNome: string | null;
+  pagoEm: string | null;
+}
+export interface SolicitarValeRequest {
+  valorCentavos: number;
+  motivo?: string;
+}
+export interface NegarValeRequest {
+  motivo: string;
+}
+
+// ---------- Pagamento ao barbeiro ----------
+export interface RegistrarPagamentoRequest {
+  barbeiroId: string;
+  valorCentavos: number;
+  /** ISO opcional — quando o pagamento foi feito de fato. Default: agora. */
+  data?: string;
+}
+
+// ---------- Fechamento / visão de gestão (admin) — leitura, não lançamento ----------
+export interface FechamentoBarbeiroDTO {
+  barbeiroId: string;
+  barbeiroNome: string;
+  /** Acumulado histórico total do ledger (não é "do período"). */
+  totalComissaoAcumuladaCentavos: number;
+  totalValePagoAcumuladoCentavos: number;
+  totalPagamentoAcumuladoCentavos: number;
+  saldoLiquidoCentavos: number;
+  /** Movimento DENTRO do período consultado — nunca confundir com o acumulado acima. */
+  comissaoNoPeriodoCentavos: number;
+  valeNoPeriodoCentavos: number;
+  pagamentoNoPeriodoCentavos: number;
+}
+export interface FechamentoDTO {
+  periodo: { de: string; ate: string };
+  barbeiros: FechamentoBarbeiroDTO[];
 }
 
 // ---------- Parâmetros ----------

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { Papel } from '@bigods/contracts';
+import { OrigemComissao, Papel, TipoLancamento } from '@bigods/contracts';
 import { LancamentoComissao } from './lancamento-comissao.aggregate';
+import { calcularSaldoCentavos } from './saldo-do-barbeiro';
 import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Percentual } from '../../../shared/domain/percentual';
+import { InvarianteVioladaError } from '../../../shared/errors/domain-error';
 
 const ocorridoEm = new Date(Date.UTC(2026, 6, 15, 12));
 
@@ -138,5 +140,113 @@ describe('LancamentoComissao — origem PRODUTO (item 4, sessão 2026-07-16)', (
         ocorridoEm,
       }),
     ).toThrow();
+  });
+});
+
+describe('LancamentoComissao — ledger de 3 direções (sessão de vale/pagamento)', () => {
+  it('criarDeServico/criarDeProduto continuam gerando tipo=COMISSAO por padrão (compatibilidade)', () => {
+    const lc = criar('svc-corte', 4000);
+    expect(lc.tipo).toBe('COMISSAO');
+    expect(lc.valeId).toBeNull();
+    expect(lc.registradoPorId).toBeNull();
+  });
+
+  it('criarDeVale: tipo=VALE, sem origem/valorBase/percentualAplicado, valor = magnitude do vale', () => {
+    const lc = LancamentoComissao.criarDeVale({
+      id: 'lc-vale-1',
+      companyId: 'co-1',
+      barbeiroId: 'bar-1',
+      valeId: 'vale-1',
+      registradoPorId: 'bar-admin',
+      valor: Dinheiro.deCentavos(20000),
+      ocorridoEm,
+    });
+    expect(lc.tipo).toBe('VALE');
+    expect(lc.origem).toBeNull();
+    expect(lc.valorBase).toBeNull();
+    expect(lc.percentualAplicado).toBeNull();
+    expect(lc.valeId).toBe('vale-1');
+    expect(lc.registradoPorId).toBe('bar-admin');
+    expect(lc.valorComissao.centavos).toBe(20000);
+  });
+
+  it('criarDeVale rejeita valor zero', () => {
+    expect(() =>
+      LancamentoComissao.criarDeVale({
+        id: 'lc-vale-2',
+        companyId: 'co-1',
+        barbeiroId: 'bar-1',
+        valeId: 'vale-1',
+        registradoPorId: 'bar-admin',
+        valor: Dinheiro.zero(),
+        ocorridoEm,
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('criarDePagamento: tipo=PAGAMENTO, sem valeId, valor = magnitude do pagamento', () => {
+    const lc = LancamentoComissao.criarDePagamento({
+      id: 'lc-pag-1',
+      companyId: 'co-1',
+      barbeiroId: 'bar-1',
+      registradoPorId: 'bar-admin',
+      valor: Dinheiro.deCentavos(50000),
+      ocorridoEm,
+    });
+    expect(lc.tipo).toBe('PAGAMENTO');
+    expect(lc.valeId).toBeNull();
+    expect(lc.origem).toBeNull();
+    expect(lc.registradoPorId).toBe('bar-admin');
+    expect(lc.valorComissao.centavos).toBe(50000);
+  });
+
+  it('criarDePagamento rejeita valor zero', () => {
+    expect(() =>
+      LancamentoComissao.criarDePagamento({
+        id: 'lc-pag-2',
+        companyId: 'co-1',
+        barbeiroId: 'bar-1',
+        registradoPorId: 'bar-admin',
+        valor: Dinheiro.zero(),
+        ocorridoEm,
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+});
+
+describe('★ REGRESSÃO — lançamentos de comissão pré-migration continuam idênticos', () => {
+  it('reconstituir um lançamento no formato ANTIGO (tipo=COMISSAO retroativo, sem vale/pagamento) preserva valor e sinal', () => {
+    // Simula exatamente o que a migration fez a TODA linha existente: tipo
+    // ganhou o default 'COMISSAO', valeId/registradoPorId ficaram null — o
+    // resto do formato (origem, valorBase, percentualAplicado, valorComissao)
+    // é byte a byte o que já estava gravado antes desta sessão.
+    const legado = LancamentoComissao.reconstituir({
+      id: 'lc-legado',
+      companyId: 'co-1',
+      barbeiroId: 'bar-1',
+      tipo: TipoLancamento.COMISSAO,
+      origem: OrigemComissao.SERVICO,
+      atendimentoId: 'at-1',
+      vendaDeProdutoId: null,
+      servicoId: 'svc-corte',
+      produtoId: null,
+      valeId: null,
+      registradoPorId: null,
+      valorBase: Dinheiro.deCentavos(4000),
+      percentualAplicado: Percentual.dePorcentagem(45),
+      valorComissao: Dinheiro.deCentavos(1800),
+      ocorridoEm,
+    });
+    expect(legado.valorComissao.centavos).toBe(1800);
+    expect(legado.valorBase!.centavos).toBe(4000);
+    expect(legado.percentualAplicado!.porcentagem).toBe(45);
+    expect(legado.tipo).toBe('COMISSAO');
+    expect(legado.origem).toBe('SERVICO');
+  });
+
+  it('saldo de um barbeiro só com lançamentos de COMISSAO é EXATAMENTE a soma simples — mesmo resultado de antes desta sessão', () => {
+    const lancamentos = [criar('svc-corte', 4000), criar('svc-barba', 3000)];
+    const somaSimples = lancamentos.reduce((acc, l) => acc + l.valorComissao.centavos, 0);
+    expect(calcularSaldoCentavos(lancamentos)).toBe(somaSimples);
   });
 });

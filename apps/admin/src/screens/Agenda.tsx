@@ -12,7 +12,7 @@ import {
   somarDias,
 } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
-import { Badge, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { Badge, BotaoAtualizar, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
 import { AtendimentoDetalheDialog, labelStatus, toneStatus } from '../components/AtendimentoDetalheDialog';
 
 const PERIODO_MAXIMO_DIAS = 31;
@@ -74,7 +74,8 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
     <div className="px-5">
       <div className="flex items-end justify-between mb-1">
         <h1 className="m-0 text-[26px] font-bold leading-tight">Agenda</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
           <button className="btn btn-ghost btn-sm" onClick={() => setVendaAberta(true)}>
             + Venda de produto
           </button>

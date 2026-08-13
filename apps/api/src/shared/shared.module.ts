@@ -11,6 +11,7 @@ import { CLIENTE_REPOSITORY } from '../modules/customers/domain/cliente.reposito
 import { ATENDIMENTO_REPOSITORY } from '../modules/scheduling/domain/atendimento.repository';
 import { VENDA_DE_PACOTE_REPOSITORY } from '../modules/packages/domain/venda-de-pacote.repository';
 import { LANCAMENTO_COMISSAO_REPOSITORY } from '../modules/payroll/domain/lancamento-comissao.repository';
+import { VALE_REPOSITORY } from '../modules/payroll/domain/vale.repository';
 import { INTENCAO_DE_PAGAMENTO_REPOSITORY } from '../modules/payments/domain/intencao-de-pagamento.repository';
 import { PARAMETROS_DA_EMPRESA_REPOSITORY } from '../modules/packages/domain/parametros-da-empresa.repository';
 import { PRODUTO_REPOSITORY } from '../modules/products/domain/produto.repository';
@@ -26,6 +27,7 @@ import { PrismaClienteRepository } from '../modules/customers/infrastructure/pri
 import { PrismaAtendimentoRepository } from '../modules/scheduling/infrastructure/prisma-atendimento.repository';
 import { PrismaVendaDePacoteRepository } from '../modules/packages/infrastructure/prisma-venda-de-pacote.repository';
 import { PrismaLancamentoComissaoRepository } from '../modules/payroll/infrastructure/prisma-lancamento-comissao.repository';
+import { PrismaValeRepository } from '../modules/payroll/infrastructure/prisma-vale.repository';
 import { PrismaIntencaoDePagamentoRepository } from '../modules/payments/infrastructure/prisma-intencao-de-pagamento.repository';
 import { PrismaParametrosRepository } from '../modules/packages/infrastructure/prisma-parametros.repository';
 import { PrismaProdutoRepository } from '../modules/products/infrastructure/prisma-produto.repository';
@@ -42,6 +44,7 @@ const repositorios = [
   { provide: ATENDIMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaAtendimentoRepository(p), inject: [PrismaService] },
   { provide: VENDA_DE_PACOTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDePacoteRepository(p), inject: [PrismaService] },
   { provide: LANCAMENTO_COMISSAO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaLancamentoComissaoRepository(p), inject: [PrismaService] },
+  { provide: VALE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaValeRepository(p), inject: [PrismaService] },
   { provide: INTENCAO_DE_PAGAMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaIntencaoDePagamentoRepository(p), inject: [PrismaService] },
   { provide: PARAMETROS_DA_EMPRESA_REPOSITORY, useClass: PrismaParametrosRepository },
   { provide: PRODUTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaProdutoRepository(p), inject: [PrismaService] },

@@ -107,7 +107,12 @@
       "WebSearch",
       "WebFetch(domain:docs.openwa.dev)",
       "WebFetch(domain:www.npmjs.com)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema prisma/schema.prisma --name vale_pagamento_ledger_3_direcoes --skip-generate)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema prisma/schema.prisma)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma --name restaura_default_origem_comissao --skip-generate)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma)",
+      "Bash(docker start *)"
     ],
     "additionalDirectories": [
       "/tmp"

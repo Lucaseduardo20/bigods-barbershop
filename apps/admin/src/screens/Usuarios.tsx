@@ -12,7 +12,7 @@ import { api } from '../lib/api';
 import { BOOKING_URL } from '../lib/config';
 import { dinheiro } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
-import { Badge, CurrencyInput, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
+import { Badge, BotaoAtualizar, CurrencyInput, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 
 /**
  * Aba "Usuários": listagem → gerenciar (como um app convencional), em vez de
@@ -90,9 +90,12 @@ export function Usuarios({ usuario }: { usuario: UsuarioDTO }) {
     <div className="px-5">
       <div className="flex items-center justify-between mb-4">
         <h1 className="m-0 text-[26px] font-bold leading-tight">Usuários</h1>
-        <button className="btn btn-sm" onClick={() => setVisao({ tipo: 'novo' })}>
-          + Novo
-        </button>
+        <div className="flex gap-2 items-center">
+          <BotaoAtualizar onClick={usuariosReq.recarregar} carregando={usuariosReq.carregando} />
+          <button className="btn btn-sm" onClick={() => setVisao({ tipo: 'novo' })}>
+            + Novo
+          </button>
+        </div>
       </div>
       {usuariosReq.carregando && <Loading />}
       {usuariosReq.erro && <ErroEstado erro={usuariosReq.erro} aoTentar={usuariosReq.recarregar} />}

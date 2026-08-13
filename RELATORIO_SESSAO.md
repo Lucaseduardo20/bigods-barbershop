@@ -48,6 +48,16 @@ ativo, soft-disable (nunca deleta) e permissão real no endpoint (não só
 escondida na UI). **369 testes verdes no backend**, idênticos sob os 3 fusos.
 `turbo run build` verde nos 5 pacotes.
 
+Sessão de vale/pagamento (2026-08-13, ver seção dedicada perto do fim deste
+arquivo): `LancamentoComissao` virou um ledger de **3 direções** (COMISSAO +,
+VALE −, PAGAMENTO −) — vale segue solicitação→aprovação→pagamento (débito só
+nasce quando pago de fato), pagamento é livre e sem trava de saldo (saldo pode
+ficar negativo, decisão do dono), e ganhou uma visão de gestão (Fechamento)
+que separa claramente acumulado histórico de movimento do período. Item que
+estava explicitamente fora de escopo (DOMAIN.md §11) entrou por necessidade
+real da operação. **415 testes verdes no backend**, idênticos sob os 3 fusos.
+`turbo run build` verde nos 5 pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -1801,6 +1811,170 @@ desativar). **369 testes verdes no backend**, idênticos sob `TZ=UTC`,
    polir numa próxima passada se incomodar no dia a dia).
 8. Como não-admin (logar como um barbeiro comum): confirmar que a aba
    "Usuários (staff)" nem aparece (mensagem "restrita ao admin").
+
+## Vale, pagamento e fechamento — ledger de 3 direções (2026-08-13) ✅
+
+⚠️ Sessão em cima de sistema **em produção com dinheiro real dos sócios** — toda
+migration foi aditiva/reversível (nada apagado nem reescrito em
+`LancamentoComissao`), suíte confirmada verde ANTES de tocar em qualquer
+código, e um teste de regressão pré-existente (`produtos.e2e.spec.ts`, da
+sessão 2026-07-16) pegou um erro real numa das duas migrations desta sessão
+antes de virar bug de produção — ver "Erro pego pela suíte" abaixo.
+
+**Modelo:** o ledger (`LancamentoComissao`) que só tinha CRÉDITOS (comissão)
+virou um ledger de **3 direções** — COMISSAO (+) | VALE (−) | PAGAMENTO (−).
+Saldo do barbeiro continua sendo **sempre** a soma dos lançamentos, agora com
+sinal por tipo; pode ficar **negativo** (barbeiro deve à casa), decisão
+explícita do dono.
+
+**Decisão de modelagem (pedida explicitamente: "pense se cabe no mesmo campo
+ou é um campo novo"):** `tipo` (COMISSAO\|VALE\|PAGAMENTO) é um campo **novo**,
+ortogonal a `origem` (SERVICO\|PRODUTO) — não uma extensão do mesmo enum.
+`origem` responde "o que gerou a comissão" e só existe quando `tipo=COMISSAO`;
+`tipo` responde "este lançamento soma ou subtrai". Colocar VALE/PAGAMENTO
+dentro de `origem` misturaria as duas perguntas no mesmo campo. Mesmo raciocínio
+de nomenclatura documentado em `DOMAIN.md` §3.7.
+
+**Migration** (`prisma/migrations/20260813034104_.../20260813035004_...`, 2
+arquivos — o segundo corrigindo o primeiro, ver abaixo): `tipo` novo
+(`DEFAULT COMISSAO`, backfill automático em toda linha existente),
+`valeId`/`registradoPorId` novos (nullable), `origem`/`valorBaseCentavos`/
+`percentualAplicadoBp` viraram nullable (só fazem sentido pra COMISSAO) —
+`origem` manteve `DEFAULT SERVICO`. Nova tabela `Vale`. **Nenhuma linha
+existente foi reescrita ou apagada.**
+
+**★ Erro pego pela suíte, não em produção:** a primeira versão da migration
+removeu o `DEFAULT SERVICO` de `origem` (parecia certo — "por que ter default
+se agora é opcional?"). Isso quebrou silenciosamente um teste de regressão
+JÁ EXISTENTE de uma sessão anterior (`produtos.e2e.spec.ts`, "Migration do
+ledger generalizado preserva lançamentos SERVICO antigos") que insere uma
+linha SEM passar `origem`, simulando exatamente como uma linha pré-2026-07-16
+teria sido escrita — e esperava o default `SERVICO`. Restaurado o `DEFAULT
+SERVICO` (segunda migration) — um valor explícito continua vencendo o default
+(VALE/PAGAMENTO passam `null` explicitamente), então não conflita com nada
+novo. Fica documentado como lembrete: mexer num `DEFAULT` de coluna existente
+é uma mudança que PARECE cosmética e não é — a suíte pegou, mas só porque o
+teste de regressão da sessão anterior existia.
+
+### FASE 1 — Vale (solicitação → aprovação → pagamento)
+
+- Novo agregado `Vale` (`payroll/domain/vale.aggregate.ts`): máquina de
+  estado `PENDENTE → APROVADO → PAGO` (final) \| `PENDENTE → NEGADO` (final,
+  motivo obrigatório). **Só essas transições existem** — não há
+  `APROVADO → NEGADO` nem cancelar um `PENDENTE` (não foi pedido; registrado
+  em `DECISOES_PENDENTES.md` #26, sem afetar dinheiro nos dois casos).
+- **Regra crítica implementada literalmente como pedida:** o débito no ledger
+  (`LancamentoComissao.criarDeVale`) nasce **só** na transição
+  `APROVADO → PAGO` (`MarcarValePagoUseCase`) — `aprovar()` sozinho não toca
+  o ledger. `Vale` e `LancamentoComissao` mudam juntos na mesma transação
+  Prisma (`UnitOfWork`, `vales` adicionado a `RepositoriosTransacionais` —
+  mesmo padrão de `ConfirmarReembolsoUseCase` da sessão-E).
+- Endpoints (`vales.controller.ts`): `POST /vales` (qualquer staff, sempre a
+  PRÓPRIA solicitação — nunca em nome de outro), `GET /vales` (admin vê
+  todos, não-admin só os próprios — filtro sempre server-side, nunca
+  confiando em query), `PATCH /vales/:id/aprovar\|negar\|pagar` (admin only).
+  Admin-barbeiro (Gabriel) pode aprovar/pagar o próprio vale — mesma decisão
+  já tomada pra `PacoteOferta` (sessão-B): sem isso o fluxo trava com um
+  único admin+barbeiro real.
+- Login duplicado, motivo ausente em negar, vale de outra empresa: tudo
+  validado com mensagem clara (400/404), nunca 500.
+
+### FASE 2 — Pagamento ao barbeiro
+
+- `RegistrarPagamentoUseCase`: single-aggregate (só cria um
+  `LancamentoComissao` tipo=PAGAMENTO), sem `UnitOfWork` — não há segundo
+  agregado pra manter em sincronia. **Sem trava de saldo, por decisão do
+  dono** — testado explicitamente: pagar mais do que o saldo devido é aceito
+  e deixa o saldo negativo.
+- `POST /pagamentos` (admin only): `barbeiroId`, `valorCentavos`, `data`
+  opcional (default agora). `registradoPorId` sempre preenchido (auditoria).
+
+### FASE 3 — Extrato (`Financeiro.tsx`, sub-aba "Extrato")
+
+- Saldo líquido em destaque **inequívoco por cor E label** (não só o sinal do
+  número): positivo = dourado + "a receber"; negativo = vermelho + "barbeiro
+  deve à casa" — o pedido explícito de "sem ambiguidade" levado ao pé da
+  letra.
+- Cada lançamento do extrato mostra a natureza (COMISSAO com cliente/serviço
+  como já era; VALE/PAGAMENTO com "quem registrou" e sinal negativo visível).
+- Projeção futura continua **separada** do saldo real (já era assim; vale e
+  pagamento são sempre fatos consumados, nunca entram na projeção).
+- Barbeiro não-admin só vê o próprio extrato (já era assim; sem mudança de
+  comportamento, só confirmado com o resto da tela).
+
+### FASE 4 — Fechamento (gestão, admin only)
+
+- `FechamentoQueryService`: LEITURA pura sobre o ledger — nunca cria
+  lançamento, nunca "fecha" nada de forma imutável (é uma foto consultável,
+  como pedido). Devolve, por barbeiro, dois grupos **nomeados e separados**:
+  acumulado (histórico total do ledger) e movimento do período consultado —
+  a distinção que mais gera erro em relatório financeiro, testada
+  explicitamente (um lançamento de 2020 aparece no acumulado mas não entra
+  num período que consulta só 2026).
+- `GET /fechamento?de=&ate=` (admin only) — datas em dia civil LOCAL (mesma
+  disciplina de fuso de todo o resto do sistema, `limitesDoDiaCivil`).
+- Tela `Fechamento.tsx`: seletor de período (default mês corrente), lista por
+  barbeiro com saldo líquido em destaque + os 3 totais acumulados + os 3
+  totais do período, lado a lado — e botão "Registrar pagamento" por linha
+  (FASE 2 na prática).
+
+### FASE 5 — App do barbeiro = mesmo painel, versão reduzida
+
+`App.tsx`: navegação agora depende do papel — admin vê as 6 abas de sempre;
+barbeiro não-admin vê **só** "Financeiro" (que por sua vez já restringe pra
+extrato próprio + solicitar vale — sem sub-aba Fechamento pra quem não é
+admin). Nenhum mecanismo novo de autorização — reaproveita `usuario.papeis`
+que já existia; o controle **real** continua nos guards do backend (uma aba
+escondida na UI não é proteção, é só não oferecer caminho morto).
+
+### FASE 6 — DOMAIN.md
+
+- §3.7 reescrita: ledger de 3 direções, fórmula do saldo, explicação da
+  decisão `tipo` vs `origem`.
+- §3.12 nova: agregado `Vale`.
+- §4.4 nova: máquina de estado do `Vale` (diagrama + transições ilegais).
+- §8.8 nova: fluxo ponta-a-ponta (vale → pagamento → fechamento) e a
+  distinção acumulado vs. período.
+- §11: removida a linha "Vale, saque, débito do barbeiro" da tabela de fora
+  de escopo — ela **previa exatamente este design** ("lançamento negativo no
+  ledger existente"), registrado como confirmado, não apagado da memória do
+  documento.
+
+### Reorganização de navegação (efeito colateral desta sessão)
+
+"Comissão" virou **"Financeiro"** (ícone 💰 mantido) — extrato sozinho não
+cobria mais tudo que passou a dizer respeito ao dinheiro do barbeiro. Sub-abas
+por dentro (`Tabs`, mesmo padrão já usado em Catálogo/Pacotes — sem router):
+Extrato \| Vales \| Fechamento (só admin). Evita crescer o bottom-nav pra 8
+ícones num shell de 430px.
+
+**Testes:** 46 novos no backend (7 em `saldo-do-barbeiro.spec.ts`, 7 novos em
+`lancamento-comissao.spec.ts` incluindo o teste de regressão ★ pedido
+explicitamente, 16 em `vale.spec.ts` cobrindo TODAS as transições legais e
+ilegais, 16 em `vale-e-pagamento.e2e.spec.ts` cobrindo as 4 fases de ponta a
+ponta). **415 testes verdes no backend**, idênticos sob `TZ=UTC`,
+`TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo`. `turbo run build` verde nos 5
+pacotes; `tsc --noEmit` limpo no admin.
+
+### Smoke test manual (pendente — precisa de humano com dinheiro fictício)
+
+1. Logar como barbeiro não-admin → confirmar que só aparece a aba
+   "Financeiro", com sub-abas Extrato e Vales (sem Fechamento).
+2. Nessa conta, ir em Vales → "Solicitar vale" → valor + motivo → confirmar
+   que aparece como PENDENTE e que o saldo no Extrato NÃO muda.
+3. Logar como admin → Financeiro → Vales → aprovar o vale solicitado →
+   confirmar que ainda não afeta o saldo do barbeiro (Extrato dele).
+4. Marcar o vale como pago → confirmar no Extrato do barbeiro: saldo caiu
+   exatamente o valor do vale, aparece um lançamento "Vale pago" em vermelho.
+5. Financeiro → Fechamento → conferir os números do barbeiro (comissão
+   acumulada, vale pago, saldo líquido) → "Registrar pagamento" com um valor
+   MAIOR que o saldo devido → confirmar que é aceito e o saldo fica negativo,
+   exibido em vermelho com o label "deve à casa" (não só o sinal de menos).
+6. Trocar o período de consulta do Fechamento pra um intervalo sem nenhum
+   movimento → confirmar que os totais "no período" zeram mas o "acumulado"
+   continua mostrando os números de sempre (a distinção não pode se perder).
+7. Como não-admin, tentar (via requisição direta, não pela UI) aprovar/negar/
+   pagar um vale ou acessar `/fechamento` → confirmar 403 em todos.
 
 ## Como rodar localmente
 

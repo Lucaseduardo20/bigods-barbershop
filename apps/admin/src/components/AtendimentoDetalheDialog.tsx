@@ -33,10 +33,20 @@ export function AtendimentoDetalheDialog({
   atendimentoId,
   aoFechar,
   aoMudar,
+  somenteLeitura = false,
 }: {
   atendimentoId: string | null;
   aoFechar: () => void;
   aoMudar: () => void;
+  /**
+   * Concluir/cancelar/marcar falta e adicionar item são ações de GESTÃO do
+   * atendimento — fora do que a versão reduzida do barbeiro não-admin deve
+   * oferecer (ele só chega aqui pelo extrato, pra ver o detalhe do que gerou
+   * a comissão, não pra administrar a agenda). Quando true, o diálogo vira
+   * só-leitura: mostra os dados, esconde toda ação. Default false porque o
+   * outro caller (Agenda) só é alcançável por admin.
+   */
+  somenteLeitura?: boolean;
 }) {
   const tz = useTimezone();
   const [forma, setForma] = useState<FormaPagamento>(FormaPagamento.PIX);
@@ -57,8 +67,8 @@ export function AtendimentoDetalheDialog({
     [atendimentoId],
   );
 
-  const servicosReq = useApi(() => api<ServicoDTO[]>('/servicos'), []);
-  const produtosReq = useApi(() => api<ProdutoDTO[]>('/produtos'), []);
+  const servicosReq = useApi(() => (somenteLeitura ? Promise.resolve([]) : api<ServicoDTO[]>('/servicos')), [somenteLeitura]);
+  const produtosReq = useApi(() => (somenteLeitura ? Promise.resolve([]) : api<ProdutoDTO[]>('/produtos')), [somenteLeitura]);
 
   if (!atendimentoId) return null;
   const a = atendimento;
@@ -178,7 +188,7 @@ export function AtendimentoDetalheDialog({
             )}
           </div>
 
-          {agendado && (
+          {agendado && !somenteLeitura && (
             <>
               {/* Item 3/4a: adicionar serviço/produto ANTES de concluir (walk-in add-on) */}
               <div className="card flex flex-col gap-2">

@@ -1,11 +1,30 @@
 import { Module } from '@nestjs/common';
 import { ComissaoController } from './presentation/comissao.controller';
+import { ValesController } from './presentation/vales.controller';
+import { PagamentosController } from './presentation/pagamentos.controller';
+import { FechamentoController } from './presentation/fechamento.controller';
 import { OnAtendimentoConcluidoHandler } from './application/on-atendimento-concluido.handler';
 import { OnVendaDeProdutoRegistradaHandler } from './application/on-venda-de-produto-registrada.handler';
+import { SolicitarValeUseCase } from './application/solicitar-vale.usecase';
+import { AprovarValeUseCase } from './application/aprovar-vale.usecase';
+import { NegarValeUseCase } from './application/negar-vale.usecase';
+import { MarcarValePagoUseCase } from './application/marcar-vale-pago.usecase';
+import { RegistrarPagamentoUseCase } from './application/registrar-pagamento.usecase';
 import { ComissaoQueryService } from './infrastructure/comissao-query.service';
+import { FechamentoQueryService } from './infrastructure/fechamento-query.service';
 
 @Module({
-  controllers: [ComissaoController],
-  providers: [OnAtendimentoConcluidoHandler, OnVendaDeProdutoRegistradaHandler, ComissaoQueryService],
+  controllers: [ComissaoController, ValesController, PagamentosController, FechamentoController],
+  providers: [
+    OnAtendimentoConcluidoHandler,
+    OnVendaDeProdutoRegistradaHandler,
+    ComissaoQueryService,
+    FechamentoQueryService,
+    SolicitarValeUseCase,
+    AprovarValeUseCase,
+    NegarValeUseCase,
+    MarcarValePagoUseCase,
+    RegistrarPagamentoUseCase,
+  ],
 })
 export class PayrollModule {}
