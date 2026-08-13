@@ -3,26 +3,25 @@ import { usuarioSalvo } from './lib/api';
 import { TimezoneProvider } from './lib/tz-context';
 import { Login } from './screens/Login';
 import { Agenda } from './screens/Agenda';
-import { Barbeiros } from './screens/Barbeiros';
+import { Usuarios } from './screens/Usuarios';
 import { Catalogo } from './screens/Catalogo';
 import { Pacotes } from './screens/Pacotes';
 import { Comissao } from './screens/Comissao';
 import { Ajustes } from './screens/Ajustes';
 
 // PARTE 2 (sessão-D): reorganização pura da navegação — "Ajustes" tinha
-// virado depósito de tudo. "Barbeiros" (novo) reúne toda config de UM
-// barbeiro (link, preços, serviços atendidos, expediente — antes espalhada
-// em componentes separados dentro de Ajustes, cada um com seu próprio
-// seletor). "Catálogo" (novo) é o que a casa oferece em geral (serviços e
-// produtos, preço de referência). "Pacotes" virou "Pacotes & Ofertas"
-// (pedido do dono) — já reunia vendidos + catálogo de ofertas desde a
-// sessão anterior. Nenhum endpoint ou comportamento mudou, só onde cada
-// tela vive.
-type Aba = 'agenda' | 'barbeiros' | 'catalogo' | 'pacotes' | 'comissao' | 'ajustes';
+// virado depósito de tudo. "Catálogo" (novo) é o que a casa oferece em
+// geral (serviços e produtos, preço de referência). "Pacotes" virou
+// "Pacotes & Ofertas" (pedido do dono) — já reunia vendidos + catálogo de
+// ofertas desde a sessão anterior.
+// "Usuários" (renomeada de "Barbeiros", sessão de CRUD de usuários): listagem
+// → gerenciar, não é mais "config de UM barbeiro" só — cobre qualquer staff
+// (barbeiro e/ou admin), criação/edição/desativação inclusas.
+type Aba = 'agenda' | 'usuarios' | 'catalogo' | 'pacotes' | 'comissao' | 'ajustes';
 
 const icones: Record<Aba, string> = {
   agenda: '📅',
-  barbeiros: '💈',
+  usuarios: '👤',
   catalogo: '🗂️',
   pacotes: '📦',
   comissao: '💰',
@@ -30,7 +29,7 @@ const icones: Record<Aba, string> = {
 };
 const rotulos: Record<Aba, string> = {
   agenda: 'Agenda',
-  barbeiros: 'Barbeiros',
+  usuarios: 'Usuários',
   catalogo: 'Catálogo',
   pacotes: 'Pacotes & Ofertas',
   comissao: 'Comissão',
@@ -63,7 +62,7 @@ export default function App() {
         </header>
         <main className="pt-2">
           {aba === 'agenda' && <Agenda usuario={usuario} />}
-          {aba === 'barbeiros' && <Barbeiros usuario={usuario} />}
+          {aba === 'usuarios' && <Usuarios usuario={usuario} />}
           {aba === 'catalogo' && <Catalogo usuario={usuario} />}
           {aba === 'pacotes' && <Pacotes usuario={usuario} />}
           {aba === 'comissao' && <Comissao usuario={usuario} />}

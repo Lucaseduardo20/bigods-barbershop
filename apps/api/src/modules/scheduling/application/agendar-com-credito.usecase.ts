@@ -64,6 +64,9 @@ export class AgendarComCreditoUseCase {
     if (!barbeiro || barbeiro.companyId !== input.companyId) {
       throw new NotFoundException('Barbeiro não encontrado');
     }
+    if (!barbeiro.ativo) {
+      throw new BadRequestException('Barbeiro desativado não recebe novos atendimentos');
+    }
 
     // Dia civil LOCAL (fuso da empresa) — não a data UTC bruta do instante.
     const tz = await this.parametros.timezone(input.companyId);

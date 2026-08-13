@@ -76,13 +76,25 @@ export interface BarbeiroDTO {
   precosServicos: ExcecaoPrecoDTO[];
   ativo: boolean;
 }
+/**
+ * Gestão de usuários (admin only — §CLAUDE.md sessão de CRUD staff): mesmos
+ * dados de `BarbeiroDTO` + `login`. Separado de `BarbeiroDTO` de propósito —
+ * `GET /barbeiros` é usado por qualquer staff autenticado (agenda, comissão,
+ * pacotes) e nunca deveria expor login de outro usuário; só a tela de gestão
+ * (admin only) precisa disso.
+ */
+export interface UsuarioStaffDTO extends BarbeiroDTO {
+  /** Login de acesso (staff, AuthProvider local). Null se ainda sem credencial definida. */
+  login: string | null;
+}
 export interface CriarBarbeiroRequest {
   nome: string;
   papeis: Papel[];
   comissaoPadrao: number;
   servicosAtendidos: string[];
-  login?: string;
-  senha?: string;
+  /** Obrigatório: todo usuário novo precisa conseguir logar — não há convite/self-service. */
+  login: string;
+  senha: string;
 }
 export interface AtualizarComissaoRequest {
   comissaoPadrao: number;
@@ -94,6 +106,19 @@ export interface AtualizarPrecosRequest {
 }
 export interface AtualizarSlugRequest {
   slug: string;
+}
+/** Dados básicos de um usuário staff (gestão de usuários — admin only). */
+export interface AtualizarUsuarioRequest {
+  nome: string;
+  papeis: Papel[];
+}
+export interface AlterarStatusUsuarioRequest {
+  ativo: boolean;
+}
+/** Ao menos um dos dois campos deve vir preenchido. */
+export interface AtualizarCredenciaisRequest {
+  login?: string;
+  senha?: string;
 }
 
 // ---------- Expediente semanal recorrente ----------

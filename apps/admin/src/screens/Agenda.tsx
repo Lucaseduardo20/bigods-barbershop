@@ -39,6 +39,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
   const periodoInvalido = modo === 'periodo' && (periodoDe > periodoAte || diferencaDias(periodoDe, periodoAte) > PERIODO_MAXIMO_DIAS);
 
   const barbeiros = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  // Filtro do calendário: inclui inativo de propósito — a agenda passada dele continua consultável.
   const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
 
   const { dados, erro, carregando, recarregar } = useApi(
@@ -271,7 +272,8 @@ function NovoAtendimentoDialog({
 
   const barbeiros = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const servicos = useApi(() => api<ServicoDTO[]>('/servicos'), []);
-  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  // Barbeiro desativado não recebe novos atendimentos — some das opções aqui.
+  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO) && b.ativo);
 
   const alternar = (id: string) =>
     setServicosSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -391,7 +393,8 @@ function VendaDeProdutoDialog({
   const barbeiros = useApi(() => (aberto ? api<BarbeiroDTO[]>('/barbeiros') : Promise.resolve([])), [aberto]);
   const produtos = useApi(() => (aberto ? api<ProdutoDTO[]>('/produtos') : Promise.resolve([])), [aberto]);
   const clientes = useApi(() => (aberto ? api<ClienteDTO[]>('/clientes') : Promise.resolve([])), [aberto]);
-  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
+  // Barbeiro desativado não recebe nova venda atribuída a ele.
+  const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO) && b.ativo);
   const produtosAtivos = (produtos.dados ?? []).filter((p) => p.ativo);
 
   const salvar = async () => {

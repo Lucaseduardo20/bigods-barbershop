@@ -41,6 +41,13 @@ sem nenhuma dependência de AWS, e testada de ponta a ponta com WhatsApp REAL
 backend**, idênticos sob os 3 fusos. `turbo run build` verde. Deploy abstraído
 num comando só (`scripts/deploy.sh local|staging|production` — ver `DEPLOY.md`).
 
+Sessão de CRUD de usuários (2026-08-12, ver seção dedicada perto do fim deste
+arquivo): admin agora cria/edita/desativa barbeiro e/ou admin pelo painel, sem
+mexer no banco à mão — inclui trava de segurança pra nunca ficar sem admin
+ativo, soft-disable (nunca deleta) e permissão real no endpoint (não só
+escondida na UI). **369 testes verdes no backend**, idênticos sob os 3 fusos.
+`turbo run build` verde nos 5 pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -1670,6 +1677,130 @@ Toda menção a "OpenWA"/`@open-wa/wa-automate` no código, testes, READMEs e
 histórico da lib anterior preservado só nos comentários que explicam O PORQUÊ
 da troca (aqui, em `DECISOES_PENDENTES.md`, e no cabeçalho de
 `services/whatsapp-otp/src/index.js`).
+
+## CRUD de usuários staff/admin no painel (2026-08-12) ✅
+
+Até esta sessão, usuário (barbeiro e/ou admin) só nascia do `seed` — criar
+alguém novo em produção exigia mexer no banco à mão, insustentável com a
+operação real rodando. Escopo estrito: só gestão de usuário (criar/editar/
+desativar/credenciais); vale e pagamento ficam pra próxima sessão. Nenhuma
+migration nova — `login`/`senhaHash`/`ativo` já existiam no schema desde a v1
+da autenticação local.
+
+**Domínio (`staff/domain/`):**
+- `Barbeiro` ganhou `renomear`, `atualizarPapeis` (rejeita conjunto vazio,
+  mesma invariante de `criar`), `ativar`/`desativar` (soft-disable — nunca
+  deleta: comissão/atendimento/ledger seguem intactos e consultáveis).
+- Nova função pura `regra-admin-minimo.ts` (`assertNaoRemoveUltimoAdminAtivo`):
+  trava cross-agregado — nunca deixa a empresa sem NENHUM admin ativo, seja
+  desativando o último admin ou removendo o papel ADMIN dele. Testada
+  isoladamente (5 testes), sem tocar banco.
+- `BarbeiroRepository` ganhou `listarTodos` (companyId, sem filtro de papel) —
+  `listar` (já existente) continua filtrando só quem tem papel BARBEIRO, porque
+  é usado por agenda/comissão/pacotes/funil público pra decidir quem atende;
+  misturar os dois quebraria esses fluxos.
+
+**Presentation (`barbeiros.controller.ts`, tudo `@Papeis(Papel.ADMIN)`):**
+- `GET /barbeiros/usuarios` — lista TODO o staff (inclusive admin puro, que
+  `GET /barbeiros` normal não devolve) com `login` incluso. `BarbeiroDTO`
+  normal **não** ganhou `login` de propósito — `GET /barbeiros` é usado por
+  qualquer staff autenticado (não só admin) e nunca deveria vazar username de
+  terceiros; criado `UsuarioStaffDTO` (extends `BarbeiroDTO` + `login`) só pra
+  este endpoint.
+- `POST /barbeiros` — `login`/`senha` viraram **obrigatórios** (antes eram
+  opcionais). Não existe fluxo de convite/self-service pro staff — sem
+  credencial na criação, o usuário nasceria sem jeito nenhum de logar. Criação
+  do barbeiro + credencial agora roda numa transação Prisma só
+  (`$transaction`, reaproveitando `PrismaBarbeiroRepository` com o client
+  transacional) — antes eram duas escritas separadas; virou anti-padrão
+  explícito (CLAUDE.md) no momento em que a credencial passou a ser
+  obrigatória, então foi corrigido nesta sessão.
+- `PUT /barbeiros/:id` — nome + papéis (dados básicos). Comissão/preço/
+  serviços/slug continuam nos endpoints próprios que já existiam.
+- `PUT /barbeiros/:id/status` — ativar/desativar (soft-disable).
+- `PUT /barbeiros/:id/credenciais` — admin reseta login e/ou senha (não existe
+  "esqueci minha senha" pro staff — é sempre o admin que reseta).
+- `PUT /:id`, `/status` e a criação sempre consultam `listarTodos` e chamam
+  `assertNaoRemoveUltimoAdminAtivo` **antes** de persistir — a trava dá 422
+  com mensagem clara, nunca deixa a operação passar silenciosamente.
+- Login duplicado (constraint `@unique`) vira `409` com mensagem amigável, não
+  vaza o erro cru do Postgres.
+
+**Permissão — a trava real é no endpoint, não só no botão escondido:**
+`RolesGuard` (global, `APP_GUARD`) já bloqueia qualquer rota `@Papeis(ADMIN)`
+pra quem não tem o papel — isso sozinho garante que um barbeiro não-admin não
+consegue se auto-promover: ele nem consegue *chamar* `PUT /barbeiros/:id`,
+muito menos editar o próprio registro. Testado explicitamente (403 em todos os
+5 endpoints de gestão, inclusive tentando o próprio barbeiro alterar o próprio
+papel).
+
+**Barbeiro desativado — as 3 consequências pedidas, todas no backend:**
+1. Some do funil público (`GET /public/barbeiros` já filtrava `.ativo`) **e**
+   das opções de agendamento do próprio admin — `Agenda.tsx` (dialogs de novo
+   atendimento e nova venda de produto) não filtrava `ativo`, só papel
+   BARBEIRO; corrigido. E, mais importante, o backend agora recusa a
+   operação mesmo se alguém contornar a UI: `AgendarAvulsoUseCase` e
+   `AgendarComCreditoUseCase` checam `barbeiro.ativo` e devolvem 400 —
+   histórico do gap: antes desta sessão era possível `POST` um agendamento
+   pra um barbeiro inativo direto na API, só escondido na tela.
+2. Mantém extrato/comissão histórico: `GET /barbeiros` (usado por
+   `Comissao.tsx`) e o filtro de calendário em `Agenda.tsx` continuam sem
+   filtrar `ativo` de propósito — comentado no código pra próxima sessão não
+   "corrigir" isso sem querer.
+3. Não consegue mais logar: `LocalAuthProvider.validarCredenciais` já checava
+   `barbeiro.ativo` desde antes desta sessão (nada mudou aqui, só confirmado
+   com teste e2e).
+
+**Como o usuário novo recebe o primeiro acesso:** não há convite por e-mail/
+WhatsApp (fora de escopo — trilha de staff é separada da trilha OTP do
+cliente, CLAUDE.md). O admin cadastra nome + papéis + login + senha inicial no
+diálogo "Novo usuário" e **combina a senha diretamente com a pessoa** (verbal,
+WhatsApp pessoal etc. — fora do sistema). Ela já consegue logar imediatamente
+após a criação. Reset de senha depois é sempre via "Credenciais" (admin).
+
+**Frontend (`apps/admin/src/screens/Barbeiros.tsx`):** nova seção "Usuários
+(staff)" no topo da tela, acima da configuração por-barbeiro que já existia
+(link pessoal/preços/serviços/expediente — inalterada). Lista todos com badges
+de papel + status, e 3 diálogos: Novo usuário (nome, papéis, comissão +
+serviços SE marcar Barbeiro, login+senha), Editar (nome + papéis só — o resto
+tem tela própria), Credenciais (resetar login/senha). Botão inline Desativar/
+Reativar por linha.
+
+**Nenhum `DECISOES_PENDENTES.md` novo:** todas as regras desta sessão (trava
+do último admin, as 3 consequências de desativar, soft-disable nunca deleta)
+já vieram explícitas no pedido do dono — nada precisou ser inventado.
+
+**Testes:** 25 novos no backend (5 em `barbeiro.spec.ts`, 5 em
+`regra-admin-minimo.spec.ts`, 15 em `gestao-de-usuarios.e2e.spec.ts` — cobrindo
+403 pra não-admin em todos os endpoints, criação com login obrigatório e login
+duplicado, reset de credenciais, a trava do último admin nos dois formatos
+[desativar e remover papel] e liberado com 2 admins, e as 3 consequências de
+desativar). **369 testes verdes no backend**, idênticos sob `TZ=UTC`,
+`TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo` (`npm run test:multitz`).
+`turbo run build` verde nos 5 pacotes; `tsc --noEmit` limpo nos 3 frontends.
+
+### Smoke test manual (pendente — precisa de humano com o painel aberto)
+
+1. Login como admin → aba Barbeiros → "Usuários (staff)" mostra todo mundo
+   (inclusive admin sem papel Barbeiro).
+2. "+ Novo usuário": criar um barbeiro (papel Barbeiro, com login/senha) →
+   confirmar que ele aparece na lista e que dá pra logar com o login/senha
+   informados numa aba anônima.
+3. Ele aparece na "Configuração por barbeiro" (embaixo) pra configurar
+   serviços/preços/expediente, e aparece nas opções de barbeiro pra agendar
+   (Agenda → Novo atendimento).
+4. Ele aparece no funil público (`booking`) como opção de barbeiro.
+5. Desativar esse barbeiro (botão "Desativar" na lista) → confirmar: (a) some
+   do funil público e do dropdown de "Novo atendimento"/"Nova venda" na
+   Agenda; (b) continua aparecendo em Comissão com o histórico dele intacto;
+   (c) a aba anônima logada como ele é derrubada/não consegue relogar.
+6. Reativar → volta a logar e a aparecer nas opções de agendamento.
+7. Tentar desativar o ÚLTIMO admin ativo (ou remover o papel Admin dele) →
+   confirmar que a API recusa com mensagem clara (a UI hoje só repassa o erro
+   do backend, não tem um aviso preventivo próprio — funcional, mas vale
+   polir numa próxima passada se incomodar no dia a dia).
+8. Como não-admin (logar como um barbeiro comum): confirmar que a aba
+   "Usuários (staff)" nem aparece (mensagem "restrita ao admin").
 
 ## Como rodar localmente
 

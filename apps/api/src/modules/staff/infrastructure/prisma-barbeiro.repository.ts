@@ -56,6 +56,11 @@ export class PrismaBarbeiroRepository implements BarbeiroRepository {
     return rows.map(paraDominio);
   }
 
+  async listarTodos(companyId: CompanyId): Promise<Barbeiro[]> {
+    const rows = await this.db.barbeiro.findMany({ where: { companyId }, include, orderBy: { nome: 'asc' } });
+    return rows.map(paraDominio);
+  }
+
   async salvar(barbeiro: Barbeiro): Promise<void> {
     const dados = {
       companyId: barbeiro.companyId,

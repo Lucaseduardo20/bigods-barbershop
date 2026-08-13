@@ -106,7 +106,8 @@
       "Bash(grep -n \"estado.step === PASSO.BARBEIRO\\\\|totalCentavos\\(servicos\\\\|duracaoMinutos\\(servicos\\\\|Confirmacao\\\\s*$\\\\|servicos={servicos}\\\\|const total = \\\\|const duracao = \\\\|const valor = \" /home/lkt/work/bigods-barber-v2/apps/booking/src/App.tsx)",
       "WebSearch",
       "WebFetch(domain:docs.openwa.dev)",
-      "WebFetch(domain:www.npmjs.com)"
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(git rm *)"
     ],
     "additionalDirectories": [
       "/tmp"

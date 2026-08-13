@@ -88,6 +88,31 @@ export class Barbeiro extends AggregateRoot {
     this.props.slug = slug;
   }
 
+  renomear(nome: string): void {
+    if (!nome.trim()) {
+      throw new InvarianteVioladaError('Barbeiro exige nome');
+    }
+    this.props.nome = nome.trim();
+  }
+
+  /** Papéis são um conjunto, nunca vazio — a trava do último admin ativo (regra
+   * cross-agregado) é responsabilidade do caller, ver `regra-admin-minimo.ts`. */
+  atualizarPapeis(papeis: Set<Papel>): void {
+    if (papeis.size === 0) {
+      throw new InvarianteVioladaError('Barbeiro exige ao menos um papel');
+    }
+    this.props.papeis = new Set(papeis);
+  }
+
+  /** Soft-disable (nunca deletar — histórico de comissão/atendimento fica intacto). */
+  desativar(): void {
+    this.props.ativo = false;
+  }
+
+  ativar(): void {
+    this.props.ativo = true;
+  }
+
   /** Matriz de comissão: exceção por serviço, senão o padrão. */
   percentualPara(servicoId: ServicoId): Percentual {
     return this.props.excecoesComissao.get(servicoId) ?? this.props.comissaoPadrao;
