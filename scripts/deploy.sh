@@ -26,15 +26,26 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 AMBIENTE="${1:-}"
-COMANDO="${2:-up}"
 NO_BUILD=false
 SEED=false
 PULL=false
-for arg in "$@"; do
+# COMANDO é o primeiro argumento depois de AMBIENTE que NÃO é uma flag "--*"
+# (default "up"). Ex.: `production --pull` não pode fazer COMANDO virar
+# "--pull" — senão o script morre com "Comando desconhecido: --pull" antes
+# de subir qualquer coisa (bug real, encontrado ao usar exatamente esse
+# comando documentado acima).
+COMANDO="up"
+COMANDO_DEFINIDO=false
+for arg in "${@:2}"; do
   case "$arg" in
     --no-build) NO_BUILD=true ;;
     --seed) SEED=true ;;
     --pull) PULL=true ;;
+    --*) ;;
+    # só o PRIMEIRO argumento sem "--" vira COMANDO — os seguintes são
+    # sub-argumentos dele (ex.: o "whatsapp-otp" de `logs whatsapp-otp`,
+    # lido separadamente via $3 mais abaixo).
+    *) [[ "$COMANDO_DEFINIDO" == false ]] && { COMANDO="$arg"; COMANDO_DEFINIDO=true; } ;;
   esac
 done
 
