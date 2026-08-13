@@ -299,7 +299,9 @@ function Funil() {
     setEnviando(true);
     setErroEnvio(null);
     const cliente = { nome: estado.nome.trim(), telefone: estado.telefone };
-    const online = estado.formaPagamento === 'online';
+    // Pacote é sempre online (decisão do dono — sem escolha de presencial,
+    // ver Confirmacao.tsx); avulso segue a escolha do cliente.
+    const online = estado.modo === 'pacote' || estado.formaPagamento === 'online';
     // §4c: só registra de qual link pessoal veio quando o barbeiro FOI mesmo
     // fixado por um link — escolha manual ou barbeiro único da casa não conta
     // como "veio de marketing individual".
@@ -308,7 +310,7 @@ function Funil() {
       if (estado.modo === 'pacote') {
         const r = await api<VenderPacotePublicoResponse>('/public/pacotes', {
           method: 'POST',
-          body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, formaPagamento: estado.formaPagamento, origemLinkBarbeiroId },
+          body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, origemLinkBarbeiroId },
         });
         if (online && r.cobranca) {
           setCobranca(r.cobranca);

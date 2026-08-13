@@ -30,8 +30,17 @@ export interface IntencaoDePagamentoProps {
   referencia: ReferenciaDePagamento;
   valor: Dinheiro;
   status: StatusPagamento;
-  /** Enviado ao gateway como metadata.externalId; o webhook devolve. */
+  /** Enviado ao gateway como `data.externalId` (Checkout Transparente v2); o webhook devolve em `data.transparent.externalId`. */
   externalId: string;
+  /**
+   * Instante em que a cobrança PIX expira, se houver uma (null quando não é
+   * pagamento online — ex.: presencial). A AbacatePay não emite webhook de
+   * "PIX expirou sem pagamento" (só de disputa perdida, ver §3.8) — por isso
+   * expiração é detectada por TIMEOUT LOCAL contra este campo, não por evento
+   * externo. É a mesma janela pedida ao gateway (`expiresIn`), calculada no
+   * momento da criação — não depende de nova chamada à AbacatePay.
+   */
+  expiraEm: Date | null;
 }
 
 export class IntencaoDePagamento extends AggregateRoot {
@@ -39,8 +48,8 @@ export class IntencaoDePagamento extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<IntencaoDePagamentoProps, 'status'>): IntencaoDePagamento {
-    return new IntencaoDePagamento({ ...props, status: StatusPagamento.AGUARDANDO });
+  static criar(props: Omit<IntencaoDePagamentoProps, 'status' | 'expiraEm'> & { expiraEm?: Date | null }): IntencaoDePagamento {
+    return new IntencaoDePagamento({ ...props, expiraEm: props.expiraEm ?? null, status: StatusPagamento.AGUARDANDO });
   }
 
   static reconstituir(props: IntencaoDePagamentoProps): IntencaoDePagamento {
@@ -76,6 +85,15 @@ export class IntencaoDePagamento extends AggregateRoot {
     this.transicionarDeAguardando(StatusPagamento.EXPIRADO);
   }
 
+  /** true se ainda está AGUARDANDO e o prazo local (`expiraEm`) já passou. */
+  expirouPorTempo(agora: Date): boolean {
+    return (
+      this.props.status === StatusPagamento.AGUARDANDO &&
+      this.props.expiraEm !== null &&
+      agora.getTime() >= this.props.expiraEm.getTime()
+    );
+  }
+
   marcarFalha(): void {
     this.transicionarDeAguardando(StatusPagamento.FALHOU);
   }
@@ -95,4 +113,5 @@ export class IntencaoDePagamento extends AggregateRoot {
   get valor() { return this.props.valor; }
   get status() { return this.props.status; }
   get externalId() { return this.props.externalId; }
+  get expiraEm() { return this.props.expiraEm; }
 }

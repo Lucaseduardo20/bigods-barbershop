@@ -14,7 +14,6 @@ import { Type } from 'class-transformer';
 import { IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import {
-  FormaPagamentoFunil,
   PacoteOfertaDTO,
   PagamentoStatusDTO,
   VenderPacotePublicoResponse,
@@ -23,6 +22,7 @@ import { PacoteOfertasQueryService } from '../infrastructure/pacote-ofertas-quer
 import { VenderPacoteUseCase } from '../application/vender-pacote.usecase';
 import { PagamentoStatusQueryService } from '../../payments/infrastructure/pagamento-status-query.service';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
+import { ExpirarPagamentoVencidoUseCase } from '../../payments/application/expirar-pagamento-vencido.usecase';
 import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
   IntencaoDePagamentoRepository,
@@ -38,7 +38,6 @@ class VenderPacotePublicoDto {
   @IsString() @MinLength(1) companyId!: string;
   @IsString() @MinLength(1) ofertaId!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
-  @IsIn(['online', 'presencial']) formaPagamento!: FormaPagamentoFunil;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
 }
@@ -59,6 +58,7 @@ export class PacotesPublicoController {
     private readonly venderPacote: VenderPacoteUseCase,
     private readonly pagamentoStatus: PagamentoStatusQueryService,
     private readonly processarWebhook: ProcessarWebhookUseCase,
+    private readonly expirarPagamentoVencido: ExpirarPagamentoVencidoUseCase,
     @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
   ) {}
 
@@ -88,7 +88,10 @@ export class PacotesPublicoController {
       servicoIds: oferta.servicoIds,
       valorPagoCentavos: oferta.precoCentavos,
       pagamentoImediato: false,
-      gerarCobranca: body.formaPagamento === 'online',
+      // Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono) —
+      // nunca lido do request; o cliente não escolhe mais "pagar na barbearia"
+      // aqui. Garante caixa adiantado antes de liberar crédito de pacote.
+      gerarCobranca: true,
     });
 
     return {
@@ -106,6 +109,9 @@ export class PacotesPublicoController {
     @Query('companyId') companyId?: string,
   ): Promise<PagamentoStatusDTO> {
     if (!companyId) throw new BadRequestException('Parâmetro companyId obrigatório');
+    // A cada tick do polling é a própria chance de detectar expiração por
+    // timeout local (sem webhook de "PIX expirou", ver expiraEm no domínio).
+    await this.expirarPagamentoVencido.executar(intencaoId);
     const status = await this.pagamentoStatus.status(companyId, intencaoId);
     if (!status) throw new NotFoundException('Pagamento não encontrado');
     return status;

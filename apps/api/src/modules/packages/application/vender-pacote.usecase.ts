@@ -70,6 +70,13 @@ export class VenderPacoteUseCase {
     const telefone = Telefone.de(input.cliente.telefone);
     const vendaId = randomUUID();
     const eventos: DomainEvent[] = [];
+    // Gera PIX só quando NÃO foi pago na hora E a cobrança online foi pedida
+    // (default true). Presencial público → intenção fica AGUARDANDO, sem PIX.
+    // Calculado ANTES da transação pra já saber, na criação da intenção, se
+    // ela vai ter prazo de expiração local (§3.8) — sem precisar de um
+    // segundo save depois de chamar o gateway.
+    const gerarCobranca = !input.pagamentoImediato && (input.gerarCobranca ?? true);
+    const expiraEm = gerarCobranca ? new Date(Date.now() + this.gateway.expiraEmSegundos * 1000) : null;
 
     const resultado = await this.uow.transacao(async (repos) => {
       let cliente = await repos.clientes.porTelefone(input.companyId, telefone);
@@ -106,6 +113,7 @@ export class VenderPacoteUseCase {
         referencia: { tipo: 'VENDA_DE_PACOTE', vendaDePacoteId: vendaId },
         valor: Dinheiro.deCentavos(input.valorPagoCentavos),
         externalId: randomUUID(),
+        expiraEm,
       });
 
       if (input.pagamentoImediato) {
@@ -121,11 +129,8 @@ export class VenderPacoteUseCase {
 
     await this.publisher.publicar(eventos);
 
-    // Gera PIX só quando NÃO foi pago na hora E a cobrança online foi pedida
-    // (default true). Presencial público → intenção fica AGUARDANDO, sem PIX.
-    const gerarCobranca = input.gerarCobranca ?? true;
     let cobranca: VenderPacoteOutput['cobranca'] = null;
-    if (!input.pagamentoImediato && gerarCobranca) {
+    if (gerarCobranca) {
       const pix = await this.gateway.criarCobrancaPix({
         valor: resultado.intencao.valor,
         descricao: `Pacote ${vendaId}`,

@@ -3,9 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { CobrancaPix, PaymentGateway } from '../domain/payment-gateway';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 
+const EXPIRA_PADRAO_SEGUNDOS = 3600;
+
 /** Fake local do AbacatePay — a chamada externa real será plugada pela mesma interface. */
 @Injectable()
 export class FakeAbacatePayGateway implements PaymentGateway {
+  readonly expiraEmSegundos = EXPIRA_PADRAO_SEGUNDOS;
+
   async criarCobrancaPix(params: {
     valor: Dinheiro;
     descricao: string;
@@ -16,6 +20,7 @@ export class FakeAbacatePayGateway implements PaymentGateway {
       gatewayId,
       qrCode: `data:image/png;base64,FAKE-${params.externalId}`,
       copiaECola: `00020126FAKE-PIX-${params.externalId}-${params.valor.centavos}`,
+      expiresAt: new Date(Date.now() + EXPIRA_PADRAO_SEGUNDOS * 1000),
     };
   }
 }
