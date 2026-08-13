@@ -338,3 +338,24 @@ open-wa+Puppeteer+Chrome) — não era o objetivo da troca, mas reforçou que er
 **A confirmar com o negócio:** nenhuma pendência de domínio aqui — decisão de biblioteca/implementação
 (CLAUDE.md: "decisões de implementação... você toma sozinho"), registrada por ter sido uma mudança
 grande de rumo dentro da mesma sessão de lançamento, não por exigir aprovação de regra de negócio.
+
+## 26. `Vale`: sem transição de cancelar (PENDENTE) nem reverter aprovação (APROVADO→PENDENTE) (sessão de vale/pagamento)
+
+A máquina de estado implementada (DOMAIN.md §4.4) só tem as transições explicitamente pedidas:
+`PENDENTE → APROVADO`, `PENDENTE → NEGADO`, `APROVADO → PAGO`. Duas lacunas reais de operação não
+foram especificadas e por isso não foram inventadas:
+
+1. **Barbeiro desiste do próprio pedido enquanto `PENDENTE`** — hoje não há como cancelar; o único
+   jeito de "encerrar" é o admin negar (o que grava um `motivoNegacao` que não é bem "o barbeiro
+   desistiu").
+2. **Admin aprovou por engano e quer reverter antes de pagar** — hoje `APROVADO` só anda pra
+   frente (`marcarPago`); não existe `APROVADO → PENDENTE` nem `APROVADO → NEGADO`.
+
+Nenhum dos dois afeta o ledger (ambos os casos hipotéticos ficam antes do `PAGO`, que é onde o
+dinheiro realmente nasce) — a lacuna é só de conveniência operacional, não de integridade
+financeira. Se aparecer necessidade real, é uma transição nova pequena no agregado `Vale`
+(`cancelar()` e/ou `reverterAprovacao()`), sem tocar `LancamentoComissao`.
+
+**A confirmar com o negócio:** se/quando isso incomodar no dia a dia (ex.: admin aprova errado com
+frequência), decidir se cabe reverter aprovação, ou se o processo operacional é só "negar e pedir
+de novo" — depende de quão comum é o erro na prática, informação que só a operação real vai dar.

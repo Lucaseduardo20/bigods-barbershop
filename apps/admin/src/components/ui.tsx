@@ -1,6 +1,28 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { ApiError } from '../lib/api';
+import { ApiError, limparSessao } from '../lib/api';
 import { centavosParaTextoMoeda, textoParaCentavosMoeda } from '../lib/moeda';
+
+/**
+ * Sair estava só dentro de Ajustes — se essa aba ficar fora do alcance de
+ * alguém (como aconteceu com o barbeiro não-admin numa versão anterior desta
+ * navegação), a pessoa fica sem jeito nenhum de deslogar. Botão no cabeçalho
+ * (sempre visível, qualquer aba) resolve isso de vez — reusa a mesma lógica.
+ */
+export function BotaoSair() {
+  return (
+    <button
+      className="btn btn-ghost icon-btn"
+      onClick={() => {
+        limparSessao();
+        window.location.reload();
+      }}
+      aria-label="Sair da conta"
+      title="Sair da conta"
+    >
+      ⏻
+    </button>
+  );
+}
 
 export function Badge({ tone, children }: { tone: string; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
@@ -110,6 +132,27 @@ export function ErroEstado({ erro, aoTentar }: { erro: string; aoTentar?: () => 
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * Botãozinho de atualizar pras telas com listagem — `useApi` já cacheia por
+ * `versao` e só refaz o fetch quando as deps mudam, então dado pode ficar
+ * visivelmente desatualizado depois de uma ação em outra aba/aparelho. Um
+ * jeito manual e óbvio de forçar `recarregar()` sem esperar navegar pra
+ * outra tela e voltar.
+ */
+export function BotaoAtualizar({ onClick, carregando }: { onClick: () => void; carregando?: boolean }) {
+  return (
+    <button
+      className={`btn btn-ghost icon-btn ${carregando ? 'icon-btn-girando' : ''}`}
+      onClick={onClick}
+      disabled={carregando}
+      aria-label="Atualizar"
+      title="Atualizar"
+    >
+      ↻
+    </button>
   );
 }
 

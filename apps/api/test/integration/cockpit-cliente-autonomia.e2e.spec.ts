@@ -515,6 +515,7 @@ describe('FASE 4b — reembolso manual do saldo residual (§8.7)', () => {
   const foneH = fone('8000');
   let clienteHId: string;
   let tokenH: string;
+  let tokenBarbeiroNaoAdmin: string;
 
   /** Venda com saldoResidual pronto pra reembolsar — mesmo padrão da FASE 4a, com controle extra de `saldoResidualDesde`/`compradoEm` pra testar o prazo de 45 dias. */
   async function criarVendaComSaldo(params: {
@@ -559,6 +560,15 @@ describe('FASE 4b — reembolso manual do saldo residual (§8.7)', () => {
       .expect(201);
     tokenH = await loginCompleto(foneH);
     clienteHId = (await prisma.cliente.findFirstOrThrow({ where: { companyId, telefone: e164(foneH) } })).id;
+
+    const naoAdminLogin = `barb-nao-admin-${randomUUID().slice(0, 8)}`;
+    await prisma.barbeiro.create({
+      data: {
+        id: `bar-nao-admin-${randomUUID()}`, companyId, nome: 'Barbeiro Não-Admin', slug: `barbeiro-nao-admin-${randomUUID().slice(0, 8)}`,
+        papeis: ['BARBEIRO'], comissaoPadraoBp: 4000, login: naoAdminLogin, senhaHash: hashSenha(SENHA),
+      },
+    });
+    tokenBarbeiroNaoAdmin = (await http.post('/auth/login').send({ login: naoAdminLogin, senha: SENHA }).expect(201)).body.token;
   });
 
   it('pedir reembolso cria solicitação PENDENTE e reserva o saldo (some do saldoResidual)', async () => {
@@ -574,6 +584,21 @@ describe('FASE 4b — reembolso manual do saldo residual (§8.7)', () => {
     expect(solicitacao.status).toBe('PENDENTE');
     expect(solicitacao.valorCentavos).toBe(5000);
     expect(solicitacao.clienteId).toBe(clienteHId);
+  });
+
+  it('★ ACL: não-admin recebe 403 pra listar pendentes ou confirmar reembolso — reembolso é ação de admin', async () => {
+    const vendaId = await criarVendaComSaldo({ saldoResidualCentavos: 3000, saldoResidualDesde: new Date() });
+    const pedido = await http.post(`/conta/pacotes/${vendaId}/reembolso`).set('Authorization', `Bearer ${tokenH}`).expect(201);
+
+    await http.get('/pacotes/reembolsos/pendentes').set('Authorization', `Bearer ${tokenBarbeiroNaoAdmin}`).expect(403);
+    await http
+      .post(`/pacotes/reembolsos/${pedido.body.solicitacaoId}/confirmar`)
+      .set('Authorization', `Bearer ${tokenBarbeiroNaoAdmin}`)
+      .expect(403);
+
+    // ainda pendente — a tentativa negada não teve efeito nenhum
+    const solicitacao = await prisma.solicitacaoDeReembolso.findUniqueOrThrow({ where: { id: pedido.body.solicitacaoId } });
+    expect(solicitacao.status).toBe('PENDENTE');
   });
 
   it('admin marca como reembolsado: saldo reservado vira saldoReembolsado, solicitação fecha', async () => {

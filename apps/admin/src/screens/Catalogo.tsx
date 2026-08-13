@@ -3,7 +3,7 @@ import type { ProdutoDTO, ServicoDTO, UsuarioDTO } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dinheiro } from '../lib/format';
-import { Badge, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { Badge, BotaoAtualizar, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
 
 type Aba = 'servicos' | 'produtos';
 
@@ -90,9 +90,12 @@ function Servicos() {
     <div className="mb-5">
       <div className="flex items-center justify-between mb-2">
         <div className="label m-0">Serviços</div>
-        <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
-          + Novo
-        </button>
+        <div className="flex gap-2 items-center">
+          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
+          <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
+            + Novo
+          </button>
+        </div>
       </div>
       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
         Preço de referência da casa — cada barbeiro pode ter um override próprio (aba Barbeiros).
@@ -191,9 +194,12 @@ function Produtos() {
     <div className="mb-5">
       <div className="flex items-center justify-between mb-2">
         <div className="label m-0">Produtos</div>
-        <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
-          + Novo
-        </button>
+        <div className="flex gap-2 items-center">
+          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
+          <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
+            + Novo
+          </button>
+        </div>
       </div>
       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
         Venda mínima, sem controle de estoque — só nome, preço e ativo/inativo.

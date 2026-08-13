@@ -11,12 +11,12 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { SolicitacaoDeReembolsoDTO, VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
+import { Papel, SolicitacaoDeReembolsoDTO, VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
 import { VenderPacoteUseCase } from '../application/vender-pacote.usecase';
 import { ConfirmarPagamentoPresencialUseCase } from '../application/confirmar-pagamento-presencial.usecase';
 import { ConfirmarReembolsoUseCase } from '../application/confirmar-reembolso.usecase';
 import { PacotesQueryService } from '../infrastructure/pacotes-query.service';
-import { UsuarioAtual } from '../../identity/presentation/auth.decorators';
+import { Papeis, UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 
 class ClienteInlineDto {
@@ -79,8 +79,12 @@ export class PacotesController {
 
   /**
    * FASE 4b (sessão-E, §8.7): lista de solicitações de reembolso PENDENTES —
-   * admin vê e decide devolver por fora (PIX manual).
+   * admin vê e decide devolver por fora (PIX manual). `@Papeis(ADMIN)`
+   * corrigido nesta sessão (ACL) — endpoint nasceu sem guard, aberto pra
+   * qualquer staff autenticado; o comentário já dizia "admin decide", só
+   * faltava o backend impor.
    */
+  @Papeis(Papel.ADMIN)
   @Get('reembolsos/pendentes')
   async reembolsosPendentes(
     @UsuarioAtual() usuario: UsuarioAutenticado,
@@ -91,8 +95,10 @@ export class PacotesController {
   /**
    * Admin confirma que já devolveu o dinheiro (reembolso é sempre manual,
    * sem gateway) — fecha a solicitação e move o saldo reservado pra
-   * `saldoReembolsado` no pacote.
+   * `saldoReembolsado` no pacote. `@Papeis(ADMIN)` — mesma correção de ACL
+   * do endpoint acima.
    */
+  @Papeis(Papel.ADMIN)
   @Post('reembolsos/:id/confirmar')
   async confirmarReembolsoSolicitado(
     @Param('id') id: string,

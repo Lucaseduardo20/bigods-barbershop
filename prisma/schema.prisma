@@ -99,6 +99,7 @@ model Company {
   lancamentos   LancamentoComissao[]
   intencoes     IntencaoDePagamento[]
   pacoteOfertas PacoteOferta[]
+  vales         Vale[]
 }
 
 model Servico {
@@ -463,30 +464,92 @@ model ItemVendaDeProduto {
   @@index([vendaId])
 }
 
-// Ledger generalizado (§3.7): origem SERVICO (via Atendimento) ou PRODUTO (via
-// Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente um par
-// (atendimentoId|vendaDeProdutoId) e (servicoId|produtoId) é preenchido, a
-// depender da origem. atendimentoId/servicoId viraram nullable nesta migration
-// — lançamentos existentes (todos origem=SERVICO, default) NÃO são afetados,
-// continuam com os mesmos valores.
+// Ledger de 3 direções (sessão de vale/pagamento): `tipo` é o eixo NOVO —
+// COMISSAO (+, já existia) | VALE (−) | PAGAMENTO (−). `origem` continua
+// SERVICO|PRODUTO mas só faz sentido quando tipo=COMISSAO (por isso virou
+// opcional aqui) — é um eixo DIFERENTE (o que gerou a comissão), não o mesmo
+// campo generalizado de novo: colocar VALE/PAGAMENTO dentro de `origem`
+// misturaria "sub-tipo de comissão" com "natureza do lançamento" no mesmo
+// enum. valorBaseCentavos/percentualAplicadoBp só existem pra COMISSAO (vale
+// e pagamento são valor direto, sem base×percentual) — por isso também
+// nullable agora. Lançamentos existentes (todos tipo=COMISSAO, default) NÃO
+// mudam de forma nem de valor — mesma disciplina da generalização anterior
+// de origem (SERVICO→SERVICO|PRODUTO, sessão 2026-07-16).
 model LancamentoComissao {
-  id                    String         @id
+  id                    String          @id
   companyId             String
   barbeiroId            String
-  origem                OrigemComissao @default(SERVICO)
+  tipo                  TipoLancamento  @default(COMISSAO)
+  // Mantém o default histórico (SERVICO): código que cria um lançamento sem
+  // passar `origem` explicitamente (não deveria acontecer, mas é a mesma
+  // rede de segurança que já existia antes desta sessão) continua caindo em
+  // SERVICO, nunca NULL por omissão. VALE/PAGAMENTO passam null EXPLICITAMENTE
+  // (ver `LancamentoComissao.criarDeVale/criarDePagamento`) — um valor
+  // explícito sempre vence o default do banco, então isso não conflita.
+  origem                OrigemComissao? @default(SERVICO)
   atendimentoId         String?
   vendaDeProdutoId      String?
   servicoId             String?
   produtoId             String?
-  valorBaseCentavos     Int
-  percentualAplicadoBp  Int
+  // Preenchido só quando tipo=VALE — rastreia até o Vale (PAGO) que gerou
+  // este débito. Sem @relation formal (mesmo padrão de atendimentoId acima:
+  // referência de auditoria, não FK rígida).
+  valeId                String?
+  // Quem confirmou que o dinheiro se moveu de fato — o admin que marcou o
+  // vale como PAGO, ou que registrou o pagamento (FASE 2). Null quando
+  // tipo=COMISSAO (gerado pelo sistema, não por uma ação humana pontual).
+  registradoPorId       String?
+  valorBaseCentavos     Int?
+  percentualAplicadoBp  Int?
   valorComissaoCentavos Int
-  ocorridoEm            DateTime       @db.Timestamptz(3)
+  ocorridoEm            DateTime        @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id])
 
   @@index([barbeiroId])
   @@index([atendimentoId])
+  @@index([valeId])
+}
+
+// Vale/adiantamento de comissão (sessão de vale/pagamento) — item antes fora
+// de escopo (DOMAIN.md §11), incluído agora por necessidade real da operação.
+// Máquina de estado: PENDENTE → APROVADO → PAGO (só aqui nasce o débito no
+// ledger, ver LancamentoComissao) | PENDENTE → NEGADO (final, motivo
+// obrigatório). Um vale aprovado mas não pago é compromisso, não dinheiro
+// movido — por isso o ledger só é afetado na transição APROVADO→PAGO.
+enum TipoLancamento {
+  COMISSAO
+  VALE
+  PAGAMENTO
+}
+
+enum StatusVale {
+  PENDENTE
+  APROVADO
+  PAGO
+  NEGADO
+}
+
+model Vale {
+  id            String     @id
+  companyId     String
+  barbeiroId    String
+  valorCentavos Int
+  motivo        String?
+  status        StatusVale @default(PENDENTE)
+  solicitadoEm  DateTime   @db.Timestamptz(3)
+  // PENDENTE → APROVADO ou PENDENTE → NEGADO
+  decididoPorId String?
+  decididoEm    DateTime?  @db.Timestamptz(3)
+  motivoNegacao String?
+  // APROVADO → PAGO (nasce o LancamentoComissao tipo=VALE nesta transição)
+  pagoPorId     String?
+  pagoEm        DateTime?  @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([barbeiroId])
 }
 
 model IntencaoDePagamento {

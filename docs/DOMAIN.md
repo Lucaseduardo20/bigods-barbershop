@@ -496,50 +496,67 @@ Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) +
 
 ---
 
-### 3.7 `LancamentoComissao` (raiz) — ledger auditável
+### 3.7 `LancamentoComissao` (raiz) — ledger de 3 direções, auditável
 
-**Requisito não-negociável de governança.** Cada centavo de comissão tem um lançamento
-rastreável até o atendimento (ou venda de produto) que o gerou. Não existe "saldo
-acumulado" como campo mutável.
+**Requisito não-negociável de governança.** Cada centavo tem um lançamento rastreável até
+o fato que o gerou (atendimento, venda de produto, vale pago ou pagamento registrado). Não
+existe "saldo acumulado" como campo mutável — **saldo do barbeiro = soma dos lançamentos**,
+sempre.
 
 **Generalizado na sessão 2026-07-16 (item 4)** para cobrir origem `SERVICO` (via
 `Atendimento`) e `PRODUTO` (via `Atendimento` — add-on, §3.5 — ou `VendaDeProduto` avulsa,
-§3.10). Exatamente um par (`atendimentoId` | `vendaDeProdutoId`) e (`servicoId` |
-`produtoId`) é preenchido, a depender de `origem`.
+§3.10). **Generalizado de novo na sessão de vale/pagamento** para um ledger de **3
+direções**: `tipo` é o eixo que decide o sinal no saldo.
+
+```
+saldo(barbeiro) = Σ valorComissao(COMISSAO) − Σ valorComissao(VALE) − Σ valorComissao(PAGAMENTO)
+```
+
+`tipo` (COMISSAO `+` | VALE `−` | PAGAMENTO `−`) é um eixo **ortogonal** a `origem`
+(SERVICO | PRODUTO) — não é o mesmo campo generalizado de novo. `origem` responde "o que
+gerou esta comissão" e só faz sentido quando `tipo = COMISSAO`; `tipo` responde "este
+lançamento soma ou subtrai do saldo". Misturar os dois no mesmo enum faria `origem` ter
+valores como `VALE` que não descrevem origem nenhuma — por isso é um campo novo, não uma
+extensão do antigo. `valorBase`/`percentualAplicado` também só existem para `COMISSAO` (vale
+e pagamento são um valor direto, sem "base × percentual").
 
 | Campo | Tipo | Nota |
 |---|---|---|
 | `id` | LancamentoId | |
 | `companyId` | CompanyId | |
 | `barbeiroId` | BarbeiroId | |
-| `origem` | `SERVICO` \| `PRODUTO` | |
+| `tipo` | `COMISSAO` \| `VALE` \| `PAGAMENTO` | decide o sinal no saldo (ver fórmula acima) |
+| `origem` | `SERVICO` \| `PRODUTO` \| null | só quando tipo=COMISSAO |
 | `atendimentoId` | AtendimentoId \| null | preenchido quando a origem foi um Atendimento (serviço OU produto add-on) |
 | `vendaDeProdutoId` | VendaDeProdutoId \| null | preenchido quando a origem foi uma venda avulsa de produto |
 | `servicoId` | ServicoId \| null | preenchido só se origem = SERVICO |
 | `produtoId` | ProdutoId \| null | preenchido só se origem = PRODUTO |
-| `valorBase` | Dinheiro | serviço: avulso OU rateado do pacote. Produto: unitário × quantidade |
-| `percentualAplicado` | Percentual | snapshot da regra vigente na conclusão/venda — `barbeiro.percentualPara(servicoId)` para serviço, `barbeiro.comissaoProdutos` (único, sem matriz) para produto |
-| `valorComissao` | Dinheiro | `valorBase × percentualAplicado` |
+| `valeId` | ValeId \| null | só quando tipo=VALE — rastreia até o `Vale` (§3.12) que foi pago |
+| `registradoPorId` | BarbeiroId \| null | só tipo=VALE\|PAGAMENTO — o admin que confirmou que o dinheiro se moveu. Null em COMISSAO (gerado pelo sistema) |
+| `valorBase` | Dinheiro \| null | só COMISSAO. serviço: avulso OU rateado do pacote. Produto: unitário × quantidade |
+| `percentualAplicado` | Percentual \| null | só COMISSAO — snapshot da regra vigente na conclusão/venda — `barbeiro.percentualPara(servicoId)` para serviço, `barbeiro.comissaoProdutos` (único, sem matriz) para produto |
+| `valorComissao` | Dinheiro | **magnitude** do lançamento (sempre positiva) — `valorBase × percentualAplicado` se COMISSAO, valor direto se VALE/PAGAMENTO. O sinal no saldo vem de `tipo`, nunca deste campo |
 | `ocorridoEm` | Timestamp | |
 
-**Compatibilidade:** `atendimentoId` e `servicoId` eram `NOT NULL` antes desta sessão;
-viraram opcionais via migration aditiva (`ALTER COLUMN ... DROP NOT NULL` + novas colunas
-com default). Lançamentos existentes **não mudam de forma** — continuam com `origem =
-SERVICO` (default) e os mesmos valores em `atendimentoId`/`servicoId`.
+**Compatibilidade:** `atendimentoId`/`servicoId` (sessão 2026-07-16) e agora
+`valorBase`/`percentualAplicado`/`origem` (sessão de vale/pagamento) viraram opcionais via
+migrations aditivas (`ALTER COLUMN ... DROP NOT NULL`, `origem` mantém `DEFAULT SERVICO`
+pra código que insere sem passar o campo continuar caindo em SERVICO, nunca NULL por
+omissão). Lançamentos existentes **não mudam de forma nem de valor** — `tipo` ganhou
+`DEFAULT COMISSAO`, preenchido retroativamente em toda linha existente.
 
-**Saldo do barbeiro = soma dos lançamentos.** Nunca um campo `commission` no `Barbeiro`.
+**Saldo pode ser NEGATIVO** (barbeiro deve à casa) — por isso o saldo em si não é
+representado como `Dinheiro` (VO que nunca é negativo por invariante), é um inteiro de
+centavos com sinal, calculado na borda de leitura.
 
 **Nota v1:** a comissão era um `+=` na coluna `commission` do `User`, sem histórico. Se o barbeiro
 perguntasse "por que recebi X?", o sistema não sabia responder. Isso destrói confiança —
 especialmente entre sócios. Aqui, o extrato é a fonte da verdade e o saldo é derivado.
 
-**Extensão futura (não implementar agora):** vale/adiantamento e saque entram como lançamentos
-**negativos** no mesmo ledger. Fazer o ledger direito agora é o que permite adicionar isso depois
-sem retrofit.
-
 **Projeção de comissão futura:** calculada como soma sobre atendimentos `AGENDADO` (ainda não
 concluídos). **É uma query de leitura, não um lançamento.** Nunca somar projeção com saldo real —
-na UI e na API, são números separados e rotulados. Agendamento futuro pode ser cancelado.
+na UI e na API, são números separados e rotulados. Agendamento futuro pode ser cancelado. Vale
+e pagamento são sempre fatos **consumados** — nunca entram na projeção, só no saldo real.
 
 ---
 
@@ -672,6 +689,46 @@ nome dele) pode criar/editar sua própria oferta; só um admin aprova/rejeita (v
 **Uso na venda:** `expandirServicoIds()` repete cada `servicoId` da composição pela
 `quantidade` — o mesmo array plano que `VenderPacoteUseCase` já aceitava antes desta
 sessão (nenhuma mudança na assinatura do rateio, §3.6).
+
+---
+
+### 3.12 `Vale` (raiz) — adiantamento de comissão (sessão de vale/pagamento)
+
+Item que estava explicitamente **fora de escopo** (§11, "só faz sentido com barbeiro
+contratado; hoje o único barbeiro é sócio") — entrou nesta sessão porque a operação real
+passou a ter barbeiro contratado pedindo adiantamento, deixando de ser hipotético.
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | ValeId | |
+| `companyId` | CompanyId | |
+| `barbeiroId` | BarbeiroId | quem solicitou/vai receber |
+| `valor` | Dinheiro | sempre positivo |
+| `motivo` | string \| null | opcional, do barbeiro, na solicitação |
+| `status` | `PENDENTE` \| `APROVADO` \| `PAGO` \| `NEGADO` | ver máquina de estado, §4.4 |
+| `solicitadoEm` | Timestamp | |
+| `decididoPorId` | BarbeiroId \| null | admin que aprovou ou negou |
+| `decididoEm` | Timestamp \| null | |
+| `motivoNegacao` | string \| null | obrigatório quando NEGADO |
+| `pagoPorId` | BarbeiroId \| null | admin que confirmou a entrega do dinheiro |
+| `pagoEm` | Timestamp \| null | |
+
+**Regra crítica: o débito no ledger nasce SÓ na transição APROVADO→PAGO**, nunca na
+aprovação — um vale aprovado mas não pago é compromisso, não dinheiro movido, e o ledger
+só registra dinheiro que se moveu de fato (§3.7). `Vale` e o `LancamentoComissao`
+resultante mudam juntos na mesma transação (dois agregados, atomicidade exigida — §2.2).
+
+**Autorização:** barbeiro (inclusive não-admin) solicita e vê **só os próprios** vales;
+só admin vê todos, aprova, nega e marca como pago. Um admin que TAMBÉM é o barbeiro dono
+do vale PODE aprovar/pagar o próprio (mesma decisão consciente já tomada pra aprovação de
+`PacoteOferta`, §3.11/§4.3 — sem isso o fluxo trava com um único admin/barbeiro real).
+
+**Pagamento da casa ao barbeiro** (`LancamentoComissao` tipo=PAGAMENTO) é mais simples e
+**não** tem agregado próprio: é uma ação direta do admin (valor livre, sem aprovação
+prévia), registrada como lançamento único no ledger, com `registradoPorId` para
+auditoria. **Sem trava de saldo** — decisão do dono: o ledger reflete o que foi pago de
+verdade, mesmo que o saldo fique negativo; não há validação "não pode pagar mais que o
+saldo".
 
 ---
 
@@ -815,6 +872,34 @@ nada; depois, expira exatamente o que deveria). Não é um trigger em tempo real
 
 ---
 
+### 4.4 `Vale` (sessão de vale/pagamento)
+
+```
+                    aprovar               marcarPago
+   PENDENTE ───────────────────► APROVADO ───────────► PAGO (final)
+      │
+      │ negar(motivo)
+      ▼
+   NEGADO (final)
+```
+
+- **Só transições explícitas acima existem.** Não há `APROVADO → NEGADO` (reverter uma
+  aprovação) nem `PENDENTE → PAGO` direto (pular a aprovação) — chamar qualquer transição
+  fora do diagrama é `TransicaoDeEstadoInvalidaError`.
+- **`negar(motivo)`** exige motivo não-vazio (`motivoNegacao`), mesma disciplina de
+  `PacoteOferta.rejeitar` (§4.3).
+- **`marcarPago` é a ÚNICA transição que afeta o ledger** — só ali nasce o
+  `LancamentoComissao` tipo=VALE (§3.7/§3.12). `aprovar` não move dinheiro nenhum.
+- **Autorização:** barbeiro (inclusive não-admin) só **cria** a própria solicitação; só
+  admin aprova/nega/paga — inclusive o próprio, quando admin+barbeiro (mesma decisão de
+  `PacoteOferta`, acima). O backend impõe isso via guard de papel — não é só a UI que
+  esconde os botões.
+- **`// DECISAO_PENDENTE`**: não há transição de "cancelar" um vale `PENDENTE` (o
+  próprio barbeiro desistir do pedido) nem de reverter um `APROVADO` de volta pra
+  `PENDENTE` — não foi pedido nesta sessão; ver DECISOES_PENDENTES.
+
+---
+
 ## 5. Eventos de domínio
 
 Emitidos pelos agregados, tratados por handlers. **In-process** no MVP (event emitter do Nest,
@@ -906,7 +991,7 @@ bigods/
 │   │       │   ├── scheduling/   # Atendimento  ← núcleo
 │   │       │   ├── packages/     # VendaDePacote, ItemDoPacote, PacoteOferta (§3.11)
 │   │       │   ├── products/     # Produto, VendaDeProduto (§3.9, §3.10)
-│   │       │   ├── payroll/      # LancamentoComissao
+│   │       │   ├── payroll/      # LancamentoComissao (ledger 3 direções, §3.7), Vale (§3.12)
 │   │       │   ├── payments/     # IntencaoDePagamento
 │   │       │   └── identity/     # Cognito, autorização
 │   │       │
@@ -1188,6 +1273,34 @@ o dinheiro já saiu.
 
 ---
 
+### 8.8 Vale, pagamento e fechamento (sessão de vale/pagamento)
+
+**Vale:** barbeiro solicita (`POST /vales`, sempre a própria) → admin aprova ou nega
+(`PATCH /vales/:id/aprovar|negar`, §4.4) → se aprovado, admin marca como pago
+(`PATCH /vales/:id/pagar`) numa transação que fecha o `Vale` (`status=PAGO`) **e** cria o
+`LancamentoComissao` tipo=VALE ao mesmo tempo (§3.7/§3.12) — os dois agregados mudam juntos
+ou nenhum dos dois.
+
+**Pagamento:** admin registra diretamente (`POST /pagamentos`, valor livre, sem aprovação
+prévia) — cria só um `LancamentoComissao` tipo=PAGAMENTO. Sem trava de saldo (§3.12).
+
+**Fechamento (`GET /fechamento?de=&ate=`, admin only):** é uma **projeção de leitura sobre
+o ledger**, na mesma família de "projeção futura de comissão" (§3.7) — nunca cria
+lançamento, nunca "fecha" período de forma imutável (não existe conceito de fatura travada
+nesta sessão). Devolve, por barbeiro, dois grupos de números que **não podem ser
+confundidos**:
+
+- **Acumulado** — soma de TODO o histórico do ledger daquele barbeiro (comissão, vale
+  pago, pagamento, e o saldo líquido resultante). Não depende do período consultado.
+- **Movimento do período** — só o que caiu dentro de `[de, ate]` (dia civil local, mesma
+  disciplina de fuso de §2.6). Não é o saldo, é "o que entrou/saiu nesta janela".
+
+Confundir os dois é o erro mais comum em relatório financeiro — por isso a API devolve os
+dois separados e nomeados (`totalXAcumuladoCentavos` vs. `xNoPeriodoCentavos`), nunca um
+número só.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -1255,7 +1368,7 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Item | Por que fora | Como entra depois |
 |---|---|---|
 | Controle de estoque de produto | Venda de produto (§3.9/§3.10) já implementada (sessão 2026-07-16), mas **sem** quantidade/fornecedor/estoque — decisão consciente, não medida ainda | Campo de quantidade no `Produto` + lançamentos de entrada/saída, quando o volume justificar |
-| Vale, saque, débito do barbeiro | Só faz sentido com barbeiro contratado; hoje o único barbeiro é sócio | Lançamento **negativo** no ledger existente |
+| ~~Vale, saque, débito do barbeiro~~ | **Saiu desta lista** (sessão de vale/pagamento) — a operação real passou a ter barbeiro contratado pedindo adiantamento, deixando de ser hipotético. Ver §3.7 (ledger de 3 direções) e §3.12/§4.4 (`Vale`) | Implementado |
 | Isolamento multi-tenant dinâmico | Nenhum segundo tenant existe para validar contra | `companyId` já está nos agregados (costura pronta) |
 | Aplicação **automática** de saldo residual (sem o cliente escolher) | Implementado na sessão-E (§8.7) como escolha do cliente (abater OU reembolsar) — nunca aplicado sozinho pelo sistema sem pedido explícito | N/A — já resolvido |
 | Desconto progressivo por volume no carrinho | Mecânica distinta do pacote pré-pago; sem evidência operacional | Regra de precificação nova no catálogo |

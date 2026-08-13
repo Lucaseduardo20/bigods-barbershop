@@ -14,7 +14,7 @@ import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
 import { useTimezone } from '../lib/tz-context';
-import { Badge, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { Badge, BotaoAtualizar, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
 import { idEfetivo } from '../lib/selecao';
 
 const toneItem: Record<StatusItemPacote, string> = {
@@ -41,24 +41,24 @@ const tonePagamento: Record<StatusPagamento, string> = {
 type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
 
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [aba, setAba] = useState<Aba>('vendidos');
+  // Reembolso é decisão de admin (backend: @Papeis(ADMIN) em /pacotes/reembolsos/*)
+  // — sem a aba, nunca mostra um botão que ia dar 403.
+  const tabs = [
+    { value: 'vendidos' as const, label: 'Vendidos' },
+    { value: 'catalogo' as const, label: 'Catálogo de ofertas' },
+    ...(ehAdmin ? [{ value: 'reembolsos' as const, label: 'Reembolsos' }] : []),
+  ];
 
   return (
     <div className="px-5">
       <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Pacotes & Ofertas</h1>
-      <Tabs
-        value={aba}
-        onChange={setAba}
-        tabs={[
-          { value: 'vendidos', label: 'Vendidos' },
-          { value: 'catalogo', label: 'Catálogo de ofertas' },
-          { value: 'reembolsos', label: 'Reembolsos' },
-        ]}
-      />
+      <Tabs value={aba} onChange={setAba} tabs={tabs} />
       <div className="mt-3">
         {aba === 'vendidos' && <PacotesVendidos usuario={usuario} />}
         {aba === 'catalogo' && <CatalogoDeOfertas usuario={usuario} />}
-        {aba === 'reembolsos' && <ReembolsosPendentes />}
+        {aba === 'reembolsos' && ehAdmin && <ReembolsosPendentes />}
       </div>
     </div>
   );
@@ -90,6 +90,9 @@ function ReembolsosPendentes() {
 
   return (
     <div>
+      <div className="flex justify-end mb-2">
+        <BotaoAtualizar onClick={recarregar} carregando={carregando} />
+      </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
       {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum reembolso pendente." />}
@@ -144,7 +147,7 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
   return (
     <div>
       <div className="flex items-end justify-between mb-3">
-        <div />
+        <BotaoAtualizar onClick={recarregar} carregando={carregando} />
         <button className="btn btn-sm" onClick={() => setVenderAberto(true)}>
           + Vender
         </button>
@@ -522,16 +525,19 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
         <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
           {ehAdmin ? 'Catálogo de toda a barbearia.' : 'Suas ofertas — cada barbeiro tem o próprio catálogo.'}
         </div>
-        <button
-          className="btn btn-sm"
-          disabled={barbeirosQueAtendem.length === 0 || servicos.length === 0}
-          onClick={() => {
-            setEditando(null);
-            setAberto(true);
-          }}
-        >
-          + Nova
-        </button>
+        <div className="flex gap-2 items-center flex-shrink-0">
+          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
+          <button
+            className="btn btn-sm"
+            disabled={barbeirosQueAtendem.length === 0 || servicos.length === 0}
+            onClick={() => {
+              setEditando(null);
+              setAberto(true);
+            }}
+          >
+            + Nova
+          </button>
+        </div>
       </div>
       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
         Composição pode misturar serviços diferentes. O preço é sempre o que se salva — o

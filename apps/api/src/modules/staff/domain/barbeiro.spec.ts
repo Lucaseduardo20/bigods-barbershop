@@ -134,3 +134,35 @@ describe('Barbeiro — slug do link pessoal (sessão-B, Fase 4b)', () => {
     expect(() => b.atualizarSlug('Invalido!')).toThrow(InvarianteVioladaError);
   });
 });
+
+describe('Barbeiro — gestão de usuários (CRUD staff/admin)', () => {
+  it('renomear troca o nome, aparando espaços', () => {
+    const b = criar();
+    b.renomear('  Gabriel Silva  ');
+    expect(b.nome).toBe('Gabriel Silva');
+  });
+
+  it('renomear rejeita nome vazio', () => {
+    expect(() => criar().renomear('   ')).toThrow(InvarianteVioladaError);
+  });
+
+  it('atualizarPapeis troca o conjunto de papéis', () => {
+    const b = criar();
+    b.atualizarPapeis(new Set([Papel.BARBEIRO]));
+    expect(b.papeis).toEqual(new Set([Papel.BARBEIRO]));
+    expect(b.temPapel(Papel.ADMIN)).toBe(false);
+  });
+
+  it('atualizarPapeis rejeita conjunto vazio — barbeiro sempre tem ao menos um papel', () => {
+    expect(() => criar().atualizarPapeis(new Set())).toThrow(InvarianteVioladaError);
+  });
+
+  it('desativar/ativar alternam o soft-disable (nunca deleta)', () => {
+    const b = criar();
+    expect(b.ativo).toBe(true);
+    b.desativar();
+    expect(b.ativo).toBe(false);
+    b.ativar();
+    expect(b.ativo).toBe(true);
+  });
+});
