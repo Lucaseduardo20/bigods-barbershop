@@ -46,4 +46,39 @@ describe('IntencaoDePagamento', () => {
     expect(() => i.expirar()).toThrow(TransicaoDeEstadoInvalidaError);
     expect(() => i.marcarFalha()).toThrow(TransicaoDeEstadoInvalidaError);
   });
+
+  it('sem expiraEm (ex.: presencial), expirouPorTempo é sempre false', () => {
+    const i = criar();
+    expect(i.expiraEm).toBeNull();
+    expect(i.expirouPorTempo(new Date(Date.now() + 999_999_999))).toBe(false);
+  });
+
+  it('expirouPorTempo é true só quando AGUARDANDO e o prazo local já passou', () => {
+    const agora = new Date('2026-08-13T12:00:00.000Z');
+    const i = IntencaoDePagamento.criar({
+      id: 'int-2',
+      companyId: 'co-1',
+      referencia: { tipo: 'ATENDIMENTO', atendimentoId: 'at-1' },
+      valor: Dinheiro.deCentavos(4000),
+      externalId: 'ext-xyz',
+      expiraEm: new Date('2026-08-13T12:00:00.000Z'),
+    });
+
+    expect(i.expirouPorTempo(new Date(agora.getTime() - 1))).toBe(false); // ainda não chegou o prazo
+    expect(i.expirouPorTempo(agora)).toBe(true); // no limite, já expirou
+    expect(i.expirouPorTempo(new Date(agora.getTime() + 1))).toBe(true);
+  });
+
+  it('expirouPorTempo é false se a intenção já não está mais AGUARDANDO, mesmo com o prazo vencido', () => {
+    const i = IntencaoDePagamento.criar({
+      id: 'int-3',
+      companyId: 'co-1',
+      referencia: { tipo: 'ATENDIMENTO', atendimentoId: 'at-1' },
+      valor: Dinheiro.deCentavos(4000),
+      externalId: 'ext-xyz2',
+      expiraEm: new Date('2020-01-01T00:00:00.000Z'), // bem no passado
+    });
+    i.confirmarPagamento();
+    expect(i.expirouPorTempo(new Date())).toBe(false);
+  });
 });

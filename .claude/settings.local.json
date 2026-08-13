@@ -112,7 +112,8 @@
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema prisma/schema.prisma)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma --name restaura_default_origem_comissao --skip-generate)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma)",
-      "Bash(docker start *)"
+      "Bash(docker start *)",
+      "WebFetch(domain:github.com)"
     ],
     "additionalDirectories": [
       "/tmp"

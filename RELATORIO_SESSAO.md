@@ -58,6 +58,20 @@ estava explicitamente fora de escopo (DOMAIN.md §11) entrou por necessidade
 real da operação. **415 testes verdes no backend**, idênticos sob os 3 fusos.
 `turbo run build` verde nos 5 pacotes.
 
+Sessão de ligação do pagamento online (2026-08-13, "acordar o AbacatePay em
+SANDBOX" — ver seção dedicada perto do fim deste arquivo): o gateway real
+(Checkout Transparente **v2**, não v1/hospedado como presumido em sessões
+anteriores) foi corrigido ponta a ponta contra a documentação oficial da
+AbacatePay — endpoint, payload, e principalmente a verificação de assinatura do
+webhook, que usava um esquema inteiramente diferente do real (chave pública
+fixa + query secret em AND, não o nosso secret sozinho em hex). Política do
+funil aplicada: pacote força pagamento online, avulso mantém a escolha.
+Expiração de PIX não pago passou a ser detectada por timeout local (a
+AbacatePay não emite webhook nenhum pra isso). **Desvio deliberado e reportado**
+da instrução original sobre `transparent.lost` — ver DECISOES_PENDENTES.md #27.
+**428 testes verdes no backend**, idênticos sob os 3 fusos (`npm run
+test:multitz`). `turbo run build` verde nos 5 pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -1976,6 +1990,187 @@ pacotes; `tsc --noEmit` limpo no admin.
 7. Como não-admin, tentar (via requisição direta, não pela UI) aprovar/negar/
    pagar um vale ou acessar `/fechamento` → confirmar 403 em todos.
 
+## Ligação do pagamento online — AbacatePay em SANDBOX, Checkout Transparente v2 (2026-08-13) ✅
+
+Esta sessão **ligou** o pagamento online (`PAYMENT_GATEWAY=abacatepay`), até
+então desligado (`fake`). A integração já existia de sessões anteriores mas
+estava construída contra uma API que **não é a que o dono configurou de
+verdade** — corrigida ponta a ponta contra a documentação oficial da AbacatePay
+(clonada de `github.com/AbacatePay/documentation`, lida página por página, não
+presumida). Suíte confirmada verde (`npm run test` + `test:multitz`) antes de
+tocar em qualquer código, como pedido.
+
+### ★ FASE 1 — modo do gateway: era v1/hospedado presumido, virou v2 Checkout Transparente
+
+**Achado obrigatório de reportar primeiro:** o código anterior assumia a API
+v1 (`https://api.abacatepay.com/v1`, endpoints `/pixQrCode/create` e
+`/pixQrCode/simulate-payment`, `externalId` aninhado em `metadata`, HMAC em hex
+com o nosso próprio secret). A conta real do dono está cadastrada como
+**webhook v2**, assinando **apenas** `transparent.completed` e
+`transparent.lost` — ou seja, **Checkout Transparente** (QR Code + copia-e-cola
+dentro do próprio funil), nunca o modo hospedado (`checkout.*`, que não está
+assinado nesta conta e faria o pagamento nunca confirmar, silenciosamente).
+
+**Ficou:** `AbacatePayGateway` reescrito para `POST /v2/transparents/create` e
+`POST /v2/transparents/simulate-payment`; `externalId` enviado **direto** em
+`data.externalId` (nunca em `data.metadata`).
+
+### Confirmação do formato v2
+
+Payload do webhook confirmado contra `pages/webhooks/events/transparent.mdx`:
+`{ id, event, apiVersion: 2, devMode, data: { transparent: { id, externalId,
+amount, paidAmount, status, ... } } }`. `WebhookAbacatePayRequest`
+(`packages/contracts/src/dto.ts`) foi reescrito pra esse shape real, com
+fallbacks só defensivos (nunca usados pelo payload v2 real).
+
+### Onde o `externalId` é gravado e lido
+
+- **Gravado**: `IntencaoDePagamento.criar()` gera um `randomUUID()` como
+  `externalId` (`vender-pacote.usecase.ts`, `agendar-avulso.usecase.ts`) —
+  persistido na coluna `IntencaoDePagamento.externalId` (unique).
+- **Enviado ao gateway**: `AbacatePayGateway.criarCobrancaPix` manda esse
+  `externalId` em `data.externalId` na criação da cobrança
+  (`abacatepay.gateway.ts`).
+- **Lido de volta**: `webhooks.controller.ts` → `extrairExternalId()` lê
+  `data.transparent.externalId` do payload do webhook, busca a intenção por
+  esse valor (`IntencaoDePagamentoRepository.porExternalId`) e confirma.
+
+### Assinatura do webhook — o esquema real é diferente do que o código anterior fazia
+
+Confirmado contra `pages/webhooks/security.mdx`: **dois mecanismos
+obrigatórios, AND** (não OR como estava, e não um só):
+1. Secret compartilhado na query string `?webhookSecret=...` (nosso
+   `ABACATEPAY_WEBHOOK_SECRET`).
+2. HMAC-SHA256 em **base64** (não hex) no header `X-Webhook-Signature`,
+   calculado com a **chave pública fixa da AbacatePay** — a mesma para toda
+   conta, publicada na doc deles, **não** o nosso secret (que só entra na
+   prova #1). `abacatepay-webhook.verifier.ts` reescrito para isso; validação
+   incondicional, nunca pulada por `devMode: true`.
+
+### FASE 2 — boot e configuração segura
+
+`PAYMENT_GATEWAY=abacatepay` monta o `WebhooksController`, expõe o webhook, e
+`assertConfiguracaoSegura` recusa subir sem **ambas** `ABACATEPAY_API_KEY` e
+`ABACATEPAY_WEBHOOK_SECRET` — coberto em `config-seguranca.spec.ts` (14
+testes, já existiam de sessão anterior, revalidados). Sandbox e produção
+rodam exatamente o mesmo caminho de validação, sem atalho por ambiente.
+
+### FASE 3 — política do funil (decisão do dono)
+
+- **Pacote**: pagamento online agora **obrigatório**. `formaPagamento` foi
+  **removido** de `VenderPacotePublicoRequest` (`packages/contracts/src/dto.ts`)
+  — se um cliente antigo/cacheado ainda mandar o campo, o `ValidationPipe`
+  (`whitelist: true`) o descarta silenciosamente sem quebrar. Frontend
+  (`Confirmacao.tsx`, `App.tsx`) força `online=true` e esconde a escolha
+  quando `ehPacote`.
+- **Avulso**: continua com a escolha entre online (PIX antecipado) e
+  presencial (na conclusão) — nada mudou aqui, já estava certo.
+
+### FASE 4 — cobrança e expiração
+
+O backend (`AgendarAvulsoUseCase`) e o frontend (`Confirmacao.tsx`,
+`PixAguardando.tsx`) **já suportavam** pagamento online pro avulso de uma
+sessão anterior — não precisou de UI nova, só a correção do protocolo v2
+subjacente (gateway/webhook) beneficiou as duas trilhas de uma vez.
+
+**Novo nesta sessão:** como a AbacatePay não emite webhook nenhum para "PIX
+gerado e nunca pago, expirou sozinho" (confirmado varrendo a tabela completa
+de eventos v2), a expiração passou a ser detectada por **timeout local**:
+`IntencaoDePagamento.expiraEm` (mesma janela pedida ao gateway via
+`expiresIn`) é conferido a cada leitura de status
+(`ExpirarPagamentoVencidoUseCase`, chamado em `GET /public/pagamentos/:id`
+antes de responder — usado tanto por pacote quanto avulso). O próprio polling
+do funil é o gatilho; migration puramente aditiva (`expiraEm
+TIMESTAMPTZ(3)` nullable).
+
+### ⚠️ Desvio deliberado da instrução original — `transparent.lost`
+
+A instrução pedia: ao receber `transparent.lost`, "marca a intenção como
+EXPIRADA/FALHOU; feedback no funil ('seu PIX expirou, gere um novo')". Ao
+confirmar contra a doc oficial, essa leitura está **factualmente errada**:
+`transparent.lost` = disputa/chargeback **perdido** sobre uma cobrança **que
+já estava PAGA** — não existe, em toda a tabela de eventos da AbacatePay v2,
+nenhum evento para "PIX simplesmente não pago". Seguir a instrução ao pé da
+letra teria o risco real de reverter (marcar EXPIRADO/FALHOU) uma intenção que
+na verdade já foi paga e liberou crédito de pacote ou comissão — uma decisão
+financeira de estorno que não foi pedida.
+
+**Implementado em vez disso:** `transparent.lost` é um no-op seguro (log de
+warning com o `externalId`, zero mutação, 200/201 `processado: false`),
+marcado `★ DECISAO_PENDENTE` inline e registrado em
+`DECISOES_PENDENTES.md` #27 — decisão de estorno fica para o dono decidir.
+A expiração real de PIX não pago foi resolvida pelo timeout local acima (FASE
+4), que não depende desse evento.
+
+### FASE 5 — testes
+
+Reescritos/adicionados para o protocolo v2: `abacatepay.gateway.spec.ts` (7
+testes, endpoint/payload real), `abacatepay-webhook.verifier.spec.ts` (11
+testes, secret+HMAC em AND, chave pública, base64), `webhook-abacatepay.e2e.spec.ts`
+(8 testes: confirmação válida, 401 sem cada uma das duas provas, idempotência,
+`transparent.lost` no-op, evento não assinado ignorado), `pacote-publico.e2e.spec.ts`
+(8 testes, reescrito: política "pacote sempre online" mesmo mandando
+`formaPagamento=presencial`, e um teste **real** de expiração por timeout via
+polling), `intencao-de-pagamento.spec.ts` (+3 testes de `expirouPorTempo`).
+Não havia credencial de sandbox real disponível no ambiente desta sessão
+(confirmado ausente em `.env` e nas env vars do shell) — os testes usam
+payload v2 assinado à mão com a chave pública real da AbacatePay, exatamente
+como pedido para esse cenário; ver DECISOES_PENDENTES.md #9.
+
+### FASE 6 — documentação
+
+`docs/DOMAIN.md` §3.8 reescrita com o fluxo v2 completo (endpoint, payload,
+assinatura AND, `expiraEm`, política do funil). `DECISOES_PENDENTES.md` #10
+marcada ✅ RESOLVIDA (v2 confirmado como definitivo), #9 atualizada (ainda
+pendente de credencial, agora com os detalhes v2), nova #27 registrando o
+desvio do `transparent.lost`. `apps/api/src/modules/payments/README.md`
+reescrito por completo. `.env.example`/`.env.docker.example`/`.env.aws.example`
+atualizados (`ABACATEPAY_BASE_URL` de `/v1` para `/v2`) — só o template, o
+`.env` real não foi tocado.
+
+### Resultado final
+
+**428 testes verdes no backend** (42 arquivos), idênticos sob
+`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo` (`npm run test:multitz`, rodado 3×
+completo). `turbo run build` verde nos 5 pacotes (`contracts`, `api`, `admin`,
+`booking`, `account`). Nenhum teste pré-existente quebrou; nenhum arquivo fora
+do escopo de pagamento foi tocado.
+
+### Roteiro de smoke test manual — sandbox real (para o dono rodar)
+
+Com o dashboard da AbacatePay aberto (sandbox) e o servidor com
+`PAYMENT_GATEWAY=abacatepay` + `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET`
+de sandbox carregados:
+
+1. **Pacote (online obrigatório):** no funil público, comprar um pacote.
+   Confirmar que a tela mostra QR Code + copia-e-cola sem nenhuma opção
+   "pagar na barbearia".
+2. **Avulso (com escolha):** agendar um avulso e confirmar que a tela oferece
+   as duas opções — online e presencial.
+3. **Pagar de verdade (Pix real ou simulação sandbox):** no dashboard da
+   AbacatePay, encontrar a cobrança criada (mesmo `externalId`/`id` do passo
+   1) e disparar a simulação de pagamento (ou pagar via Pix sandbox de
+   verdade, se o app da AbacatePay permitir).
+4. **Confirmar a UI:** a tela "aguardando confirmação" do funil deve sair
+   sozinha do polling e mostrar sucesso em poucos segundos — sem precisar
+   dar refresh.
+5. **Conferir o painel admin:** o pacote deve aparecer com créditos
+   liberados (5 itens DISPONIVEL, por exemplo); o avulso deve aparecer como
+   PAGO.
+6. **Testar expiração:** gerar uma cobrança e **não pagar**. Esperar o prazo
+   configurado (`ABACATEPAY_EXPIRA_SEGUNDOS`, default 3600s — vale reduzir
+   temporariamente essa env pra um valor pequeno só pra esse teste, tipo 30)
+   e confirmar que a tela do funil detecta EXPIRADO e oferece gerar um PIX
+   novo (ou, no avulso, cair pra presencial).
+7. **Testar disputa (`transparent.lost`), se o sandbox da AbacatePay permitir
+   simular**: confirmar nos logs do servidor que aparece o warning
+   "transparent.lost (disputa perdida) recebido" e que o status da intenção
+   **não muda** (continua PAGO) — é o comportamento esperado (no-op
+   deliberado, ver seção acima).
+8. **Assinatura inválida:** enviar manualmente um POST pra
+   `/webhooks/abacatepay` sem header `X-Webhook-Signature` (ex.: via curl) e
+   confirmar 401, sem nenhum efeito em nenhuma intenção.
+
 ## Como rodar localmente
 
 ```bash
@@ -2016,12 +2211,18 @@ npm run dev -w @bigods/admin
 # 8. Funil público de agendamento (porta 5174, proxy /api → :3000)
 npm run dev -w @bigods/booking
 # → http://localhost:5174 — sem login. Marque um horário; ele aparece na agenda
-#   do painel admin (passo 7) no mesmo dia. Pagamento é presencial (na conclusão).
+#   do painel admin (passo 7) no mesmo dia. Avulso: cliente escolhe online (PIX)
+#   ou presencial (na conclusão). Pacote: pagamento online é OBRIGATÓRIO.
 #   Tenant: VITE_COMPANY_ID (default "bigods").
 
-# Webhook fake de pagamento (confirmar um PIX gerado):
-# curl -X POST localhost:3000/webhooks/abacatepay -H 'Content-Type: application/json' \
-#   -d '{"event":"billing.paid","data":{"metadata":{"externalId":"<externalId da intenção>"}}}'
+# Com PAYMENT_GATEWAY=fake (default fora de produção), o pacote/avulso online
+# fica AGUARDANDO sem webhook real — confirme pelo endpoint demo (DEMO_MODE=true):
+# curl -X POST "localhost:3000/public/pagamentos/<intencaoId>/confirmar-demo?companyId=bigods"
+
+# Com PAYMENT_GATEWAY=abacatepay (Checkout Transparente v2, sandbox ou produção),
+# o webhook exige assinatura real — ver apps/api/src/modules/payments/README.md
+# ("Testar o webhook localmente") e o roteiro de smoke test manual sandbox na
+# seção "Ligação do pagamento online" deste arquivo.
 
 # Login OTP do cliente (modo demo — o código volta na resposta, sem SMS):
 # 1) admin vende um pacote pro telefone (provisiona o usuário)

@@ -180,6 +180,9 @@ export class AgendarAvulsoUseCase {
           referencia: { tipo: 'ATENDIMENTO', atendimentoId },
           valor: Dinheiro.deCentavos(valorRestanteCentavos),
           externalId: randomUUID(),
+          // Mesma janela que será pedida ao gateway (`expiresIn`) — expiração
+          // por timeout local, ver IntencaoDePagamento.expiraEm.
+          expiraEm: new Date(Date.now() + this.gateway.expiraEmSegundos * 1000),
         });
         await repos.intencoesDePagamento.salvar(intencao);
       }

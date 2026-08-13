@@ -561,6 +561,12 @@ model IntencaoDePagamento {
   valorCentavos   Int
   status          StatusPagamento
   externalId      String              @unique
+  // Sessão de pagamento online: prazo local do PIX (mesma janela pedida ao
+  // gateway via `expiresIn`) — a AbacatePay não emite webhook de "expirou sem
+  // pagar", só de disputa perdida (§3.8), então a expiração é detectada por
+  // timeout contra este campo, não por evento externo. Null quando não é
+  // pagamento online (presencial) ou em linhas anteriores a esta sessão.
+  expiraEm        DateTime?           @db.Timestamptz(3)
 
   company Company @relation(fields: [companyId], references: [id])
 }

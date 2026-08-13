@@ -562,7 +562,11 @@ e pagamento são sempre fatos **consumados** — nunca entram na projeção, só
 
 ### 3.8 `IntencaoDePagamento` (raiz)
 
-Representa a intenção de pagar, criada **antes** de chamar o gateway (AbacatePay).
+Representa a intenção de pagar, criada **antes** de chamar o gateway (AbacatePay, Checkout
+Transparente v2 — DECISOES_PENDENTES.md #10). Transparente = QR Code + copia-e-cola mostrados
+dentro do próprio funil, nunca redirecionamento pra página hospedada da AbacatePay (o webhook
+cadastrado só assina `transparent.*`; modo hospedado emitiria `checkout.*`, não assinado, e o
+pagamento nunca confirmaria).
 
 | Campo | Tipo |
 |---|---|
@@ -571,13 +575,40 @@ Representa a intenção de pagar, criada **antes** de chamar o gateway (AbacateP
 | `referencia` | AtendimentoId \| VendaDePacoteId |
 | `valor` | Dinheiro |
 | `status` | `AGUARDANDO` \| `PAGO` \| `EXPIRADO` \| `FALHOU` |
-| `externalId` | string | enviado ao gateway como `metadata.externalId` |
+| `externalId` | string | enviado ao gateway como `data.externalId` (v2 — campo direto, não aninhado em `metadata`) |
+| `expiraEm` | Date \| null | prazo local de expiração do PIX (null quando não é pagamento online, ex. presencial) — ver expiração abaixo |
 
 **Fluxo:**
-1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`.
-2. Infra chama AbacatePay, passando nosso `externalId`.
-3. Webhook de confirmação chega → busca a intenção pelo `externalId` → transiciona para `PAGO`.
+1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente
+   (`agora + gateway.expiraEmSegundos`).
+2. Infra chama `POST /v2/transparents/create` na AbacatePay, passando nosso `externalId` em
+   `data.externalId`. Resposta devolve QR Code (`brCodeBase64`) e copia-e-cola (`brCode`).
+3. Webhook `transparent.completed` chega → assinatura validada (ver abaixo) → busca a intenção
+   pelo `externalId` (lido de `data.transparent.externalId`) → transiciona para `PAGO`.
 4. Transição para `PAGO` emite `PagamentoConfirmado` → libera o pacote/atendimento.
+
+**Assinatura do webhook — dois mecanismos OBRIGATÓRIOS (AND), confirmados contra a doc oficial da
+AbacatePay:**
+1. Secret compartilhado na query string `?webhookSecret=...` (nosso `ABACATEPAY_WEBHOOK_SECRET`).
+2. HMAC-SHA256 em **base64** no header `X-Webhook-Signature`, calculado com a **chave pública fixa
+   da AbacatePay** (a mesma para toda conta, publicada na doc deles — nunca o nosso secret).
+
+Validação é **incondicional**, nunca pulada por `devMode: true` no sandbox. Payload não-verificado
+é rejeitado com 401 sem tocar em nenhuma entidade.
+
+**`transparent.lost` é disputa/chargeback PERDIDO sobre uma cobrança já PAGA — não "PIX expirou
+sem pagamento"** (DECISOES_PENDENTES.md #27). Tratado como no-op seguro (log + zero mutação); a
+AbacatePay não emite webhook nenhum para PIX simplesmente não pago.
+
+**Expiração de PIX não pago é por TIMEOUT LOCAL**, não por webhook: `expiraEm` é conferido a cada
+leitura de status (`GET /public/pagamentos/:id`, usado tanto pelo polling de pacote quanto de
+avulso) — se `AGUARDANDO` e o prazo já passou, transiciona para `EXPIRADO` ali mesmo, antes de
+responder. Sem cron, sem job separado: o próprio polling do cliente é o gatilho.
+
+**Política do funil (decisão do dono):** na trilha de **pacote**, pagamento online é
+**obrigatório** — não existe mais opção "pagar na barbearia" no funil público, pra garantir caixa
+adiantado antes de liberar crédito. Na trilha de **avulso**, o cliente **escolhe** entre pagar
+online (PIX antecipado) ou presencial (na conclusão).
 
 **Por quê:** o pagamento externo é um **evento de infraestrutura confirmando uma intenção que já
 existe no domínio** — nunca o contrário. Isso evita o problema da v1, onde cadastro de cliente e

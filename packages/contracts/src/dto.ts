@@ -569,19 +569,22 @@ export interface RejeitarPacoteOfertaRequest {
 // ---------- Compra de pacote pública (funil) ----------
 export type FormaPagamentoFunil = 'online' | 'presencial';
 
+// Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono, sessão
+// de pagamento online): garante caixa adiantado, e o domínio já impede
+// consumir crédito de pacote não-pago (§3.6) — sem escolha de "pagar na
+// barbearia" aqui. `formaPagamento` saiu do request de propósito: não é mais
+// o cliente que decide, é sempre cobrança PIX na hora.
 export interface VenderPacotePublicoRequest {
   companyId: string;
   ofertaId: string;
   cliente: { nome: string; telefone: string };
-  /** online → gera cobrança PIX real; presencial → pagar na barbearia (fica AGUARDANDO). */
-  formaPagamento: FormaPagamentoFunil;
 }
 export interface VenderPacotePublicoResponse {
   vendaId: string;
   clienteId: string;
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
-  /** cobrança PIX quando formaPagamento=online; null quando presencial. */
+  /** cobrança PIX — sempre presente (pagamento online é obrigatório no pacote). */
   cobranca: CobrancaDTO | null;
 }
 
@@ -649,18 +652,37 @@ export interface VenderProdutoAvulsoResponse {
   vendaId: string;
 }
 
-// ---------- Webhook AbacatePay ----------
-// Payload deliberadamente frouxo: extraímos só `event`/`status` e o `externalId`
-// (que pode vir em metadata direto ou aninhado). A AbacatePay recomenda não
-// validar o payload inteiro contra um schema rígido para não quebrar com
-// mudanças futuras deles.
+// ---------- Webhook AbacatePay (Checkout Transparente, formato v2) ----------
+// Formato confirmado contra a documentação oficial da AbacatePay — payload
+// v2: { id, event, apiVersion, devMode, data }. Pra eventos `transparent.*`,
+// os detalhes da cobrança ficam ANINHADOS em `data.transparent` (não direto
+// em `data` como no v1) — `externalId` mora em `data.transparent.externalId`.
+// Só os eventos assinados nesta conta chegam aqui de fato: `transparent.completed`
+// (pagamento confirmado) e `transparent.lost` (disputa/chargeback PERDIDA —
+// NÃO é "PIX expirou", apesar do nome; expiração é detectada por timeout local,
+// nunca por webhook — a AbacatePay não emite evento nenhum pra QR Code que
+// simplesmente nunca foi pago). Payload deliberadamente frouxo (campos extras
+// tolerados) — a própria AbacatePay recomenda não validar contra schema rígido
+// pra não quebrar com mudanças futuras deles.
 export interface WebhookAbacatePayRequest {
-  event?: string; // ex: "billing.paid", "transparent.completed"
+  id?: string; // id do evento (idempotência do lado deles) — ex: "log_abc123xyz"
+  event?: string; // ex: "transparent.completed", "transparent.lost"
+  apiVersion?: number; // 2
+  devMode?: boolean;
   data?: {
-    status?: string; // ex: "PAID"
+    transparent?: {
+      id?: string; // id da cobrança no gateway
+      externalId?: string;
+      amount?: number;
+      paidAmount?: number;
+      status?: string; // "PAID" quando completed
+      [k: string]: unknown;
+    };
+    // Fallbacks defensivos — nunca usados pelo payload v2 real de transparent.*,
+    // mantidos só por tolerância (a AbacatePay pode adicionar formatos novos).
+    status?: string;
     externalId?: string;
     metadata?: { externalId?: string };
-    pixQrCode?: { metadata?: { externalId?: string } };
     [k: string]: unknown;
   };
   [k: string]: unknown;
