@@ -1,4 +1,4 @@
-import { OrigemComissao } from '@bigods/contracts';
+import { OrigemComissao, TipoLancamento } from '@bigods/contracts';
 import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Percentual } from '../../../shared/domain/percentual';
@@ -11,33 +11,45 @@ import {
   ProdutoId,
   ServicoId,
   VendaDeProdutoId,
+  ValeId,
 } from '../../../shared/domain/ids';
 
 /**
- * Ledger imutável de comissão. Cada centavo é rastreável até o atendimento
- * (ou venda de produto avulsa) que o gerou. Saldo do barbeiro = soma dos
- * lançamentos — nunca uma coluna.
+ * Ledger imutável de 3 direções: COMISSAO (+, o barbeiro ganhou) | VALE (−,
+ * adiantamento pago) | PAGAMENTO (−, a casa quitou parte do que devia).
+ * Saldo do barbeiro = soma dos lançamentos — nunca uma coluna (§3.7).
+ *
+ * `tipo` é o eixo que decide o SINAL no saldo (ver `sinalDoTipo` em
+ * `saldo-do-barbeiro.ts`). `origem` (SERVICO|PRODUTO) é um eixo DIFERENTE —
+ * só existe pra tipo=COMISSAO, descreve o que gerou aquela comissão. Os dois
+ * nunca colidem: um lançamento de VALE/PAGAMENTO não tem origem nem
+ * valorBase/percentualAplicado (não há "base × percentual" num débito
+ * direto) — por isso esses três campos são opcionais.
  *
  * Generalizado (sessão 2026-07-16) para cobrir origem SERVICO (via Atendimento)
- * e PRODUTO (via Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente
- * um par (atendimentoId|vendaDeProdutoId) e (servicoId|produtoId) é
- * preenchido, a depender de `origem`. Lançamentos antigos (todos SERVICO) não
- * mudam de forma — a migration só tornou os campos opcionais.
+ * e PRODUTO (via Atendimento — add-on — ou VendaDeProduto avulsa). Lançamentos
+ * antigos (todos tipo=COMISSAO, origem=SERVICO) não mudam de forma — a
+ * migration só tornou os campos novos opcionais/adicionais.
  */
 export class LancamentoComissao extends AggregateRoot {
   private constructor(
     readonly id: LancamentoId,
     readonly companyId: CompanyId,
     readonly barbeiroId: BarbeiroId,
-    readonly origem: OrigemComissao,
+    readonly tipo: TipoLancamento,
+    readonly origem: OrigemComissao | null,
     readonly atendimentoId: AtendimentoId | null,
     readonly vendaDeProdutoId: VendaDeProdutoId | null,
     readonly servicoId: ServicoId | null,
     readonly produtoId: ProdutoId | null,
-    /** Valor base: avulso OU rateado do pacote (serviço) OU unitário×quantidade (produto). */
-    readonly valorBase: Dinheiro,
-    /** Snapshot da regra vigente na conclusão/venda. */
-    readonly percentualAplicado: Percentual,
+    readonly valeId: ValeId | null,
+    /** Admin que confirmou que o dinheiro se moveu (VALE pago / PAGAMENTO). Null em COMISSAO (gerado pelo sistema). */
+    readonly registradoPorId: BarbeiroId | null,
+    /** Valor base: avulso OU rateado do pacote (serviço) OU unitário×quantidade (produto). Só COMISSAO. */
+    readonly valorBase: Dinheiro | null,
+    /** Snapshot da regra vigente na conclusão/venda. Só COMISSAO. */
+    readonly percentualAplicado: Percentual | null,
+    /** Magnitude do lançamento (sempre positiva) — o sinal no saldo vem de `tipo`, ver `sinalDoTipo`. */
     readonly valorComissao: Dinheiro,
     readonly ocorridoEm: Date,
   ) {
@@ -58,10 +70,13 @@ export class LancamentoComissao extends AggregateRoot {
       params.id,
       params.companyId,
       params.barbeiroId,
+      TipoLancamento.COMISSAO,
       OrigemComissao.SERVICO,
       params.atendimentoId,
       null,
       params.servicoId,
+      null,
+      null,
       null,
       params.valorBase,
       params.percentualAplicado,
@@ -95,14 +110,89 @@ export class LancamentoComissao extends AggregateRoot {
       params.id,
       params.companyId,
       params.barbeiroId,
+      TipoLancamento.COMISSAO,
       OrigemComissao.PRODUTO,
       params.atendimentoId ?? null,
       params.vendaDeProdutoId ?? null,
       null,
       params.produtoId,
+      null,
+      null,
       params.valorBase,
       params.percentualAplicado,
       params.percentualAplicado.aplicarEm(params.valorBase),
+      params.ocorridoEm,
+    );
+  }
+
+  /**
+   * Débito de um Vale — nasce SÓ na transição APROVADO→PAGO do agregado
+   * `Vale` (nunca na aprovação: dinheiro que não saiu não é lançamento).
+   * `valeId` rastreia até o pedido original; `registradoPorId` é o admin que
+   * confirmou o pagamento em mãos.
+   */
+  static criarDeVale(params: {
+    id: LancamentoId;
+    companyId: CompanyId;
+    barbeiroId: BarbeiroId;
+    valeId: ValeId;
+    registradoPorId: BarbeiroId;
+    valor: Dinheiro;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    if (!params.valor.ehPositivo()) {
+      throw new InvarianteVioladaError('Valor do vale deve ser maior que zero');
+    }
+    return new LancamentoComissao(
+      params.id,
+      params.companyId,
+      params.barbeiroId,
+      TipoLancamento.VALE,
+      null,
+      null,
+      null,
+      null,
+      null,
+      params.valeId,
+      params.registradoPorId,
+      null,
+      null,
+      params.valor,
+      params.ocorridoEm,
+    );
+  }
+
+  /**
+   * Pagamento direto que a casa faz ao barbeiro (quitação total ou parcial
+   * do que deve) — ação de admin, sem aprovação prévia nem trava de saldo
+   * (decisão do dono: o ledger reflete a realidade, não policia o admin).
+   */
+  static criarDePagamento(params: {
+    id: LancamentoId;
+    companyId: CompanyId;
+    barbeiroId: BarbeiroId;
+    registradoPorId: BarbeiroId;
+    valor: Dinheiro;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    if (!params.valor.ehPositivo()) {
+      throw new InvarianteVioladaError('Valor do pagamento deve ser maior que zero');
+    }
+    return new LancamentoComissao(
+      params.id,
+      params.companyId,
+      params.barbeiroId,
+      TipoLancamento.PAGAMENTO,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      params.registradoPorId,
+      null,
+      null,
+      params.valor,
       params.ocorridoEm,
     );
   }
@@ -111,13 +201,16 @@ export class LancamentoComissao extends AggregateRoot {
     id: LancamentoId;
     companyId: CompanyId;
     barbeiroId: BarbeiroId;
-    origem: OrigemComissao;
+    tipo: TipoLancamento;
+    origem: OrigemComissao | null;
     atendimentoId: AtendimentoId | null;
     vendaDeProdutoId: VendaDeProdutoId | null;
     servicoId: ServicoId | null;
     produtoId: ProdutoId | null;
-    valorBase: Dinheiro;
-    percentualAplicado: Percentual;
+    valeId: ValeId | null;
+    registradoPorId: BarbeiroId | null;
+    valorBase: Dinheiro | null;
+    percentualAplicado: Percentual | null;
     valorComissao: Dinheiro;
     ocorridoEm: Date;
   }): LancamentoComissao {
@@ -125,11 +218,14 @@ export class LancamentoComissao extends AggregateRoot {
       params.id,
       params.companyId,
       params.barbeiroId,
+      params.tipo,
       params.origem,
       params.atendimentoId,
       params.vendaDeProdutoId,
       params.servicoId,
       params.produtoId,
+      params.valeId,
+      params.registradoPorId,
       params.valorBase,
       params.percentualAplicado,
       params.valorComissao,

@@ -210,3 +210,23 @@ body {
   font-size: 20px;
   letter-spacing: 0.02em;
 }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+@keyframes girar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.icon-btn-girando {
+  animation: girar 0.7s linear infinite;
+}

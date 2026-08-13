@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { TipoLancamento } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
+import { sinalDoTipo } from '../domain/saldo-do-barbeiro';
 
 export interface SaldoComissao {
   barbeiroId: string;
-  /** Soma dos lançamentos do ledger — dinheiro devido de fato. */
+  /** Σ(COMISSAO) − Σ(VALE) − Σ(PAGAMENTO) — pode ser NEGATIVO (barbeiro deve à casa). */
   saldoRealCentavos: number;
   /**
    * Soma projetada sobre atendimentos AGENDADO — query de leitura, NÃO lançamento.
@@ -18,16 +20,24 @@ export class ComissaoQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async saldo(barbeiroId: string): Promise<SaldoComissao> {
-    const [ledger, projecao] = await Promise.all([
-      this.prisma.lancamentoComissao.aggregate({
+    const [porTipo, projecao] = await Promise.all([
+      this.prisma.lancamentoComissao.groupBy({
+        by: ['tipo'],
         where: { barbeiroId },
         _sum: { valorComissaoCentavos: true },
       }),
       this.projecaoFutura(barbeiroId),
     ]);
+    // Regra de sinal (COMISSAO soma, VALE/PAGAMENTO subtraem) vem de
+    // `sinalDoTipo` — mesma função usada no cálculo puro de domínio, pra
+    // nunca divergir entre a leitura agregada em SQL e a regra testada.
+    const saldoRealCentavos = porTipo.reduce(
+      (acc, g) => acc + sinalDoTipo(TipoLancamento[g.tipo]) * (g._sum.valorComissaoCentavos ?? 0),
+      0,
+    );
     return {
       barbeiroId,
-      saldoRealCentavos: ledger._sum.valorComissaoCentavos ?? 0,
+      saldoRealCentavos,
       projecaoFuturaCentavos: projecao,
     };
   }

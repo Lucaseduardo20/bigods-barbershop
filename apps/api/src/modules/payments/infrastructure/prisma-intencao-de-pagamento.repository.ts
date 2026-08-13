@@ -21,6 +21,7 @@ function paraDominio(row: IntencaoPrisma): IntencaoDePagamento {
     valor: Dinheiro.deCentavos(row.valorCentavos),
     status: StatusPagamento[row.status],
     externalId: row.externalId,
+    expiraEm: row.expiraEm,
   });
 }
 
@@ -61,6 +62,7 @@ export class PrismaIntencaoDePagamentoRepository implements IntencaoDePagamentoR
       valorCentavos: intencao.valor.centavos,
       status: intencao.status,
       externalId: intencao.externalId,
+      expiraEm: intencao.expiraEm,
     };
     await this.db.intencaoDePagamento.upsert({
       where: { id: intencao.id },

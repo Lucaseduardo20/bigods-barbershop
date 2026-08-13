@@ -82,6 +82,9 @@ export class AgendarAvulsoUseCase {
     if (!barbeiro || barbeiro.companyId !== input.companyId) {
       throw new NotFoundException('Barbeiro não encontrado');
     }
+    if (!barbeiro.ativo) {
+      throw new BadRequestException('Barbeiro desativado não recebe novos atendimentos');
+    }
 
     // Dia civil LOCAL (fuso da empresa) — nunca a data UTC bruta do instante,
     // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
@@ -177,6 +180,9 @@ export class AgendarAvulsoUseCase {
           referencia: { tipo: 'ATENDIMENTO', atendimentoId },
           valor: Dinheiro.deCentavos(valorRestanteCentavos),
           externalId: randomUUID(),
+          // Mesma janela que será pedida ao gateway (`expiresIn`) — expiração
+          // por timeout local, ver IntencaoDePagamento.expiraEm.
+          expiraEm: new Date(Date.now() + this.gateway.expiraEmSegundos * 1000),
         });
         await repos.intencoesDePagamento.salvar(intencao);
       }

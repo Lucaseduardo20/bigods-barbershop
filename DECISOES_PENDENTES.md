@@ -56,32 +56,58 @@ Para o login sem senha por telefone no Cognito, há duas abordagens: **(a)** Cus
 
 **A confirmar com o Rafael quando o pool estiver pronto:** se o pool já tiver o `SMS_OTP` nativo disponível, ele é operacionalmente mais simples (não há Lambdas para manter). Migrar para ele mexe **só** no `CognitoIdentityProvider` (trocar os comandos do SDK) — a interface `IdentityProvider` e todo o resto ficam iguais. Decisão de operação, não de domínio.
 
-## 9. Teste ponta-a-ponta contra o SANDBOX real do AbacatePay — PENDENTE DE CREDENCIAL
+## 9. Teste ponta-a-ponta contra o SANDBOX real do AbacatePay — AINDA PENDENTE DE CREDENCIAL (atualizado, sessão de ligação do pagamento online)
 
-O gateway real (`AbacatePayGateway`) e o webhook validado por assinatura estão
-implementados e cobertos por testes com HTTP mockado (`abacatepay.gateway.spec.ts`,
-`abacatepay-webhook.verifier.spec.ts`) e por um e2e do webhook com payload assinado
-à mão (`webhook-abacatepay.e2e.spec.ts`). **Não** existe ainda o teste que gera uma
-cobrança real no sandbox do AbacatePay e simula o pagamento pelo endpoint deles,
-porque **não há credencial de sandbox** (`ABACATEPAY_API_KEY` de teste) nas variáveis
-de ambiente.
+O gateway real (`AbacatePayGateway`, Checkout Transparente v2) e o webhook
+validado por assinatura estão implementados e cobertos por testes com HTTP
+mockado (`abacatepay.gateway.spec.ts`, `abacatepay-webhook.verifier.spec.ts`)
+e por e2e com payload v2 assinado à mão, secret de query + HMAC com a chave
+pública real da AbacatePay (`webhook-abacatepay.e2e.spec.ts`,
+`pacote-publico.e2e.spec.ts`). **Não** existe ainda o teste que gera uma
+cobrança real no sandbox do AbacatePay e simula o pagamento pelo endpoint
+deles, porque **não há credencial de sandbox** (`ABACATEPAY_API_KEY`/
+`ABACATEPAY_WEBHOOK_SECRET` de teste) no ambiente onde os testes rodam —
+confirmado ausentes tanto em `.env` quanto nas variáveis de ambiente do shell
+nesta sessão.
 
-**Ação:** assim que a key de sandbox chegar, esse é o **primeiro** teste a rodar —
-cobrança real → `simularPagamento(gatewayId)` (`POST /pixQrCode/simulate-payment`)
-→ webhook confirma → pacote libera créditos. A infraestrutura já está pronta
-(`AbacatePayGateway.simularPagamento` existe justamente para isso).
+**Ação:** assim que a key de sandbox estiver disponível no ambiente de teste,
+esse é o **primeiro** teste a rodar de verdade — cobrança real via
+`POST /v2/transparents/create` → `simularPagamento(gatewayId)`
+(`POST /v2/transparents/simulate-payment?id=...`) → webhook `transparent.completed`
+real confirma → pacote libera créditos. A infraestrutura já está pronta
+(`AbacatePayGateway.simularPagamento` existe justamente para isso); ver o
+roteiro de smoke test manual em `RELATORIO_SESSAO.md` para o dono rodar com o
+dashboard da AbacatePay aberto.
 
-## 10. Versão/base da API do AbacatePay assumida (`/v1`, `pixQrCode`)
+## 10. Versão/base da API do AbacatePay — ✅ RESOLVIDO (sessão de ligação do pagamento online): v2, Checkout Transparente
 
-A documentação do AbacatePay mudou entre v1 e v2 (a base chegou a ser anunciada
-como `.../v2` com `/transparents/*`). Adotei o caminho **estável e público**
-`https://api.abacatepay.com/v1` + `pixQrCode/create` + `pixQrCode/simulate-payment`,
-que suporta `metadata.externalId` direto e retorna `brCode`/`brCodeBase64`. A base
-é **overridável** por `ABACATEPAY_BASE_URL` sem tocar código.
+Confirmado contra a documentação oficial + OpenAPI da AbacatePay (clonados e
+lidos, não presumidos): a conta está configurada com webhook **v2**, assinando
+**apenas** `transparent.completed` e `transparent.lost` (Checkout Transparente).
+O modo hospedado (`checkout.*`) emitiria eventos que não estão assinados nesta
+conta — usá-lo faria o pagamento nunca confirmar (falha silenciosa). Adotado
+definitivamente:
 
-**A confirmar no primeiro contato com o sandbox real:** se a conta usar outra
-versão/base, ajustar `ABACATEPAY_BASE_URL` (e, se os nomes dos campos diferirem,
-apenas o mapeamento em `AbacatePayGateway` — a porta `PaymentGateway` não muda).
+- Base: `https://api.abacatepay.com/v2` (default de `AbacatePayGateway`,
+  overridável por `ABACATEPAY_BASE_URL`).
+- Criação: `POST /transparents/create`, corpo
+  `{ method: "PIX", data: { amount, expiresIn, description, externalId } }` —
+  `externalId` é campo **direto** de `data` (não `data.metadata.externalId`
+  como se presumia antes desta sessão).
+- Resposta: `{ data: { id, brCode, brCodeBase64, status, expiresAt, ... } }`,
+  mapeados para `CobrancaPix.{gatewayId, copiaECola, qrCode, expiresAt}`.
+- Simulação sandbox: `POST /transparents/simulate-payment?id=<gatewayId>`.
+- Webhook v2: `{ id, event, apiVersion: 2, devMode, data: { transparent: { id,
+  externalId, amount, paidAmount, status, ... } } }` — `externalId` sempre lido
+  de `data.transparent.externalId` (ver `webhooks.controller.ts`).
+- Assinatura: **dois mecanismos obrigatórios (AND)** — secret compartilhado na
+  query string `?webhookSecret=...` (nosso `ABACATEPAY_WEBHOOK_SECRET`) **e**
+  HMAC-SHA256 em base64 no header `X-Webhook-Signature`, calculado com a
+  **chave pública fixa da AbacatePay** (não o nosso secret) — ver
+  `abacatepay-webhook.verifier.ts`.
+
+Nada disso é mais uma suposição a confirmar — é a configuração real cadastrada
+pelo dono no dashboard da AbacatePay.
 
 ## 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio — ✅ RESOLVIDO (sessão-B, Fase 1)
 
@@ -338,3 +364,56 @@ open-wa+Puppeteer+Chrome) — não era o objetivo da troca, mas reforçou que er
 **A confirmar com o negócio:** nenhuma pendência de domínio aqui — decisão de biblioteca/implementação
 (CLAUDE.md: "decisões de implementação... você toma sozinho"), registrada por ter sido uma mudança
 grande de rumo dentro da mesma sessão de lançamento, não por exigir aprovação de regra de negócio.
+
+## 26. `Vale`: sem transição de cancelar (PENDENTE) nem reverter aprovação (APROVADO→PENDENTE) (sessão de vale/pagamento)
+
+A máquina de estado implementada (DOMAIN.md §4.4) só tem as transições explicitamente pedidas:
+`PENDENTE → APROVADO`, `PENDENTE → NEGADO`, `APROVADO → PAGO`. Duas lacunas reais de operação não
+foram especificadas e por isso não foram inventadas:
+
+1. **Barbeiro desiste do próprio pedido enquanto `PENDENTE`** — hoje não há como cancelar; o único
+   jeito de "encerrar" é o admin negar (o que grava um `motivoNegacao` que não é bem "o barbeiro
+   desistiu").
+2. **Admin aprovou por engano e quer reverter antes de pagar** — hoje `APROVADO` só anda pra
+   frente (`marcarPago`); não existe `APROVADO → PENDENTE` nem `APROVADO → NEGADO`.
+
+Nenhum dos dois afeta o ledger (ambos os casos hipotéticos ficam antes do `PAGO`, que é onde o
+dinheiro realmente nasce) — a lacuna é só de conveniência operacional, não de integridade
+financeira. Se aparecer necessidade real, é uma transição nova pequena no agregado `Vale`
+(`cancelar()` e/ou `reverterAprovacao()`), sem tocar `LancamentoComissao`.
+
+**A confirmar com o negócio:** se/quando isso incomodar no dia a dia (ex.: admin aprova errado com
+frequência), decidir se cabe reverter aprovação, ou se o processo operacional é só "negar e pedir
+de novo" — depende de quão comum é o erro na prática, informação que só a operação real vai dar.
+
+## 27. `transparent.lost` do AbacatePay é DISPUTA PERDIDA, não "PIX expirou" — desvio deliberado da instrução literal (sessão de ligação do pagamento online)
+
+A instrução original desta sessão pedia, ao receber `transparent.lost`: "marca
+a intenção como EXPIRADA/FALHOU; feedback no funil ('seu PIX expirou, gere um
+novo')". Ao confirmar contra a documentação oficial da AbacatePay (não
+presumida — clonada e lida página por página), essa interpretação está
+**factualmente errada**: `transparent.lost` é "Disputa de pagamento
+transparente perdida" — um chargeback perdido sobre uma cobrança que **já
+estava PAGA**. Não existe, em toda a tabela de eventos v2 da AbacatePay,
+nenhum evento de webhook para "PIX gerado e nunca pago, expirou sozinho".
+
+Seguir a instrução literal marcaria como EXPIRADO/FALHOU uma intenção que na
+verdade já foi **paga e depois disputada** — arriscando reverter crédito de
+pacote já liberado ou comissão já contabilizada, sem que isso tenha sido
+pedido como regra de estorno nesta sessão. Isso violaria o princípio de nunca
+inventar regra de negócio financeira.
+
+**O que foi implementado em vez disso** (`webhooks.controller.ts`):
+- `transparent.lost` → log de warning com o `externalId`, **zero mutação** de
+  qualquer entidade, resposta 200/201 `processado: false`. Marcado inline
+  `★ DECISAO_PENDENTE`.
+- Expiração de PIX não pago passou a ser detectada por **timeout local**: novo
+  campo `IntencaoDePagamento.expiraEm` (mesma janela pedida ao gateway via
+  `expiresIn`), verificado a cada leitura de status pelo
+  `ExpirarPagamentoVencidoUseCase` — chamado antes de todo polling em
+  `GET /public/pagamentos/:id`, sem depender de nenhum webhook.
+
+**A confirmar com o negócio:** o que fazer quando `transparent.lost` chegar de
+verdade (reverter o crédito de pacote já consumido? notificar o admin
+manualmente? estornar comissão?) é uma decisão financeira que precisa vir do
+dono — hoje fica só registrado em log para revisão manual.

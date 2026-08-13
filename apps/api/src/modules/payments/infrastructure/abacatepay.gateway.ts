@@ -3,7 +3,7 @@ import { Dinheiro } from '../../../shared/domain/dinheiro';
 
 export interface AbacatePayConfig {
   apiKey: string;
-  /** Base da API (ex.: https://api.abacatepay.com/v1). Overridável por env p/ sandbox. */
+  /** Base da API v2 (ex.: https://api.abacatepay.com/v2). Overridável por env p/ sandbox. */
   baseUrl: string;
   /** Validade da cobrança PIX em segundos (default 1h). */
   expiraEmSegundos: number;
@@ -13,18 +13,29 @@ export interface AbacatePayConfig {
 export type FetchLike = typeof fetch;
 
 /**
- * Gateway PIX real da AbacatePay (Checkout Transparente via `pixQrCode`): cria a
- * cobrança e devolve QR Code + copia-e-cola sem redirecionar o cliente.
+ * Gateway PIX real da AbacatePay — **Checkout Transparente** (`/v2/transparents/*`):
+ * cria a cobrança e devolve QR Code + copia-e-cola sem redirecionar o cliente pra
+ * uma página hospedada da AbacatePay. Isso é OBRIGATÓRIO nesta conta — o webhook
+ * cadastrado só assina `transparent.completed`/`transparent.lost` (Checkout
+ * Transparente); o modo hospedado emitiria `checkout.completed`, que não está
+ * assinado, e o pagamento nunca confirmaria (falha silenciosa).
  *
- * O `externalId` da nossa `IntencaoDePagamento` viaja em `metadata.externalId` —
- * é a chave que o webhook devolve para reconciliar (§3.8). Não mantemos catálogo
- * de produtos paralelo: cada cobrança é uma cobrança avulsa.
+ * Confirmado contra a documentação/OpenAPI oficial da AbacatePay (não presumido
+ * do v1): `POST /v2/transparents/create` com corpo `{ method: "PIX", data: {
+ * amount, expiresIn, description, externalId, ... } }` — `externalId` é campo
+ * DIRETO de `data` (não `data.metadata.externalId` como no v1). A resposta NÃO
+ * ecoa `externalId` de volta (só o webhook o devolve, em
+ * `data.transparent.externalId` — ver `abacatepay-webhook.controller`).
  */
 export class AbacatePayGateway implements PaymentGateway {
+  readonly expiraEmSegundos: number;
+
   constructor(
     private readonly config: AbacatePayConfig,
     private readonly fetchFn: FetchLike = fetch,
-  ) {}
+  ) {
+    this.expiraEmSegundos = config.expiraEmSegundos;
+  }
 
   async criarCobrancaPix(params: {
     valor: Dinheiro;
@@ -32,22 +43,30 @@ export class AbacatePayGateway implements PaymentGateway {
     externalId: string;
   }): Promise<CobrancaPix> {
     const corpo = {
-      amount: params.valor.centavos,
-      expiresIn: this.config.expiraEmSegundos,
-      description: params.descricao,
-      // externalId em metadata: é o que o webhook nos devolve para reconciliar.
-      metadata: { externalId: params.externalId },
+      method: 'PIX',
+      data: {
+        amount: params.valor.centavos,
+        expiresIn: this.config.expiraEmSegundos,
+        description: params.descricao,
+        // externalId DIRETO em data (v2) — é o que o webhook devolve em
+        // data.transparent.externalId pra reconciliar (§3.8).
+        externalId: params.externalId,
+      },
     };
 
-    const dados = await this.post<{ id: string; brCode: string; brCodeBase64: string; status: string }>(
-      '/pixQrCode/create',
-      corpo,
-    );
+    const dados = await this.post<{
+      id: string;
+      brCode: string;
+      brCodeBase64: string;
+      status: string;
+      expiresAt: string;
+    }>('/transparents/create', corpo);
 
     return {
       gatewayId: dados.id,
       qrCode: dados.brCodeBase64,
       copiaECola: dados.brCode,
+      expiresAt: new Date(dados.expiresAt),
     };
   }
 
@@ -56,7 +75,7 @@ export class AbacatePayGateway implements PaymentGateway {
    * Usado no teste ponta-a-ponta e no README; não faz parte da porta de domínio.
    */
   async simularPagamento(gatewayId: string): Promise<void> {
-    await this.post(`/pixQrCode/simulate-payment?id=${encodeURIComponent(gatewayId)}`, { metadata: {} });
+    await this.post(`/transparents/simulate-payment?id=${encodeURIComponent(gatewayId)}`, { metadata: {} });
   }
 
   private async post<T>(caminho: string, corpo: unknown): Promise<T> {
@@ -69,7 +88,7 @@ export class AbacatePayGateway implements PaymentGateway {
       body: JSON.stringify(corpo),
     });
 
-    const json = (await resp.json().catch(() => null)) as { data?: T; error?: unknown } | null;
+    const json = (await resp.json().catch(() => null)) as { data?: T; error?: unknown; success?: boolean } | null;
     if (!resp.ok || !json || json.error) {
       const detalhe = json?.error ?? `HTTP ${resp.status}`;
       throw new Error(`AbacatePay ${caminho} falhou: ${JSON.stringify(detalhe)}`);

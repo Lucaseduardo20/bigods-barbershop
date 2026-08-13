@@ -9,6 +9,8 @@ import {
   StatusItemPacote,
   StatusPagamento,
   StatusSolicitacaoReembolso,
+  StatusVale,
+  TipoLancamento,
 } from './enums';
 
 // ---------- Auth ----------
@@ -76,13 +78,25 @@ export interface BarbeiroDTO {
   precosServicos: ExcecaoPrecoDTO[];
   ativo: boolean;
 }
+/**
+ * Gestão de usuários (admin only — §CLAUDE.md sessão de CRUD staff): mesmos
+ * dados de `BarbeiroDTO` + `login`. Separado de `BarbeiroDTO` de propósito —
+ * `GET /barbeiros` é usado por qualquer staff autenticado (agenda, comissão,
+ * pacotes) e nunca deveria expor login de outro usuário; só a tela de gestão
+ * (admin only) precisa disso.
+ */
+export interface UsuarioStaffDTO extends BarbeiroDTO {
+  /** Login de acesso (staff, AuthProvider local). Null se ainda sem credencial definida. */
+  login: string | null;
+}
 export interface CriarBarbeiroRequest {
   nome: string;
   papeis: Papel[];
   comissaoPadrao: number;
   servicosAtendidos: string[];
-  login?: string;
-  senha?: string;
+  /** Obrigatório: todo usuário novo precisa conseguir logar — não há convite/self-service. */
+  login: string;
+  senha: string;
 }
 export interface AtualizarComissaoRequest {
   comissaoPadrao: number;
@@ -94,6 +108,19 @@ export interface AtualizarPrecosRequest {
 }
 export interface AtualizarSlugRequest {
   slug: string;
+}
+/** Dados básicos de um usuário staff (gestão de usuários — admin only). */
+export interface AtualizarUsuarioRequest {
+  nome: string;
+  papeis: Papel[];
+}
+export interface AlterarStatusUsuarioRequest {
+  ativo: boolean;
+}
+/** Ao menos um dos dois campos deve vir preenchido. */
+export interface AtualizarCredenciaisRequest {
+  login?: string;
+  senha?: string;
 }
 
 // ---------- Expediente semanal recorrente ----------
@@ -279,31 +306,40 @@ export interface VenderPacoteResponse {
   cobranca: CobrancaDTO | null;
 }
 
-// ---------- Comissão ----------
-// Generalizado para cobrir origem SERVICO (via Atendimento) e PRODUTO (via
-// Atendimento — add-on — ou VendaDeProduto avulsa). Exatamente um par
-// (atendimentoId|vendaDeProdutoId) e (servicoNome|produtoNome) é preenchido.
+// ---------- Comissão / ledger de 3 direções ----------
+// COMISSAO (+, origem SERVICO via Atendimento ou PRODUTO via Atendimento —
+// add-on — ou VendaDeProduto avulsa) | VALE (−, adiantamento pago) |
+// PAGAMENTO (−, quitação registrada pelo admin). `origem`/`valorBaseCentavos`/
+// `percentualAplicado` só existem quando tipo=COMISSAO. `valorComissaoCentavos`
+// é sempre a MAGNITUDE (positiva) do lançamento — o sinal no saldo líquido
+// vem de `tipo`, nunca inverta o número aqui.
 export interface LancamentoComissaoDTO {
   id: string;
   barbeiroId: string;
-  origem: OrigemComissao;
+  tipo: TipoLancamento;
+  origem: OrigemComissao | null;
   atendimentoId: string | null;
   vendaDeProdutoId: string | null;
   servicoNome: string | null;
   produtoNome: string | null;
-  valorBaseCentavos: number;
-  percentualAplicado: number; // porcentagem
+  valorBaseCentavos: number | null;
+  percentualAplicado: number | null; // porcentagem, null se não for COMISSAO
   valorComissaoCentavos: number;
-  /** Quando o lançamento foi registrado (conclusão do atendimento / venda). */
+  /** Quando o lançamento foi registrado (conclusão do atendimento / venda / pagamento). */
   ocorridoEm: string;
-  clienteNome: string;
-  clienteTelefone: string;
+  clienteNome: string | null;
+  clienteTelefone: string | null;
   /** Data/hora REAL do atendimento (pode diferir de `ocorridoEm`), quando origem=SERVICO/atendimento. */
   atendimentoInicio: string | null;
+  /** Só tipo=VALE — rastreia até o pedido original. */
+  valeId: string | null;
+  /** Só tipo=VALE|PAGAMENTO — quem confirmou que o dinheiro se moveu (admin). */
+  registradoPorNome: string | null;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.
- * Nunca somar os dois (projeção pode ser cancelada).
+ * Nunca somar os dois (projeção pode ser cancelada). `saldoRealCentavos`
+ * pode ser NEGATIVO (barbeiro deve à casa) — ver `calcularSaldoCentavos`.
  */
 export interface SaldoComissaoDTO {
   barbeiroId: string;
@@ -313,6 +349,58 @@ export interface SaldoComissaoDTO {
 export interface ExtratoComissaoDTO {
   saldo: SaldoComissaoDTO;
   lancamentos: LancamentoComissaoDTO[];
+}
+
+// ---------- Vale (adiantamento de comissão) ----------
+export interface ValeDTO {
+  id: string;
+  barbeiroId: string;
+  barbeiroNome: string;
+  valorCentavos: number;
+  motivo: string | null;
+  status: StatusVale;
+  solicitadoEm: string;
+  decididoPorId: string | null;
+  decididoPorNome: string | null;
+  decididoEm: string | null;
+  motivoNegacao: string | null;
+  pagoPorId: string | null;
+  pagoPorNome: string | null;
+  pagoEm: string | null;
+}
+export interface SolicitarValeRequest {
+  valorCentavos: number;
+  motivo?: string;
+}
+export interface NegarValeRequest {
+  motivo: string;
+}
+
+// ---------- Pagamento ao barbeiro ----------
+export interface RegistrarPagamentoRequest {
+  barbeiroId: string;
+  valorCentavos: number;
+  /** ISO opcional — quando o pagamento foi feito de fato. Default: agora. */
+  data?: string;
+}
+
+// ---------- Fechamento / visão de gestão (admin) — leitura, não lançamento ----------
+export interface FechamentoBarbeiroDTO {
+  barbeiroId: string;
+  barbeiroNome: string;
+  /** Acumulado histórico total do ledger (não é "do período"). */
+  totalComissaoAcumuladaCentavos: number;
+  totalValePagoAcumuladoCentavos: number;
+  totalPagamentoAcumuladoCentavos: number;
+  saldoLiquidoCentavos: number;
+  /** Movimento DENTRO do período consultado — nunca confundir com o acumulado acima. */
+  comissaoNoPeriodoCentavos: number;
+  valeNoPeriodoCentavos: number;
+  pagamentoNoPeriodoCentavos: number;
+}
+export interface FechamentoDTO {
+  periodo: { de: string; ate: string };
+  barbeiros: FechamentoBarbeiroDTO[];
 }
 
 // ---------- Parâmetros ----------
@@ -481,19 +569,22 @@ export interface RejeitarPacoteOfertaRequest {
 // ---------- Compra de pacote pública (funil) ----------
 export type FormaPagamentoFunil = 'online' | 'presencial';
 
+// Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono, sessão
+// de pagamento online): garante caixa adiantado, e o domínio já impede
+// consumir crédito de pacote não-pago (§3.6) — sem escolha de "pagar na
+// barbearia" aqui. `formaPagamento` saiu do request de propósito: não é mais
+// o cliente que decide, é sempre cobrança PIX na hora.
 export interface VenderPacotePublicoRequest {
   companyId: string;
   ofertaId: string;
   cliente: { nome: string; telefone: string };
-  /** online → gera cobrança PIX real; presencial → pagar na barbearia (fica AGUARDANDO). */
-  formaPagamento: FormaPagamentoFunil;
 }
 export interface VenderPacotePublicoResponse {
   vendaId: string;
   clienteId: string;
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
-  /** cobrança PIX quando formaPagamento=online; null quando presencial. */
+  /** cobrança PIX — sempre presente (pagamento online é obrigatório no pacote). */
   cobranca: CobrancaDTO | null;
 }
 
@@ -561,18 +652,37 @@ export interface VenderProdutoAvulsoResponse {
   vendaId: string;
 }
 
-// ---------- Webhook AbacatePay ----------
-// Payload deliberadamente frouxo: extraímos só `event`/`status` e o `externalId`
-// (que pode vir em metadata direto ou aninhado). A AbacatePay recomenda não
-// validar o payload inteiro contra um schema rígido para não quebrar com
-// mudanças futuras deles.
+// ---------- Webhook AbacatePay (Checkout Transparente, formato v2) ----------
+// Formato confirmado contra a documentação oficial da AbacatePay — payload
+// v2: { id, event, apiVersion, devMode, data }. Pra eventos `transparent.*`,
+// os detalhes da cobrança ficam ANINHADOS em `data.transparent` (não direto
+// em `data` como no v1) — `externalId` mora em `data.transparent.externalId`.
+// Só os eventos assinados nesta conta chegam aqui de fato: `transparent.completed`
+// (pagamento confirmado) e `transparent.lost` (disputa/chargeback PERDIDA —
+// NÃO é "PIX expirou", apesar do nome; expiração é detectada por timeout local,
+// nunca por webhook — a AbacatePay não emite evento nenhum pra QR Code que
+// simplesmente nunca foi pago). Payload deliberadamente frouxo (campos extras
+// tolerados) — a própria AbacatePay recomenda não validar contra schema rígido
+// pra não quebrar com mudanças futuras deles.
 export interface WebhookAbacatePayRequest {
-  event?: string; // ex: "billing.paid", "transparent.completed"
+  id?: string; // id do evento (idempotência do lado deles) — ex: "log_abc123xyz"
+  event?: string; // ex: "transparent.completed", "transparent.lost"
+  apiVersion?: number; // 2
+  devMode?: boolean;
   data?: {
-    status?: string; // ex: "PAID"
+    transparent?: {
+      id?: string; // id da cobrança no gateway
+      externalId?: string;
+      amount?: number;
+      paidAmount?: number;
+      status?: string; // "PAID" quando completed
+      [k: string]: unknown;
+    };
+    // Fallbacks defensivos — nunca usados pelo payload v2 real de transparent.*,
+    // mantidos só por tolerância (a AbacatePay pode adicionar formatos novos).
+    status?: string;
     externalId?: string;
     metadata?: { externalId?: string };
-    pixQrCode?: { metadata?: { externalId?: string } };
     [k: string]: unknown;
   };
   [k: string]: unknown;

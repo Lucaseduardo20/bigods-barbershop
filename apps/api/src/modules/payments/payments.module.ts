@@ -2,6 +2,7 @@ import { Logger, Module } from '@nestjs/common';
 import { WebhooksController } from './presentation/webhooks.controller';
 import { AbacatePayWebhookGuard } from './presentation/abacatepay-webhook.guard';
 import { ProcessarWebhookUseCase } from './application/processar-webhook.usecase';
+import { ExpirarPagamentoVencidoUseCase } from './application/expirar-pagamento-vencido.usecase';
 import { PAYMENT_GATEWAY, PaymentGateway } from './domain/payment-gateway';
 import { FakeAbacatePayGateway } from './infrastructure/fake-abacatepay.gateway';
 import { AbacatePayGateway } from './infrastructure/abacatepay.gateway';
@@ -25,7 +26,9 @@ function criarPaymentGateway(): PaymentGateway {
     Logger.log('PaymentGateway: AbacatePay (real)', 'PaymentsModule');
     return new AbacatePayGateway({
       apiKey: exigir('ABACATEPAY_API_KEY'),
-      baseUrl: process.env.ABACATEPAY_BASE_URL ?? 'https://api.abacatepay.com/v1',
+      // Checkout Transparente vive em /v2 (§ AbacatePayGateway) — v1 não tem
+      // /transparents/* e emitiria eventos que não estão assinados nesta conta.
+      baseUrl: process.env.ABACATEPAY_BASE_URL ?? 'https://api.abacatepay.com/v2',
       expiraEmSegundos: Number(process.env.ABACATEPAY_EXPIRA_SEGUNDOS ?? '') || EXPIRA_PADRAO_SEGUNDOS,
     });
   }
@@ -49,10 +52,16 @@ const controllers = gatewayAtivo() === 'abacatepay' ? [WebhooksController] : [];
   controllers,
   providers: [
     ProcessarWebhookUseCase,
+    ExpirarPagamentoVencidoUseCase,
     AbacatePayWebhookGuard,
     PagamentoStatusQueryService,
     { provide: PAYMENT_GATEWAY, useFactory: criarPaymentGateway },
   ],
-  exports: [PAYMENT_GATEWAY, PagamentoStatusQueryService, ProcessarWebhookUseCase],
+  exports: [
+    PAYMENT_GATEWAY,
+    PagamentoStatusQueryService,
+    ProcessarWebhookUseCase,
+    ExpirarPagamentoVencidoUseCase,
+  ],
 })
 export class PaymentsModule {}

@@ -66,3 +66,28 @@ export enum StatusSolicitacaoReembolso {
   PENDENTE = 'PENDENTE',
   REEMBOLSADO = 'REEMBOLSADO',
 }
+
+/**
+ * Natureza de um LancamentoComissao no ledger de 3 direções (sessão de
+ * vale/pagamento): COMISSAO soma ao saldo do barbeiro, VALE e PAGAMENTO
+ * subtraem. Eixo ORTOGONAL a `OrigemComissao` — origem descreve o que gerou
+ * uma comissão (serviço/produto), tipo descreve a natureza do lançamento em
+ * si (ganho vs. débito). Só faz sentido combinar os dois quando tipo=COMISSAO.
+ */
+export enum TipoLancamento {
+  COMISSAO = 'COMISSAO',
+  VALE = 'VALE',
+  PAGAMENTO = 'PAGAMENTO',
+}
+
+/**
+ * Máquina de estado de um Vale (adiantamento de comissão solicitado pelo
+ * barbeiro): PENDENTE → APROVADO → PAGO (só aqui nasce o débito no ledger) |
+ * PENDENTE → NEGADO (final).
+ */
+export enum StatusVale {
+  PENDENTE = 'PENDENTE',
+  APROVADO = 'APROVADO',
+  PAGO = 'PAGO',
+  NEGADO = 'NEGADO',
+}

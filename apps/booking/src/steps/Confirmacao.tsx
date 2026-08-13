@@ -31,7 +31,10 @@ export function Confirmacao({
     </div>
   );
 
-  const online = estado.formaPagamento === 'online';
+  // Pacote: pagamento online é OBRIGATÓRIO (decisão do dono) — nunca oferece
+  // "pagar na barbearia" aqui, garante caixa adiantado antes de liberar
+  // crédito. Avulso: cliente escolhe (default presencial).
+  const online = ehPacote || estado.formaPagamento === 'online';
 
   return (
     <div className="flex flex-col gap-4">
@@ -65,14 +68,16 @@ export function Confirmacao({
         </div>
       </div>
 
-      {/* Escolha de pagamento: online (PIX) ou presencial */}
-      <div>
-        <div className="label">Como quer pagar?</div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <PagBtn ativo={online} titulo="Pagar agora" sub="PIX na hora" onClick={() => onFormaPagamento('online')} />
-          <PagBtn ativo={!online} titulo="Pagar na barbearia" sub={ehPacote ? 'no balcão' : 'no dia'} onClick={() => onFormaPagamento('presencial')} />
+      {/* Escolha de pagamento (online/presencial) só existe no avulso — pacote é sempre online. */}
+      {!ehPacote && (
+        <div>
+          <div className="label">Como quer pagar?</div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <PagBtn ativo={online} titulo="Pagar agora" sub="PIX na hora" onClick={() => onFormaPagamento('online')} />
+            <PagBtn ativo={!online} titulo="Pagar na barbearia" sub="no dia" onClick={() => onFormaPagamento('presencial')} />
+          </div>
         </div>
-      </div>
+      )}
 
       <div
         className="flex items-start gap-2.5 rounded-2xl p-4 text-[13px]"
@@ -80,13 +85,14 @@ export function Confirmacao({
       >
         <span className="text-[16px] leading-none mt-0.5">{online ? '📲' : '💈'}</span>
         <div>
-          {online ? (
+          {ehPacote ? (
+            <>
+              <strong>Pagamento por PIX, obrigatório na compra de pacote.</strong> Você recebe o QR Code na próxima
+              tela; seus créditos são liberados assim que o pagamento confirmar.
+            </>
+          ) : online ? (
             <>
               <strong>Pagamento por PIX.</strong> Você recebe o QR Code na próxima tela; a confirmação é automática.
-            </>
-          ) : ehPacote ? (
-            <>
-              <strong>Pagamento na barbearia.</strong> Seus créditos são liberados assim que o pagamento for confirmado no balcão.
             </>
           ) : (
             <>
@@ -99,7 +105,7 @@ export function Confirmacao({
       {erroEnvio && <AlertaErro texto={erroEnvio} />}
 
       <button className="btn btn-lg btn-block" disabled={enviando} onClick={onConfirmar}>
-        {enviando ? 'Enviando…' : online ? 'Ir para o pagamento →' : ehPacote ? 'Confirmar compra' : 'Confirmar horário'}
+        {enviando ? 'Enviando…' : online ? 'Ir para o pagamento →' : 'Confirmar horário'}
       </button>
     </div>
   );

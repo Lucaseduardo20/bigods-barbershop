@@ -41,6 +41,37 @@ sem nenhuma dependência de AWS, e testada de ponta a ponta com WhatsApp REAL
 backend**, idênticos sob os 3 fusos. `turbo run build` verde. Deploy abstraído
 num comando só (`scripts/deploy.sh local|staging|production` — ver `DEPLOY.md`).
 
+Sessão de CRUD de usuários (2026-08-12, ver seção dedicada perto do fim deste
+arquivo): admin agora cria/edita/desativa barbeiro e/ou admin pelo painel, sem
+mexer no banco à mão — inclui trava de segurança pra nunca ficar sem admin
+ativo, soft-disable (nunca deleta) e permissão real no endpoint (não só
+escondida na UI). **369 testes verdes no backend**, idênticos sob os 3 fusos.
+`turbo run build` verde nos 5 pacotes.
+
+Sessão de vale/pagamento (2026-08-13, ver seção dedicada perto do fim deste
+arquivo): `LancamentoComissao` virou um ledger de **3 direções** (COMISSAO +,
+VALE −, PAGAMENTO −) — vale segue solicitação→aprovação→pagamento (débito só
+nasce quando pago de fato), pagamento é livre e sem trava de saldo (saldo pode
+ficar negativo, decisão do dono), e ganhou uma visão de gestão (Fechamento)
+que separa claramente acumulado histórico de movimento do período. Item que
+estava explicitamente fora de escopo (DOMAIN.md §11) entrou por necessidade
+real da operação. **415 testes verdes no backend**, idênticos sob os 3 fusos.
+`turbo run build` verde nos 5 pacotes.
+
+Sessão de ligação do pagamento online (2026-08-13, "acordar o AbacatePay em
+SANDBOX" — ver seção dedicada perto do fim deste arquivo): o gateway real
+(Checkout Transparente **v2**, não v1/hospedado como presumido em sessões
+anteriores) foi corrigido ponta a ponta contra a documentação oficial da
+AbacatePay — endpoint, payload, e principalmente a verificação de assinatura do
+webhook, que usava um esquema inteiramente diferente do real (chave pública
+fixa + query secret em AND, não o nosso secret sozinho em hex). Política do
+funil aplicada: pacote força pagamento online, avulso mantém a escolha.
+Expiração de PIX não pago passou a ser detectada por timeout local (a
+AbacatePay não emite webhook nenhum pra isso). **Desvio deliberado e reportado**
+da instrução original sobre `transparent.lost` — ver DECISOES_PENDENTES.md #27.
+**428 testes verdes no backend**, idênticos sob os 3 fusos (`npm run
+test:multitz`). `turbo run build` verde nos 5 pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -1671,6 +1702,475 @@ histórico da lib anterior preservado só nos comentários que explicam O PORQU�
 da troca (aqui, em `DECISOES_PENDENTES.md`, e no cabeçalho de
 `services/whatsapp-otp/src/index.js`).
 
+## CRUD de usuários staff/admin no painel (2026-08-12) ✅
+
+Até esta sessão, usuário (barbeiro e/ou admin) só nascia do `seed` — criar
+alguém novo em produção exigia mexer no banco à mão, insustentável com a
+operação real rodando. Escopo estrito: só gestão de usuário (criar/editar/
+desativar/credenciais); vale e pagamento ficam pra próxima sessão. Nenhuma
+migration nova — `login`/`senhaHash`/`ativo` já existiam no schema desde a v1
+da autenticação local.
+
+**Domínio (`staff/domain/`):**
+- `Barbeiro` ganhou `renomear`, `atualizarPapeis` (rejeita conjunto vazio,
+  mesma invariante de `criar`), `ativar`/`desativar` (soft-disable — nunca
+  deleta: comissão/atendimento/ledger seguem intactos e consultáveis).
+- Nova função pura `regra-admin-minimo.ts` (`assertNaoRemoveUltimoAdminAtivo`):
+  trava cross-agregado — nunca deixa a empresa sem NENHUM admin ativo, seja
+  desativando o último admin ou removendo o papel ADMIN dele. Testada
+  isoladamente (5 testes), sem tocar banco.
+- `BarbeiroRepository` ganhou `listarTodos` (companyId, sem filtro de papel) —
+  `listar` (já existente) continua filtrando só quem tem papel BARBEIRO, porque
+  é usado por agenda/comissão/pacotes/funil público pra decidir quem atende;
+  misturar os dois quebraria esses fluxos.
+
+**Presentation (`barbeiros.controller.ts`, tudo `@Papeis(Papel.ADMIN)`):**
+- `GET /barbeiros/usuarios` — lista TODO o staff (inclusive admin puro, que
+  `GET /barbeiros` normal não devolve) com `login` incluso. `BarbeiroDTO`
+  normal **não** ganhou `login` de propósito — `GET /barbeiros` é usado por
+  qualquer staff autenticado (não só admin) e nunca deveria vazar username de
+  terceiros; criado `UsuarioStaffDTO` (extends `BarbeiroDTO` + `login`) só pra
+  este endpoint.
+- `POST /barbeiros` — `login`/`senha` viraram **obrigatórios** (antes eram
+  opcionais). Não existe fluxo de convite/self-service pro staff — sem
+  credencial na criação, o usuário nasceria sem jeito nenhum de logar. Criação
+  do barbeiro + credencial agora roda numa transação Prisma só
+  (`$transaction`, reaproveitando `PrismaBarbeiroRepository` com o client
+  transacional) — antes eram duas escritas separadas; virou anti-padrão
+  explícito (CLAUDE.md) no momento em que a credencial passou a ser
+  obrigatória, então foi corrigido nesta sessão.
+- `PUT /barbeiros/:id` — nome + papéis (dados básicos). Comissão/preço/
+  serviços/slug continuam nos endpoints próprios que já existiam.
+- `PUT /barbeiros/:id/status` — ativar/desativar (soft-disable).
+- `PUT /barbeiros/:id/credenciais` — admin reseta login e/ou senha (não existe
+  "esqueci minha senha" pro staff — é sempre o admin que reseta).
+- `PUT /:id`, `/status` e a criação sempre consultam `listarTodos` e chamam
+  `assertNaoRemoveUltimoAdminAtivo` **antes** de persistir — a trava dá 422
+  com mensagem clara, nunca deixa a operação passar silenciosamente.
+- Login duplicado (constraint `@unique`) vira `409` com mensagem amigável, não
+  vaza o erro cru do Postgres.
+
+**Permissão — a trava real é no endpoint, não só no botão escondido:**
+`RolesGuard` (global, `APP_GUARD`) já bloqueia qualquer rota `@Papeis(ADMIN)`
+pra quem não tem o papel — isso sozinho garante que um barbeiro não-admin não
+consegue se auto-promover: ele nem consegue *chamar* `PUT /barbeiros/:id`,
+muito menos editar o próprio registro. Testado explicitamente (403 em todos os
+5 endpoints de gestão, inclusive tentando o próprio barbeiro alterar o próprio
+papel).
+
+**Barbeiro desativado — as 3 consequências pedidas, todas no backend:**
+1. Some do funil público (`GET /public/barbeiros` já filtrava `.ativo`) **e**
+   das opções de agendamento do próprio admin — `Agenda.tsx` (dialogs de novo
+   atendimento e nova venda de produto) não filtrava `ativo`, só papel
+   BARBEIRO; corrigido. E, mais importante, o backend agora recusa a
+   operação mesmo se alguém contornar a UI: `AgendarAvulsoUseCase` e
+   `AgendarComCreditoUseCase` checam `barbeiro.ativo` e devolvem 400 —
+   histórico do gap: antes desta sessão era possível `POST` um agendamento
+   pra um barbeiro inativo direto na API, só escondido na tela.
+2. Mantém extrato/comissão histórico: `GET /barbeiros` (usado por
+   `Comissao.tsx`) e o filtro de calendário em `Agenda.tsx` continuam sem
+   filtrar `ativo` de propósito — comentado no código pra próxima sessão não
+   "corrigir" isso sem querer.
+3. Não consegue mais logar: `LocalAuthProvider.validarCredenciais` já checava
+   `barbeiro.ativo` desde antes desta sessão (nada mudou aqui, só confirmado
+   com teste e2e).
+
+**Como o usuário novo recebe o primeiro acesso:** não há convite por e-mail/
+WhatsApp (fora de escopo — trilha de staff é separada da trilha OTP do
+cliente, CLAUDE.md). O admin cadastra nome + papéis + login + senha inicial no
+diálogo "Novo usuário" e **combina a senha diretamente com a pessoa** (verbal,
+WhatsApp pessoal etc. — fora do sistema). Ela já consegue logar imediatamente
+após a criação. Reset de senha depois é sempre via "Credenciais" (admin).
+
+**Frontend (`apps/admin/src/screens/Barbeiros.tsx`):** nova seção "Usuários
+(staff)" no topo da tela, acima da configuração por-barbeiro que já existia
+(link pessoal/preços/serviços/expediente — inalterada). Lista todos com badges
+de papel + status, e 3 diálogos: Novo usuário (nome, papéis, comissão +
+serviços SE marcar Barbeiro, login+senha), Editar (nome + papéis só — o resto
+tem tela própria), Credenciais (resetar login/senha). Botão inline Desativar/
+Reativar por linha.
+
+**Nenhum `DECISOES_PENDENTES.md` novo:** todas as regras desta sessão (trava
+do último admin, as 3 consequências de desativar, soft-disable nunca deleta)
+já vieram explícitas no pedido do dono — nada precisou ser inventado.
+
+**Testes:** 25 novos no backend (5 em `barbeiro.spec.ts`, 5 em
+`regra-admin-minimo.spec.ts`, 15 em `gestao-de-usuarios.e2e.spec.ts` — cobrindo
+403 pra não-admin em todos os endpoints, criação com login obrigatório e login
+duplicado, reset de credenciais, a trava do último admin nos dois formatos
+[desativar e remover papel] e liberado com 2 admins, e as 3 consequências de
+desativar). **369 testes verdes no backend**, idênticos sob `TZ=UTC`,
+`TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo` (`npm run test:multitz`).
+`turbo run build` verde nos 5 pacotes; `tsc --noEmit` limpo nos 3 frontends.
+
+### Smoke test manual (pendente — precisa de humano com o painel aberto)
+
+1. Login como admin → aba Barbeiros → "Usuários (staff)" mostra todo mundo
+   (inclusive admin sem papel Barbeiro).
+2. "+ Novo usuário": criar um barbeiro (papel Barbeiro, com login/senha) →
+   confirmar que ele aparece na lista e que dá pra logar com o login/senha
+   informados numa aba anônima.
+3. Ele aparece na "Configuração por barbeiro" (embaixo) pra configurar
+   serviços/preços/expediente, e aparece nas opções de barbeiro pra agendar
+   (Agenda → Novo atendimento).
+4. Ele aparece no funil público (`booking`) como opção de barbeiro.
+5. Desativar esse barbeiro (botão "Desativar" na lista) → confirmar: (a) some
+   do funil público e do dropdown de "Novo atendimento"/"Nova venda" na
+   Agenda; (b) continua aparecendo em Comissão com o histórico dele intacto;
+   (c) a aba anônima logada como ele é derrubada/não consegue relogar.
+6. Reativar → volta a logar e a aparecer nas opções de agendamento.
+7. Tentar desativar o ÚLTIMO admin ativo (ou remover o papel Admin dele) →
+   confirmar que a API recusa com mensagem clara (a UI hoje só repassa o erro
+   do backend, não tem um aviso preventivo próprio — funcional, mas vale
+   polir numa próxima passada se incomodar no dia a dia).
+8. Como não-admin (logar como um barbeiro comum): confirmar que a aba
+   "Usuários (staff)" nem aparece (mensagem "restrita ao admin").
+
+## Vale, pagamento e fechamento — ledger de 3 direções (2026-08-13) ✅
+
+⚠️ Sessão em cima de sistema **em produção com dinheiro real dos sócios** — toda
+migration foi aditiva/reversível (nada apagado nem reescrito em
+`LancamentoComissao`), suíte confirmada verde ANTES de tocar em qualquer
+código, e um teste de regressão pré-existente (`produtos.e2e.spec.ts`, da
+sessão 2026-07-16) pegou um erro real numa das duas migrations desta sessão
+antes de virar bug de produção — ver "Erro pego pela suíte" abaixo.
+
+**Modelo:** o ledger (`LancamentoComissao`) que só tinha CRÉDITOS (comissão)
+virou um ledger de **3 direções** — COMISSAO (+) | VALE (−) | PAGAMENTO (−).
+Saldo do barbeiro continua sendo **sempre** a soma dos lançamentos, agora com
+sinal por tipo; pode ficar **negativo** (barbeiro deve à casa), decisão
+explícita do dono.
+
+**Decisão de modelagem (pedida explicitamente: "pense se cabe no mesmo campo
+ou é um campo novo"):** `tipo` (COMISSAO\|VALE\|PAGAMENTO) é um campo **novo**,
+ortogonal a `origem` (SERVICO\|PRODUTO) — não uma extensão do mesmo enum.
+`origem` responde "o que gerou a comissão" e só existe quando `tipo=COMISSAO`;
+`tipo` responde "este lançamento soma ou subtrai". Colocar VALE/PAGAMENTO
+dentro de `origem` misturaria as duas perguntas no mesmo campo. Mesmo raciocínio
+de nomenclatura documentado em `DOMAIN.md` §3.7.
+
+**Migration** (`prisma/migrations/20260813034104_.../20260813035004_...`, 2
+arquivos — o segundo corrigindo o primeiro, ver abaixo): `tipo` novo
+(`DEFAULT COMISSAO`, backfill automático em toda linha existente),
+`valeId`/`registradoPorId` novos (nullable), `origem`/`valorBaseCentavos`/
+`percentualAplicadoBp` viraram nullable (só fazem sentido pra COMISSAO) —
+`origem` manteve `DEFAULT SERVICO`. Nova tabela `Vale`. **Nenhuma linha
+existente foi reescrita ou apagada.**
+
+**★ Erro pego pela suíte, não em produção:** a primeira versão da migration
+removeu o `DEFAULT SERVICO` de `origem` (parecia certo — "por que ter default
+se agora é opcional?"). Isso quebrou silenciosamente um teste de regressão
+JÁ EXISTENTE de uma sessão anterior (`produtos.e2e.spec.ts`, "Migration do
+ledger generalizado preserva lançamentos SERVICO antigos") que insere uma
+linha SEM passar `origem`, simulando exatamente como uma linha pré-2026-07-16
+teria sido escrita — e esperava o default `SERVICO`. Restaurado o `DEFAULT
+SERVICO` (segunda migration) — um valor explícito continua vencendo o default
+(VALE/PAGAMENTO passam `null` explicitamente), então não conflita com nada
+novo. Fica documentado como lembrete: mexer num `DEFAULT` de coluna existente
+é uma mudança que PARECE cosmética e não é — a suíte pegou, mas só porque o
+teste de regressão da sessão anterior existia.
+
+### FASE 1 — Vale (solicitação → aprovação → pagamento)
+
+- Novo agregado `Vale` (`payroll/domain/vale.aggregate.ts`): máquina de
+  estado `PENDENTE → APROVADO → PAGO` (final) \| `PENDENTE → NEGADO` (final,
+  motivo obrigatório). **Só essas transições existem** — não há
+  `APROVADO → NEGADO` nem cancelar um `PENDENTE` (não foi pedido; registrado
+  em `DECISOES_PENDENTES.md` #26, sem afetar dinheiro nos dois casos).
+- **Regra crítica implementada literalmente como pedida:** o débito no ledger
+  (`LancamentoComissao.criarDeVale`) nasce **só** na transição
+  `APROVADO → PAGO` (`MarcarValePagoUseCase`) — `aprovar()` sozinho não toca
+  o ledger. `Vale` e `LancamentoComissao` mudam juntos na mesma transação
+  Prisma (`UnitOfWork`, `vales` adicionado a `RepositoriosTransacionais` —
+  mesmo padrão de `ConfirmarReembolsoUseCase` da sessão-E).
+- Endpoints (`vales.controller.ts`): `POST /vales` (qualquer staff, sempre a
+  PRÓPRIA solicitação — nunca em nome de outro), `GET /vales` (admin vê
+  todos, não-admin só os próprios — filtro sempre server-side, nunca
+  confiando em query), `PATCH /vales/:id/aprovar\|negar\|pagar` (admin only).
+  Admin-barbeiro (Gabriel) pode aprovar/pagar o próprio vale — mesma decisão
+  já tomada pra `PacoteOferta` (sessão-B): sem isso o fluxo trava com um
+  único admin+barbeiro real.
+- Login duplicado, motivo ausente em negar, vale de outra empresa: tudo
+  validado com mensagem clara (400/404), nunca 500.
+
+### FASE 2 — Pagamento ao barbeiro
+
+- `RegistrarPagamentoUseCase`: single-aggregate (só cria um
+  `LancamentoComissao` tipo=PAGAMENTO), sem `UnitOfWork` — não há segundo
+  agregado pra manter em sincronia. **Sem trava de saldo, por decisão do
+  dono** — testado explicitamente: pagar mais do que o saldo devido é aceito
+  e deixa o saldo negativo.
+- `POST /pagamentos` (admin only): `barbeiroId`, `valorCentavos`, `data`
+  opcional (default agora). `registradoPorId` sempre preenchido (auditoria).
+
+### FASE 3 — Extrato (`Financeiro.tsx`, sub-aba "Extrato")
+
+- Saldo líquido em destaque **inequívoco por cor E label** (não só o sinal do
+  número): positivo = dourado + "a receber"; negativo = vermelho + "barbeiro
+  deve à casa" — o pedido explícito de "sem ambiguidade" levado ao pé da
+  letra.
+- Cada lançamento do extrato mostra a natureza (COMISSAO com cliente/serviço
+  como já era; VALE/PAGAMENTO com "quem registrou" e sinal negativo visível).
+- Projeção futura continua **separada** do saldo real (já era assim; vale e
+  pagamento são sempre fatos consumados, nunca entram na projeção).
+- Barbeiro não-admin só vê o próprio extrato (já era assim; sem mudança de
+  comportamento, só confirmado com o resto da tela).
+
+### FASE 4 — Fechamento (gestão, admin only)
+
+- `FechamentoQueryService`: LEITURA pura sobre o ledger — nunca cria
+  lançamento, nunca "fecha" nada de forma imutável (é uma foto consultável,
+  como pedido). Devolve, por barbeiro, dois grupos **nomeados e separados**:
+  acumulado (histórico total do ledger) e movimento do período consultado —
+  a distinção que mais gera erro em relatório financeiro, testada
+  explicitamente (um lançamento de 2020 aparece no acumulado mas não entra
+  num período que consulta só 2026).
+- `GET /fechamento?de=&ate=` (admin only) — datas em dia civil LOCAL (mesma
+  disciplina de fuso de todo o resto do sistema, `limitesDoDiaCivil`).
+- Tela `Fechamento.tsx`: seletor de período (default mês corrente), lista por
+  barbeiro com saldo líquido em destaque + os 3 totais acumulados + os 3
+  totais do período, lado a lado — e botão "Registrar pagamento" por linha
+  (FASE 2 na prática).
+
+### FASE 5 — App do barbeiro = mesmo painel, versão reduzida
+
+`App.tsx`: navegação agora depende do papel — admin vê as 6 abas de sempre;
+barbeiro não-admin vê **só** "Financeiro" (que por sua vez já restringe pra
+extrato próprio + solicitar vale — sem sub-aba Fechamento pra quem não é
+admin). Nenhum mecanismo novo de autorização — reaproveita `usuario.papeis`
+que já existia; o controle **real** continua nos guards do backend (uma aba
+escondida na UI não é proteção, é só não oferecer caminho morto).
+
+### FASE 6 — DOMAIN.md
+
+- §3.7 reescrita: ledger de 3 direções, fórmula do saldo, explicação da
+  decisão `tipo` vs `origem`.
+- §3.12 nova: agregado `Vale`.
+- §4.4 nova: máquina de estado do `Vale` (diagrama + transições ilegais).
+- §8.8 nova: fluxo ponta-a-ponta (vale → pagamento → fechamento) e a
+  distinção acumulado vs. período.
+- §11: removida a linha "Vale, saque, débito do barbeiro" da tabela de fora
+  de escopo — ela **previa exatamente este design** ("lançamento negativo no
+  ledger existente"), registrado como confirmado, não apagado da memória do
+  documento.
+
+### Reorganização de navegação (efeito colateral desta sessão)
+
+"Comissão" virou **"Financeiro"** (ícone 💰 mantido) — extrato sozinho não
+cobria mais tudo que passou a dizer respeito ao dinheiro do barbeiro. Sub-abas
+por dentro (`Tabs`, mesmo padrão já usado em Catálogo/Pacotes — sem router):
+Extrato \| Vales \| Fechamento (só admin). Evita crescer o bottom-nav pra 8
+ícones num shell de 430px.
+
+**Testes:** 46 novos no backend (7 em `saldo-do-barbeiro.spec.ts`, 7 novos em
+`lancamento-comissao.spec.ts` incluindo o teste de regressão ★ pedido
+explicitamente, 16 em `vale.spec.ts` cobrindo TODAS as transições legais e
+ilegais, 16 em `vale-e-pagamento.e2e.spec.ts` cobrindo as 4 fases de ponta a
+ponta). **415 testes verdes no backend**, idênticos sob `TZ=UTC`,
+`TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo`. `turbo run build` verde nos 5
+pacotes; `tsc --noEmit` limpo no admin.
+
+### Smoke test manual (pendente — precisa de humano com dinheiro fictício)
+
+1. Logar como barbeiro não-admin → confirmar que só aparece a aba
+   "Financeiro", com sub-abas Extrato e Vales (sem Fechamento).
+2. Nessa conta, ir em Vales → "Solicitar vale" → valor + motivo → confirmar
+   que aparece como PENDENTE e que o saldo no Extrato NÃO muda.
+3. Logar como admin → Financeiro → Vales → aprovar o vale solicitado →
+   confirmar que ainda não afeta o saldo do barbeiro (Extrato dele).
+4. Marcar o vale como pago → confirmar no Extrato do barbeiro: saldo caiu
+   exatamente o valor do vale, aparece um lançamento "Vale pago" em vermelho.
+5. Financeiro → Fechamento → conferir os números do barbeiro (comissão
+   acumulada, vale pago, saldo líquido) → "Registrar pagamento" com um valor
+   MAIOR que o saldo devido → confirmar que é aceito e o saldo fica negativo,
+   exibido em vermelho com o label "deve à casa" (não só o sinal de menos).
+6. Trocar o período de consulta do Fechamento pra um intervalo sem nenhum
+   movimento → confirmar que os totais "no período" zeram mas o "acumulado"
+   continua mostrando os números de sempre (a distinção não pode se perder).
+7. Como não-admin, tentar (via requisição direta, não pela UI) aprovar/negar/
+   pagar um vale ou acessar `/fechamento` → confirmar 403 em todos.
+
+## Ligação do pagamento online — AbacatePay em SANDBOX, Checkout Transparente v2 (2026-08-13) ✅
+
+Esta sessão **ligou** o pagamento online (`PAYMENT_GATEWAY=abacatepay`), até
+então desligado (`fake`). A integração já existia de sessões anteriores mas
+estava construída contra uma API que **não é a que o dono configurou de
+verdade** — corrigida ponta a ponta contra a documentação oficial da AbacatePay
+(clonada de `github.com/AbacatePay/documentation`, lida página por página, não
+presumida). Suíte confirmada verde (`npm run test` + `test:multitz`) antes de
+tocar em qualquer código, como pedido.
+
+### ★ FASE 1 — modo do gateway: era v1/hospedado presumido, virou v2 Checkout Transparente
+
+**Achado obrigatório de reportar primeiro:** o código anterior assumia a API
+v1 (`https://api.abacatepay.com/v1`, endpoints `/pixQrCode/create` e
+`/pixQrCode/simulate-payment`, `externalId` aninhado em `metadata`, HMAC em hex
+com o nosso próprio secret). A conta real do dono está cadastrada como
+**webhook v2**, assinando **apenas** `transparent.completed` e
+`transparent.lost` — ou seja, **Checkout Transparente** (QR Code + copia-e-cola
+dentro do próprio funil), nunca o modo hospedado (`checkout.*`, que não está
+assinado nesta conta e faria o pagamento nunca confirmar, silenciosamente).
+
+**Ficou:** `AbacatePayGateway` reescrito para `POST /v2/transparents/create` e
+`POST /v2/transparents/simulate-payment`; `externalId` enviado **direto** em
+`data.externalId` (nunca em `data.metadata`).
+
+### Confirmação do formato v2
+
+Payload do webhook confirmado contra `pages/webhooks/events/transparent.mdx`:
+`{ id, event, apiVersion: 2, devMode, data: { transparent: { id, externalId,
+amount, paidAmount, status, ... } } }`. `WebhookAbacatePayRequest`
+(`packages/contracts/src/dto.ts`) foi reescrito pra esse shape real, com
+fallbacks só defensivos (nunca usados pelo payload v2 real).
+
+### Onde o `externalId` é gravado e lido
+
+- **Gravado**: `IntencaoDePagamento.criar()` gera um `randomUUID()` como
+  `externalId` (`vender-pacote.usecase.ts`, `agendar-avulso.usecase.ts`) —
+  persistido na coluna `IntencaoDePagamento.externalId` (unique).
+- **Enviado ao gateway**: `AbacatePayGateway.criarCobrancaPix` manda esse
+  `externalId` em `data.externalId` na criação da cobrança
+  (`abacatepay.gateway.ts`).
+- **Lido de volta**: `webhooks.controller.ts` → `extrairExternalId()` lê
+  `data.transparent.externalId` do payload do webhook, busca a intenção por
+  esse valor (`IntencaoDePagamentoRepository.porExternalId`) e confirma.
+
+### Assinatura do webhook — o esquema real é diferente do que o código anterior fazia
+
+Confirmado contra `pages/webhooks/security.mdx`: **dois mecanismos
+obrigatórios, AND** (não OR como estava, e não um só):
+1. Secret compartilhado na query string `?webhookSecret=...` (nosso
+   `ABACATEPAY_WEBHOOK_SECRET`).
+2. HMAC-SHA256 em **base64** (não hex) no header `X-Webhook-Signature`,
+   calculado com a **chave pública fixa da AbacatePay** — a mesma para toda
+   conta, publicada na doc deles, **não** o nosso secret (que só entra na
+   prova #1). `abacatepay-webhook.verifier.ts` reescrito para isso; validação
+   incondicional, nunca pulada por `devMode: true`.
+
+### FASE 2 — boot e configuração segura
+
+`PAYMENT_GATEWAY=abacatepay` monta o `WebhooksController`, expõe o webhook, e
+`assertConfiguracaoSegura` recusa subir sem **ambas** `ABACATEPAY_API_KEY` e
+`ABACATEPAY_WEBHOOK_SECRET` — coberto em `config-seguranca.spec.ts` (14
+testes, já existiam de sessão anterior, revalidados). Sandbox e produção
+rodam exatamente o mesmo caminho de validação, sem atalho por ambiente.
+
+### FASE 3 — política do funil (decisão do dono)
+
+- **Pacote**: pagamento online agora **obrigatório**. `formaPagamento` foi
+  **removido** de `VenderPacotePublicoRequest` (`packages/contracts/src/dto.ts`)
+  — se um cliente antigo/cacheado ainda mandar o campo, o `ValidationPipe`
+  (`whitelist: true`) o descarta silenciosamente sem quebrar. Frontend
+  (`Confirmacao.tsx`, `App.tsx`) força `online=true` e esconde a escolha
+  quando `ehPacote`.
+- **Avulso**: continua com a escolha entre online (PIX antecipado) e
+  presencial (na conclusão) — nada mudou aqui, já estava certo.
+
+### FASE 4 — cobrança e expiração
+
+O backend (`AgendarAvulsoUseCase`) e o frontend (`Confirmacao.tsx`,
+`PixAguardando.tsx`) **já suportavam** pagamento online pro avulso de uma
+sessão anterior — não precisou de UI nova, só a correção do protocolo v2
+subjacente (gateway/webhook) beneficiou as duas trilhas de uma vez.
+
+**Novo nesta sessão:** como a AbacatePay não emite webhook nenhum para "PIX
+gerado e nunca pago, expirou sozinho" (confirmado varrendo a tabela completa
+de eventos v2), a expiração passou a ser detectada por **timeout local**:
+`IntencaoDePagamento.expiraEm` (mesma janela pedida ao gateway via
+`expiresIn`) é conferido a cada leitura de status
+(`ExpirarPagamentoVencidoUseCase`, chamado em `GET /public/pagamentos/:id`
+antes de responder — usado tanto por pacote quanto avulso). O próprio polling
+do funil é o gatilho; migration puramente aditiva (`expiraEm
+TIMESTAMPTZ(3)` nullable).
+
+### ⚠️ Desvio deliberado da instrução original — `transparent.lost`
+
+A instrução pedia: ao receber `transparent.lost`, "marca a intenção como
+EXPIRADA/FALHOU; feedback no funil ('seu PIX expirou, gere um novo')". Ao
+confirmar contra a doc oficial, essa leitura está **factualmente errada**:
+`transparent.lost` = disputa/chargeback **perdido** sobre uma cobrança **que
+já estava PAGA** — não existe, em toda a tabela de eventos da AbacatePay v2,
+nenhum evento para "PIX simplesmente não pago". Seguir a instrução ao pé da
+letra teria o risco real de reverter (marcar EXPIRADO/FALHOU) uma intenção que
+na verdade já foi paga e liberou crédito de pacote ou comissão — uma decisão
+financeira de estorno que não foi pedida.
+
+**Implementado em vez disso:** `transparent.lost` é um no-op seguro (log de
+warning com o `externalId`, zero mutação, 200/201 `processado: false`),
+marcado `★ DECISAO_PENDENTE` inline e registrado em
+`DECISOES_PENDENTES.md` #27 — decisão de estorno fica para o dono decidir.
+A expiração real de PIX não pago foi resolvida pelo timeout local acima (FASE
+4), que não depende desse evento.
+
+### FASE 5 — testes
+
+Reescritos/adicionados para o protocolo v2: `abacatepay.gateway.spec.ts` (7
+testes, endpoint/payload real), `abacatepay-webhook.verifier.spec.ts` (11
+testes, secret+HMAC em AND, chave pública, base64), `webhook-abacatepay.e2e.spec.ts`
+(8 testes: confirmação válida, 401 sem cada uma das duas provas, idempotência,
+`transparent.lost` no-op, evento não assinado ignorado), `pacote-publico.e2e.spec.ts`
+(8 testes, reescrito: política "pacote sempre online" mesmo mandando
+`formaPagamento=presencial`, e um teste **real** de expiração por timeout via
+polling), `intencao-de-pagamento.spec.ts` (+3 testes de `expirouPorTempo`).
+Não havia credencial de sandbox real disponível no ambiente desta sessão
+(confirmado ausente em `.env` e nas env vars do shell) — os testes usam
+payload v2 assinado à mão com a chave pública real da AbacatePay, exatamente
+como pedido para esse cenário; ver DECISOES_PENDENTES.md #9.
+
+### FASE 6 — documentação
+
+`docs/DOMAIN.md` §3.8 reescrita com o fluxo v2 completo (endpoint, payload,
+assinatura AND, `expiraEm`, política do funil). `DECISOES_PENDENTES.md` #10
+marcada ✅ RESOLVIDA (v2 confirmado como definitivo), #9 atualizada (ainda
+pendente de credencial, agora com os detalhes v2), nova #27 registrando o
+desvio do `transparent.lost`. `apps/api/src/modules/payments/README.md`
+reescrito por completo. `.env.example`/`.env.docker.example`/`.env.aws.example`
+atualizados (`ABACATEPAY_BASE_URL` de `/v1` para `/v2`) — só o template, o
+`.env` real não foi tocado.
+
+### Resultado final
+
+**428 testes verdes no backend** (42 arquivos), idênticos sob
+`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo` (`npm run test:multitz`, rodado 3×
+completo). `turbo run build` verde nos 5 pacotes (`contracts`, `api`, `admin`,
+`booking`, `account`). Nenhum teste pré-existente quebrou; nenhum arquivo fora
+do escopo de pagamento foi tocado.
+
+### Roteiro de smoke test manual — sandbox real (para o dono rodar)
+
+Com o dashboard da AbacatePay aberto (sandbox) e o servidor com
+`PAYMENT_GATEWAY=abacatepay` + `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET`
+de sandbox carregados:
+
+1. **Pacote (online obrigatório):** no funil público, comprar um pacote.
+   Confirmar que a tela mostra QR Code + copia-e-cola sem nenhuma opção
+   "pagar na barbearia".
+2. **Avulso (com escolha):** agendar um avulso e confirmar que a tela oferece
+   as duas opções — online e presencial.
+3. **Pagar de verdade (Pix real ou simulação sandbox):** no dashboard da
+   AbacatePay, encontrar a cobrança criada (mesmo `externalId`/`id` do passo
+   1) e disparar a simulação de pagamento (ou pagar via Pix sandbox de
+   verdade, se o app da AbacatePay permitir).
+4. **Confirmar a UI:** a tela "aguardando confirmação" do funil deve sair
+   sozinha do polling e mostrar sucesso em poucos segundos — sem precisar
+   dar refresh.
+5. **Conferir o painel admin:** o pacote deve aparecer com créditos
+   liberados (5 itens DISPONIVEL, por exemplo); o avulso deve aparecer como
+   PAGO.
+6. **Testar expiração:** gerar uma cobrança e **não pagar**. Esperar o prazo
+   configurado (`ABACATEPAY_EXPIRA_SEGUNDOS`, default 3600s — vale reduzir
+   temporariamente essa env pra um valor pequeno só pra esse teste, tipo 30)
+   e confirmar que a tela do funil detecta EXPIRADO e oferece gerar um PIX
+   novo (ou, no avulso, cair pra presencial).
+7. **Testar disputa (`transparent.lost`), se o sandbox da AbacatePay permitir
+   simular**: confirmar nos logs do servidor que aparece o warning
+   "transparent.lost (disputa perdida) recebido" e que o status da intenção
+   **não muda** (continua PAGO) — é o comportamento esperado (no-op
+   deliberado, ver seção acima).
+8. **Assinatura inválida:** enviar manualmente um POST pra
+   `/webhooks/abacatepay` sem header `X-Webhook-Signature` (ex.: via curl) e
+   confirmar 401, sem nenhum efeito em nenhuma intenção.
+
 ## Como rodar localmente
 
 ```bash
@@ -1711,12 +2211,18 @@ npm run dev -w @bigods/admin
 # 8. Funil público de agendamento (porta 5174, proxy /api → :3000)
 npm run dev -w @bigods/booking
 # → http://localhost:5174 — sem login. Marque um horário; ele aparece na agenda
-#   do painel admin (passo 7) no mesmo dia. Pagamento é presencial (na conclusão).
+#   do painel admin (passo 7) no mesmo dia. Avulso: cliente escolhe online (PIX)
+#   ou presencial (na conclusão). Pacote: pagamento online é OBRIGATÓRIO.
 #   Tenant: VITE_COMPANY_ID (default "bigods").
 
-# Webhook fake de pagamento (confirmar um PIX gerado):
-# curl -X POST localhost:3000/webhooks/abacatepay -H 'Content-Type: application/json' \
-#   -d '{"event":"billing.paid","data":{"metadata":{"externalId":"<externalId da intenção>"}}}'
+# Com PAYMENT_GATEWAY=fake (default fora de produção), o pacote/avulso online
+# fica AGUARDANDO sem webhook real — confirme pelo endpoint demo (DEMO_MODE=true):
+# curl -X POST "localhost:3000/public/pagamentos/<intencaoId>/confirmar-demo?companyId=bigods"
+
+# Com PAYMENT_GATEWAY=abacatepay (Checkout Transparente v2, sandbox ou produção),
+# o webhook exige assinatura real — ver apps/api/src/modules/payments/README.md
+# ("Testar o webhook localmente") e o roteiro de smoke test manual sandbox na
+# seção "Ligação do pagamento online" deste arquivo.
 
 # Login OTP do cliente (modo demo — o código volta na resposta, sem SMS):
 # 1) admin vende um pacote pro telefone (provisiona o usuário)

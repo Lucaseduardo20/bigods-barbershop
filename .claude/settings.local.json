@@ -106,7 +106,14 @@
       "Bash(grep -n \"estado.step === PASSO.BARBEIRO\\\\|totalCentavos\\(servicos\\\\|duracaoMinutos\\(servicos\\\\|Confirmacao\\\\s*$\\\\|servicos={servicos}\\\\|const total = \\\\|const duracao = \\\\|const valor = \" /home/lkt/work/bigods-barber-v2/apps/booking/src/App.tsx)",
       "WebSearch",
       "WebFetch(domain:docs.openwa.dev)",
-      "WebFetch(domain:www.npmjs.com)"
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(git rm *)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema prisma/schema.prisma --name vale_pagamento_ledger_3_direcoes --skip-generate)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema prisma/schema.prisma)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma --name restaura_default_origem_comissao --skip-generate)",
+      "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma)",
+      "Bash(docker start *)",
+      "WebFetch(domain:github.com)"
     ],
     "additionalDirectories": [
       "/tmp"

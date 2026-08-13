@@ -6,6 +6,15 @@ import { createHmac, randomUUID } from 'node:crypto';
 
 const WEBHOOK_SECRET = 'wh-secret-e2e';
 
+/**
+ * Mesma chave pública fixa da AbacatePay usada em `abacatepay-webhook.verifier.ts`
+ * (publicada na doc deles, igual para toda conta — NÃO é `ABACATEPAY_WEBHOOK_SECRET`).
+ * Duplicada aqui de propósito, assinando o payload exatamente como a AbacatePay
+ * assinaria de verdade, sem depender da constante interna do módulo sob teste.
+ */
+const ABACATEPAY_PUBLIC_KEY =
+  't9dXRhHHo3yDEj5pVDYz0frf7q6bMKyMRmxxCPIPp3RCplBfXRxqlC6ZpiWmOqj4L63qEaeUOtrCI8P0VMUgo6iIga2ri9ogaHFs0WIIywSMg0q7RmBfybe1E5XJcfC4IW3alNqym0tXoAKkzvfEjZxV6bE0oG2zJrNNYmUCKZyV0KZ3JS8Votf9EAWWYdiDkMkpbMdPggfh1EqHlVkMiTady6jOR3hyzGEHrIz2Ret0xHKMbiqkr9HS1JhNHDX9';
+
 // vi.hoisted roda ANTES dos imports (que o SWC iça para o topo) — é a única forma
 // de garantir que PAYMENT_GATEWAY=abacatepay já esteja setado quando o
 // payments.module.ts é avaliado e decide montar o WebhooksController. Em produção
@@ -14,16 +23,23 @@ vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
   process.env.PAYMENT_GATEWAY = 'abacatepay';
   process.env.ABACATEPAY_API_KEY = 'test-key';
-  process.env.ABACATEPAY_BASE_URL = 'https://sandbox.abacatepay.local/v1';
+  process.env.ABACATEPAY_BASE_URL = 'https://sandbox.abacatepay.local/v2';
   process.env.ABACATEPAY_WEBHOOK_SECRET = 'wh-secret-e2e';
 });
 
 // `fetch` mockado: a venda de pacote gera cobrança PIX sem sair para a internet.
+// Payload v2 do Checkout Transparente — o mesmo shape que `/transparents/create` devolve de verdade.
 const fetchMock = vi.fn(async () => ({
   ok: true,
   status: 200,
   json: async () => ({
-    data: { id: `pix_${randomUUID()}`, brCode: '000201-COPIA', brCodeBase64: 'data:image/png;base64,QR', status: 'PENDING' },
+    data: {
+      id: `tr_${randomUUID()}`,
+      brCode: '000201-COPIA',
+      brCodeBase64: 'data:image/png;base64,QR',
+      status: 'PENDING',
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    },
   }),
 }));
 vi.stubGlobal('fetch', fetchMock);
@@ -36,10 +52,12 @@ import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
 
 /**
- * E2E do webhook REAL do AbacatePay: prova que a validação de assinatura roda
- * ANTES de qualquer processamento — assinatura válida confirma o pagamento e
- * libera o pacote; assinatura inválida/ausente é rejeitada com 401 sem tocar em
- * nada; e a idempotência por externalId se mantém.
+ * E2E do webhook REAL do AbacatePay (v2, Checkout Transparente): prova que a
+ * validação da assinatura (secret de query AND HMAC com a chave pública) roda
+ * ANTES de qualquer processamento — payload válido confirma o pagamento e
+ * libera o pacote; inválido/ausente é rejeitado com 401 sem tocar em nada; a
+ * idempotência por externalId se mantém; e `transparent.lost` (disputa
+ * perdida, NÃO "PIX expirou" — ver DECISOES_PENDENTES.md) é um no-op seguro.
  */
 
 const companyId = `co-wh-${randomUUID()}`;
@@ -54,11 +72,33 @@ let prisma: PrismaService;
 let http: ReturnType<typeof request>;
 let tokenAdmin: string;
 
-/** Corpo do webhook + assinatura HMAC-SHA256 do corpo cru (como a AbacatePay faz). */
-function payloadAssinado(externalId: string) {
-  const corpo = JSON.stringify({ event: 'billing.paid', data: { metadata: { externalId } } });
-  const assinatura = createHmac('sha256', WEBHOOK_SECRET).update(corpo).digest('hex');
+/** Corpo v2 do webhook (`transparent.*`) + as duas provas de assinatura reais. */
+function payloadAssinado(evento: 'transparent.completed' | 'transparent.lost', externalId: string, gatewayId = `tr_${randomUUID()}`) {
+  const corpo = JSON.stringify({
+    id: `log_${randomUUID()}`,
+    event: evento,
+    apiVersion: 2,
+    devMode: true,
+    data: {
+      transparent: {
+        id: gatewayId,
+        externalId,
+        amount: 4000,
+        paidAmount: evento === 'transparent.completed' ? 4000 : 0,
+        status: evento === 'transparent.completed' ? 'PAID' : 'PAID',
+      },
+    },
+  });
+  const assinatura = createHmac('sha256', ABACATEPAY_PUBLIC_KEY).update(corpo).digest('base64');
   return { corpo, assinatura };
+}
+
+function postWebhook(corpo: string, opts: { assinatura?: string; comSegredoQuery?: boolean } = {}) {
+  const { assinatura, comSegredoQuery = true } = opts;
+  const url = comSegredoQuery ? `/webhooks/abacatepay?webhookSecret=${encodeURIComponent(WEBHOOK_SECRET)}` : '/webhooks/abacatepay';
+  const req = http.post(url).set('Content-Type', 'application/json');
+  if (assinatura) req.set('X-Webhook-Signature', assinatura);
+  return req.send(corpo);
 }
 
 async function venderPacoteComCobranca(telefone: string): Promise<string> {
@@ -117,67 +157,92 @@ afterAll(async () => {
   delete process.env.ABACATEPAY_WEBHOOK_SECRET;
 });
 
-describe('Webhook AbacatePay — validação de assinatura', () => {
-  it('a venda de pacote chama o gateway real no endpoint de criar cobrança PIX', async () => {
+describe('Webhook AbacatePay v2 — Checkout Transparente', () => {
+  it('a venda de pacote SEMPRE gera cobrança PIX (pagamento online obrigatório, decisão do dono) chamando /transparents/create', async () => {
     await venderPacoteComCobranca(`11 9${sufixo}00`);
-    const chamouCreate = fetchMock.mock.calls.some(([url]) => String(url).endsWith('/pixQrCode/create'));
+    const chamouCreate = fetchMock.mock.calls.some(([url]) => String(url).endsWith('/transparents/create'));
     expect(chamouCreate).toBe(true);
   });
 
-  it('assinatura VÁLIDA processa e confirma o pagamento', async () => {
+  it('transparent.completed com as DUAS provas (secret de query + HMAC) processa e confirma o pagamento', async () => {
     const externalId = await venderPacoteComCobranca(`11 9${sufixo}01`);
-    const { corpo, assinatura } = payloadAssinado(externalId);
+    const { corpo, assinatura } = payloadAssinado('transparent.completed', externalId);
 
-    const res = await http
-      .post('/webhooks/abacatepay')
-      .set('Content-Type', 'application/json')
-      .set('X-Webhook-Signature', assinatura)
-      .send(corpo)
-      .expect(201);
+    const res = await postWebhook(corpo, { assinatura }).expect(201);
     expect(res.body.processado).toBe(true);
 
     const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
     expect(intencao!.status).toBe('PAGO');
   });
 
-  it('assinatura AUSENTE rejeita com 401 e NÃO toca na intenção', async () => {
+  it('sem o secret na query (só HMAC) rejeita com 401 e NÃO toca na intenção', async () => {
     const externalId = await venderPacoteComCobranca(`11 9${sufixo}02`);
-    const { corpo } = payloadAssinado(externalId);
+    const { corpo, assinatura } = payloadAssinado('transparent.completed', externalId);
 
-    await http.post('/webhooks/abacatepay').set('Content-Type', 'application/json').send(corpo).expect(401);
+    await postWebhook(corpo, { assinatura, comSegredoQuery: false }).expect(401);
 
     const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
     expect(intencao!.status).toBe('AGUARDANDO'); // intocada
   });
 
-  it('assinatura INVÁLIDA rejeita com 401 e NÃO toca na intenção', async () => {
+  it('sem a assinatura HMAC (só secret de query) rejeita com 401 e NÃO toca na intenção', async () => {
     const externalId = await venderPacoteComCobranca(`11 9${sufixo}03`);
-    const { corpo } = payloadAssinado(externalId);
+    const { corpo } = payloadAssinado('transparent.completed', externalId);
 
-    await http
-      .post('/webhooks/abacatepay')
-      .set('Content-Type', 'application/json')
-      .set('X-Webhook-Signature', 'deadbeef')
-      .send(corpo)
-      .expect(401);
+    await postWebhook(corpo).expect(401);
 
     const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
     expect(intencao!.status).toBe('AGUARDANDO');
   });
 
-  it('idempotência: mesmo evento assinado 2x não gera efeito duplo', async () => {
+  it('assinatura HMAC INVÁLIDA rejeita com 401 e NÃO toca na intenção, mesmo com o secret de query correto', async () => {
     const externalId = await venderPacoteComCobranca(`11 9${sufixo}04`);
-    const { corpo, assinatura } = payloadAssinado(externalId);
-    const enviar = () =>
-      http
-        .post('/webhooks/abacatepay')
-        .set('Content-Type', 'application/json')
-        .set('X-Webhook-Signature', assinatura)
-        .send(corpo);
+    const { corpo } = payloadAssinado('transparent.completed', externalId);
 
-    const primeira = await enviar().expect(201);
-    const segunda = await enviar().expect(201);
+    await postWebhook(corpo, { assinatura: 'ZGVhZGJlZWY=' }).expect(401);
+
+    const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
+    expect(intencao!.status).toBe('AGUARDANDO');
+  });
+
+  it('idempotência: transparent.completed assinado 2x não gera efeito duplo', async () => {
+    const externalId = await venderPacoteComCobranca(`11 9${sufixo}05`);
+    const { corpo, assinatura } = payloadAssinado('transparent.completed', externalId);
+
+    const primeira = await postWebhook(corpo, { assinatura }).expect(201);
+    const segunda = await postWebhook(corpo, { assinatura }).expect(201);
     expect(primeira.body.processado).toBe(true);
     expect(segunda.body.processado).toBe(false); // já estava PAGO
+  });
+
+  it('transparent.lost (disputa perdida — NÃO "PIX expirou") é um no-op seguro: 201, processado=false, intenção intocada', async () => {
+    const externalId = await venderPacoteComCobranca(`11 9${sufixo}06`);
+    // Confirma primeiro (transparent.lost real só faz sentido sobre algo já PAGO).
+    const confirmar = payloadAssinado('transparent.completed', externalId);
+    await postWebhook(confirmar.corpo, { assinatura: confirmar.assinatura }).expect(201);
+
+    const { corpo, assinatura } = payloadAssinado('transparent.lost', externalId);
+    const res = await postWebhook(corpo, { assinatura }).expect(201);
+    expect(res.body.processado).toBe(false);
+
+    const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
+    expect(intencao!.status).toBe('PAGO'); // nenhum estorno automático — decisão financeira fora de escopo
+  });
+
+  it('evento não assinado nesta conta (ex.: checkout.completed) é ignorado graciosamente: 201, processado=false', async () => {
+    const externalId = await venderPacoteComCobranca(`11 9${sufixo}07`);
+    const corpo = JSON.stringify({
+      event: 'checkout.completed',
+      apiVersion: 2,
+      devMode: true,
+      data: { transparent: { id: 'tr_x', externalId, status: 'PAID' } },
+    });
+    const assinatura = createHmac('sha256', ABACATEPAY_PUBLIC_KEY).update(corpo).digest('base64');
+
+    const res = await postWebhook(corpo, { assinatura }).expect(201);
+    expect(res.body.processado).toBe(false);
+
+    const intencao = await prisma.intencaoDePagamento.findUnique({ where: { externalId } });
+    expect(intencao!.status).toBe('AGUARDANDO');
   });
 });
