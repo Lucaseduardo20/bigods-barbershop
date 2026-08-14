@@ -2444,6 +2444,34 @@ nada é enviado" **afirmava o gate** — foi invertido para afirmar a regra nova
 
 **467 testes na API**, idênticos sob os 3 fusos.
 
+## Sessão órfã de cliente: 404 sem saída → 401 com recuperação (2026-08-14) ✅
+
+Achado durante smoke manual do funil: primeiro agendamento de um cliente falhava com
+**404 "Cliente não encontrado"**, sem caminho de volta.
+
+**Causa:** `ClienteGuard` validava só a assinatura HMAC do token — nunca conferia se o `Cliente`
+apontado por ele ainda existia. Um token bem assinado e dentro da validade (30 dias) apontando
+para um registro que sumiu passava pelo guard, e cada controller descobria o problema sozinho,
+devolvendo 404. Do lado do cliente virava um beco sem saída: o front considera a sessão válida
+(a assinatura confere de fato), **nunca refaz o OTP**, e todo agendamento falha com uma mensagem
+que não sugere ação nenhuma. No caso local o registro sumiu porque o banco foi recriado; em
+produção o mesmo acontece com exclusão a pedido do cliente, limpeza pelo admin ou restore de
+backup.
+
+**Correção:** sessão cujo dono não existe mais é sessão inválida — o guard passa a recusar com
+**401**. Um ponto só, valendo para todos os endpoints de `@ContaCliente()`. Os fronts já tinham o
+caminho de recuperação pronto (`App.tsx` do booking limpa a sessão local e reabre o OTP ao receber
+401), então ele passou a funcionar sozinho, sem mudança de front.
+
+Custo: uma leitura por chave primária a cada requisição autenticada de cliente — endpoints de
+cockpit/funil, volume baixo, e a maioria já carregava o `Cliente` logo em seguida.
+
+**Testes (+4):** `sessao-de-cliente-orfa.e2e.spec.ts` — token legítimo (login real), confirmado
+funcionando ANTES; o `Cliente` é apagado; agendar, comprar pacote e o cockpit passam a devolver
+401 (não 404); e refazer o OTP com o mesmo telefone destrava o fluxo ponta a ponta.
+
+**471 testes na API**, idênticos sob os 3 fusos.
+
 ## Como rodar localmente
 
 ```bash
