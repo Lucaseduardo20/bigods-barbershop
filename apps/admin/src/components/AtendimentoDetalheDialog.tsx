@@ -141,7 +141,32 @@ export function AtendimentoDetalheDialog({
             <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
               {a.cliente.telefone || 'Telefone não informado'}
             </div>
+            {a.cliente.email && (
+              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                {a.cliente.email}
+              </div>
+            )}
           </div>
+
+          {/* "Fale sobre você" do funil. Fica em destaque porque é informação
+              pro barbeiro USAR no atendimento (estilo de corte, se gosta de
+              conversar) — guardar sem mostrar não serviria pra nada. */}
+          {a.cliente.sobreVoce && (
+            <div
+              className="card"
+              style={{ background: 'var(--surface-brand-tint)', borderColor: 'var(--brand-gold-300)' }}
+            >
+              <div
+                className="text-[11px] font-bold uppercase mb-1"
+                style={{ letterSpacing: '0.06em', color: 'var(--brand-gold-700)' }}
+              >
+                O cliente contou
+              </div>
+              <div className="text-[13px]" style={{ color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                {a.cliente.sobreVoce}
+              </div>
+            </div>
+          )}
 
           <div className="text-[13px] flex flex-col gap-0.5" style={{ color: 'var(--text-secondary)' }}>
             <div>

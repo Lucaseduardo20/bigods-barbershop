@@ -1,8 +1,23 @@
-import { rotuloDia } from '../lib/format';
+import { instanteDeDataHoraLocal, rotuloDia } from '../lib/format';
 import type { FunnelState } from '../lib/funnel-state';
 import { Onboarding } from '../components/Onboarding';
+import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
+import { baixarIcs, linkGoogleAgenda, type EventoDeAgenda } from '../lib/agenda';
 
-export function Sucesso({ estado, pago, onNovo }: { estado: FunnelState; pago: boolean; onNovo: () => void }) {
+export function Sucesso({
+  estado,
+  pago,
+  timezone,
+  duracaoMinutos,
+  onNovo,
+}: {
+  estado: FunnelState;
+  pago: boolean;
+  /** Fuso da empresa — o horário escolhido é de parede NELE, não no do navegador. */
+  timezone: string;
+  duracaoMinutos: number;
+  onNovo: () => void;
+}) {
   const primeiroNome = estado.nome.trim().split(/\s+/)[0] || 'até logo';
   const ehPacote = estado.modo === 'pacote';
 
@@ -26,10 +41,121 @@ export function Sucesso({ estado, pago, onNovo }: { estado: FunnelState; pago: b
         <div className="mt-5 rounded-2xl p-4 text-[13px]" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)', color: 'var(--text-secondary)' }}>
           {pago ? 'Pagamento confirmado. É só chegar no horário.' : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
         </div>
+
+        {estado.data && estado.horaInicio && (
+          <AdicionarNaAgenda
+            estado={estado}
+            timezone={timezone}
+            duracaoMinutos={duracaoMinutos}
+          />
+        )}
+
+        <InfoDaBarbearia />
+
         <button className="btn btn-ghost btn-block mt-6" onClick={onNovo}>
           Fazer outro agendamento
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Google Agenda (link) e .ics (Apple/Outlook) — os dois cobrem praticamente
+ * todo mundo. A montagem do evento é pura (`lib/agenda.ts`); aqui só se decide
+ * o texto e se dispara.
+ */
+function AdicionarNaAgenda({
+  estado,
+  timezone,
+  duracaoMinutos,
+}: {
+  estado: FunnelState;
+  timezone: string;
+  duracaoMinutos: number;
+}) {
+  const evento: EventoDeAgenda = {
+    titulo: `${BARBEARIA.nome}${estado.barbeiroNome ? ` — ${estado.barbeiroNome}` : ''}`,
+    inicio: instanteDeDataHoraLocal(estado.data!, estado.horaInicio!, timezone),
+    // Sem serviços conhecidos (estado restaurado), 30 min é o padrão de um
+    // corte — melhor um evento com duração aproximada do que nenhum evento.
+    duracaoMinutos: duracaoMinutos > 0 ? duracaoMinutos : 30,
+    local: BARBEARIA.endereco,
+    descricao: `Seu horário na ${BARBEARIA.nome}.${
+      estado.barbeiroNome ? ` Barbeiro: ${estado.barbeiroNome}.` : ''
+    } Endereço: ${BARBEARIA.endereco}`,
+  };
+
+  return (
+    <div className="mt-5">
+      <div className="text-[12px] font-bold uppercase mb-2" style={{ letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+        Adicionar à minha agenda
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <a
+          className="btn btn-ghost"
+          href={linkGoogleAgenda(evento)}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: 'none' }}
+        >
+          Google Agenda
+        </a>
+        <button
+          className="btn btn-ghost"
+          onClick={() => baixarIcs(evento, `${estado.data}-${estado.horaInicio}@bigodsbarber`, 'agendamento.ics')}
+        >
+          Apple / Outlook
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Endereço, mapa e redes. Aparece nas telas finais porque é quando o cliente
+ * precisa DESSAS informações: como chegar e como falar com a barbearia.
+ * Links ainda não fornecidos pelo dono simplesmente não são renderizados
+ * (ver `linksDaBarbearia`).
+ */
+export function InfoDaBarbearia() {
+  const links = linksDaBarbearia();
+  return (
+    <div
+      className="mt-5 rounded-2xl p-4 text-left"
+      style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}
+    >
+      <div className="text-[12px] font-bold uppercase mb-1.5" style={{ letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+        Onde nos encontrar
+      </div>
+      <div className="text-[13.5px]" style={{ color: 'var(--text-primary)' }}>
+        {BARBEARIA.endereco}
+      </div>
+      <a
+        className="text-[13px] font-bold inline-block mt-1.5"
+        href={BARBEARIA.mapsUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: 'var(--text-link)' }}
+      >
+        Ver no mapa →
+      </a>
+      {links.length > 0 && (
+        <div className="flex gap-2 mt-3 flex-wrap">
+          {links.map((l) => (
+            <a
+              key={l.chave}
+              className="text-[12.5px] font-bold rounded-full px-3 py-1.5"
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ background: 'var(--surface-sunken)', color: 'var(--text-primary)', textDecoration: 'none' }}
+            >
+              {l.icone} {l.rotulo}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -72,6 +198,8 @@ function SucessoPacote({
             <Onboarding telefone={estado.telefone} />
           </div>
         )}
+
+        <InfoDaBarbearia />
 
         <button className="btn btn-ghost btn-block mt-6" onClick={onNovo}>
           Voltar ao início

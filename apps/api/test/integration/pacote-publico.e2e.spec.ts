@@ -154,7 +154,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('gera cobrança, webhook v2 assinado confirma e libera os créditos', async () => {
-    const fone = `11 97${sufixo}`;
+    const fone = `11 97${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
@@ -194,7 +194,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('política do dono (FASE 3): pacote SEMPRE gera cobrança online, mesmo se o cliente mandar formaPagamento=presencial (campo removido, ignorado)', async () => {
-    const fone = `11 91${sufixo}`;
+    const fone = `11 91${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
@@ -207,7 +207,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('reconciliação por telefone: comprar de novo não duplica o cliente', async () => {
-    const fone = `11 98${sufixo}`;
+    const fone = `11 98${sufixo}0`;
     const token = await loginCompleto(fone);
     await http.post('/public/pacotes').set('Authorization', `Bearer ${token}`).send({ companyId, ofertaId, cliente: { nome: 'Bis' } }).expect(201);
     await http.post('/public/pacotes').set('Authorization', `Bearer ${token}`).send({ companyId, ofertaId, cliente: { nome: 'Bis' } }).expect(201);
@@ -216,7 +216,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('polling de status é idempotente: consultar N vezes não muda nada', async () => {
-    const fone = `11 90${sufixo}`;
+    const fone = `11 90${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
@@ -233,7 +233,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('expira por timeout local: prazo vencido é detectado no próprio polling (sem webhook de expiração — AbacatePay não emite um)', async () => {
-    const fone = `11 94${sufixo}`;
+    const fone = `11 94${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
@@ -257,7 +257,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('confirmar-demo é INERTE fora do modo demo (403)', async () => {
-    const fone = `11 93${sufixo}`;
+    const fone = `11 93${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
@@ -279,7 +279,7 @@ describe('Compra de pacote pública', () => {
   });
 
   it('status de intenção de outra empresa → 404 (tenant explícito)', async () => {
-    const fone = `11 92${sufixo}`;
+    const fone = `11 92${sufixo}0`;
     const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')

@@ -4,5 +4,9 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Testes não vão para o dist: o pacote é consumido pela API e pelos 3 fronts,
+  // e nenhum deles deve carregar código de teste (nem exigir os tipos do vitest
+  // para compilar).
+  "exclude": ["src/**/*.spec.ts"]
 }

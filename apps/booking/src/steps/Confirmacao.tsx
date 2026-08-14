@@ -2,6 +2,7 @@ import type { ServicoDTO } from '@bigods/contracts';
 import { dinheiro, rotuloDia } from '../lib/format';
 import { servicosSelecionados, totalCentavos, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
 import { AlertaErro } from '../components/ui';
+import { BARBEARIA } from '../lib/barbearia';
 
 export function Confirmacao({
   estado,
@@ -48,6 +49,12 @@ export function Confirmacao({
           </div>
         ) : (
           <>
+            <div
+              className="text-[11px] font-bold uppercase"
+              style={{ letterSpacing: '0.06em', color: 'var(--text-muted)' }}
+            >
+              Serviços Realizados
+            </div>
             <div className="flex flex-col gap-1.5">
               {itens.map((s) => (
                 <div key={s.id} className="flex justify-between text-[14px]">
@@ -96,7 +103,8 @@ export function Confirmacao({
             </>
           ) : (
             <>
-              <strong>Pagamento na barbearia.</strong> Você paga no balcão no dia do atendimento — nada é cobrado agora.
+              <strong>Pagamento na barbearia.</strong> Você paga no balcão no dia do atendimento — nada é cobrado
+              agora. Aceitamos {BARBEARIA.formasDePagamentoPresencial.join(', ')}.
             </>
           )}
         </div>

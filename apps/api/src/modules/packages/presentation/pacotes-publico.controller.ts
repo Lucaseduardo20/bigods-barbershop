@@ -11,7 +11,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { MAX_SOBRE_VOCE } from '@bigods/contracts';
+import { EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { Throttle } from '@nestjs/throttler';
 import {
   PacoteOfertaDTO,
@@ -33,7 +35,10 @@ import { ClienteAtual, ContaCliente } from '../../identity/presentation/cliente.
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 
 class ClientePublicoDto {
-  @IsString() @MinLength(1) nome!: string;
+  // Mesmas regras do funil de agendamento — o formulário de cliente é o mesmo.
+  @EhNomeDeCliente() nome!: string;
+  @IsOptional() @EhEmail() email?: string;
+  @IsOptional() @IsString() @MaxLength(MAX_SOBRE_VOCE) sobreVoce?: string;
 }
 
 class VenderPacotePublicoDto {
@@ -101,7 +106,12 @@ export class PacotesPublicoController {
 
     const resultado = await this.venderPacote.executar({
       companyId: body.companyId,
-      cliente: { nome: body.cliente.nome, telefone: cliente.telefone.e164 },
+      cliente: {
+        nome: body.cliente.nome,
+        telefone: cliente.telefone.e164,
+        email: body.cliente.email ?? null,
+        sobreVoce: body.cliente.sobreVoce ?? null,
+      },
       barbeiroId: oferta.barbeiroId,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)

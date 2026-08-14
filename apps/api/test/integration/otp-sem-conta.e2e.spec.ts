@@ -37,7 +37,15 @@ const companyId = `co-semconta-${randomUUID()}`;
 const barbeiroId = `bar-semconta-${randomUUID()}`;
 const corteId = `svc-semconta-${randomUUID()}`;
 const ofertaId = `oferta-semconta-${randomUUID()}`;
-const DIA = '2031-04-14'; // segunda futura
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 const sufixo = String(Date.now()).slice(-6);
 /** Telefone garantidamente nunca visto: nenhum Cliente, nenhuma identidade. */
@@ -138,7 +146,7 @@ afterAll(async () => {
 
 describe('Envio de OTP não depende de conta prévia', () => {
   it('telefone inédito recebe um código de verdade (não desafio vazio)', async () => {
-    const fone = foneNovo('1000');
+    const fone = foneNovo('10');
     await garantirInedito(fone);
 
     const res = await iniciarOtp(fone);
@@ -149,7 +157,7 @@ describe('Envio de OTP não depende de conta prévia', () => {
   });
 
   it('FLUXO DE AGENDAMENTO: telefone inédito verifica e agenda no mesmo fluxo', async () => {
-    const fone = foneNovo('1001');
+    const fone = foneNovo('11');
     await garantirInedito(fone);
 
     const token = await loginCompleto(fone);
@@ -172,7 +180,7 @@ describe('Envio de OTP não depende de conta prévia', () => {
   });
 
   it('FLUXO DE COMPRA: telefone inédito verifica e compra pacote no mesmo fluxo', async () => {
-    const fone = foneNovo('1002');
+    const fone = foneNovo('12');
     await garantirInedito(fone);
 
     const token = await loginCompleto(fone);
@@ -187,7 +195,7 @@ describe('Envio de OTP não depende de conta prévia', () => {
   });
 
   it('login do cockpit: telefone inédito entra e vê a home vazia normal', async () => {
-    const fone = foneNovo('1003');
+    const fone = foneNovo('13');
     await garantirInedito(fone);
 
     const token = await loginCompleto(fone);
@@ -200,7 +208,7 @@ describe('Envio de OTP não depende de conta prévia', () => {
 
 describe('A escrita do sub na confirmação continua valendo (§3.4)', () => {
   it('sub nasce SÓ na confirmação — não no envio do código', async () => {
-    const fone = foneNovo('1004');
+    const fone = foneNovo('14');
     await garantirInedito(fone);
 
     const iniciar = await iniciarOtp(fone);
@@ -232,7 +240,7 @@ describe('A escrita do sub na confirmação continua valendo (§3.4)', () => {
 
 describe('Rate limit por TELEFONE continua freando martelar o mesmo número', () => {
   it('6ª tentativa no mesmo telefone → 429', async () => {
-    const fone = foneNovo('1005');
+    const fone = foneNovo('15');
     const alvo = { companyId, telefone: fone };
 
     for (let i = 0; i < 5; i++) {

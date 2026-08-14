@@ -35,7 +35,7 @@ const LIMITE = 4;
 
 const sufixo = String(Date.now()).slice(-6);
 /** Um telefone DIFERENTE por chamada — é o cenário de varredura. */
-const foneDaVez = (i: number) => `11 9${String(i).padStart(4, '0')}${sufixo}`;
+const foneDaVez = (i: number) => `11 9${String(i).padStart(2, '0')}${sufixo}`;
 
 let app: INestApplication;
 let prisma: PrismaService;

@@ -2504,6 +2504,95 @@ WhatsApp → insistir nunca resolve e ainda queima o rate limit do cliente.
 > "Mensagens para si mesmo", que não notifica como um chat normal — fácil de achar que não chegou.
 > Para validar entrega, use um segundo número.
 
+## Ajustes no funil público (2026-08-14) ✅
+
+Suíte confirmada verde (473 testes, 3 fusos) antes de tocar em qualquer código. Nenhuma mudança
+estrutural: precificação, lógica de pacote, desconto progressivo e funil único não foram tocados.
+
+### Onde ficou cada validação
+
+Regra geral pedida: validar nas DUAS pontas. Para não cair no anti-padrão "mesma regra em dois
+lugares", as regras vivem em **`packages/contracts/src/validacao.ts`** (TypeScript puro) e as duas
+pontas importam a MESMA função — o front chama direto, o back embrulha em `class-validator`
+(`apps/api/src/shared/presentation/validadores.ts`). Uma implementação, dois pontos de uso.
+
+| # | Item | Frontend | Backend |
+|---|---|---|---|
+| 1 | Celular BR válido (dígito pós-DDD = 9) | `Dados.tsx` (erro no blur) + botão só habilita se válido | `@EhCelularBrasileiro()` em `IniciarLoginDto`/`ConfirmarLoginDto` → **400** |
+| 2 | Label "Celular com WhatsApp" | `Dados.tsx` | — |
+| 3 | Nome mínimo | `Dados.tsx` | `@EhNomeDeCliente()` nos DTOs de agendamento e de pacote → **400** |
+| 4 | E-mail opcional | `Dados.tsx` (só valida se preenchido) | `@IsOptional() @EhEmail()` + coluna `Cliente.email` |
+| 5 | "Fale sobre você" opcional | `Dados.tsx` (textarea) | `@MaxLength(MAX_SOBRE_VOCE)` + coluna `Cliente.sobreVoce` |
+| 7 | Janela de hoje + 30 dias | `DataHora.tsx` (datas fora nem são clicáveis) | `assertDentroDaJanelaDeAgendamento` no `AgendarAvulsoUseCase` → **422** |
+
+Detalhes que valem registro:
+
+- **Telefone fixo é recusado** (8 dígitos após o DDD): o código vai por WhatsApp, e fixo nunca
+  receberia. A validação valida o primeiro dígito do NÚMERO, não o primeiro caractere digitado —
+  "11 99999-8888" é válido, "99 88888-7777" não.
+- **Nome**: mínimo de 3 caracteres com ao menos 2 letras distintas. Pega "a", "aa", "aaa" e "..."
+  sem barrar "Ana", "Léo" ou "Bia" — de propósito NÃO exigimos sobrenome.
+- **Opcionais nunca apagam**: `Cliente.atualizarDadosOpcionais` só sobrescreve o que veio
+  preenchido. Um agendamento posterior com os campos em branco preserva o que o cliente já disse.
+- **Janela de 30 dias** (`LIMITE_DIAS_AGENDAMENTO`, em contracts) vale só para auto-atendimento.
+  O admin passa `aplicarJanelaDeAgendamento: false` — mesmo critério já usado na cota de
+  presenciais.
+- **Item 5 vai até o barbeiro**: `AtendimentoDTO.cliente.sobreVoce` e `.email`, exibidos no
+  `AtendimentoDetalheDialog` do painel num bloco "O cliente contou". Guardar sem exibir seria
+  inútil, e é isso que o e2e verifica.
+
+### Seleção de data/horário
+
+- **Item 6 — dias sem horário riscados.** Endpoint novo `GET /public/dias?de&ate`, que resolve o
+  período inteiro em **duas queries** (janelas + atendimentos), agrupa por dia em memória e para no
+  primeiro slot livre de cada dia. O funil pede **uma requisição por semana visível**, nunca uma
+  por dia (seriam 30 para pintar um mês). O período é limitado à janela de agendamento para o
+  endpoint não virar varredor de agenda. Dia indisponível fica desabilitado e com o número riscado.
+- **Item 7** — datas além de hoje+30 não são selecionáveis, e a seta de "próxima semana" desliga
+  quando a semana seguinte já está toda fora.
+- **Item 8 — scroll.** A lista de horários virou um contêiner com `max-height: 46vh` e
+  `overflow-y: auto` (`.slots-scroll`), com `overscroll-behavior: contain`. Antes o scroll levava a
+  página inteira e o seletor de data saía da tela.
+
+### Telas de resumo, sucesso e inicial
+
+- **Item 9** — título "Serviços Realizados" acima da lista, no resumo do agendamento.
+- **Item 10** — "Pagar na barbearia" agora informa as formas aceitas no balcão.
+- **Item 11** — "Adicionar à minha agenda" com link do Google Agenda e download de `.ics`
+  (Apple/Outlook). Geração em funções puras (`lib/agenda.ts`), com instantes em UTC — o cliente
+  pode estar em outro fuso — e escape de RFC 5545 (vírgula do endereço quebraria o arquivo em
+  silêncio).
+- **Itens 12 e 13** — endereço + link do mapa nas telas finais e na tela inicial, com os canais
+  sociais. Centralizado em `lib/barbearia.ts`.
+
+### ⚠️ O que falta você preencher
+
+Tudo em `apps/booking/src/lib/barbearia.ts`. **Enquanto estiverem pendentes, os links
+simplesmente não são renderizados** — melhor não mostrar nada do que um @ inventado ou link morto:
+
+| Campo | Situação |
+|---|---|
+| Endereço | ✅ Preenchido (Av. Deputado Emílio Carlos, 2117 — São Paulo/SP) |
+| Link do Google Maps | ✅ Montado a partir do endereço; funciona. Se quiser o link oficial com avaliações, troque |
+| `instagram` | ❌ **PENDENTE** — o @ da barbearia |
+| `whatsapp` | ❌ **PENDENTE** — telefone público em E.164. (Não usei o número do serviço de OTP: aquele é descartável, não é o de contato) |
+| `googleUrl` | ❌ **PENDENTE** — perfil do Google com avaliações; hoje cai no link do mapa |
+| `formasDePagamentoPresencial` | ⚠️ **CONFIRMAR** — está com Dinheiro, PIX, Cartão de débito e Cartão de crédito (o exemplo que você deu). Confirme se é isso mesmo antes de considerar definitivo |
+
+### Fallout nos testes existentes (esperado, e corrigido)
+
+A validação estrita de celular quebrou ~50 testes que usavam telefones sintéticos inválidos (13
+dígitos, ou 10 sem o nono) — eles passavam porque o VO `Telefone` só exigia E.164 genérico.
+Normalizados para celulares BR reais (DDD + 9 + 8 dígitos). A janela de 30 dias quebrou os specs
+que agendavam em datas fixas de 2030/2031; passaram a usar `hoje + 20 dias`, relativo — o que é
+mais correto de qualquer forma, já que a disponibilidade é criada pelo próprio teste.
+
+**Testes (+20):** 12 em contracts (as regras de validação, cobrindo o que precisa ser barrado sem
+barrar cliente legítimo), 7 da janela de agendamento (colados nas bordas: aceita o último dia
+permitido, recusa o seguinte), 13 e2e do funil (validações na borda, gravação e exibição dos
+opcionais, disponibilidade de período, janela) e 6 no booking (.ics e Google Agenda: fuso e escape
+de RFC 5545). **493 testes na API**, idênticos nos 3 fusos; build verde nos 5 pacotes.
+
 ## Como rodar localmente
 
 ```bash

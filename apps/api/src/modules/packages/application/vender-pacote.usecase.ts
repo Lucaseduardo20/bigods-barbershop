@@ -16,7 +16,13 @@ import { CobrancaDTO } from '@bigods/contracts';
 
 export interface VenderPacoteInput {
   companyId: string;
-  cliente: { nome: string; telefone: string };
+  cliente: {
+    nome: string;
+    telefone: string;
+    /** Opcionais do funil — só gravados quando preenchidos. */
+    email?: string | null;
+    sobreVoce?: string | null;
+  };
   /** Dono do pacote (Fase 2) — o rateio usa o preço deste barbeiro, vigente agora. */
   barbeiroId: string;
   /** serviços do pacote — repetir o id para múltiplas unidades do mesmo serviço */
@@ -96,6 +102,11 @@ export class VenderPacoteUseCase {
           nome: input.cliente.nome,
           telefone,
         });
+        cliente.atualizarDadosOpcionais(input.cliente);
+        await repos.clientes.salvar(cliente);
+      } else if (input.cliente.email || input.cliente.sobreVoce) {
+        // Mesmo critério do agendamento: complementa sem apagar o que já havia.
+        cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }
 

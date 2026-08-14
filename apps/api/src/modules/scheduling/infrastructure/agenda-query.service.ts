@@ -124,6 +124,8 @@ export class AgendaQueryService {
         id: a.clienteId,
         nome: cliente?.nome ?? '?',
         telefone: cliente?.telefone ?? '',
+        email: cliente?.email ?? null,
+        sobreVoce: cliente?.sobreVoce ?? null,
       },
       barbeiro: { id: a.barbeiroId, nome: barbeiro?.nome ?? '?' },
       itens: a.itens.map((i) => ({

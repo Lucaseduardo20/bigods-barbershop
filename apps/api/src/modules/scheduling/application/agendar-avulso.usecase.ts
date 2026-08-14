@@ -32,13 +32,20 @@ import {
 } from '../../packages/domain/venda-de-pacote.repository';
 import { PRAZO_RESERVA_SEGUNDOS } from '../../payments/domain/prazo-reserva';
 import { assertNaoExcedeCotaPresencial } from '../domain/regra-cota-presencial';
+import { assertDentroDaJanelaDeAgendamento } from '../domain/regra-janela-agendamento';
 
 export interface AgendarAvulsoInput {
   companyId: string;
   barbeiroId: string;
   servicoIds: string[];
   inicio: Date;
-  cliente: { nome: string; telefone: string };
+  cliente: {
+    nome: string;
+    telefone: string;
+    /** Opcionais do funil — só gravados quando preenchidos. */
+    email?: string | null;
+    sobreVoce?: string | null;
+  };
   /** Funil público gera cobrança PIX na hora; painel admin cobra na conclusão. */
   gerarCobranca?: boolean;
   /** Fase 4c: veio do link pessoal de marketing de qual barbeiro, se veio de algum. */
@@ -57,6 +64,12 @@ export interface AgendarAvulsoInput {
    * `false` explicitamente.
    */
   aplicarCotaPresencial?: boolean;
+  /**
+   * Janela de hoje + N dias. Mesma lógica da cota acima: vale pro
+   * auto-atendimento (funil + cockpit), e o admin passa `false` explicitamente
+   * — ele precisa poder encaixar um cliente daqui a três meses se quiser.
+   */
+  aplicarJanelaDeAgendamento?: boolean;
 }
 
 export interface AgendarAvulsoOutput {
@@ -100,6 +113,16 @@ export class AgendarAvulsoUseCase {
     // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
     const tz = await this.parametros.timezone(input.companyId);
     const data = diaCivilChave(input.inicio, tz);
+
+    // Janela de antecedência — antes de qualquer escrita. "Hoje" é o dia civil
+    // no fuso da EMPRESA, não o do processo/navegador.
+    if (input.aplicarJanelaDeAgendamento ?? true) {
+      assertDentroDaJanelaDeAgendamento({
+        diaDoAgendamento: data,
+        hoje: diaCivilChave(new Date(), tz),
+      });
+    }
+
     const disponibilidades = await this.disponibilidades.porBarbeiroEData(barbeiro.id, data);
     const janelaBusca = 24 * 60 * 60 * 1000;
     const ativos = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(
@@ -136,6 +159,13 @@ export class AgendarAvulsoUseCase {
           nome: input.cliente.nome,
           telefone,
         });
+        cliente.atualizarDadosOpcionais(input.cliente);
+        await repos.clientes.salvar(cliente);
+      } else if (input.cliente.email || input.cliente.sobreVoce) {
+        // Cliente que já existe: complementa o cadastro com o que ele informou
+        // agora. `atualizarDadosOpcionais` ignora campo vazio, então voltar a
+        // agendar sem preencher nada nunca apaga o que ele já tinha dito.
+        cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }
 

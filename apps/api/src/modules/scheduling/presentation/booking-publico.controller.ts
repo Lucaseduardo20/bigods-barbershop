@@ -17,17 +17,21 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { FormaPagamentoFunil } from '@bigods/contracts';
+import { FormaPagamentoFunil, LIMITE_DIAS_AGENDAMENTO, MAX_SOBRE_VOCE } from '@bigods/contracts';
 import {
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
+  DiasDisponiveisDTO,
   EmpresaPublicaDTO,
   HorariosDisponiveisDTO,
   ServicoDTO,
 } from '@bigods/contracts';
+import { EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
+import { somarDias } from '../domain/regra-janela-agendamento';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
 import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
@@ -49,7 +53,11 @@ const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 class ClientePublicoDto {
-  @IsString() @MinLength(1) nome!: string;
+  @EhNomeDeCliente() nome!: string;
+  /** Opcional; se vier, precisa ser um e-mail plausível. */
+  @IsOptional() @EhEmail() email?: string;
+  /** "Fale sobre você" — texto livre, só limitado em tamanho. */
+  @IsOptional() @IsString() @MaxLength(MAX_SOBRE_VOCE) sobreVoce?: string;
 }
 
 class AgendarPublicoDto {
@@ -175,6 +183,39 @@ export class BookingPublicoController {
   }
 
   /**
+   * Disponibilidade de um PERÍODO numa resposta só — o funil usa para riscar as
+   * datas em que não adianta clicar. Deliberadamente NÃO é "chame /horarios uma
+   * vez por dia": isso seriam 30 requisições para pintar um mês. Ver
+   * `HorariosDisponiveisQueryService.diasComHorario` (duas queries no total).
+   *
+   * O período é limitado à janela de agendamento (`LIMITE_DIAS_AGENDAMENTO`)
+   * para o endpoint não virar um varredor de agenda de custo arbitrário.
+   */
+  @Publico()
+  @Get('dias')
+  async dias(
+    @Query('companyId') companyId?: string,
+    @Query('barbeiroId') barbeiroId?: string,
+    @Query('de') de?: string,
+    @Query('ate') ate?: string,
+    @Query('servicoIds') servicoIds?: string,
+  ): Promise<DiasDisponiveisDTO> {
+    const id = this.exigirCompanyId(companyId);
+    if (!barbeiroId) throw new BadRequestException('Parâmetro barbeiroId obrigatório');
+    if (!de || !DATA_ISO.test(de) || !ate || !DATA_ISO.test(ate)) {
+      throw new BadRequestException('Parâmetros de/ate obrigatórios (YYYY-MM-DD, dia civil local)');
+    }
+    if (somarDias(de, LIMITE_DIAS_AGENDAMENTO + 1) < ate) {
+      throw new BadRequestException(
+        `Período máximo de ${LIMITE_DIAS_AGENDAMENTO + 1} dias por consulta`,
+      );
+    }
+    const ids = this.parseCsv(servicoIds);
+    if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
+    return this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids });
+  }
+
+  /**
    * Sessão de OTP+reserva (Problema 1 — agenda falsa): exige sessão de
    * cliente verificada por OTP (`@ContaCliente()`, reusa o mesmo mecanismo do
    * login do cockpit — nunca constrói OTP de novo). O front garante que essa
@@ -211,7 +252,12 @@ export class BookingPublicoController {
       barbeiroId: body.barbeiroId,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
-      cliente: { nome: body.cliente.nome, telefone: cliente.telefone.e164 },
+      cliente: {
+        nome: body.cliente.nome,
+        telefone: cliente.telefone.e164,
+        email: body.cliente.email ?? null,
+        sobreVoce: body.cliente.sobreVoce ?? null,
+      },
       gerarCobranca: online,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
     });

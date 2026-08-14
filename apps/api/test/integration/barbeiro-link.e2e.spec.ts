@@ -30,7 +30,15 @@ const outroBarbeiroId = `bar-link2-${randomUUID()}`;
 const corteId = `svc-link-${randomUUID()}`;
 const adminLogin = `admin-${randomUUID().slice(0, 8)}`;
 const SENHA = 'bigods123';
-const DIA = '2030-06-13'; // quinta futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 let app: INestApplication;
 let prisma: PrismaService;

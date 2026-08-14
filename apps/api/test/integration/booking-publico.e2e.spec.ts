@@ -32,11 +32,20 @@ const barbeiroId = `bar-booking-${randomUUID()}`;
 const corteId = `svc-corte-${randomUUID()}`;
 const barbaId = `svc-barba-${randomUUID()}`;
 const inativoId = `svc-inativo-${randomUUID()}`;
-const DIA = '2030-06-10'; // segunda-feira futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 // telefones únicos por execução para não colidir com o unique (companyId, telefone)
 const sufixo = String(Date.now()).slice(-7);
-const fone = (n: number) => `11 9${sufixo}${n}`;
+// Celular BR real: DDD + 9 + 8 dígitos (o sufixo deste arquivo tem 7).
+const fone = (n: number) => `11 9${sufixo.slice(0, 6)}${String(n).padStart(2, '0')}`;
 
 let app: INestApplication;
 let prisma: PrismaService;

@@ -168,6 +168,9 @@ export class AtendimentosController {
       // do canal de auto-atendimento — o admin agenda por julgamento próprio,
       // sem essa trava.
       aplicarCotaPresencial: false,
+      // Mesma razão: a janela de 30 dias é trava do auto-atendimento. O admin
+      // precisa poder encaixar um cliente daqui a três meses se a operação pedir.
+      aplicarJanelaDeAgendamento: false,
     });
     return { atendimentoId: resultado.atendimentoId, cobranca: resultado.cobranca };
   }

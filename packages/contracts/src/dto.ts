@@ -183,7 +183,14 @@ export interface ItemProdutoAtendidoDTO {
 }
 export interface AtendimentoDTO {
   id: string;
-  cliente: { id: string; nome: string; telefone: string };
+  cliente: {
+    id: string;
+    nome: string;
+    telefone: string;
+    email: string | null;
+    /** "Fale sobre você" do funil — o barbeiro lê antes de atender. */
+    sobreVoce: string | null;
+  };
   barbeiro: { id: string; nome: string };
   itens: ItemAtendidoDTO[];
   produtos: ItemProdutoAtendidoDTO[];
@@ -445,6 +452,18 @@ export interface HorarioDisponivelDTO {
 export interface HorariosDisponiveisDTO {
   data: string; // YYYY-MM-DD, dia civil local consultado
   horarios: HorarioDisponivelDTO[];
+}
+export interface DiaDisponivelDTO {
+  data: string; // YYYY-MM-DD, dia civil local
+  /** false → o seletor de data mostra o dia riscado/desabilitado. */
+  disponivel: boolean;
+}
+/**
+ * Disponibilidade de um PERÍODO inteiro numa resposta só. Existe para o funil
+ * poder riscar as datas sem horário sem fazer uma requisição por dia.
+ */
+export interface DiasDisponiveisDTO {
+  dias: DiaDisponivelDTO[];
 }
 export interface AgendarPublicoRequest {
   companyId: string;

@@ -279,6 +279,14 @@ model Cliente {
   nome       String
   telefone   String
   cognitoSub String?
+  // Opcionais, coletados no funil (nunca obrigatórios — atrito no funil custa
+  // conversão). Só são gravados quando o cliente preenche; um agendamento
+  // posterior com o campo em branco NÃO apaga o que já havia.
+  email      String?
+  // "Fale sobre você": estilo de corte, se gosta de conversar, etc. É
+  // informação para o BARBEIRO usar no atendimento — aparece no detalhe do
+  // atendimento no painel.
+  sobreVoce  String?
 
   company Company @relation(fields: [companyId], references: [id])
 

@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { HorariosDisponiveisDTO } from '@bigods/contracts';
+import { DiasDisponiveisDTO, HorariosDisponiveisDTO } from '@bigods/contracts';
+import { somarDias } from '../domain/regra-janela-agendamento';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
@@ -110,5 +111,103 @@ export class HorariosDisponiveisQueryService {
 
     horarios.sort((a, b) => a.inicioIso.localeCompare(b.inicioIso));
     return { data: params.data, horarios };
+  }
+
+  /**
+   * Quais dias de um PERÍODO têm ao menos um horário livre — o que o funil usa
+   * para riscar as datas em que não adianta clicar.
+   *
+   * Custo é o ponto central aqui: a versão ingênua seria chamar `disponiveis`
+   * uma vez por dia (30 requisições e 60 queries para pintar um mês). Esta faz
+   * **duas** queries no total, uma para as janelas do período e outra para os
+   * atendimentos do período, e resolve o resto em memória — e ainda para no
+   * PRIMEIRO slot livre de cada dia, porque a resposta é booleana.
+   */
+  async diasComHorario(params: {
+    companyId: string;
+    barbeiroId: string;
+    de: string; // YYYY-MM-DD (inclusivo), dia civil local
+    ate: string; // YYYY-MM-DD (inclusivo)
+    servicoIds: string[];
+    agora?: Date;
+  }): Promise<DiasDisponiveisDTO> {
+    if (params.servicoIds.length === 0) {
+      throw new BadRequestException('Informe ao menos um serviço');
+    }
+    if (params.de > params.ate) {
+      throw new BadRequestException('Período inválido');
+    }
+    const tz = await this.parametros.timezone(params.companyId);
+    const agora = params.agora ?? new Date();
+
+    const servicos = await this.prisma.servico.findMany({
+      where: { id: { in: params.servicoIds }, companyId: params.companyId },
+    });
+    if (servicos.length !== new Set(params.servicoIds).size) {
+      throw new NotFoundException('Serviço inexistente');
+    }
+    const inativo = servicos.find((s) => !s.ativo);
+    if (inativo) {
+      throw new BadRequestException(`Serviço ${inativo.nome} está inativo`);
+    }
+    const duracaoTotalMs = servicos.reduce((acc, s) => acc + s.duracaoMinutos, 0) * 60_000;
+
+    const { inicio: periodoInicio } = limitesDoDiaCivil(params.de, tz);
+    const { fimExclusivo: periodoFim } = limitesDoDiaCivil(params.ate, tz);
+
+    // As DUAS únicas queries, cobrindo o período inteiro de uma vez.
+    const [janelas, ocupados] = await Promise.all([
+      this.prisma.disponibilidade.findMany({
+        where: { barbeiroId: params.barbeiroId, data: { gte: params.de, lte: params.ate } },
+        orderBy: { inicio: 'asc' },
+      }),
+      this.prisma.atendimento.findMany({
+        where: {
+          barbeiroId: params.barbeiroId,
+          inicio: { lt: periodoFim },
+          fim: { gt: periodoInicio },
+          OR: [
+            { status: 'AGENDADO' },
+            // Mesmo critério de `disponiveis`: reserva vencida não ocupa nada.
+            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
+          ],
+        },
+        select: { inicio: true, fim: true },
+      }),
+    ]);
+
+    const janelasPorDia = new Map<string, typeof janelas>();
+    for (const janela of janelas) {
+      const doDia = janelasPorDia.get(janela.data) ?? [];
+      doDia.push(janela);
+      janelasPorDia.set(janela.data, doDia);
+    }
+
+    const dias: DiasDisponiveisDTO['dias'] = [];
+    for (let dia = params.de; dia <= params.ate; dia = somarDias(dia, 1)) {
+      const doDia = janelasPorDia.get(dia) ?? [];
+      dias.push({ data: dia, disponivel: this.temAlgumSlot(doDia, ocupados, duracaoTotalMs, agora) });
+    }
+    return { dias };
+  }
+
+  /** Igual ao laço de `disponiveis`, mas para no primeiro slot que serve. */
+  private temAlgumSlot(
+    janelas: { inicio: Date; fim: Date }[],
+    ocupados: { inicio: Date; fim: Date }[],
+    duracaoTotalMs: number,
+    agora: Date,
+  ): boolean {
+    const passoMs = PASSO_MINUTOS * 60_000;
+    for (const janela of janelas) {
+      const ultimoInicio = janela.fim.getTime() - duracaoTotalMs;
+      for (let t = janela.inicio.getTime(); t <= ultimoInicio; t += passoMs) {
+        if (t <= agora.getTime()) continue;
+        const fim = t + duracaoTotalMs;
+        const conflita = ocupados.some((o) => t < o.fim.getTime() && o.inicio.getTime() < fim);
+        if (!conflita) return true;
+      }
+    }
+    return false;
   }
 }

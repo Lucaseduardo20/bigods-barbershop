@@ -207,6 +207,26 @@ body {
   cursor: pointer; text-align: center; transition: all 0.12s;
 }
 .day.selected { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
+/* Dia sem nenhum horário livre, ou fora da janela de agendamento: o cliente vê
+   que não adianta clicar, em vez de clicar e encontrar a lista vazia. */
+.day:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: var(--surface-sunken);
+  border-style: dashed;
+}
+.day:disabled .day-num { text-decoration: line-through; }
+
+/* Lista de horários rola DENTRO dela mesma. Sem isto, um dia com muitos slots
+   empurra a página inteira e o cliente perde de vista o seletor de data logo
+   acima (ele rolava a tela toda). */
+.slots-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
 .day-dow { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
 .day-num { font-size: 18px; font-weight: 800; color: var(--text-primary); margin-top: 2px; }
 

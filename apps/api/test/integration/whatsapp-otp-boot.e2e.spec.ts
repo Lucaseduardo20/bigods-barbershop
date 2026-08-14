@@ -101,7 +101,7 @@ describe('Boot com IDENTITY_PROVIDER=whatsapp (sem AWS) + PAYMENT_GATEWAY=fake',
   });
 
   it('sobe o app normalmente e completa o login OTP ponta a ponta contra o serviço whatsapp-otp mockado', async () => {
-    const telefone = fone('7001');
+    const telefone = fone('71');
     const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
     expect(iniciar.body.codigoDemo).toBeNull(); // WhatsApp real nunca vaza o código na resposta
     expect(iniciar.body.desafio).toBeTruthy();
@@ -121,7 +121,7 @@ describe('Boot com IDENTITY_PROVIDER=whatsapp (sem AWS) + PAYMENT_GATEWAY=fake',
   });
 
   it('serviço whatsapp-otp fora do ar: iniciar responde erro limpo (não 500 cru), e a API segue de pé pra próxima requisição', async () => {
-    const telefone = fone('7002');
+    const telefone = fone('72');
     mockServerFalharPara.add(e164(telefone));
 
     const res = await http.post('/conta/login/iniciar').send({ companyId, telefone });
@@ -131,7 +131,7 @@ describe('Boot com IDENTITY_PROVIDER=whatsapp (sem AWS) + PAYMENT_GATEWAY=fake',
     expect(res.body.message).not.toMatch(/ECONNREFUSED|AbortError|fetch failed/i); // nunca a exceção crua
 
     // a API não caiu — outra requisição comum, em outro telefone, funciona normalmente.
-    const outroTelefone = fone('7003');
+    const outroTelefone = fone('73');
     await http.post('/conta/login/iniciar').send({ companyId, telefone: outroTelefone }).expect(201);
   });
 });

@@ -28,7 +28,15 @@ import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 const companyId = `co-otpres-${randomUUID()}`;
 const barbeiroId = `bar-otpres-${randomUUID()}`;
 const corteId = `svc-otpres-${randomUUID()}`;
-const DIA = '2031-03-10'; // segunda futura, bem longe de qualquer janela de cancelamento/reagendamento
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 let app: INestApplication;
 let prisma: PrismaService;
@@ -101,7 +109,7 @@ afterAll(async () => {
 
 describe('Reserva temporária (Problema 2): avulso online não trava a agenda indefinidamente', () => {
   it('avulso online cria o atendimento como RESERVADO, não AGENDADO — some da agenda firme mas ocupa o horário', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}0`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}0`);
     const res = await agendar(token, '09:00', 'online').expect(201);
     expect(res.body.cobranca).toBeTruthy();
 
@@ -127,7 +135,7 @@ describe('Reserva temporária (Problema 2): avulso online não trava a agenda in
   });
 
   it('pagando dentro do prazo (confirmar-demo): reserva vira firme (AGENDADO), horário continua ocupado', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}1`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}1`);
     const res = await agendar(token, '10:00', 'online').expect(201);
     const intencaoId = res.body.cobranca.intencaoId as string;
 
@@ -143,15 +151,15 @@ describe('Reserva temporária (Problema 2): avulso online não trava a agenda in
   });
 
   it('duas reservas temporárias pro MESMO horário: a segunda é recusada enquanto a primeira é válida (422, mesma invariante de conflito)', async () => {
-    const tokenA = await loginCompleto(`11 9${String(Date.now()).slice(-8)}2`);
-    const tokenB = await loginCompleto(`11 9${String(Date.now()).slice(-8)}3`);
+    const tokenA = await loginCompleto(`11 9${String(Date.now()).slice(-7)}2`);
+    const tokenB = await loginCompleto(`11 9${String(Date.now()).slice(-7)}3`);
     await agendar(tokenA, '11:00', 'online').expect(201);
     const conflito = await agendar(tokenB, '11:00', 'online');
     expect(conflito.status).toBe(422);
   });
 
   it('reserva NÃO paga expira por timeout: horário volta a ficar livre, e uma nova reserva no mesmo slot é aceita', async () => {
-    const tokenA = await loginCompleto(`11 9${String(Date.now()).slice(-8)}4`);
+    const tokenA = await loginCompleto(`11 9${String(Date.now()).slice(-7)}4`);
     const res = await agendar(tokenA, '12:00', 'online').expect(201);
     const intencaoId = res.body.cobranca.intencaoId as string;
 
@@ -176,12 +184,12 @@ describe('Reserva temporária (Problema 2): avulso online não trava a agenda in
     expect(horarios.body.horarios.map((h: { horaInicio: string }) => h.horaInicio)).toContain('12:00');
 
     // e uma NOVA reserva no mesmo slot é aceita (a antiga não bloqueia mais)
-    const tokenB = await loginCompleto(`11 9${String(Date.now()).slice(-8)}5`);
+    const tokenB = await loginCompleto(`11 9${String(Date.now()).slice(-7)}5`);
     await agendar(tokenB, '12:00', 'online').expect(201);
   });
 
   it('webhook/confirmação tardia numa reserva já expirada NÃO revive: intenção EXPIRADA rejeita confirmar (422), atendimento continua expirado', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}6`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}6`);
     const res = await agendar(token, '13:00', 'online').expect(201);
     const intencaoId = res.body.cobranca.intencaoId as string;
     const passado = new Date(Date.now() - 1000);
@@ -200,7 +208,7 @@ describe('Reserva temporária (Problema 2): avulso online não trava a agenda in
 
 describe('Cota de presenciais futuros ativos (Problema 3)', () => {
   it('3 presenciais futuros ativos permitidos; o 4º é recusado com mensagem clara', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}7`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}7`);
     await agendar(token, '14:00', 'presencial').expect(201);
     await agendar(token, '15:00', 'presencial').expect(201);
     await agendar(token, '16:00', 'presencial').expect(201);
@@ -211,7 +219,7 @@ describe('Cota de presenciais futuros ativos (Problema 3)', () => {
   });
 
   it('cancelar um dos 3 libera a cota — consegue marcar de novo', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}8`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}8`);
     const a = await agendar(token, '09:30', 'presencial').expect(201);
     await agendar(token, '10:30', 'presencial').expect(201);
     await agendar(token, '11:30', 'presencial').expect(201);
@@ -226,7 +234,7 @@ describe('Cota de presenciais futuros ativos (Problema 3)', () => {
   });
 
   it('avulso ONLINE não conta na cota de presenciais: 3 presenciais + N online, mesmo cliente, tudo aceito', async () => {
-    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}9`);
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-7)}9`);
     await agendar(token, '13:30', 'presencial').expect(201);
     await agendar(token, '14:30', 'presencial').expect(201);
     await agendar(token, '15:30', 'presencial').expect(201);

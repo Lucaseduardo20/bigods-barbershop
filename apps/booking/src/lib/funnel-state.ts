@@ -36,6 +36,10 @@ export interface FunnelState {
   horaInicio: string | null; // "HH:mm" local
   nome: string;
   telefone: string;
+  /** Opcionais do formulário — vão para o cadastro do cliente se preenchidos. */
+  email: string;
+  /** "Fale sobre você": o barbeiro lê no detalhe do atendimento. */
+  sobreVoce: string;
   // ---- trilha de pacote ----
   ofertaId: string | null;
   ofertaNome: string | null;
@@ -58,6 +62,8 @@ export const estadoInicial: FunnelState = {
   horaInicio: null,
   nome: '',
   telefone: '',
+  email: '',
+  sobreVoce: '',
   ofertaId: null,
   ofertaNome: null,
   ofertaPrecoCentavos: null,

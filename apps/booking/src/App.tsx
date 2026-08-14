@@ -13,7 +13,12 @@ import { COMPANY_ID } from './lib/config';
 import { carregarSessaoBooking, salvarSessaoBooking, limparSessaoBooking } from './lib/session';
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
 import { dinheiro, hojeISO } from './lib/format';
-import { telefoneValido } from './lib/telefone';
+import {
+  celularBrasileiroValido,
+  emailValido,
+  nomeDeClienteValido,
+  preenchido,
+} from '@bigods/contracts';
 import { mascararTelefone } from './lib/telefone';
 import {
   aplicarBarbeiroDoLink,
@@ -183,7 +188,15 @@ function Funil() {
   };
 
   if (estado.concluido) {
-    return <Sucesso estado={estado} pago={pago} onNovo={reset} />;
+    return (
+      <Sucesso
+        estado={estado}
+        pago={pago}
+        timezone={empresa.timezone}
+        duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
+        onNovo={reset}
+      />
+    );
   }
 
 
@@ -311,7 +324,13 @@ function Funil() {
   const enviarComSessao = async (token: string) => {
     setEnviando(true);
     setErroEnvio(null);
-    const cliente = { nome: estado.nome.trim() };
+    // Opcionais só vão quando preenchidos: mandar string vazia faria a borda
+    // recusar (`@EhEmail` não aceita vazio) um campo que é OPCIONAL.
+    const cliente = {
+      nome: estado.nome.trim(),
+      ...(preenchido(estado.email) ? { email: estado.email.trim() } : {}),
+      ...(preenchido(estado.sobreVoce) ? { sobreVoce: estado.sobreVoce.trim() } : {}),
+    };
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
     // ver Confirmacao.tsx); avulso segue a escolha do cliente.
     const online = estado.modo === 'pacote' || estado.formaPagamento === 'online';
@@ -428,8 +447,12 @@ function Funil() {
       <Dados
         nome={estado.nome}
         telefone={estado.telefone}
+        email={estado.email}
+        sobreVoce={estado.sobreVoce}
         onNome={(v) => patch({ nome: v })}
         onTelefone={(v) => patch({ telefone: mascararTelefone(v) })}
+        onEmail={(v) => patch({ email: v })}
+        onSobreVoce={(v) => patch({ sobreVoce: v })}
       />
     );
   } else if (estado.step === PASSO.CONFIRMACAO) {
@@ -461,7 +484,12 @@ function Funil() {
       case PASSO.DADOS:
         return {
           label: estado.modo === 'pacote' ? 'Revisar compra' : 'Revisar agendamento',
-          disabled: !estado.nome.trim() || !telefoneValido(estado.telefone),
+          // Mesmas regras da borda da API (@bigods/contracts) — o botão nunca
+          // habilita para algo que o backend vai recusar.
+          disabled:
+            !nomeDeClienteValido(estado.nome) ||
+            !celularBrasileiroValido(estado.telefone) ||
+            (preenchido(estado.email) && !emailValido(estado.email)),
           onClick: avancar,
         };
       default:
