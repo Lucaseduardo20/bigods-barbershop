@@ -57,7 +57,17 @@ export function OtpVerificacao({
 
   // Dispara sozinho ao montar — o cliente já decidiu confirmar o agendamento/
   // compra, não precisa de um clique a mais só pra "pedir o código".
+  //
+  // A guarda NÃO é preciosismo: sem ela o efeito roda duas vezes (StrictMode
+  // em dev remonta de propósito, e qualquer remontagem em produção teria o
+  // mesmo efeito), e cada disparo gera um desafio NOVO com um código NOVO. O
+  // cliente recebia duas mensagens, só a última valia — quem digitasse o
+  // primeiro código via "código inválido" mesmo tendo digitado certo — e cada
+  // tentativa consumia duas das cinco do rate limit.
+  const jaPediuCodigo = useRef(false);
   useEffect(() => {
+    if (jaPediuCodigo.current) return;
+    jaPediuCodigo.current = true;
     iniciar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
