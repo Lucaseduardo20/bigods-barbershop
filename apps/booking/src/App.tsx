@@ -356,13 +356,17 @@ function Funil() {
   // sessão, pausa em `mostrandoOtp` até o cliente confirmar o código. Um
   // token que a API rejeita (expirado/inválido) cai no mesmo caminho — nunca
   // um erro genérico, sempre a chance de reverificar.
-  const enviarComSessao = async (token: string) => {
+  const enviarComSessao = async (token: string | null) => {
     setEnviando(true);
     setErroEnvio(null);
     // Opcionais só vão quando preenchidos: mandar string vazia faria a borda
     // recusar (`@EhEmail` não aceita vazio) um campo que é OPCIONAL.
     const cliente = {
       nome: estado.nome.trim(),
+      // Sem sessão (avulso online anônimo), o telefone precisa ir no corpo —
+      // é a única forma de a barbearia saber com quem falar. Havendo sessão, a
+      // API IGNORA este campo e usa o telefone verificado dela.
+      ...(token ? {} : { telefone: estado.telefone }),
       ...(preenchido(estado.email) ? { email: estado.email.trim() } : {}),
       ...(preenchido(estado.sobreVoce) ? { sobreVoce: estado.sobreVoce.trim() } : {}),
     };
@@ -425,11 +429,20 @@ function Funil() {
   const confirmar = async () => {
     setErroEnvio(null);
     const sessao = carregarSessaoBooking();
-    if (!sessao) {
-      setMostrandoOtp(true);
+    if (sessao) {
+      await enviarComSessao(sessao.token);
       return;
     }
-    await enviarComSessao(sessao.token);
+    // Sem sessão: só o AVULSO ONLINE segue sem OTP. Ali a reserva é temporária
+    // e morre sozinha se o PIX não confirmar, então o pagamento já é a trava
+    // contra agenda falsa. Presencial (segura o horário firme, sem pagar) e
+    // pacote (crédito que vive na conta do cliente) continuam exigindo.
+    const avulsoOnline = estado.modo === 'avulso' && estado.formaPagamento === 'online';
+    if (avulsoOnline) {
+      await enviarComSessao(null);
+      return;
+    }
+    setMostrandoOtp(true);
   };
 
   // ---- Corpo do passo atual ----

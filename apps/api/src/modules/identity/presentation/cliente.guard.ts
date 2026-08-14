@@ -63,6 +63,49 @@ export class ClienteGuard implements CanActivate {
 }
 
 /**
+ * Autentica o cliente SE ele mandar token, sem exigir que mande.
+ *
+ * Existe para rotas que atendem os dois casos na mesma porta — hoje o
+ * agendamento do funil, onde o avulso ONLINE dispensa OTP (o pagamento e a
+ * reserva temporária são a trava) mas o PRESENCIAL continua exigindo.
+ *
+ * A distinção que importa: token AUSENTE é anônimo (segue); token PRESENTE mas
+ * inválido, expirado ou órfão é ERRO. Tratar token ruim como anônimo faria uma
+ * sessão expirada virar silenciosamente um agendamento sem dono — e mataria o
+ * caminho de recuperação (401 → o front limpa a sessão e refaz o OTP).
+ */
+@Injectable()
+export class ClienteGuardOpcional implements CanActivate {
+  constructor(private readonly obrigatorio: ClienteGuard) {}
+
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    const req = ctx.switchToHttp().getRequest();
+    const [esquema, token] = (req.headers.authorization ?? '').split(' ');
+    if (esquema !== 'Bearer' || !token) {
+      req.clienteAtual = null;
+      return true;
+    }
+    return this.obrigatorio.canActivate(ctx);
+  }
+}
+
+/**
+ * Rota que aceita cliente autenticado OU anônimo. Quem decide se o anônimo
+ * pode seguir é o handler — a regra depende do corpo (ex.: forma de pagamento),
+ * e guard não enxerga isso.
+ */
+export function ContaClienteOpcional() {
+  return applyDecorators(Publico(), UseGuards(ClienteGuardOpcional));
+}
+
+/** Sessão do cliente quando houver; `null` em requisição anônima. */
+export const ClienteAtualOpcional = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): ClienteAutenticado | null => {
+    return ctx.switchToHttp().getRequest().clienteAtual ?? null;
+  },
+);
+
+/**
  * Rota da área logada do cliente: dispensa o guard de staff (@Publico) e exige
  * o token de cliente (ClienteGuard). O "público" aqui é só em relação ao staff.
  */

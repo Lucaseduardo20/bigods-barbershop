@@ -1448,7 +1448,15 @@ a solução da outra:
 
 **Problema 1 — agenda falsa:** qualquer telefone digitado reservava sem provar posse.
 **Solução:** a escrita pública (`POST /public/agendamentos`, `POST /public/pacotes`) exige
-sessão de cliente verificada por OTP (`@ContaCliente()` — mesmo mecanismo do login do cockpit,
+sessão de cliente verificada por OTP — **com uma exceção por forma de pagamento, decidida pelo
+dono depois:** o avulso **ONLINE** dispensa o OTP, porque ali a reserva já nasce TEMPORÁRIA
+(`RESERVADO`, 10 min) e morre sozinha se o PIX não confirmar — o pagamento É a trava contra
+agenda falsa, e o OTP vira só atrito no caminho de maior valor. O **PRESENCIAL** continua
+exigindo, porque é ele que segura o horário FIRME sem pagar nada. Pacote também continua
+exigindo (o crédito vive na conta do cliente). Quando HÁ sessão, o telefone vem sempre dela e o
+do corpo é ignorado — senão um cliente verificado marcaria em nome de outro número e a agenda
+falsa voltaria por outra porta. Token presente mas inválido é 401, nunca tratado como anônimo
+(`ClienteGuardOpcional`) (`@ContaCliente()` — mesmo mecanismo do login do cockpit,
 `IdentityProvider` + `ClienteSessaoService`, nada novo construído). Sem sessão salva localmente
 no funil, o front roda `/conta/login/iniciar` + `/conta/login/confirmar` ANTES de confirmar o
 agendamento — depois de escolher barbeiro/serviço/horário, nunca antes (mataria conversão). Com

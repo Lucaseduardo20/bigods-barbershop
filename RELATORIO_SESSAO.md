@@ -2716,6 +2716,47 @@ R$40. Os casos de dinheiro são os que importam:
 | 10 | Voltar da Confirmação de pacote | Cai na tela unificada; ao clicar num serviço, a oferta é abandonada (nunca os dois juntos) |
 | 11 | Abrir um atendimento ANTIGO feito com combo | Valor original intacto, mesmo depois de desativar o combo |
 
+## Avulso online dispensa o OTP (2026-08-14) ✅
+
+Ajuste pedido depois da sessão do funil único: **escolhendo "Pagar agora (PIX na hora)", o
+cliente não precisa mais fazer o OTP.** Antes os dois caminhos exigiam.
+
+**Por que é seguro nesse caminho, e só nele.** O OTP existia para fechar a "agenda falsa"
+(qualquer telefone digitado segurava horário sem provar posse). No avulso online essa trava já
+existe por outro mecanismo: a reserva nasce `RESERVADO` com prazo de 10 min e **morre sozinha se
+o PIX não confirmar**. Quem marcar de brincadeira não trava nada — o horário volta. No
+presencial não há nada disso: o horário fica FIRME sem pagamento nenhum, então lá o OTP continua
+sendo a única prova de que o telefone é real.
+
+| Caminho | OTP | Por quê |
+|---|---|---|
+| Avulso **online** (PIX) | **dispensado** | reserva temporária + pagamento já travam a agenda falsa |
+| Avulso **presencial** | exigido | segura horário firme sem pagar nada |
+| **Pacote** | exigido | o crédito vive na conta do cliente — sem telefone provado, ele não acessa depois |
+
+**O que ficou blindado** (é o risco real dessa mudança):
+
+- **Sessão vence o corpo.** Havendo sessão, o telefone vem SEMPRE dela e o do corpo é ignorado.
+  Sem isso, um cliente verificado poderia marcar em nome de outro número e a agenda falsa
+  voltaria por outra porta. Tem teste que tenta exatamente isso e confirma que o agendamento
+  fica no telefone da sessão, e que o número do terceiro não vira cliente nenhum.
+- **Token ruim não vira anônimo.** `ClienteGuardOpcional` trata token AUSENTE como anônimo, mas
+  token presente e inválido/expirado/órfão continua 401. Tratar token ruim como anônimo faria
+  uma sessão expirada criar em silêncio um agendamento sem dono — e mataria o caminho de
+  recuperação (401 → o front limpa a sessão e refaz o OTP).
+- **Telefone continua validado** como celular BR na borda, mesmo anônimo.
+- **Rate limit por origem** (30/10min no endpoint) segue como rede de proteção do caminho
+  anônimo — agora ele importa mais, porque o OTP não protege mais essa rota.
+
+**O que o cliente perde ao pular o OTP:** não ganha sessão no cockpit (precisa fazer login por
+OTP depois para ver o agendamento) e a confirmação por WhatsApp vai para um número que ninguém
+provou ser dele. Foi a troca aceita para reduzir atrito no caminho que já se paga.
+
+**Testes (+9):** online sem token agenda e gera PIX; a reserva nasce temporária; sem telefone no
+corpo → 400; telefone não-celular → 400; presencial sem token → 401 e nada é criado; default sem
+`formaPagamento` também exige; presencial com token nasce `AGENDADO` (firme); sessão vence o
+corpo; token inválido → 401. **516 testes na API**, verdes nos 3 fusos.
+
 ## Como rodar localmente
 
 ```bash

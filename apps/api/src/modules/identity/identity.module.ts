@@ -8,7 +8,7 @@ import { HttpWhatsAppOtpClient } from './infrastructure/whatsapp-otp.client';
 import { ClienteSessaoService } from './infrastructure/cliente-sessao.service';
 import { AuthController } from './presentation/auth.controller';
 import { ContaClienteController } from './presentation/conta-cliente.controller';
-import { ClienteGuard } from './presentation/cliente.guard';
+import { ClienteGuard, ClienteGuardOpcional } from './presentation/cliente.guard';
 import { OnPacoteVendidoHandler } from './application/on-pacote-vendido.handler';
 import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
@@ -64,6 +64,7 @@ function exigir(nome: string): string {
     { provide: IDENTITY_PROVIDER, useFactory: criarIdentityProvider, inject: [PrismaService] },
     ClienteSessaoService,
     ClienteGuard,
+    ClienteGuardOpcional,
     IniciarLoginClienteUseCase,
     ConfirmarLoginClienteUseCase,
     OnPacoteVendidoHandler,
@@ -73,6 +74,6 @@ function exigir(nome: string): string {
   // PacotesPublicoController (packages) passam a exigir sessão de cliente
   // (@ContaCliente()) nas escritas públicas. Global, então não precisa de
   // import explícito nesses módulos (mesmo mecanismo de ClienteSessaoService).
-  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService, ClienteGuard],
+  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService, ClienteGuard, ClienteGuardOpcional],
 })
 export class IdentityModule {}
