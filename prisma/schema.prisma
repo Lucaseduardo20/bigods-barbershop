@@ -126,6 +126,27 @@ model DegrauDeDesconto {
   @@unique([companyId, posicao])
 }
 
+/**
+ * "Cliente da casa" — relação BARBEIRO ↔ CLIENTE, nunca um flag global no
+ * cliente. O mesmo cliente pode ser da casa do Gabriel e não ser do Lucas: a
+ * marca vale só na agenda de quem marcou, porque é uma relação de confiança
+ * pessoal, não um atributo do cliente.
+ *
+ * Chave composta = a própria relação. Não há status nem soft-delete: ou existe
+ * a linha (é da casa) ou não existe (não é).
+ */
+model ClienteDaCasa {
+  barbeiroId String
+  clienteId  String
+  marcadoEm  DateTime @default(now())
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+  cliente  Cliente  @relation(fields: [clienteId], references: [id])
+
+  @@id([barbeiroId, clienteId])
+  @@index([clienteId])
+}
+
 model Servico {
   id                  String  @id
   companyId           String
@@ -221,6 +242,7 @@ model Barbeiro {
   expedienteJanelas ExpedienteJanela[]
   pacoteOfertas     PacoteOferta[]
   vendasDePacote    VendaDePacote[]
+  clientesDaCasa    ClienteDaCasa[]
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -311,6 +333,7 @@ model Cliente {
   sobreVoce  String?
 
   company Company @relation(fields: [companyId], references: [id])
+  daCasaDe ClienteDaCasa[]
 
   @@unique([companyId, telefone])
 }

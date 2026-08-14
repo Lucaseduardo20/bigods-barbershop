@@ -526,3 +526,25 @@ renovação automática, nível/tier.
 Cada uma dessas respostas muda o modelo de domínio — por isso não foi
 antecipado nada. O nome hoje não cria dívida: é texto de apresentação sobre
 um agregado que já existe.
+
+---
+
+## 31. "Menor comissão" na atribuição sem preferência: em reais ou em percentual?
+
+**Decisão minha, a confirmar** (sessão de barbeiro/aprovação, Fase 2).
+
+O 1º critério da cascata de "não tenho preferência" é "o de MENOR comissão para
+os serviços em questão". Com preço TAMBÉM por barbeiro (§3.2.2), isso tem duas
+leituras possíveis:
+
+- **Em centavos (implementado):** Σ (preço dele × percentual efetivo dele) por
+  serviço. É o custo real da casa naquele atendimento. Um barbeiro com 40% sobre
+  R$50 (R$20) ganha de outro com 30% sobre R$80 (R$24).
+- **Em percentual puro:** compara só o `percentualPara(servico)`. Mais simples de
+  explicar ("vai pro que tem a menor porcentagem"), mas pode mandar o cliente
+  para quem custa mais caro à casa.
+
+Fui de centavos porque "menor comissão" só tem significado econômico em dinheiro
+— e porque o preço por barbeiro já existe e seria estranho ignorá-lo justamente
+no critério de custo. Trocar é mudar só o número que entra na cascata; a ordem
+dos critérios e os testes de desempate não mudam.

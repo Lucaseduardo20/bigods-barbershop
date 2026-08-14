@@ -8,6 +8,8 @@ import { SERVICO_REPOSITORY } from '../modules/catalog/domain/servico.repository
 import { BARBEIRO_REPOSITORY } from '../modules/staff/domain/barbeiro.repository';
 import { DISPONIBILIDADE_REPOSITORY } from '../modules/staff/domain/disponibilidade.repository';
 import { CLIENTE_REPOSITORY } from '../modules/customers/domain/cliente.repository';
+import { CLIENTE_DA_CASA_REPOSITORY } from '../modules/customers/domain/cliente-da-casa.repository';
+import { PrismaClienteDaCasaRepository } from '../modules/customers/infrastructure/prisma-cliente-da-casa.repository';
 import { ATENDIMENTO_REPOSITORY } from '../modules/scheduling/domain/atendimento.repository';
 import { VENDA_DE_PACOTE_REPOSITORY } from '../modules/packages/domain/venda-de-pacote.repository';
 import { LANCAMENTO_COMISSAO_REPOSITORY } from '../modules/payroll/domain/lancamento-comissao.repository';
@@ -41,6 +43,7 @@ const repositorios = [
   { provide: DISPONIBILIDADE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaDisponibilidadeRepository(p), inject: [PrismaService] },
   { provide: EXPEDIENTE_SEMANAL_REPOSITORY, useFactory: (p: PrismaService) => new PrismaExpedienteSemanalRepository(p), inject: [PrismaService] },
   { provide: CLIENTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaClienteRepository(p), inject: [PrismaService] },
+  { provide: CLIENTE_DA_CASA_REPOSITORY, useFactory: (p: PrismaService) => new PrismaClienteDaCasaRepository(p), inject: [PrismaService] },
   { provide: ATENDIMENTO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaAtendimentoRepository(p), inject: [PrismaService] },
   { provide: VENDA_DE_PACOTE_REPOSITORY, useFactory: (p: PrismaService) => new PrismaVendaDePacoteRepository(p), inject: [PrismaService] },
   { provide: LANCAMENTO_COMISSAO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaLancamentoComissaoRepository(p), inject: [PrismaService] },

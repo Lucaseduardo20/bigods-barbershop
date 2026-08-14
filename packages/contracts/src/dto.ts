@@ -166,6 +166,12 @@ export interface ClienteDTO {
   nome: string;
   telefone: string;
   possuiConta: boolean;
+  /**
+   * "Da casa" NA RELAÇÃO DE QUEM PERGUNTA — é uma relação barbeiro↔cliente, não
+   * um atributo do cliente. O mesmo cliente pode vir `true` para um barbeiro e
+   * `false` para outro.
+   */
+  daCasa: boolean;
 }
 
 // ---------- Agenda ----------
@@ -191,6 +197,8 @@ export interface AtendimentoDTO {
     email: string | null;
     /** "Fale sobre você" do funil — o barbeiro lê antes de atender. */
     sobreVoce: string | null;
+    /** É "da casa" DO BARBEIRO DESTE ATENDIMENTO (relação, não atributo). */
+    daCasa: boolean;
   };
   barbeiro: { id: string; nome: string };
   itens: ItemAtendidoDTO[];

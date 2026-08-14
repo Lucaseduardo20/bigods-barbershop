@@ -286,6 +286,30 @@ não é recalculado por nada — nem por mudança de tabela, nem por desativaç�
 
 ---
 
+#### 3.2.4 "Cliente da casa" — relação, não atributo
+
+Um barbeiro pode marcar um cliente como **da casa**. É uma relação
+BARBEIRO ↔ CLIENTE (`ClienteDaCasa`, chave composta), nunca um flag no
+`Cliente`: o cliente é "da casa DO Gabriel", e isso vale só na agenda do
+Gabriel. O mesmo cliente não é da casa do Lucas até o Lucas também marcá-lo —
+é relação de confiança pessoal, e um flag global faria a marca de um valer
+para todos.
+
+Sem status e sem soft-delete: ou a linha existe (é da casa) ou não existe.
+Marcar/desmarcar são idempotentes.
+
+**Autorização vive no backend, não em botão escondido:** um barbeiro só
+cria/remove a marca da PRÓPRIA relação — mandar o `barbeiroId` de outro no
+corpo devolve 403. O admin gerencia a de qualquer um, e é o único que enxerga
+todas as relações de um cliente (para um barbeiro, de quem mais o cliente é
+"da casa" não é informação dele).
+
+Nas leituras, `daCasa` é sempre relativo a quem pergunta: em `ClienteDTO` é a
+relação com o usuário autenticado; em `AtendimentoDTO.cliente` é a relação com
+o barbeiro DAQUELE atendimento.
+
+---
+
 ### 3.3 `DisponibilidadeBarbeiro` (raiz)
 
 Janela de trabalho de um barbeiro.
@@ -1521,6 +1545,35 @@ mexer nos serviços zera a oferta selecionada. Nunca há os dois preenchidos ao 
 **"Bigod's Club" é rótulo de marca, não membership.** Não há mensalidade, status de membro nem
 benefício recorrente modelado — só apresentação sobre os pacotes que já existem. Evoluir para
 assinatura de verdade é decisão em aberto (DECISOES_PENDENTES.md #30).
+
+### 8.12 "Não tenho preferência" — horários globais e atribuição na confirmação
+
+O cliente pode seguir o funil sem escolher barbeiro. A partir daí:
+
+- **Listagem:** `/public/horarios` e `/public/dias` sem `barbeiroId` devolvem a
+  UNIÃO dos horários de todos os barbeiros ATIVOS que atendem **todos** os
+  serviços do carrinho. Um horário aparece se pelo menos um deles está livre
+  nele. Duas queries para o conjunto inteiro, nunca uma por barbeiro.
+- **Atribuição:** acontece na CONFIRMAÇÃO, no servidor
+  (`regra-atribuicao-de-barbeiro.ts`), não na listagem — entre ver o horário e
+  confirmar, a agenda pode ter mudado, então quem decide olha o estado de agora.
+
+Cascata, nesta ordem: **menor comissão** → **menos agendamentos naquele dia** →
+**aleatório**. Só entram candidatos que atendem todos os serviços, têm janela
+que comporta o atendimento inteiro e não têm conflito no intervalo; a cascata só
+desempata entre quem já pode atender. O sorteio do último critério opera sobre
+lista ordenada por id, para "aleatório" não virar "depende da ordenação do banco".
+
+"Menor comissão" é medida em CENTAVOS (preço dele × percentual efetivo dele, por
+serviço, somado), não em percentual puro — preço também é por barbeiro (§3.2.2),
+então só o valor em dinheiro representa o custo real da casa. Ver
+DECISOES_PENDENTES.md #31.
+
+**Preço sem mentira:** como preço é por barbeiro, o valor final só existe depois
+da atribuição. Antes dela o funil mostra "a partir de" (referência da casa) e
+avisa que pode variar; a resposta de `POST /public/agendamentos` traz o barbeiro
+atribuído e o `valorTotalCentavos` efetivamente cobrado, e é isso que a tela de
+sucesso exibe.
 
 ---
 

@@ -94,6 +94,17 @@ export class AgendaQueryService {
     const produtoNomePorId = new Map(produtos.map((p) => [p.id, p.nome]));
     const intencaoPagaPorAtendimento = new Map(intencoes.map((i) => [i.atendimentoId!, i]));
 
+    // "Da casa" é relação barbeiro↔cliente: para cada atendimento interessa o
+    // par (barbeiro DELE, cliente DELE). Uma query só para a leva inteira.
+    const relacoes = await this.prisma.clienteDaCasa.findMany({
+      where: {
+        barbeiroId: { in: [...new Set(atendimentos.map((a) => a.barbeiroId))] },
+        clienteId: { in: [...new Set(atendimentos.map((a) => a.clienteId))] },
+      },
+      select: { barbeiroId: true, clienteId: true },
+    });
+    const daCasa = new Set(relacoes.map((r) => `${r.barbeiroId}|${r.clienteId}`));
+
     return atendimentos.map((a) =>
       this.paraDTO(
         a,
@@ -103,6 +114,7 @@ export class AgendaQueryService {
         servicoNomePorId,
         produtoNomePorId,
         intencaoPagaPorAtendimento.get(a.id),
+        daCasa.has(`${a.barbeiroId}|${a.clienteId}`),
       ),
     );
   }
@@ -115,6 +127,7 @@ export class AgendaQueryService {
     servicoNomePorId: Map<string, string>,
     produtoNomePorId: Map<string, string>,
     intencaoPaga: IntencaoRow | undefined,
+    clienteEhDaCasa: boolean,
   ): AtendimentoDTO {
     const valorItens = a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0);
     const valorProdutos = a.produtos.reduce((acc, p) => acc + p.valorUnitarioCentavos * p.quantidade, 0);
@@ -126,6 +139,7 @@ export class AgendaQueryService {
         telefone: cliente?.telefone ?? '',
         email: cliente?.email ?? null,
         sobreVoce: cliente?.sobreVoce ?? null,
+        daCasa: clienteEhDaCasa,
       },
       barbeiro: { id: a.barbeiroId, nome: barbeiro?.nome ?? '?' },
       itens: a.itens.map((i) => ({

@@ -63,6 +63,8 @@ export function AtendimentoDetalheDialog({
   const [servicoParaAdicionar, setServicoParaAdicionar] = useState('');
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState('');
   const [qtdProduto, setQtdProduto] = useState('1');
+  const [marcando, setMarcando] = useState(false);
+  const [erroDaCasa, setErroDaCasa] = useState<string | null>(null);
 
   const {
     dados: atendimento,
@@ -124,6 +126,32 @@ export function AtendimentoDetalheDialog({
     }
   };
 
+  /**
+   * Marca/desmarca na relação do barbeiro DESTE atendimento. O backend recusa
+   * (403) se o usuário logado não for esse barbeiro nem admin — aqui o botão
+   * aparece mesmo assim e o erro é mostrado, em vez de sumir sem explicação.
+   */
+  const alternarDaCasa = async () => {
+    if (!a) return;
+    setMarcando(true);
+    setErroDaCasa(null);
+    try {
+      if (a.cliente.daCasa) {
+        await api(`/clientes/${a.cliente.id}/da-casa?barbeiroId=${a.barbeiro.id}`, { method: 'DELETE' });
+      } else {
+        await api(`/clientes/${a.cliente.id}/da-casa`, {
+          method: 'POST',
+          body: { barbeiroId: a.barbeiro.id },
+        });
+      }
+      recarregar();
+    } catch (e) {
+      setErroDaCasa(String((e as Error).message));
+    } finally {
+      setMarcando(false);
+    }
+  };
+
   return (
     <Dialog open onClose={aoFechar} title={a?.cliente.nome ?? 'Atendimento'}>
       {carregando && <Loading texto="Carregando atendimento…" />}
@@ -144,6 +172,27 @@ export function AtendimentoDetalheDialog({
             {a.cliente.email && (
               <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
                 {a.cliente.email}
+              </div>
+            )}
+            {/* "Cliente da casa" é relação com ESTE barbeiro (o do atendimento),
+                não um atributo do cliente — por isso o texto cita o nome dele. */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {a.cliente.daCasa && <Badge tone="gold">Cliente da casa</Badge>}
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={marcando}
+                onClick={alternarDaCasa}
+              >
+                {marcando
+                  ? 'Salvando…'
+                  : a.cliente.daCasa
+                    ? `Remover de "da casa" de ${a.barbeiro.nome}`
+                    : `Marcar como cliente da casa de ${a.barbeiro.nome}`}
+              </button>
+            </div>
+            {erroDaCasa && (
+              <div className="text-[12px] mt-1.5" style={{ color: 'var(--status-danger)' }}>
+                {erroDaCasa}
               </div>
             )}
           </div>

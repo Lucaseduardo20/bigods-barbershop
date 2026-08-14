@@ -2757,6 +2757,103 @@ corpo → 400; telefone não-celular → 400; presencial sem token → 401 e nad
 `formaPagamento` também exige; presencial com token nasce `AGENDADO` (firme); sessão vence o
 corpo; token inválido → 401. **516 testes na API**, verdes nos 3 fusos.
 
+## Barbeiro e aprovação — Fases 2 e 3 (2026-08-14) ✅ / Fases 1 e 4 bloqueadas ⛔
+
+Suíte confirmada verde (516 API + 65 fronts, 3 fusos) antes de tocar em qualquer código.
+
+### ⛔ FASE 1 (fotos) — PAREI, como você pediu
+
+Você instruiu: *"O projeto JÁ TEM object storage configurado — use o que existe. Se não encontrar
+a config de storage, PARE e reporte em vez de inventar."* **Não existe.** O que existe é outra
+coisa:
+
+| O que existe | O que NÃO existe |
+|---|---|
+| 3 buckets S3 (`bigods-admin/booking/account`), privados, servindo o **build estático** dos fronts via CloudFront | Bucket para uploads da aplicação |
+| Escrita neles pelo `scripts/deploy-frontends.sh`, com credencial **da sua máquina**, no deploy | SDK de S3 na API (`@aws-sdk/client-s3` não está instalado — só o do Cognito) |
+| | Qualquer tratamento de upload (sem multer, sem `FileInterceptor`, sem multipart) |
+| | Credencial/role da API (EC2) com permissão de escrita em bucket |
+
+E um detalhe que torna a confusão perigosa: o deploy roda
+`aws s3 sync apps/<app>/dist s3://<bucket> --delete`. Se as fotos fossem parar num desses
+buckets, **o próximo deploy de frontend apagaria todas** — o `--delete` remove tudo que não está
+no `dist/`.
+
+**O que falta para destravar** (decisão sua, não invento):
+1. Criar um bucket dedicado a uploads (ex.: `bigods-uploads`), separado dos de frontend;
+2. Dar à role da EC2 permissão de `s3:PutObject`/`DeleteObject` **só nesse bucket**;
+3. Definir como a imagem é servida — CloudFront próprio na frente do bucket, ou URL assinada.
+
+Com isso definido, a Fase 1 é direta: `@aws-sdk/client-s3` + endpoint de upload (validando tipo e
+tamanho, redimensionando com `sharp`) + `Barbeiro.fotoUrl` + foto no funil com fallback para as
+iniciais. Não escrevi nada disso para não deixar código morto apontando para bucket inexistente.
+
+### ⛔ FASE 4 — o enunciado chegou truncado
+
+A mensagem termina no meio da frase: *"Agendamento PRESENCIAL de um cliente que JÁ é 'da casa'
+daquele barbeiro: APROVADO AUTOMATICAMENTE (sem passo de"*. Faltam as regras finais. Não
+implementei porque as perguntas em aberto mudam o modelo de estados:
+
+- O `Atendimento` ganha um estado novo (`PENDENTE_APROVACAO`) ou um campo de aprovação separado?
+  Estado novo mexe na máquina de estados (§4.1) e em tudo que filtra por `AGENDADO`.
+- Agendamento pendente **ocupa o horário** enquanto aguarda? (Se sim, vira o mesmo problema da
+  "agenda falsa"; se não, dois clientes podem pedir o mesmo horário.)
+- Tem prazo para o barbeiro responder? O que acontece se ele não responder?
+- Recusa: o horário volta a ficar livre? O cliente é avisado como?
+- Vale também para o avulso ONLINE, ou só presencial (que é o que você citou)?
+
+A Fase 3 está pronta, então a Fase 4 pode ser feita direto quando você mandar o resto.
+
+### ✅ FASE 2 — "Não tenho preferência" (commit `bcc33bb`)
+
+Nova opção na escolha de barbeiro (só aparece com mais de um). A partir dela o funil pede a
+**união** dos horários de todos os barbeiros ativos que atendem **todos** os serviços do carrinho,
+e o barbeiro é atribuído **na confirmação**, pelo servidor — não na listagem, porque entre ver o
+horário e confirmar a agenda pode mudar.
+
+**Cascata** (`regra-atribuicao-de-barbeiro.ts`, pura e testada): menor comissão → menos
+agendamentos no dia → aleatório. Só entram candidatos que atendem todos os serviços, têm janela
+que comporta o atendimento inteiro e não têm conflito — a cascata só desempata entre quem já pode
+atender. O sorteio do último critério opera sobre lista ordenada por id, para "aleatório" não
+virar "depende da ordenação do Postgres".
+
+**Interpretação que precisa da sua confirmação:** "menor comissão" está medida em **centavos**
+(preço dele × percentual efetivo dele, por serviço, somado), não em percentual puro. Como preço
+também é por barbeiro, só o valor em dinheiro representa o custo real da casa — um barbeiro com
+40% sobre R$50 (R$20) sai mais barato que outro com 30% sobre R$80 (R$24). Registrado em
+DECISOES_PENDENTES #31; trocar é mudar só o número que entra na cascata.
+
+**Preço sem mentira:** como preço é por barbeiro, o valor só é conhecido depois de atribuir. O
+funil mostra **"a partir de"** e um aviso explícito de que pode variar conforme quem atender; a
+resposta da API traz o barbeiro atribuído e o valor efetivamente cobrado, e a tela de sucesso
+mostra os dois ("Escolhemos Gabriel para te atender · R$65").
+
+Consultas globais em duas queries, não uma por barbeiro.
+
+### ✅ FASE 3 — Cliente "da casa"
+
+Relação **barbeiro ↔ cliente** (`ClienteDaCasa`, chave composta), nunca um flag no cliente: o
+cliente é da casa DO Gabriel, e isso vale só na agenda dele. Sem status e sem soft-delete — ou a
+linha existe ou não existe; marcar/desmarcar são idempotentes.
+
+**Autorização no backend, não em botão escondido:** um barbeiro só mexe na própria relação —
+mandar o `barbeiroId` de outro no corpo devolve **403**, e há teste que tenta exatamente isso. O
+admin gerencia a de qualquer um e é o único que enxerga todas as relações de um cliente (para um
+barbeiro, de quem mais o cliente é "da casa" não é informação dele).
+
+Nas leituras, `daCasa` é sempre relativo a quem pergunta: em `ClienteDTO` é a relação com o
+usuário logado; em `AtendimentoDTO.cliente` é a relação com o barbeiro daquele atendimento — que
+é o que o painel usa para o botão "Marcar como cliente da casa de {barbeiro}".
+
+### Testes (+28)
+
+8 da cascata de atribuição (ordem dos critérios, um critério nunca atropela o anterior,
+determinismo do sorteio), 9 e2e de "sem preferência" (união dos horários, quem não atende todos
+os serviços fica fora mesmo com comissão menor, o atribuído está realmente livre, preço coerente
+com o atribuído, ninguém livre → 422) e 11 e2e de cliente da casa (a marca é por barbeiro,
+idempotência, e os quatro casos de autorização). **544 testes na API**, verdes nos 3 fusos; build
+verde nos 5 pacotes.
+
 ## Como rodar localmente
 
 ```bash
