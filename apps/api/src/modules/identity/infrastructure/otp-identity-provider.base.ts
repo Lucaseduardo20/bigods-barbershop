@@ -21,6 +21,11 @@ const MAX_TENTATIVAS_POR_DESAFIO = 5;
  * `DemoIdentityProvider` e `WhatsAppIdentityProvider` — **nunca** por
  * `CognitoIdentityProvider`, que delega o desafio inteiro pro lado da AWS.
  *
+ * O envio do código NÃO depende de conta prévia: qualquer telefone recebe, em
+ * qualquer fluxo (agendamento, compra, login do cockpit). Com isso, a única
+ * trava contra abuso de envio é o rate limit da borda — por telefone E por
+ * origem (ver `TelefoneOuIpThrottlerGuard` e o throttler `otp-origem`).
+ *
  * Subclasses só decidem COMO o código chega ao cliente (`enviarCodigo`) e o
  * que volta no campo de depuração `codigoDemo` (`codigoNaResposta`) — nunca
  * reescrevem geração, hash, expiração, uso único ou rate limit.
@@ -35,12 +40,20 @@ export abstract class OtpIdentityProviderBase implements IdentityProvider {
   ) {}
 
   async provisionarUsuario(input: ProvisionarUsuarioInput): Promise<void> {
-    // Idempotente: um usuário externo por (empresa, telefone). O `sub` é estável.
+    await this.garantirIdentidade(input.companyId, input.telefoneE164);
+  }
+
+  /**
+   * Idempotente: um usuário externo por (empresa, telefone). O `sub` é estável
+   * e nasce aqui; quem o copia para `Cliente.cognitoSub` é a CONFIRMAÇÃO do
+   * código (§3.4 — o sub do Cliente só existe com a posse do telefone provada).
+   */
+  private async garantirIdentidade(companyId: string, telefoneE164: string): Promise<void> {
     await this.prisma.demoIdentidade.upsert({
-      where: { companyId_telefone: { companyId: input.companyId, telefone: input.telefoneE164 } },
+      where: { companyId_telefone: { companyId, telefone: telefoneE164 } },
       create: {
-        companyId: input.companyId,
-        telefone: input.telefoneE164,
+        companyId,
+        telefone: telefoneE164,
         sub: `${this.subPrefix}-${randomUUID()}`,
       },
       update: {},
@@ -50,14 +63,13 @@ export abstract class OtpIdentityProviderBase implements IdentityProvider {
   async iniciarLogin(input: IniciarLoginInput): Promise<DesafioLogin> {
     const expiraEm = new Date(Date.now() + this.ttlMinutos * 60_000);
 
-    const identidade = await this.prisma.demoIdentidade.findUnique({
-      where: { companyId_telefone: { companyId: input.companyId, telefone: input.telefoneE164 } },
-    });
-    // Telefone não provisionado: resposta NEUTRA, sem código — indistinguível
-    // de um telefone válido para não revelar quem é cliente.
-    if (!identidade) {
-      return { desafio: '', expiraEm, codigoDemo: null };
-    }
+    // NÃO existe gate de "já tem identidade externa" aqui. Havia: telefone sem
+    // identidade recebia desafio vazio e nenhum código, o que quebrava
+    // exatamente quem mais precisa do código — o cliente de primeira viagem no
+    // agendamento e na compra, que ainda não tem `sub` nenhum. Enviar o código
+    // é o que PERMITE criar a primeira prova de posse; não pode depender de já
+    // ter conta. Provisiona na hora e segue.
+    await this.garantirIdentidade(input.companyId, input.telefoneE164);
 
     const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
     // Envia (ou não, no demo) ANTES de persistir o desafio: se o envio falhar,
@@ -104,6 +116,9 @@ export abstract class OtpIdentityProviderBase implements IdentityProvider {
       where: { id: desafio.id },
       data: { consumidoEm: new Date(), tentativas: { increment: 1 } },
     });
+    // Defensivo, não gate: `iniciarLogin` garante a identidade antes de emitir
+    // qualquer desafio, então um desafio válido sempre tem identidade. Só
+    // protege contra estado inconsistente (linha apagada no meio do fluxo).
     const identidade = await this.prisma.demoIdentidade.findUnique({
       where: { companyId_telefone: { companyId: input.companyId, telefone: input.telefoneE164 } },
     });

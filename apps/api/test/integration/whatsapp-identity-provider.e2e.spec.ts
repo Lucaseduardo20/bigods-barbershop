@@ -80,13 +80,33 @@ describe('WhatsAppIdentityProvider (cliente whatsapp-otp mockado)', () => {
     expect(r?.sub).toMatch(/^whatsapp-/);
   });
 
-  it('telefone não provisionado: resposta neutra, nada é "enviado"', async () => {
+  it('telefone NUNCA provisionado recebe o código do mesmo jeito (não existe gate de envio)', async () => {
+    // Este teste já afirmou o contrário: telefone sem identidade externa
+    // recebia desafio vazio e nada era enviado. Esse gate quebrava o cliente de
+    // primeira viagem no agendamento e na compra — quem ainda não tem `sub` é
+    // justamente quem precisa do código pra criar a primeira prova de posse.
+    // A resposta deixou de ser neutra de propósito: "ter conta" não é mais
+    // informação sensível (ver `identity-provider.ts`).
     const client = new FakeWhatsAppOtpClient();
     const provider = new WhatsAppIdentityProvider(prisma, client, 5);
-    const desafio = await provider.iniciarLogin({ companyId, telefoneE164: telefone('02') });
-    expect(desafio.desafio).toBe('');
-    expect(desafio.codigoDemo).toBeNull();
-    expect(client.enviados).toHaveLength(0);
+    const tel = telefone('02');
+
+    const desafio = await provider.iniciarLogin({ companyId, telefoneE164: tel });
+
+    expect(desafio.desafio).toBeTruthy();
+    expect(desafio.codigoDemo).toBeNull(); // WhatsApp real nunca devolve o código
+    expect(client.enviados).toHaveLength(1);
+    expect(client.enviados[0]!.telefoneE164).toBe(tel);
+
+    // E o código enviado é utilizável: o provisionamento aconteceu na hora,
+    // então a confirmação encontra a identidade e devolve o `sub`.
+    const r = await provider.confirmarLogin({
+      companyId,
+      telefoneE164: tel,
+      codigo: client.ultimoCodigo(),
+      desafio: desafio.desafio,
+    });
+    expect(r?.sub).toMatch(/^whatsapp-/);
   });
 
   it('código ERRADO falha; o mesmo código CERTO não funciona duas vezes (uso único)', async () => {

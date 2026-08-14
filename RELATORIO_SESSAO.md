@@ -2370,6 +2370,80 @@ build` — **5/5 pacotes verdes**; `dist/` de cada app conferido com favicons e 
 (cópia estática do Vite via `public/`). Suíte completa (456 testes, 3 fusos) reconfirmada verde
 depois do build, sem nenhum arquivo em comum com a Parte 1.
 
+## Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅
+
+Suíte confirmada verde (456 testes, 3 fusos) antes de tocar em qualquer código.
+
+### Onde estava o gate
+
+Rastreei todos os pontos onde a ausência de `sub` condicionava envio ou verificação:
+
+| Ponto | O que fazia | Ação |
+|---|---|---|
+| `OtpIdentityProviderBase.iniciarLogin` | **O gate.** Telefone sem linha em `DemoIdentidade` recebia `desafio: ''` e `codigoDemo: null` — nenhum código enviado | **Removido.** Agora provisiona na hora (`garantirIdentidade`) e envia sempre |
+| `OtpIdentityProviderBase.confirmarLogin` | `if (!identidade) return null` | **Mantido** como defensivo — `iniciarLogin` garante a identidade antes de emitir desafio, então não bloqueia fluxo legítimo |
+| `CognitoIdentityProvider.iniciarLogin` | `UserNotFoundException` → resposta neutra | **Mantido** (provider não está no fluxo hoje); comentário corrigido — é defensivo, não gate, porque o caso de uso provisiona antes |
+| `IniciarLoginClienteUseCase` | Já provisionava antes de chamar o provider | Inalterado |
+| `Cliente.cognitoSub` / `ehUsuario` | Só leitura para `possuiConta` no painel + a escrita na confirmação | **Inalterado** — a coluna e a regra de escrita (§3.4, decisão #7) continuam iguais |
+| `services/whatsapp-otp` | Nenhum gate — envia para o JID normalizado | Inalterado |
+
+**Observação honesta sobre o sintoma:** o gate era real e estava lá, mas por
+`/conta/login/iniciar` ele já estava mascarado desde o commit `41bca6b`, porque
+`IniciarLoginClienteUseCase` provisiona a identidade antes de chamar o provider — e existe até
+teste de regressão para isso (`conta-cliente.e2e.spec.ts`, "bug 2"). Ou seja: **não consegui
+reproduzir a falha pela API nesta branch**. O gate seguia perigoso como código latente (qualquer
+chamador novo do provider o reencontraria) e foi removido como pedido. Se o sintoma está
+acontecendo em produção, vale conferir se a versão publicada é anterior a `41bca6b`, ou se o que
+o cliente vê é na verdade o 503 de "não foi possível enviar o código agora" (serviço de WhatsApp
+fora/sem sessão), que é um caminho de erro diferente e tem outra causa.
+
+### ★ Rate limit — o que existia e o que faltava
+
+Com o gate fora, o rate limit vira a única trava contra spam e queima do número.
+
+**Já existia:** limite por TELEFONE (5 por 10 min), via `TelefoneOuIpThrottlerGuard`, que usa o
+telefone do corpo como chave.
+
+**Faltava, e foi adicionado:** limite por ORIGEM. O guard escolhia telefone **ou** IP — e como as
+rotas de OTP sempre têm telefone no corpo, elas nunca eram limitadas por origem. Quem varresse mil
+números ganhava mil baldes de 5, todos dentro do limite: o sistema estava aberto a disparar
+WhatsApp em volume para desconhecidos. Agora há um throttler nomeado `otp-origem` (30/hora por
+origem, `OTP_LIMITE_POR_ORIGEM_HORA`), restrito por `skipIf` às rotas marcadas com `@EnviaOtp()` —
+o resto da API não ganhou limite novo nenhum.
+
+**Dois problemas achados no caminho, que tornariam o limite por origem inútil:**
+
+1. **`trust proxy` não estava ligado.** Em produção a API só é alcançada pelo Caddy, então
+   `req.ip` era o IP do container do proxy para **toda** requisição. Consequência que já existia
+   antes desta sessão: o teto global de 300/min do throttler `default` valia para a API inteira
+   somada, não por cliente — qualquer pico de uso legítimo poderia 429-ar todo mundo. Corrigido
+   com `trust proxy = 1` em `main.ts`.
+2. **`X-Forwarded-For` era acrescentado, não sobrescrito** (default do Caddy). Confiar nele assim
+   deixaria um cliente mandar o próprio cabeçalho e ganhar um balde novo a cada requisição,
+   furando o limite. `Caddyfile` agora usa `header_up X-Forwarded-For {remote_host}`.
+
+**Terceiro problema, no limite por telefone:** a chave era o telefone cru do corpo, então
+`11999998888`, `(11) 99999-8888` e `+5511999998888` eram três baldes diferentes para o mesmo
+número — bastava alternar formato para triplicar o limite. O tracker agora normaliza para E.164
+com o mesmo VO `Telefone` do domínio.
+
+### Testes (+11)
+
+`otp-sem-conta.e2e.spec.ts` (7): telefone inédito recebe código de verdade; verifica e **agenda**;
+verifica e **compra pacote**; entra no cockpit e vê home vazia; `sub` nasce só na confirmação (e
+não no envio) e casa com o da identidade; limite por telefone ainda corta na 6ª; trocar o formato
+do número não dá limite novo.
+
+`otp-limite-por-origem.e2e.spec.ts` (4): a mesma origem é cortada ao tentar disparar para N
+telefones **diferentes** (cada um no primeiro envio, então o limite por telefone não é o que
+corta); nenhuma mensagem sai além do limite; o limite **não vazou** para o resto da API (leituras
+públicas seguem 200); `login/confirmar` não é bloqueado pelo limite de envio.
+
+`whatsapp-identity-provider.e2e.spec.ts`: o teste "telefone não provisionado: resposta neutra,
+nada é enviado" **afirmava o gate** — foi invertido para afirmar a regra nova.
+
+**467 testes na API**, idênticos sob os 3 fusos.
+
 ## Como rodar localmente
 
 ```bash

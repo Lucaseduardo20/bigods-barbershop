@@ -309,11 +309,35 @@ Cliente final da barbearia.
 
 **Promoção a usuário autenticável:**
 O funil público cria `Cliente` sem conta (só nome + telefone — atrito mínimo). O cliente vira
-**usuário Cognito** (`cognitoSub` preenchido) no momento em que passa a ter algo que justifique
-login: **compra de um pacote**. Antes disso, não há área logada a acessar.
+usuário (`cognitoSub` preenchido) **no momento em que prova posse do telefone**, ou seja, na
+CONFIRMAÇÃO do código OTP — nunca antes. Não é a compra de pacote que promove: essa era a regra
+original, quando "ter conta" dependia de comprar algo, e ela deixou quem só agendou avulso (ou
+nunca comprou nada) sem acesso à própria área logada.
 
-`telefone` é a chave de reconciliação: se um cliente já existente (do funil) compra um pacote,
-promovemos o registro existente em vez de criar um duplicado.
+`telefone` é a chave de reconciliação: um cliente já existente (do funil) que depois confirma um
+código é promovido no registro existente, nunca duplicado.
+
+**Enviar o código NÃO depende de ter conta.** Qualquer telefone recebe OTP, em qualquer fluxo
+(agendamento, compra, login do cockpit) — é o envio que PERMITE criar a primeira prova de posse,
+então condicioná-lo a já existir `sub` inverte a ordem dos fatos e trava exatamente o cliente de
+primeira viagem. Houve um gate assim em `OtpIdentityProviderBase.iniciarLogin` (telefone sem
+identidade externa recebia desafio vazio, sem código); foi removido — a implementação provisiona
+na hora e envia. **Não reintroduzir.**
+
+Consequência consciente: a resposta do "iniciar" deixou de ser neutra quanto à existência de
+conta (todo mundo recebe código, então não há o que esconder). "Ter conta" não é informação
+sensível aqui — o dono aceitou essa troca. Com isso, a ÚNICA trava contra abuso de envio passou a
+ser o rate limit da borda, em duas dimensões que resolvem abusos diferentes:
+
+| Trava | Chave | Freia |
+|---|---|---|
+| `default` nas rotas de login | telefone (normalizado E.164) | martelar UM número — força bruta de código e incomodar um cliente |
+| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam e queima do número de WhatsApp por volume (ban da Meta) |
+
+Só o segundo protege contra varredura: cada telefone novo ganha um balde próprio no primeiro, então
+sem o limite por origem o volume é ilimitado na prática. O limite por origem depende de `req.ip`
+ser o cliente real — ver `trust proxy` em `main.ts` e a sobrescrita de `X-Forwarded-For` no
+`Caddyfile`.
 
 ---
 

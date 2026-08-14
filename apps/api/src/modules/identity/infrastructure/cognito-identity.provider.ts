@@ -86,7 +86,11 @@ export class CognitoIdentityProvider implements IdentityProvider {
       // `Session` é o token opaco que amarra iniciar↔confirmar (o "desafio").
       return { desafio: resp.Session ?? '', expiraEm, codigoDemo: null };
     } catch (e) {
-      // Usuário inexistente (não provisionado) → resposta NEUTRA, sem vazar.
+      // Defensivo, não gate de envio: `IniciarLoginClienteUseCase` provisiona o
+      // usuário ANTES de chamar aqui, então na prática este ramo não é o
+      // caminho de um telefone novo — ele só cobre corrida/estado inconsistente
+      // no User Pool. O contrato da porta é claro: envio vale pra qualquer
+      // telefone (ver `identity-provider.ts`).
       if (this.ehErro(e, 'UserNotFoundException')) {
         return { desafio: '', expiraEm, codigoDemo: null };
       }
