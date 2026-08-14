@@ -38,6 +38,19 @@ export interface FunnelState {
   barbeiroAuto: boolean;
   /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
   barbeiroFixadoPorLink: boolean;
+  /**
+   * "Não tenho preferência": distingue "ainda não escolheu" (barbeiroId null e
+   * este false) de "escolheu não escolher" (barbeiroId null e este true). Com
+   * ele ligado, o funil pede horários GLOBAIS e o servidor atribui o barbeiro
+   * na confirmação.
+   */
+  semPreferencia: boolean;
+  /**
+   * Valor realmente cobrado, devolvido pela API na confirmação. Só ele é
+   * confiável quando houve "sem preferência" — antes disso o funil mostra
+   * "a partir de", porque preço é por barbeiro.
+   */
+  valorFinalCentavos: number | null;
   data: string | null; // YYYY-MM-DD, dia civil local
   horaInicio: string | null; // "HH:mm" local
   nome: string;
@@ -64,6 +77,8 @@ export const estadoInicial: FunnelState = {
   barbeiroNome: null,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,
+  semPreferencia: false,
+  valorFinalCentavos: null,
   data: null,
   horaInicio: null,
   nome: '',

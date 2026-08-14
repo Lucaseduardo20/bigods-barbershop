@@ -71,7 +71,8 @@ class ClientePublicoDto {
 
 class AgendarPublicoDto {
   @IsString() @MinLength(1) companyId!: string;
-  @IsString() barbeiroId!: string;
+  /** Ausente = "não tenho preferência": o servidor atribui na confirmação. */
+  @IsOptional() @IsString() barbeiroId?: string;
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) servicoIds!: string[];
   @Matches(DATA_ISO) data!: string;
   /** Horário de parede LOCAL (fuso da empresa) — nunca ISO/UTC pré-construído. */
@@ -182,13 +183,16 @@ export class BookingPublicoController {
     @Query('servicoIds') servicoIds?: string,
   ): Promise<HorariosDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
-    if (!barbeiroId) throw new BadRequestException('Parâmetro barbeiroId obrigatório');
     if (!data || !DATA_ISO.test(data)) {
       throw new BadRequestException('Parâmetro data obrigatório (YYYY-MM-DD, dia civil local)');
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
-    return this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids });
+    // Sem barbeiroId = "não tenho preferência": união dos horários de todos os
+    // barbeiros que atendem os serviços escolhidos.
+    return barbeiroId
+      ? this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids })
+      : this.horariosQuery.disponiveisGlobal({ companyId: id, data, servicoIds: ids });
   }
 
   /**
@@ -210,7 +214,6 @@ export class BookingPublicoController {
     @Query('servicoIds') servicoIds?: string,
   ): Promise<DiasDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
-    if (!barbeiroId) throw new BadRequestException('Parâmetro barbeiroId obrigatório');
     if (!de || !DATA_ISO.test(de) || !ate || !DATA_ISO.test(ate)) {
       throw new BadRequestException('Parâmetros de/ate obrigatórios (YYYY-MM-DD, dia civil local)');
     }
@@ -221,7 +224,9 @@ export class BookingPublicoController {
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
-    return this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids });
+    return barbeiroId
+      ? this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids })
+      : this.horariosQuery.diasComHorarioGlobal({ companyId: id, de, ate, servicoIds: ids });
   }
 
   /**
@@ -284,7 +289,7 @@ export class BookingPublicoController {
     const tz = await this.parametros.timezone(body.companyId);
     const resultado = await this.agendarAvulso.executar({
       companyId: body.companyId,
-      barbeiroId: body.barbeiroId,
+      barbeiroId: body.barbeiroId ?? null,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
       cliente: {
@@ -300,6 +305,8 @@ export class BookingPublicoController {
       atendimentoId: resultado.atendimentoId,
       intencaoId: resultado.cobranca?.intencaoId ?? null,
       cobranca: resultado.cobranca,
+      barbeiro: resultado.barbeiro,
+      valorTotalCentavos: resultado.valorTotalCentavos,
     };
   }
 

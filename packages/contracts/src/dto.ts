@@ -488,6 +488,18 @@ export interface AgendarPublicoResponse {
   intencaoId: string | null;
   /** cobrança PIX quando online; null se presencial. */
   cobranca: CobrancaDTO | null;
+  /**
+   * Barbeiro que vai atender. Sempre presente — inclusive (e principalmente)
+   * quando o cliente escolheu "não tenho preferência" e a atribuição foi do
+   * servidor: ele precisa saber com quem ficou.
+   */
+  barbeiro: { id: string; nome: string };
+  /**
+   * Total efetivamente cobrado, em centavos. Importa no "sem preferência":
+   * preço é por barbeiro, então só dá para saber o valor final depois de
+   * atribuir — o funil mostra "a partir de" antes e este número depois.
+   */
+  valorTotalCentavos: number;
 }
 
 // ---------- Área do cliente (login OTP por telefone) ----------

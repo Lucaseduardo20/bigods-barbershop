@@ -19,20 +19,53 @@ export function Barbeiro({
   erro,
   aoTentarDeNovo,
   selecionado,
+  semPreferencia,
   onSelect,
+  onSemPreferencia,
 }: {
   barbeiros: BarbeiroPublicoDTO[];
   carregando: boolean;
   erro: string | null;
   aoTentarDeNovo: () => void;
   selecionado: string | null;
+  semPreferencia: boolean;
   onSelect: (id: string, nome: string, auto: boolean) => void;
+  onSemPreferencia: () => void;
 }) {
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-[22px] font-extrabold">Com quem?</div>
       {carregando && <Loading texto="Buscando barbeiros…" />}
       {erro && <ErroEstado erro={erro} aoTentar={aoTentarDeNovo} />}
+      {/* "Não tenho preferência": mostra a UNIÃO dos horários de quem atende
+          os serviços, e o barbeiro é atribuído na confirmação. Só aparece com
+          mais de um barbeiro — com um só, não há o que não preferir. */}
+      {!carregando && !erro && barbeiros.length > 1 && (
+        <button
+          className={`selectable ${semPreferencia ? 'selected' : ''}`}
+          onClick={onSemPreferencia}
+        >
+          <div
+            className="flex items-center justify-center flex-shrink-0"
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: '50%',
+              background: 'var(--surface-brand-tint)',
+              fontSize: 20,
+            }}
+          >
+            ✨
+          </div>
+          <div>
+            <div className="font-bold text-[15px]">Não tenho preferência</div>
+            <div className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+              Mais horários livres — a gente escolhe o profissional
+            </div>
+          </div>
+          <div className="select-tick">{semPreferencia ? '✓' : ''}</div>
+        </button>
+      )}
       {barbeiros.map((b) => {
         const on = selecionado === b.id;
         return (

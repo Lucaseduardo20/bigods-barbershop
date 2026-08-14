@@ -295,6 +295,7 @@ function Funil() {
       barbeiroNome: nome,
       barbeiroAuto: auto,
       barbeiroFixadoPorLink: false,
+      semPreferencia: false,
       servicoIds: [],
       data: null,
       horaInicio: null,
@@ -302,6 +303,23 @@ function Funil() {
       step: PASSO.SERVICOS,
     });
   };
+
+  /**
+   * "Não tenho preferência": segue sem barbeiro. Os horários passam a ser a
+   * UNIÃO de quem atende os serviços, e o servidor atribui na confirmação.
+   * Zera data/hora porque a disponibilidade muda de conjunto.
+   */
+  const escolherSemPreferencia = () =>
+    patch({
+      barbeiroId: null,
+      barbeiroNome: null,
+      barbeiroAuto: false,
+      barbeiroFixadoPorLink: false,
+      semPreferencia: true,
+      data: null,
+      horaInicio: null,
+      step: PASSO.SERVICOS,
+    });
 
   const verOutrosProfissionais = () =>
     patch({
@@ -397,7 +415,8 @@ function Funil() {
           token,
           body: {
             companyId: COMPANY_ID,
-            barbeiroId: estado.barbeiroId,
+            // Ausente no "não tenho preferência" — o servidor atribui.
+            ...(estado.barbeiroId ? { barbeiroId: estado.barbeiroId } : {}),
             servicoIds: estado.servicoIds,
             data: estado.data,
             horaInicio: estado.horaInicio,
@@ -406,12 +425,20 @@ function Funil() {
             origemLinkBarbeiroId,
           },
         });
+        // Só AGORA se sabe quem atende e por quanto, quando não houve escolha
+        // de barbeiro — a resposta traz os dois, e é o que a tela de sucesso
+        // (e a de pagamento) mostram. Nada de preço prometido antes da hora.
+        const atribuido = {
+          barbeiroNome: r.barbeiro.nome,
+          valorFinalCentavos: r.valorTotalCentavos,
+        };
         if (online && r.cobranca) {
+          patch(atribuido);
           setCobranca(r.cobranca);
           setIntencaoId(r.intencaoId);
         } else {
           setPago(false);
-          patch({ concluido: true });
+          patch({ ...atribuido, concluido: true });
         }
       }
     } catch (e) {
@@ -455,6 +482,8 @@ function Funil() {
         erro={barbeirosReq.erro}
         aoTentarDeNovo={barbeirosReq.recarregar}
         selecionado={estado.barbeiroId}
+        semPreferencia={estado.semPreferencia}
+        onSemPreferencia={escolherSemPreferencia}
         onSelect={escolherBarbeiro}
       />
     );
@@ -479,7 +508,7 @@ function Funil() {
         />
       </div>
     );
-  } else if (estado.step === PASSO.DATA_HORA && estado.barbeiroId) {
+  } else if (estado.step === PASSO.DATA_HORA && (estado.barbeiroId || estado.semPreferencia)) {
     corpo = (
       <DataHora
         empresa={empresa}
@@ -548,7 +577,10 @@ function Funil() {
   })();
 
   const ehPacote = estado.modo === 'pacote';
-  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalAvulsoComDesconto();
+  // Depois de confirmar, o valor final da API manda — é o que foi cobrado.
+  const total = ehPacote
+    ? (estado.ofertaPrecoCentavos ?? 0)
+    : (estado.valorFinalCentavos ?? totalAvulsoComDesconto());
   const duracao = ehPacote ? 0 : duracaoMinutos(servicosParaPreco, estado.servicoIds);
   const resumo = ehPacote
     ? (estado.ofertaNome ?? 'Pacote')

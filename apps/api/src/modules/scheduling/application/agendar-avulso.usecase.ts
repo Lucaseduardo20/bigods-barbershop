@@ -2,6 +2,8 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { randomUUID } from 'node:crypto';
 import { CobrancaDTO, OrigemAtendimento } from '@bigods/contracts';
 import { Atendimento } from '../domain/atendimento.aggregate';
+import { Servico } from '../../catalog/domain/servico.aggregate';
+import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
 import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
@@ -34,10 +36,18 @@ import {
 import { PRAZO_RESERVA_SEGUNDOS } from '../../payments/domain/prazo-reserva';
 import { assertNaoExcedeCotaPresencial } from '../domain/regra-cota-presencial';
 import { assertDentroDaJanelaDeAgendamento } from '../domain/regra-janela-agendamento';
+import {
+  CandidatoAAtribuicao,
+  escolherBarbeiroSemPreferencia,
+} from '../domain/regra-atribuicao-de-barbeiro';
 
 export interface AgendarAvulsoInput {
   companyId: string;
-  barbeiroId: string;
+  /**
+   * `null` = "não tenho preferência": o sistema atribui o barbeiro na
+   * confirmação, pela cascata de `regra-atribuicao-de-barbeiro`.
+   */
+  barbeiroId: string | null;
   servicoIds: string[];
   inicio: Date;
   cliente: {
@@ -77,6 +87,10 @@ export interface AgendarAvulsoOutput {
   atendimentoId: string;
   clienteId: string;
   cobranca: CobrancaDTO | null;
+  /** Quem vai atender — no "sem preferência" é a resposta da atribuição. */
+  barbeiro: { id: string; nome: string };
+  /** Total cobrado (já com desconto progressivo), em centavos. */
+  valorTotalCentavos: number;
 }
 
 @Injectable()
@@ -102,18 +116,31 @@ export class AgendarAvulsoUseCase {
     if (inativo) {
       throw new BadRequestException(`Serviço ${inativo.nome} está inativo`);
     }
-    const barbeiro = await this.barbeiros.porId(input.barbeiroId);
+    // Dia civil LOCAL (fuso da empresa) — nunca a data UTC bruta do instante,
+    // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
+    const tz = await this.parametros.timezone(input.companyId);
+    const data = diaCivilChave(input.inicio, tz);
+    const duracaoTotalMs = servicos.reduce((acc, s) => acc + s.duracao.minutos, 0) * 60_000;
+    const fimPretendido = new Date(input.inicio.getTime() + duracaoTotalMs);
+
+    // "Não tenho preferência": a atribuição acontece AQUI, na confirmação, e
+    // não na listagem — entre ver o horário e confirmar, a agenda pode ter
+    // mudado, então quem decide precisa olhar o estado de agora.
+    const barbeiro = input.barbeiroId
+      ? await this.barbeiros.porId(input.barbeiroId)
+      : await this.atribuirBarbeiro({
+          companyId: input.companyId,
+          servicos,
+          data,
+          inicio: input.inicio,
+          fim: fimPretendido,
+        });
     if (!barbeiro || barbeiro.companyId !== input.companyId) {
       throw new NotFoundException('Barbeiro não encontrado');
     }
     if (!barbeiro.ativo) {
       throw new BadRequestException('Barbeiro desativado não recebe novos atendimentos');
     }
-
-    // Dia civil LOCAL (fuso da empresa) — nunca a data UTC bruta do instante,
-    // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
-    const tz = await this.parametros.timezone(input.companyId);
-    const data = diaCivilChave(input.inicio, tz);
 
     // Janela de antecedência — antes de qualquer escrita. "Hoje" é o dia civil
     // no fuso da EMPRESA, não o do processo/navegador.
@@ -288,6 +315,73 @@ export class AgendarAvulsoUseCase {
       };
     }
 
-    return { atendimentoId, clienteId: resultado.clienteId, cobranca };
+    return {
+      atendimentoId,
+      clienteId: resultado.clienteId,
+      cobranca,
+      barbeiro: { id: barbeiro.id, nome: barbeiro.nome },
+      valorTotalCentavos: totalCentavos,
+    };
   }
+
+  /**
+   * Cascata de atribuição para "não tenho preferência" (§ regra no domínio):
+   * menor comissão → menos agendamentos no dia → aleatório.
+   *
+   * Só entram candidatos que (a) atendem TODOS os serviços do carrinho,
+   * (b) têm janela de disponibilidade que CABE o atendimento inteiro e
+   * (c) não têm conflito no intervalo. Ou seja: o barbeiro atribuído está
+   * sempre realmente livre e apto — a cascata só desempata entre quem já pode.
+   *
+   * "Menor comissão" é medida em CENTAVOS (preço dele × percentual dele, por
+   * serviço, somado), não em percentual puro: preço também é por barbeiro, e é
+   * o valor em dinheiro que representa o custo real para a casa.
+   */
+  private async atribuirBarbeiro(params: {
+    companyId: string;
+    servicos: Servico[];
+    data: string;
+    inicio: Date;
+    fim: Date;
+  }) {
+    const todos = await this.barbeiros.listar(params.companyId);
+    const aptos = todos.filter(
+      (b) => b.ativo && params.servicos.every((s) => b.atende(s.id)),
+    );
+
+    const candidatos: CandidatoAAtribuicao[] = [];
+    const porId = new Map(aptos.map((b) => [b.id, b]));
+
+    for (const barbeiro of aptos) {
+      const janelas = await this.disponibilidades.porBarbeiroEData(barbeiro.id, params.data);
+      // `comporta` é a MESMA checagem que a invariante do agregado usa — não
+      // reimplementa "cabe na janela" com comparação de milissegundos solta.
+      const intervalo = IntervaloDeTempo.de(params.inicio, params.fim);
+      if (!janelas.some((j) => j.comporta(intervalo))) continue;
+
+      // Mesma janela de busca do caminho com barbeiro escolhido: pega os
+      // ativos do dia (serve para o conflito E para contar a carga).
+      const doDia = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(
+        barbeiro.id,
+        new Date(params.inicio.getTime() - 24 * 60 * 60 * 1000),
+        new Date(params.inicio.getTime() + 24 * 60 * 60 * 1000),
+      );
+      if (doDia.some((a) => a.intervalo.sobrepoe(intervalo))) continue;
+
+      const comissaoTotalCentavos = params.servicos.reduce((acc, servico) => {
+        const preco = precoDeReferencia(servico, barbeiro);
+        return acc + barbeiro.percentualPara(servico.id).aplicarEm(preco).centavos;
+      }, 0);
+
+      candidatos.push({
+        barbeiroId: barbeiro.id,
+        comissaoTotalCentavos,
+        agendamentosNoDia: doDia.length,
+      });
+    }
+
+    const escolhido = escolherBarbeiroSemPreferencia(candidatos);
+    return porId.get(escolhido) ?? null;
+  }
+
 }

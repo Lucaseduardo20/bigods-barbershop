@@ -1,4 +1,4 @@
-import { instanteDeDataHoraLocal, rotuloDia } from '../lib/format';
+import { dinheiro, instanteDeDataHoraLocal, rotuloDia } from '../lib/format';
 import type { FunnelState } from '../lib/funnel-state';
 import { Onboarding } from '../components/Onboarding';
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
@@ -38,6 +38,15 @@ export function Sucesso({
           </strong>
           .
         </div>
+        {/* Sem preferência: o cliente não escolheu, então precisa saber quem
+            ficou — e que o valor abaixo é o final, já do barbeiro atribuído. */}
+        {estado.semPreferencia && estado.barbeiroNome && (
+          <div className="text-[13px] mt-2" style={{ color: 'var(--text-muted)' }}>
+            Escolhemos <strong style={{ color: 'var(--text-secondary)' }}>{estado.barbeiroNome}</strong>{' '}
+            para te atender
+            {estado.valorFinalCentavos !== null && <> · {dinheiro(estado.valorFinalCentavos)}</>}.
+          </div>
+        )}
         <div className="mt-5 rounded-2xl p-4 text-[13px]" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)', color: 'var(--text-secondary)' }}>
           {pago ? 'Pagamento confirmado. É só chegar no horário.' : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
         </div>

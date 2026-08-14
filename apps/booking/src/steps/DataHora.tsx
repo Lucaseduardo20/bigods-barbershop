@@ -16,7 +16,8 @@ export function DataHora({
   onPickSlot,
 }: {
   empresa: EmpresaPublicaDTO;
-  barbeiroId: string;
+  /** `null` = "não tenho preferência": pede a UNIÃO dos horários. */
+  barbeiroId: string | null;
   servicoIds: string[];
   data: string | null;
   horaInicio: string | null;
@@ -44,8 +45,10 @@ export function DataHora({
     () => {
       const visiveis = dias.filter(dentroDaJanela);
       if (visiveis.length === 0) return Promise.resolve(null);
+      // Sem barbeiro, o endpoint devolve a união de quem atende os serviços.
       return api<DiasDisponiveisDTO>(
-        `/public/dias?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${barbeiroId}` +
+        `/public/dias?companyId=${encodeURIComponent(COMPANY_ID)}` +
+          (barbeiroId ? `&barbeiroId=${barbeiroId}` : '') +
           `&de=${visiveis[0]}&ate=${visiveis[visiveis.length - 1]}&servicoIds=${servicoIds.join(',')}`,
       );
     },
@@ -66,7 +69,8 @@ export function DataHora({
     () =>
       data
         ? api<HorariosDisponiveisDTO>(
-            `/public/horarios?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${barbeiroId}` +
+            `/public/horarios?companyId=${encodeURIComponent(COMPANY_ID)}` +
+              (barbeiroId ? `&barbeiroId=${barbeiroId}` : '') +
               `&data=${data}&servicoIds=${servicoIds.join(',')}`,
           )
         : Promise.resolve(null),

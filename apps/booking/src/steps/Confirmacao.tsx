@@ -28,6 +28,8 @@ export function Confirmacao({
   const carrinho = precificarCarrinhoFunil(servicos, estado.servicoIds, tabelaDeDesconto);
   const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : carrinho.totalFinalCentavos;
   const dia = estado.data ? rotuloDia(estado.data).longo : '';
+  // O preço mostrado é referência da casa enquanto não há barbeiro definido.
+  const precoEstimado = !ehPacote && estado.semPreferencia && !estado.barbeiroId;
 
   const linha = (rotulo: string, valor: string) => (
     <div className="flex justify-between text-[14px]">
@@ -81,14 +83,26 @@ export function Confirmacao({
             </div>
             {carrinho.temDesconto && <ResumoDoDesconto carrinho={carrinho} />}
             <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
-            {estado.barbeiroNome && linha('Barbeiro', estado.barbeiroNome)}
+            {estado.barbeiroNome
+              ? linha('Barbeiro', estado.barbeiroNome)
+              : estado.semPreferencia && linha('Barbeiro', 'A definir')}
             {linha('Quando', `${dia} · ${estado.horaInicio}`)}
           </>
         )}
         <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
         <div className="flex justify-between items-baseline">
           <span className="font-extrabold text-[15px]">Total</span>
-          <span className="font-extrabold text-[18px]">{dinheiro(total)}</span>
+          <span className="font-extrabold text-[18px]">
+            {/* Sem preferência, o preço é por barbeiro e o barbeiro só é
+                definido na confirmação — então aqui é "a partir de", nunca um
+                valor cravado que pode mudar. */}
+            {precoEstimado && (
+              <span className="font-semibold text-[13px] mr-1" style={{ color: 'var(--text-muted)' }}>
+                a partir de
+              </span>
+            )}
+            {dinheiro(total)}
+          </span>
         </div>
       </div>
 
@@ -126,6 +140,16 @@ export function Confirmacao({
           )}
         </div>
       </div>
+
+      {precoEstimado && (
+        <div
+          className="rounded-2xl p-3.5 text-[12.5px]"
+          style={{ background: 'var(--surface-sunken)', color: 'var(--text-secondary)' }}
+        >
+          Como você não escolheu profissional, o valor pode variar um pouco conforme quem for te
+          atender. Você vê o nome dele e o preço final na próxima tela, antes de qualquer cobrança.
+        </div>
+      )}
 
       {erroEnvio && <AlertaErro texto={erroEnvio} />}
 
