@@ -1,9 +1,10 @@
 # Cognito — Lambda triggers do login por OTP (Custom Auth Challenge)
 
-Estes três Lambda triggers implementam o login **sem senha por telefone** (SMS OTP)
-do User Pool, no fluxo **CUSTOM_AUTH**. O backend (`CognitoIdentityProvider`) só
-chama `InitiateAuth`/`RespondToAuthChallenge`; a geração/envio/verificação do
-código acontece aqui, dentro da AWS.
+Estes três Lambda triggers implementam o login **sem senha por telefone** do User
+Pool, no fluxo **CUSTOM_AUTH**. Quem chama `InitiateAuth`/`RespondToAuthChallenge`
+pode ser o backend (`CognitoIdentityProvider`) **ou o próprio navegador via
+Amplify** (é assim no experimento "Amplify no funil"); a geração/envio/
+verificação do código acontece aqui, dentro da AWS, nos dois casos.
 
 > **Este código já está pronto — o backend não precisa de mudança para usá-lo.**
 > Falta só publicar na conta AWS e apontar o User Pool para os três Lambdas.
@@ -14,18 +15,39 @@ código acontece aqui, dentro da AWS.
 | Arquivo | Trigger do User Pool | O que faz |
 |---|---|---|
 | `define-auth-challenge.js` | Define auth challenge | Orquestra: emite desafio, conclui no acerto, falha após 3 tentativas |
-| `create-auth-challenge.js` | Create auth challenge | Gera código de 6 dígitos, envia SMS via SNS, guarda o esperado |
+| `create-auth-challenge.js` | Create auth challenge | Gera código de 6 dígitos, **envia por WhatsApp** (SMS/SNS como fallback), guarda o esperado |
 | `verify-auth-challenge-response.js` | Verify auth challenge response | Compara o código digitado com o esperado (tempo constante) |
 
-Runtime: **Node.js 20.x**. Sem passo de build. `create-auth-challenge` usa
-`@aws-sdk/client-sns` (já incluso no runtime Node 20 da AWS Lambda).
+Runtime: **Node.js 20.x**. Sem passo de build.
+
+## Canal de envio: WhatsApp (padrão) ou SMS
+
+A barbearia já opera o OTP por WhatsApp (`services/whatsapp-otp/`, Baileys) e a
+decisão foi **manter esse canal** ao adotar o Cognito: o que muda é quem
+orquestra o desafio, não por onde o código chega. O `create-auth-challenge`
+chama o mesmo endpoint que o backend usa (`POST {baseUrl}/enviar`, header
+`X-Internal-Token`), com a mesma mensagem.
+
+Variáveis de ambiente da Lambda `create-auth-challenge`:
+
+| Variável | Efeito |
+|---|---|
+| `WHATSAPP_OTP_SERVICE_URL` | URL do serviço de WhatsApp. **Precisa ser alcançável pela Lambda** (endereço público com TLS, ou a Lambda numa VPC com rota até o serviço) |
+| `WHATSAPP_OTP_INTERNAL_TOKEN` | Mesmo valor do serviço e do backend |
+| `WHATSAPP_OTP_TIMEOUT_MS` | Timeout da chamada. Default `8000` |
+| `OTP_TTL_MINUTOS` | Só aparece no texto da mensagem. Default `5` |
+
+Se as duas primeiras estiverem ausentes, a Lambda cai no **SMS via SNS** — o
+caminho antigo continua funcional e não foi removido.
 
 ## Pré-requisitos no User Pool
 
 1. Atributo `phone_number` **obrigatório** e marcável como verificado.
-2. Envio de SMS habilitado (SNS) — sair do sandbox de SMS para números reais.
-3. App Client **sem** client secret, com o Auth Flow **`ALLOW_CUSTOM_AUTH`** ligado.
-4. Role de execução das Lambdas com permissão `sns:Publish` (para o create).
+2. App Client **sem** client secret, com o Auth Flow **`ALLOW_CUSTOM_AUTH`** ligado.
+3. Canal de envio configurado:
+   - **WhatsApp** (recomendado, é o que já roda): as variáveis acima na Lambda.
+   - **SMS**: envio habilitado (SNS), fora do sandbox, e `sns:Publish` na role
+     de execução do `create-auth-challenge`.
 
 ## Passo a passo (console ou CLI)
 
@@ -66,20 +88,37 @@ CreateAuthChallenge=<ARN_bigods-create-auth>,\
 VerifyAuthChallengeResponse=<ARN_bigods-verify-auth>
 ```
 
+Configure também as variáveis do canal de WhatsApp na Lambda `bigods-create-auth`:
+
+```bash
+aws lambda update-function-configuration --function-name bigods-create-auth \
+  --environment "Variables={WHATSAPP_OTP_SERVICE_URL=https://<host>,\
+WHATSAPP_OTP_INTERNAL_TOKEN=<mesmo token do backend>,OTP_TTL_MINUTOS=5}"
+```
+
 ## Depois de publicar
 
-Preencher no `.env` do backend (ver `.env.example`):
+O experimento **"Amplify no funil"** (o navegador fala direto com o Cognito) é o
+uso ligado hoje. Preencher no `.env` do backend (ver `.env.example`):
 
 ```
-IDENTITY_PROVIDER=cognito
 COGNITO_REGION=<regiao>
 COGNITO_USER_POOL_ID=<user pool id>
 COGNITO_CLIENT_ID=<app client id sem secret>
-# DEMO_MODE ausente/false
 ```
 
-E dar à role do backend: `cognito-idp:AdminCreateUser`, `AdminSetUserPassword`,
-`InitiateAuth`, `RespondToAuthChallenge` (escopadas ao User Pool).
+…e no build dos frontends (ver `.env.frontends.example`):
 
-Pronto: a troca demo → Cognito é só variável de ambiente, o código da aplicação
-não muda.
+```
+VITE_AUTH_ADAPTER=cognito
+VITE_COGNITO_USER_POOL_ID=<user pool id>
+VITE_COGNITO_CLIENT_ID=<mesmo app client id>
+```
+
+Role do backend precisa de `cognito-idp:AdminCreateUser` e
+`AdminSetUserPassword` (escopadas ao User Pool) — é como os telefones entram no
+pool, já que o navegador não pode criar usuário.
+
+`IDENTITY_PROVIDER` **não muda**: continua `whatsapp` (ou `demo` em dev). Os dois
+caminhos de login convivem — o do Cognito é ligado pelo front, e desligá-lo é
+voltar `VITE_AUTH_ADAPTER` para `api`.

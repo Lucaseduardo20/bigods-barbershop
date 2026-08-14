@@ -1416,6 +1416,42 @@ recusado ao tentar mover um dos 3 que ele já tem (a implementação cria o novo
 antigo pra avulso, então por um instante os dois "existem"). Online nunca conta nem é limitado
 por esta cota — o pagamento já é a trava natural contra abuso ali.
 
+### 8.10 Cognito + Amplify no funil (experimento, convive com o OTP de sempre)
+
+Caminho ALTERNATIVO de verificação de telefone no funil, ligado por variável de
+ambiente e **desligado por padrão** — existe para validar a ideia sem tocar no que
+está em produção. Não substitui nada: os dois caminhos convivem.
+
+| | Caminho `api` (default, produção) | Caminho `cognito` (experimento) |
+|---|---|---|
+| Quem orquestra o desafio | nossa API (`IdentityProvider`) | Cognito (CUSTOM_AUTH, triggers Lambda) |
+| Quem valida o código | nossa API | Cognito |
+| **Por onde o código chega** | **WhatsApp** | **WhatsApp** (o trigger `create-auth-challenge` chama o mesmo serviço) |
+| Autorização do resto do sistema | `ClienteSessaoService` | `ClienteSessaoService` |
+
+O ponto que faz os dois convergirem: **o `idToken` do Cognito nunca vira credencial
+do sistema**. Ele é trocado em `POST /conta/login/cognito` pela mesma sessão HMAC de
+sempre, porque é ela que carrega `clienteId`/`companyId` (coisas que o token do
+Cognito não sabe) e é ela que todo `@ContaCliente()` entende. Um mecanismo de
+autorização, não dois — e por isso ligar/desligar o experimento não toca em nenhum
+outro controller.
+
+`SessaoDoClienteService` é o ponto único onde "posse do telefone provada" vira
+Cliente reconciliado + promovido a usuário + sessão emitida. Os dois caminhos
+terminam nele, então o cliente resultante é idêntico venha por onde vier (§3.4 vale
+para os dois).
+
+Detalhe que não é óbvio: com o Amplify o navegador fala direto com o Cognito, e o
+Cognito **não cria usuário sozinho** — um telefone que nunca comprou nada cairia em
+`UserNotFound`. Por isso existe `POST /conta/login/cognito/provisionar`
+(idempotente, `AdminCreateUser`), chamado antes do `signIn`. É a mesma exposição que
+`/conta/login/iniciar` já tinha (também provisiona qualquer telefone informado), sob
+o mesmo rate limit.
+
+Sem `COGNITO_USER_POOL_ID`/`COGNITO_CLIENT_ID` a API não carrega nada de AWS no boot
+e os dois endpoints respondem 503 — produção não passa a depender da AWS por ter o
+código presente.
+
 ---
 
 ## 9. Testes — onde investir

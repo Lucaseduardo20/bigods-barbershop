@@ -20,6 +20,8 @@ import {
 } from '@bigods/contracts';
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
+import { TrocarTokenCognitoUseCase } from '../application/trocar-token-cognito.usecase';
+import { ProvisionarUsuarioCognitoUseCase } from '../application/provisionar-usuario-cognito.usecase';
 import { Publico } from './auth.decorators';
 import { ClienteAtual, ContaCliente } from './cliente.guard';
 import { ClienteAutenticado } from '../infrastructure/cliente-sessao.service';
@@ -60,6 +62,12 @@ class ConfirmarLoginDto {
   @IsString() @Length(0, 4096) desafio!: string;
 }
 
+class TrocarTokenCognitoDto {
+  @IsString() @MinLength(1) companyId!: string;
+  /** JWT do Cognito — limite generoso, mas limitado (não aceitar corpo ilimitado). */
+  @IsString() @Length(1, 8192) idToken!: string;
+}
+
 class AgendarComCreditoContaDto {
   @IsString() @MinLength(1) vendaId!: string;
   @IsString() @MinLength(1) itemId!: string;
@@ -92,6 +100,8 @@ export class ContaClienteController {
   constructor(
     private readonly iniciarLogin: IniciarLoginClienteUseCase,
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
+    private readonly trocarToken: TrocarTokenCognitoUseCase,
+    private readonly provisionarUsuarioCognito: ProvisionarUsuarioCognitoUseCase,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
@@ -123,6 +133,42 @@ export class ContaClienteController {
       codigo: body.codigo,
       desafio: body.desafio,
     });
+  }
+
+  /**
+   * Experimento "Amplify no funil": o navegador já fez o OTP direto no Cognito
+   * (código entregue pelo mesmo WhatsApp de sempre, via trigger) e traz o
+   * `idToken`. Aqui ele vira a sessão de cliente que todo o `@ContaCliente()`
+   * do sistema entende — um mecanismo de autorização só, não dois.
+   *
+   * Mesmo rate limit por telefone do login tradicional: é uma porta de entrada
+   * de sessão, mesmo que a prova de posse tenha acontecido do lado da AWS.
+   * Recusa com 503 quando o Cognito não está configurado (o caso de produção
+   * hoje, que roda no WhatsApp) — nunca autentica por omissão.
+   */
+  /**
+   * Passo 1 do experimento Amplify: garante o telefone no User Pool antes do
+   * `signIn` do navegador (ver `ProvisionarUsuarioCognitoUseCase` para o porquê).
+   * Não envia código nem autentica nada — só cria o usuário, idempotente.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('login/cognito/provisionar')
+  async provisionarCognito(@Body() body: IniciarLoginDto): Promise<{ ok: true }> {
+    await this.provisionarUsuarioCognito.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+    });
+    return { ok: true };
+  }
+
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('login/cognito')
+  async trocarTokenCognito(
+    @Body() body: TrocarTokenCognitoDto,
+  ): Promise<ConfirmarLoginClienteResponse> {
+    return this.trocarToken.executar({ companyId: body.companyId, idToken: body.idToken });
   }
 
   @ContaCliente()

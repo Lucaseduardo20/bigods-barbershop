@@ -1,10 +1,7 @@
-import { useRef, useState } from 'react';
-import type {
-  ConfirmarLoginClienteResponse,
-  IniciarLoginClienteResponse,
-} from '@bigods/contracts';
-import { api, ApiError } from '../lib/api';
-import { COMPANY_ID } from '../lib/config';
+import { useMemo, useRef, useState } from 'react';
+import type { ConfirmarLoginClienteResponse } from '@bigods/contracts';
+import { ApiError } from '../lib/api';
+import { criarAuthAdapter } from '../lib/auth';
 import { linkDeContaComSessao } from '../lib/handoff';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
@@ -26,15 +23,13 @@ export function Onboarding({ telefone }: { telefone: string }) {
   const [ocupado, setOcupado] = useState(false);
   const [sessao, setSessao] = useState<ConfirmarLoginClienteResponse | null>(null);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const auth = useMemo(() => criarAuthAdapter(), []);
 
   const iniciar = async () => {
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api<IniciarLoginClienteResponse>('/conta/login/iniciar', {
-        method: 'POST',
-        body: { companyId: COMPANY_ID, telefone },
-      });
+      const r = await auth.iniciar(telefone);
       setDesafio(r.desafio);
       setCodigoDemo(r.codigoDemo);
       setFase('codigo');
@@ -49,10 +44,7 @@ export function Onboarding({ telefone }: { telefone: string }) {
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
-        method: 'POST',
-        body: { companyId: COMPANY_ID, telefone, codigo, desafio },
-      });
+      const r = await auth.confirmar({ telefone, codigo, desafio });
       setSessao(r);
       setFase('pronto');
     } catch (e) {

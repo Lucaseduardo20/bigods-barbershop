@@ -13,3 +13,19 @@ export function telefoneValido(entrada: string): boolean {
   const d = entrada.replace(/\D/g, '');
   return d.length === 10 || d.length === 11;
 }
+
+/**
+ * E.164 para uso no navegador — necessário SÓ no adapter do Cognito, onde o
+ * telefone é o `username` enviado direto ao User Pool e não passa antes pela
+ * nossa API.
+ *
+ * A autoridade sobre normalização continua sendo o VO `Telefone` do backend
+ * (que é quem grava e reconcilia); isto é o mínimo para o Amplify falar com o
+ * Cognito, e o backend renormaliza tudo que recebe de volta de qualquer forma.
+ */
+export function paraE164(entrada: string): string {
+  const d = entrada.replace(/\D/g, '');
+  if (entrada.trim().startsWith('+')) return `+${d}`;
+  if (d.length === 10 || d.length === 11) return `+55${d}`;
+  return `+${d}`;
+}

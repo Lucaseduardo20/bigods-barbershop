@@ -1,13 +1,27 @@
-import { useEffect, useRef, useState } from 'react';
-import type {
-  ConfirmarLoginClienteResponse,
-  IniciarLoginClienteResponse,
-} from '@bigods/contracts';
-import { api, ApiError } from '../lib/api';
-import { COMPANY_ID } from '../lib/config';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ConfirmarLoginClienteResponse } from '@bigods/contracts';
+import { ApiError } from '../lib/api';
+import { criarAuthAdapter } from '../lib/auth';
 import { AlertaErro } from './ui';
 
 const N = 6;
+
+/**
+ * Erros da API já vêm com mensagem tratada; os do Amplify vêm com `name`/
+ * `message` da AWS (em inglês, e às vezes crus demais para o cliente final).
+ * Traduz os casos que o cliente realmente encontra e mantém o resto legível.
+ */
+function mensagemDeErro(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  const nome = (e as { name?: string } | null)?.name;
+  if (nome === 'NotAuthorizedException' || nome === 'CodeMismatchException') {
+    return 'Código inválido ou expirado. Peça um novo código.';
+  }
+  if (nome === 'LimitExceededException' || nome === 'TooManyRequestsException') {
+    return 'Muitas tentativas. Espere um pouco antes de tentar de novo.';
+  }
+  return e instanceof Error ? e.message : String(e);
+}
 
 /**
  * Sessão de OTP+reserva (Problema 1 — agenda falsa): prova que o telefone é
@@ -19,6 +33,11 @@ const N = 6;
  * Modal (bottom-sheet), não passo próprio do funil — a Confirmação continua
  * visível por trás. Só aparece quando `Funil` decide que não há sessão local
  * válida.
+ *
+ * Quem prova a posse do telefone fica atrás de `criarAuthAdapter()` (ver
+ * `lib/auth/`): por default a nossa API (`/conta/login/*`), e — no experimento
+ * ligado por `VITE_AUTH_ADAPTER=cognito` — o Cognito via Amplify. Esta tela
+ * não sabe a diferença: os dois devolvem a mesma sessão de cliente.
  */
 export function OtpVerificacao({
   telefone,
@@ -36,20 +55,21 @@ export function OtpVerificacao({
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  // Um adapter por montagem do modal: o do Cognito configura o Amplify e
+  // limpa a sessão anterior ao iniciar, então recriá-lo a cada render seria
+  // trabalho repetido à toa.
+  const auth = useMemo(() => criarAuthAdapter(), []);
 
   const iniciar = async () => {
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api<IniciarLoginClienteResponse>('/conta/login/iniciar', {
-        method: 'POST',
-        body: { companyId: COMPANY_ID, telefone },
-      });
+      const r = await auth.iniciar(telefone);
       setDesafio(r.desafio);
       setCodigoDemo(r.codigoDemo);
       setFase('aguardando-codigo');
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : String(e));
+      setErro(mensagemDeErro(e));
     } finally {
       setOcupado(false);
     }
@@ -66,13 +86,10 @@ export function OtpVerificacao({
     setOcupado(true);
     setErro(null);
     try {
-      const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
-        method: 'POST',
-        body: { companyId: COMPANY_ID, telefone, codigo, desafio },
-      });
+      const r = await auth.confirmar({ telefone, codigo, desafio });
       onVerificado(r);
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : String(e));
+      setErro(mensagemDeErro(e));
       setDigitos(Array(N).fill(''));
       refs.current[0]?.focus();
     } finally {

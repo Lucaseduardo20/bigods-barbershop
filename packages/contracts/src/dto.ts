@@ -496,6 +496,17 @@ export interface ConfirmarLoginClienteResponse {
   token: string;
   cliente: ClienteSessaoDTO;
 }
+/**
+ * Troca do `idToken` do Cognito pela sessão do cliente (experimento
+ * "Amplify no funil"): quando o navegador faz o OTP direto no Cognito, é isto
+ * que ele manda para a API — a resposta é a MESMA `ConfirmarLoginClienteResponse`
+ * do login por OTP tradicional, de propósito: o resto do front não distingue
+ * por qual caminho a sessão foi obtida.
+ */
+export interface TrocarTokenCognitoRequest {
+  companyId: string;
+  idToken: string;
+}
 /** Agendamento futuro do cliente (read model da área logada). */
 export interface AgendamentoClienteDTO {
   atendimentoId: string;

@@ -1,6 +1,10 @@
 import { Global, Logger, Module } from '@nestjs/common';
 import { AUTH_PROVIDER } from './domain/auth-provider';
 import { IDENTITY_PROVIDER, IdentityProvider } from './domain/identity-provider';
+import { COGNITO_TOKEN_VERIFIER, CognitoTokenVerifier } from './domain/cognito-token-verifier';
+import { AwsJwtCognitoTokenVerifier } from './infrastructure/aws-jwt-cognito-token.verifier';
+import { CognitoIdentityProvider } from './infrastructure/cognito-identity.provider';
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { LocalAuthProvider } from './infrastructure/local-auth.provider';
 import { DemoIdentityProvider } from './infrastructure/demo-identity.provider';
 import { WhatsAppIdentityProvider } from './infrastructure/whatsapp-identity.provider';
@@ -12,6 +16,12 @@ import { ClienteGuard } from './presentation/cliente.guard';
 import { OnPacoteVendidoHandler } from './application/on-pacote-vendido.handler';
 import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
+import { TrocarTokenCognitoUseCase } from './application/trocar-token-cognito.usecase';
+import { SessaoDoClienteService } from './application/sessao-do-cliente.service';
+import {
+  COGNITO_IDENTITY_PROVIDER,
+  ProvisionarUsuarioCognitoUseCase,
+} from './application/provisionar-usuario-cognito.usecase';
 import { PrismaService } from '../../shared/infrastructure/prisma.service';
 import { PackagesModule } from '../packages/packages.module';
 import { SchedulingModule } from '../scheduling/scheduling.module';
@@ -55,6 +65,43 @@ function exigir(nome: string): string {
   return valor;
 }
 
+/**
+ * Verificador do `idToken` do Cognito — só existe quando o experimento
+ * "Amplify no funil" está configurado (`COGNITO_USER_POOL_ID` +
+ * `COGNITO_CLIENT_ID`). Sem isso devolve `null` e `TrocarTokenCognitoUseCase`
+ * recusa o endpoint com 503, em vez de a API nem subir: produção hoje roda no
+ * WhatsApp e não deve depender de nada de AWS para bootar.
+ *
+ * Independente de `IDENTITY_PROVIDER`: são caminhos paralelos de login, e é
+ * exatamente esse paralelismo que permite testar o Cognito com o WhatsApp
+ * continuando de pé.
+ */
+function criarCognitoTokenVerifier(): CognitoTokenVerifier | null {
+  const userPoolId = process.env.COGNITO_USER_POOL_ID;
+  const clientId = process.env.COGNITO_CLIENT_ID;
+  if (!userPoolId || !clientId) return null;
+  Logger.log(`Troca de token Cognito habilitada (pool ${userPoolId})`, 'IdentityModule');
+  return new AwsJwtCognitoTokenVerifier({ userPoolId, clientId });
+}
+
+/**
+ * `CognitoIdentityProvider` instanciado SÓ para provisionar telefones no User
+ * Pool (o navegador com Amplify não consegue criar usuário). Não entra como
+ * `IDENTITY_PROVIDER` — o OTP orquestrado pela API continua sendo o do
+ * WhatsApp/demo. Mesmo gate de configuração do verificador: sem
+ * `COGNITO_USER_POOL_ID`/`COGNITO_CLIENT_ID`, é `null` e o endpoint recusa.
+ */
+function criarProvisionadorCognito(): IdentityProvider | null {
+  const userPoolId = process.env.COGNITO_USER_POOL_ID;
+  const clientId = process.env.COGNITO_CLIENT_ID;
+  if (!userPoolId || !clientId) return null;
+  const ttlMinutos = Number(process.env.COGNITO_OTP_TTL_MINUTOS ?? '5') || 5;
+  return new CognitoIdentityProvider(
+    new CognitoIdentityProviderClient({ region: process.env.COGNITO_REGION ?? process.env.AWS_REGION }),
+    { userPoolId, clientId, ttlMinutos },
+  );
+}
+
 @Global()
 @Module({
   imports: [PackagesModule, SchedulingModule],
@@ -62,10 +109,15 @@ function exigir(nome: string): string {
   providers: [
     { provide: AUTH_PROVIDER, useClass: LocalAuthProvider },
     { provide: IDENTITY_PROVIDER, useFactory: criarIdentityProvider, inject: [PrismaService] },
+    { provide: COGNITO_TOKEN_VERIFIER, useFactory: criarCognitoTokenVerifier },
+    { provide: COGNITO_IDENTITY_PROVIDER, useFactory: criarProvisionadorCognito },
     ClienteSessaoService,
     ClienteGuard,
+    SessaoDoClienteService,
     IniciarLoginClienteUseCase,
     ConfirmarLoginClienteUseCase,
+    TrocarTokenCognitoUseCase,
+    ProvisionarUsuarioCognitoUseCase,
     OnPacoteVendidoHandler,
   ],
   // ClienteGuard exportado (sessão de OTP+reserva): agora usado também fora

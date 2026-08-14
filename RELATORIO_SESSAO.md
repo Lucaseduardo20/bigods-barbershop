@@ -2370,6 +2370,75 @@ build` — **5/5 pacotes verdes**; `dist/` de cada app conferido com favicons e 
 (cópia estática do Vite via `public/`). Suíte completa (456 testes, 3 fusos) reconfirmada verde
 depois do build, sem nenhum arquivo em comum com a Parte 1.
 
+## Experimento: Cognito + Amplify no funil (2026-08-14) ✅
+
+Base de teste para validar a ideia, **ligada por variável de ambiente e desligada por
+padrão**. Nada do que roda hoje foi extinguído: o OTP pela nossa API com envio por
+WhatsApp continua sendo o caminho de produção, intocado.
+
+**A decisão que moldou o desenho:** usar o Cognito, mas **manter o WhatsApp como canal
+do código**. Ou seja, muda quem ORQUESTRA o desafio (Cognito, via CUSTOM_AUTH), não
+por onde o código chega ao cliente. Isso evita SMS pago, sandbox do SNS e a exigência
+de tier Essentials do pool.
+
+**O que foi feito, em três peças:**
+
+1. **Trigger do Cognito (`infra/cognito-triggers/create-auth-challenge.js`)** — o envio
+   passou de SNS/SMS para o serviço de WhatsApp que já roda (`services/whatsapp-otp/`),
+   usando o MESMO contrato HTTP do `HttpWhatsAppOtpClient` (`POST /enviar`,
+   `X-Internal-Token`) e a MESMA mensagem do `WhatsAppIdentityProvider` — o cliente não
+   percebe diferença entre os dois caminhos. SNS ficou como fallback automático quando
+   as variáveis de WhatsApp não estão setadas; o caminho antigo não foi removido.
+   Falha de envio agora lança (sem isso o Cognito apresentaria um desafio cujo código
+   nunca chegou — o mesmo "desafio órfão" que `OtpIdentityProviderBase` já evitava).
+
+2. **API — troca de token.** `POST /conta/login/cognito` recebe o `idToken`, valida com
+   `aws-jwt-verify` (lib oficial; validação de JWT não foi escrita à mão) e devolve a
+   **nossa** sessão de cliente. O ponto central: o token do Cognito nunca vira
+   credencial do sistema — todo `@ContaCliente()` continua entendendo só a sessão HMAC,
+   então há um mecanismo de autorização, não dois, e ligar/desligar o experimento não
+   toca em nenhum outro controller. `SessaoDoClienteService` foi extraído de
+   `ConfirmarLoginClienteUseCase` para ser o ponto ÚNICO onde "posse provada" vira
+   cliente reconciliado + promovido + sessão emitida — os dois caminhos terminam nele
+   (CLAUDE.md proíbe a mesma regra em dois lugares).
+   Também entrou `POST /conta/login/cognito/provisionar`: com o Amplify o navegador fala
+   direto com o Cognito, e o Cognito não cria usuário sozinho — um telefone que nunca
+   comprou nada cairia em `UserNotFound`. Reusa o `provisionarUsuario` que o
+   `CognitoIdentityProvider` já implementava (idempotente), sob o mesmo rate limit.
+
+3. **Booking — adapter de auth (`src/lib/auth/`).** Porta `AuthClienteAdapter` com dois
+   adapters: `api` (o de hoje, default) e `cognito` (Amplify, `CUSTOM_WITHOUT_SRP` →
+   `confirmSignIn` → troca do idToken). `OtpVerificacao` e `Onboarding` agora falam só
+   com a porta e não sabem qual está ativo — os dois devolvem a mesma
+   `ConfirmarLoginClienteResponse`. Seleção por `VITE_AUTH_ADAPTER`; valor desconhecido
+   ou pool faltando **falha alto**, nunca cai calado no outro caminho.
+
+**Custo de bundle resolvido:** com `import` estático o Amplify entrava no bundle do
+funil mesmo com o adapter default (182kB → 315kB). Passou a ser `import()` dinâmico —
+o chunk do Amplify só é baixado por quem liga o experimento, e o bundle de produção
+voltou a ~185kB.
+
+**Testes (+18):** 5 unitários do verificador de token (payload sem `sub`/sem telefone,
+token recusado, token vazio — sem tocar a rede), 7 e2e da troca (cria cliente novo,
+reconcilia cliente existente sem duplicar, 401 em token adulterado, 401 em telefone
+inutilizável em vez de 500, 400 sem `idToken`, 503 sem Cognito configurado, e o OTP
+tradicional continuando a funcionar lado a lado), e 6 no front cobrindo a seleção de
+adapter. **468 testes na API, idênticos nos 3 fusos; build verde nos 5 pacotes.**
+
+**Segurança do estado atual:** sem `COGNITO_USER_POOL_ID`/`COGNITO_CLIENT_ID` a API não
+carrega nada de AWS no boot e os dois endpoints novos respondem 503. `IDENTITY_PROVIDER`
+não mudou. Produção segue no WhatsApp exatamente como estava.
+
+**Para ligar de verdade (falta o que só quem tem a conta AWS faz):**
+publicar os 3 Lambdas e apontar os triggers do User Pool (passo a passo em
+`infra/cognito-triggers/README.md`), setar `WHATSAPP_OTP_SERVICE_URL`/
+`WHATSAPP_OTP_INTERNAL_TOKEN` na Lambda `create-auth-challenge` — **ela precisa
+alcançar o serviço de WhatsApp pela rede** (host público com TLS, ou Lambda em VPC com
+rota até ele), dar `AdminCreateUser`/`AdminSetUserPassword` à role da API, e preencher
+as variáveis nos dois lados (`.env.example` e `.env.frontends.example`). Nada disso foi
+publicado na AWS por aqui — o fluxo ponta-a-ponta contra o Cognito real ainda não foi
+exercitado.
+
 ## Como rodar localmente
 
 ```bash
