@@ -33,7 +33,12 @@ async function bootstrap() {
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.enableCors();
+  // `Retry-After` não é um header seguro por padrão no CORS: sem expor
+  // explicitamente, o navegador o esconde do JS em produção (front no
+  // CloudFront, API em outro domínio) e a tela de OTP não teria como dizer
+  // quanto falta pra tentar de novo. O sufixado é o do limite por origem — o
+  // @nestjs/throttler nomeia o header com o nome do throttler.
+  app.enableCors({ exposedHeaders: ['Retry-After', 'Retry-After-otp-origem'] });
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
