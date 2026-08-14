@@ -475,3 +475,54 @@ um agendamento que já tinha — por isso reagendar também passa
 fantasma) — hoje não há trava nenhuma pro admin, por design (autonomia de
 julgamento), mas isso presume que o acesso ao painel admin já é
 suficientemente controlado (só quem tem login de staff chega lá).
+
+---
+
+## 29. Comissão do barbeiro sobre o valor COM ou SEM desconto progressivo?
+
+**Decisão minha, a confirmar** (sessão do funil único + desconto progressivo).
+
+**O que está implementado:** o desconto progressivo abate o valor de cada
+`ItemAtendido` (`valorCobrado`), e a comissão sai desse valor
+(`on-atendimento-concluido.handler.ts`: `valorBase = item.valorCobradoCentavos`).
+Na prática, **o barbeiro divide o desconto com a casa**: num carrinho de
+corte R$50 + barba R$25 com R$10 de desconto, a comissão incide sobre R$65,
+não sobre R$75.
+
+**Por quê:** é a consequência natural de `valorCobrado` ser o snapshot do que
+foi REALMENTE cobrado do cliente — a mesma disciplina que vale no resto do
+sistema. Fazer diferente exigiria guardar dois valores por item (cheio e
+cobrado) e escolher qual alimenta a comissão, o que só se justifica se o
+negócio quiser mesmo essa separação.
+
+**A confirmar com o dono:** quem banca o desconto?
+- **Dividido** (hoje): comissão sobre o valor cobrado. Simples, e o barbeiro
+  participa do incentivo que traz mais serviços por visita.
+- **Casa banca sozinha**: comissão sobre o preço cheio. Exige `precoCheio`
+  como segundo snapshot no item e mudar a base do handler de comissão.
+
+Enquanto não confirmado, vale o comportamento atual. Nenhuma comissão já
+lançada muda — o ledger é imutável e os snapshots antigos seguem intactos.
+
+---
+
+## 30. "Bigod's Club" como membership/assinatura recorrente?
+
+**Fora de escopo nesta sessão, registrado como futuro possível.**
+
+O que existe hoje é só **rótulo de marca + vitrine**: a seção "Bigod's Club"
+no topo do funil apresenta as `PacoteOferta` que já existiam, com pegada de
+clube de benefícios. Não há — e não foi modelado — nada de:
+mensalidade/assinatura recorrente, status de membro, benefício contínuo,
+renovação automática, nível/tier.
+
+**A discutir com o dono, se ele quiser evoluir para membership de verdade:**
+- cobrança recorrente (o gateway hoje só faz PIX avulso, sem recorrência);
+- o que o membro ganha por ser membro (desconto permanente? prioridade de
+  horário? serviços inclusos por mês?);
+- o que acontece quando ele para de pagar (créditos já comprados vencem?);
+- se membership e pacote coexistem ou um substitui o outro.
+
+Cada uma dessas respostas muda o modelo de domínio — por isso não foi
+antecipado nada. O nome hoje não cria dívida: é texto de apresentação sobre
+um agregado que já existe.

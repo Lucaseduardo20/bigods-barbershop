@@ -15,7 +15,12 @@ export const PASSO = {
   DATA_HORA: 3,
   DADOS: 4,
   CONFIRMACAO: 5,
-  // Trilha de pacote: bifurcação do funil avulso (reusa DADOS e CONFIRMACAO).
+  /**
+   * LEGADO — o passo separado de escolha de pacote deixou de existir quando o
+   * funil foi unificado: o Bigod's Club passou a viver na MESMA tela dos
+   * serviços (PASSO.SERVICOS). A constante fica só para migrar progresso salvo
+   * em sessionStorage de antes da mudança; nada navega para cá.
+   */
   PACOTE_OFERTA: 6,
 } as const;
 
@@ -83,6 +88,11 @@ const CHAVE = 'bigods.booking.v1';
 export function sanitizarEstadoCarregado(bruto: Partial<FunnelState>): FunnelState {
   const estado = { ...estadoInicial, ...bruto };
   if (estado.concluido) return estadoInicial;
+  // Funil único: quem tinha progresso salvo no antigo passo de pacote cai na
+  // tela unificada (clube + serviços) em vez de numa tela que não existe mais.
+  if (estado.step === PASSO.PACOTE_OFERTA) {
+    return { ...estado, step: PASSO.SERVICOS };
+  }
   return estado;
 }
 

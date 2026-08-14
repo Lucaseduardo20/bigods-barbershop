@@ -240,6 +240,52 @@ espalhada.
 
 ---
 
+#### 3.2.3 Desconto progressivo do avulso (substituiu os combos fixos)
+
+Antes existiam **combos como itens de catálogo** ("Corte + Barba" por R$70, um `Servico` com
+preço próprio). Isso criava uma decisão redundante: clicar no combo, ou clicar em corte e barba
+separados? Dois caminhos para o mesmo resultado, com preços diferentes.
+
+Agora o desconto é **automático e por POSIÇÃO no carrinho**, configurado pelo admin:
+
+| Config | Onde vive | Significado |
+|---|---|---|
+| Degraus | `DegrauDeDesconto` (por empresa) | "o serviço na posição N abate R$X". Posição 1 nunca tem degrau |
+| Teto | `Company.descontoTetoCentavos` | limite do desconto acumulado. `null` = sem teto |
+
+A tabela é **global da empresa** (a mesma para todos os barbeiros), mas o desconto **incide
+sobre o preço DAQUELE barbeiro** — ou seja, entra depois de `precoDeReferencia` (§3.2.2). Mesma
+tabela, bases diferentes, resultados coerentes com cada uma.
+
+**Ordem de aplicação — por que a pergunta se dissolve.** "Qual serviço é o 2º?" não afeta o
+total: os degraus são valores **absolutos**, não percentuais, então o desconto total depende só
+de **quantos** serviços o carrinho tem. O que resta decidir é como repartir esse desconto entre
+os itens — e isso importa porque cada `ItemAtendido` guarda seu próprio `valorCobrado` (que é a
+base da comissão, §3.9). O critério é **rateio proporcional ao preço de cada item**, o mesmo já
+usado em `VendaDePacote` (§3.6). Consequências:
+
+- **order-independent**: `{corte, barba}` e `{barba, corte}` produzem exatamente o mesmo
+  resultado, item a item — não existe "dois cálculos para o mesmo carrinho";
+- **máximo benefício**: o desconto configurado é sempre entregue por inteiro quando cabe;
+- **nunca negativo**: quem é mais caro absorve mais desconto, então um item barato nunca "deve"
+  dinheiro.
+
+**Invariantes** (mesmo rigor do rateio de pacote): `Σ descontos == descontoTotal` (nenhum centavo
+some ou aparece no arredondamento), nenhum item negativo, total nunca abaixo de zero — inclusive
+com tabela mal configurada (degraus somando mais que o carrinho).
+
+**Uma implementação só, duas pontas.** O cálculo vive em `packages/contracts/src/desconto.ts`
+(centavos inteiros, sem framework) porque o funil precisa MOSTRAR ao cliente exatamente o número
+que a API vai COBRAR. Duas implementações seriam duas verdades sobre dinheiro. O domínio da API
+(`catalog/domain/desconto-progressivo.ts`) embrulha em `Dinheiro` e confere as invariantes antes
+de o valor virar snapshot.
+
+**Combos antigos:** são desativados pelo admin (`Servico.ativo = false`), **nunca deletados**.
+Desativar só impede novos agendamentos; o `valorCobrado` dos atendimentos passados é snapshot e
+não é recalculado por nada — nem por mudança de tabela, nem por desativação do serviço.
+
+---
+
 ### 3.3 `DisponibilidadeBarbeiro` (raiz)
 
 Janela de trabalho de um barbeiro.
@@ -1439,6 +1485,34 @@ painel), e reagendar (cancela+cria, §8.6) também passa `false` — senão o cl
 recusado ao tentar mover um dos 3 que ele já tem (a implementação cria o novo ANTES de cancelar o
 antigo pra avulso, então por um instante os dois "existem"). Online nunca conta nem é limitado
 por esta cota — o pagamento já é a trava natural contra abuso ali.
+
+### 8.11 Funil único — apresentação unificada, transações separadas
+
+Antes, a entrada do funil pedia uma escolha antes de qualquer informação: "Agendar horário" ou
+"Comprar um pacote". O cliente decidia sem ver preço de nenhum dos dois.
+
+Agora a entrada tem um caminho só. Depois de escolher o barbeiro, **uma tela** apresenta:
+
+1. **Bigod's Club** no topo — vitrine das `PacoteOferta` APROVADAS daquele barbeiro (§3.11), com
+   a economia vs. avulso que já era calculada;
+2. **os serviços avulsos** abaixo, com o desconto progressivo (§3.2.3).
+
+**O princípio estrutural: unifica a APRESENTAÇÃO, não a transação.** Não existe carrinho híbrido
+somando compra de pacote + agendamento avulso num pedido só — seriam dois modelos de pagamento
+(pacote é pré-pago online obrigatório; avulso pode ser presencial) e dois conjuntos de estados
+convivendo na mesma transação. A tela é uma; os fluxos por baixo continuam os mesmos de sempre:
+
+| Escolha do cliente | Para onde vai |
+|---|---|
+| Um pacote do clube | fluxo de pacote existente (`VendaDePacote`, pagamento online) |
+| Um ou mais serviços | fluxo avulso existente (`Atendimento`, agenda horário) |
+
+A separação é garantida no estado do funil: escolher um pacote zera `servicoIds`/data/hora;
+mexer nos serviços zera a oferta selecionada. Nunca há os dois preenchidos ao mesmo tempo.
+
+**"Bigod's Club" é rótulo de marca, não membership.** Não há mensalidade, status de membro nem
+benefício recorrente modelado — só apresentação sobre os pacotes que já existem. Evoluir para
+assinatura de verdade é decisão em aberto (DECISOES_PENDENTES.md #30).
 
 ---
 

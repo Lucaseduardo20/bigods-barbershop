@@ -2,14 +2,18 @@ import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
 
+/**
+ * Entrada do funil. O botão separado "Comprar um pacote" saiu: os pacotes
+ * agora aparecem DENTRO do funil, na mesma tela dos serviços (Bigod's Club),
+ * porque a entrada separada obrigava o cliente a decidir entre pacote e avulso
+ * antes de ver o preço de qualquer um dos dois.
+ */
 export function Landing({
   nomeEmpresa,
   onAgendar,
-  onComprarPacote,
 }: {
   nomeEmpresa: string;
   onAgendar: () => void;
-  onComprarPacote: () => void;
 }) {
   return (
     <div className="hero">
@@ -27,13 +31,9 @@ export function Landing({
       <button className="btn btn-lg btn-block" style={{ maxWidth: 360 }} onClick={onAgendar}>
         Agendar horário →
       </button>
-      <button
-        className="btn btn-lg btn-block btn-ghost mt-3"
-        style={{ maxWidth: 360, background: 'rgba(255,255,255,0.10)', color: 'var(--brand-cream)' }}
-        onClick={onComprarPacote}
-      >
-        Comprar um pacote
-      </button>
+      <div className="text-[12.5px] mt-3" style={{ color: 'var(--brand-beige)', maxWidth: 320 }}>
+        Pacotes do Bigod's Club aparecem junto dos serviços, no próximo passo.
+      </div>
       <a href={ACCOUNT_URL} className="text-[13px] mt-6 font-semibold" style={{ color: 'var(--brand-beige)' }}>
         Já é cliente? Entrar na minha conta →
       </a>

@@ -90,3 +90,17 @@ describe('aplicarBarbeiroDoLink', () => {
     expect(estado.servicoIds).toEqual([]); // nada de seleção antiga de um barbeiro diferente sobrevive
   });
 });
+
+describe('Funil único — bifurcação sem carrinho híbrido', () => {
+  it('progresso salvo no antigo passo de pacote cai na tela unificada', () => {
+    // Alguém com o funil aberto durante o deploy tinha step=PACOTE_OFERTA
+    // salvo; essa tela deixou de existir.
+    const estado = sanitizarEstadoCarregado({ step: PASSO.PACOTE_OFERTA, modo: 'pacote' });
+    expect(estado.step).toBe(PASSO.SERVICOS);
+    expect(estado.modo).toBe('pacote');
+  });
+
+  it('não mexe em progresso de outros passos', () => {
+    expect(sanitizarEstadoCarregado({ step: PASSO.DATA_HORA }).step).toBe(PASSO.DATA_HORA);
+  });
+});

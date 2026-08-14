@@ -2593,6 +2593,129 @@ permitido, recusa o seguinte), 13 e2e do funil (validações na borda, gravaçã
 opcionais, disponibilidade de período, janela) e 6 no booking (.ics e Google Agenda: fuso e escape
 de RFC 5545). **493 testes na API**, idênticos nos 3 fusos; build verde nos 5 pacotes.
 
+## Funil único + desconto progressivo (2026-08-14) ✅
+
+Suíte confirmada verde (493 API + 65 fronts, 3 fusos) antes de tocar em qualquer código.
+
+### Fase 1 — A regra do desconto
+
+Combos como item de catálogo criavam decisão redundante: clicar em "Corte + Barba R$70", ou
+clicar em corte e barba separados? Dois caminhos, dois preços, mesmo resultado. Substituídos por
+desconto automático por **posição no carrinho**, com degraus e teto configuráveis pelo admin.
+
+**Ordem de aplicação — a ambiguidade se dissolve.** O enunciado pedia para escolher entre
+"maximizar o benefício" ou "uma ordem fixa". Na verdade a pergunta "qual é o 2º serviço?" **não
+tem efeito sobre o total**: os degraus são valores ABSOLUTOS, não percentuais, então o desconto
+total depende só de QUANTOS serviços o carrinho tem — nunca de qual foi clicado primeiro nem de
+qual é o mais caro.
+
+O que restava decidir era como repartir esse desconto **entre os itens** — e isso importa porque
+cada `ItemAtendido` guarda seu próprio `valorCobrado`, que é a base da comissão. O critério
+escolhido é **rateio proporcional ao preço de cada item**, o mesmo que `VendaDePacote` já usa
+para ratear o valor pago. Três consequências, todas desejadas:
+
+- **order-independent**: `{corte, barba}` dá exatamente o mesmo resultado que `{barba, corte}`,
+  item a item. Não existe "dois cálculos para o mesmo carrinho";
+- **máximo benefício**: o desconto configurado é sempre entregue por inteiro quando cabe;
+- **nunca negativo**: quem é mais caro absorve mais desconto, então um item barato nunca fica
+  devendo (o caso "barba de R$5 com degrau de R$10").
+
+**Invariantes garantidas** (mesmo rigor do rateio de pacote): `Σ descontos == descontoTotal`,
+nenhum item negativo, total nunca abaixo de zero — inclusive com tabela mal configurada.
+
+**Uma implementação, duas pontas.** O cálculo vive em `packages/contracts/src/desconto.ts`
+(centavos inteiros, sem framework): o funil precisa MOSTRAR o número que a API vai COBRAR, e duas
+implementações seriam duas verdades sobre dinheiro. O domínio da API embrulha em `Dinheiro` e
+checa as invariantes antes de o valor virar snapshot.
+
+**Onde ficou cada parte:**
+
+| Peça | Arquivo |
+|---|---|
+| Regra pura (centavos) | `packages/contracts/src/desconto.ts` |
+| Fronteira do domínio (Dinheiro + invariantes) | `apps/api/src/modules/catalog/domain/desconto-progressivo.ts` |
+| Persistência (degraus + teto) | `DegrauDeDesconto` + `Company.descontoTetoCentavos` |
+| Aplicação | `AgendarAvulsoUseCase` — depois de `precoDeReferencia`, sobre o preço do barbeiro |
+| Config do admin | `GET/PUT /parametros/desconto` + seção em Ajustes |
+| Exibição no funil | preço cheio riscado por item, faixa "você está economizando", dica do próximo degrau |
+
+### O que aconteceu com os combos antigos
+
+**Nada foi deletado nem desativado automaticamente.** No banco local só existem "Corte" e
+"Barba" — os combos existem apenas em produção, e eu não tenho como distinguir com segurança um
+`Servico` "combo" de um serviço legítimo com "+" no nome. Desativar por heurística de nome seria
+arriscado em sistema em produção.
+
+**A ação é sua, e é de um clique:** Catálogo → o serviço combo → "Desativar". O toggle já
+existia. Desativar (nunca deletar) é o caminho certo porque:
+
+- `Servico.ativo = false` só impede **novos** agendamentos — a borda recusa com 400;
+- o histórico não depende do catálogo: `ItemAtendido.valorCobrado` é snapshot do que foi
+  cobrado, e não é recalculado por nada.
+
+**A prova está em teste** (`desconto-progressivo.e2e.spec.ts`): um atendimento é criado com um
+serviço-combo de R$70; depois o combo é desativado E a tabela de desconto é alterada
+radicalmente (degrau de R$99,99); o teste relê os itens gravados e confirma que continuam
+idênticos, R$70. Um segundo teste confirma que o serviço desativado não pode mais ser agendado,
+mas continua existindo (não foi deletado).
+
+### Fase 2 — Funil único
+
+A entrada tinha dois botões ("Agendar horário" / "Comprar um pacote"), obrigando o cliente a
+decidir antes de ver preço de qualquer um. Agora a entrada tem um caminho só, e depois de
+escolher o barbeiro **uma tela** mostra o **Bigod's Club** no topo (vitrine das ofertas aprovadas
+daquele barbeiro, com a economia vs. avulso) e os **serviços avulsos** abaixo, com o desconto
+progressivo.
+
+**Apresentação unificada, transações separadas** — o princípio foi respeitado literalmente: não
+existe carrinho híbrido. A separação é garantida no estado do funil: escolher um pacote zera
+`servicoIds`/data/hora; mexer nos serviços zera a oferta selecionada. Nunca há os dois
+preenchidos ao mesmo tempo, e cada escolha cai no fluxo que já existia (pacote → `VendaDePacote`
+com pagamento online; avulso → `Atendimento` com agenda).
+
+`Pacote.tsx` (a tela separada) foi removido; quem tinha progresso salvo no passo antigo é migrado
+para a tela unificada em `sanitizarEstadoCarregado`, com teste.
+
+"Bigod's Club" é só rótulo de marca sobre os pacotes existentes — sem mensalidade, status de
+membro ou benefício recorrente (DECISOES_PENDENTES #30).
+
+### Testes (+30)
+
+14 em contracts (a regra: degraus, teto, ordem irrelevante, arredondamento hostil com preços
+primos, varredura de combinações, item nunca negativo, tabela absurda), 14 e2e na API (config e
+suas recusas, valores REALMENTE GRAVADOS para 1/2/3/4 serviços, teto, dois barbeiros com bases
+diferentes, e os dois testes de snapshot histórico) e 2 no booking (migração do passo antigo).
+
+**507 testes na API**, 26 em contracts, 21 no booking — verdes nos 3 fusos, build verde nos 6
+pacotes.
+
+### ⚠️ Decisão que precisa da sua confirmação
+
+**Comissão sobre valor com ou sem desconto?** Hoje o desconto abate o `valorCobrado` do item, e a
+comissão sai dele — ou seja, **o barbeiro divide o desconto com a casa**. Num carrinho de R$75
+com R$10 de desconto, a comissão incide sobre R$65. Foi a consequência natural de o snapshot ser
+"o que foi realmente cobrado", mas é decisão de negócio, não técnica. A alternativa (casa banca
+sozinha) exige guardar o preço cheio como segundo snapshot. Registrado em DECISOES_PENDENTES #29.
+
+### Roteiro de smoke test manual
+
+Configure primeiro em **Ajustes → Desconto progressivo**: 2º = R$10, 3º = R$15, 4º = R$20, teto
+R$40. Os casos de dinheiro são os que importam:
+
+| # | O que fazer | Resultado esperado |
+|---|---|---|
+| 1 | Funil → escolher barbeiro | Bigod's Club no topo com os pacotes DELE; serviços abaixo. Nenhum botão "Comprar pacote" na entrada |
+| 2 | Selecionar só 1 serviço (Corte R$40) | Sem desconto. Total R$40. Aparece a dica "adicione mais um e ganhe R$10" |
+| 3 | Adicionar Barba (R$30) | Faixa "🎉 Você está economizando R$10", cheio R$70 riscado, total **R$60** |
+| 4 | Ir até a Confirmação | Cada item com o preço cheio riscado ao lado do cobrado; total R$60 |
+| 5 | Confirmar (presencial) e abrir no painel | Valor do atendimento **R$60**, e a soma dos itens bate exatamente |
+| 6 | Repetir com 4 serviços | Desconto para em **R$40** (teto), mesmo que os degraus somem R$45 |
+| 7 | Trocar a ordem de clique dos mesmos serviços | Total idêntico, centavo a centavo |
+| 8 | Repetir com um barbeiro que tenha preço próprio | Mesmo desconto em reais, base diferente (ex.: R$110 → R$100) |
+| 9 | Escolher um pacote no clube | Vai direto para Dados → Confirmação de **compra** (sem data/hora), pagamento PIX obrigatório |
+| 10 | Voltar da Confirmação de pacote | Cai na tela unificada; ao clicar num serviço, a oferta é abandonada (nunca os dois juntos) |
+| 11 | Abrir um atendimento ANTIGO feito com combo | Valor original intacto, mesmo depois de desativar o combo |
+
 ## Como rodar localmente
 
 ```bash

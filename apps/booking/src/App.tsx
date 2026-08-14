@@ -39,10 +39,10 @@ import { PixAguardando } from './components/PixAguardando';
 import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
+import { BigodsClub } from './components/BigodsClub';
 import { Barbeiro } from './steps/Barbeiro';
 import { DataHora } from './steps/DataHora';
 import { Dados } from './steps/Dados';
-import { Pacote } from './steps/Pacote';
 import { Confirmacao } from './steps/Confirmacao';
 import { Sucesso } from './steps/Sucesso';
 
@@ -242,10 +242,9 @@ function Funil() {
       <Landing
         nomeEmpresa={empresa.nome}
         onAgendar={() =>
+          // Sempre entra como avulso: o passo seguinte mostra o Bigod's Club e
+          // os serviços juntos, e é lá que a escolha (bifurcação) acontece.
           patch({ modo: 'avulso', step: barbeiroJaResolvido ? PASSO.SERVICOS : PASSO.BARBEIRO })
-        }
-        onComprarPacote={() =>
-          patch({ modo: 'pacote', step: barbeiroJaResolvido ? PASSO.PACOTE_OFERTA : PASSO.BARBEIRO })
         }
       />
     );
@@ -258,12 +257,37 @@ function Funil() {
       const has = e.servicoIds.includes(id);
       return {
         ...e,
+        // Mexer nos serviços = está montando um AVULSO. Larga qualquer oferta
+        // de pacote que estivesse selecionada: os dois fluxos são transações
+        // distintas, nunca um carrinho híbrido.
+        modo: 'avulso',
+        ofertaId: null,
+        ofertaNome: null,
+        ofertaPrecoCentavos: null,
         servicoIds: has ? e.servicoIds.filter((x) => x !== id) : [...e.servicoIds, id],
         data: null,
         horaInicio: null,
       };
     });
   };
+
+  /**
+   * Escolha de um pacote no Bigod's Club — bifurca para o FLUXO DE PACOTE.
+   * Zera o que era do avulso (serviços/data/hora) pela mesma razão inversa do
+   * `toggleServico`: pacote não agenda horário e não pode carregar resto de
+   * carrinho avulso para a confirmação.
+   */
+  const escolherOferta = (o: PacoteOfertaDTO) =>
+    patch({
+      modo: 'pacote',
+      ofertaId: o.id,
+      ofertaNome: o.nome,
+      ofertaPrecoCentavos: o.precoCentavos,
+      servicoIds: [],
+      data: null,
+      horaInicio: null,
+      step: PASSO.DADOS,
+    });
 
   const escolherBarbeiro = (id: string, nome: string, auto: boolean) => {
     patch({
@@ -274,7 +298,8 @@ function Funil() {
       servicoIds: [],
       data: null,
       horaInicio: null,
-      step: estado.modo === 'pacote' ? PASSO.PACOTE_OFERTA : PASSO.SERVICOS,
+      // Tela unificada: clube + serviços. A bifurcação é a escolha do cliente ALI.
+      step: PASSO.SERVICOS,
     });
   };
 
@@ -309,7 +334,6 @@ function Funil() {
         patch({ step: PASSO.LANDING });
         break;
       case PASSO.SERVICOS:
-      case PASSO.PACOTE_OFERTA:
         // barbeiro fixo (link/único) não tinha etapa própria pra voltar — volta pra landing direto
         patch({ step: barbeiroJaResolvido ? PASSO.LANDING : PASSO.BARBEIRO });
         break;
@@ -317,7 +341,9 @@ function Funil() {
         patch({ step: PASSO.SERVICOS });
         break;
       case PASSO.DADOS:
-        patch({ step: estado.modo === 'pacote' ? PASSO.PACOTE_OFERTA : PASSO.DATA_HORA });
+        // No pacote não há passo de data/hora — volta para a tela unificada,
+        // que é onde o clube vive agora.
+        patch({ step: estado.modo === 'pacote' ? PASSO.SERVICOS : PASSO.DATA_HORA });
         break;
       case PASSO.CONFIRMACAO:
         patch({ step: PASSO.DADOS });
@@ -420,25 +446,25 @@ function Funil() {
       />
     );
   } else if (estado.step === PASSO.SERVICOS) {
+    // Funil único: a MESMA tela apresenta os pacotes (Bigod's Club) e os
+    // serviços avulsos. A apresentação é unificada; as transações continuam
+    // separadas — ver `escolherOferta` e `toggleServico`.
     corpo = (
-      <Servicos
-        servicos={servicosDoBarbeiroReq.dados ?? []}
-        selecionados={estado.servicoIds}
-        onToggle={toggleServico}
-        erroDecisao={erroDecisao}
-        tabelaDeDesconto={empresa.descontoProgressivo}
-        carregando={servicosDoBarbeiroReq.carregando}
-      />
-    );
-  } else if (estado.step === PASSO.PACOTE_OFERTA) {
-    corpo = (
-      <Pacote
-        barbeiroId={estado.barbeiroId}
-        ofertaId={estado.ofertaId}
-        onSelect={(o: PacoteOfertaDTO) =>
-          patch({ ofertaId: o.id, ofertaNome: o.nome, ofertaPrecoCentavos: o.precoCentavos, step: PASSO.DADOS })
-        }
-      />
+      <div className="flex flex-col gap-5">
+        <BigodsClub
+          barbeiroId={estado.barbeiroId}
+          ofertaId={estado.ofertaId}
+          onSelect={escolherOferta}
+        />
+        <Servicos
+          servicos={servicosDoBarbeiroReq.dados ?? []}
+          selecionados={estado.servicoIds}
+          onToggle={toggleServico}
+          erroDecisao={erroDecisao}
+          tabelaDeDesconto={empresa.descontoProgressivo}
+          carregando={servicosDoBarbeiroReq.carregando}
+        />
+      </div>
     );
   } else if (estado.step === PASSO.DATA_HORA && estado.barbeiroId) {
     corpo = (
