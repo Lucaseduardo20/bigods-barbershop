@@ -2307,6 +2307,69 @@ ganhou a mesma checagem em sentido contrário pro avulso online (entre 500 e 600
 do atendimento quanto na cobrança) — prova que os dois caminhos continuam com prazos distintos.
 **456 testes verdes**, idênticos sob os 3 fusos. `DECISOES_PENDENTES.md` #28 marcada ✅ RESOLVIDA.
 
+## Identidade visual nos 3 apps (2026-08-14) ✅
+
+Frente independente da correção acima (nenhum arquivo em comum). Objetivo: tirar os 3 apps
+(admin, booking, account) do estado "pelado" aplicando a marca que já existe em `assets/brand/`
+— sem redesign, sem inventar cor nova.
+
+**Paleta:** antes de aplicar qualquer coisa, extraí a cor dominante real dos pixels dos PNGs da
+logo (`logo-classico.png`, PIL + `Counter` sobre pixels opacos) pra conferir contra os tokens já
+definidos em `index.css` dos 3 apps. Bateu exato: `--brand-ink #342414`, `--brand-gold #b88e42`,
+`--brand-cream #ffecb9`, `--brand-beige #c4b58e` já eram a paleta real da marca (herdados da
+importação do "Claude Design" no admin, Fase 4). Ou seja, **nenhum token novo foi criado** — só
+confirmado que o sistema existente já era a paleta certa, e usado como estava.
+
+**Logo no header/login:**
+- **Admin** — logo completa (`logo-full-dark.png`, variante escura pra fundo claro) no header
+  pós-login (`App.tsx`) e em destaque na tela de login (`Login.tsx`, variante clara
+  `logo-full-light.png` sobre o fundo escuro da tela).
+- **Booking** — logo completa em destaque na `Landing.tsx` (substituiu o placeholder `.hero-mark`
+  "B" + texto solto, já que a logo já traz "BIGOD'S BARBERSHOP" escrito); símbolo isolado
+  (`symbol-dark.png`) pequeno no `StepHeader` do funil (`App.tsx`), que antes não tinha marca
+  nenhuma.
+- **Account** — símbolo isolado no `.auth-mark` da tela de login (`Auth.tsx`) e no header da área
+  logada (`Header.tsx`), substituindo o "B" literal; wordmark "Bigod's Barber" adicionada acima do
+  subtítulo "Área do cliente" no login, no mesmo padrão de duas linhas do admin. `index.css` do
+  account não tinha a classe `.brand-wordmark` (admin e booking já tinham, idêntica) — adicionada
+  pra consistência.
+
+Cada app ganhou uma pasta `public/brand/` (nenhum dos 3 tinha `public/` antes) com
+`logo-full-dark.png`, `logo-full-light.png`, `symbol-dark.png`, `symbol-light.png` — recortados e
+redimensionados (900px/400px, bbox + padding) a partir dos originais 3000×3000 de `assets/brand/`.
+
+**Favicon (nenhum dos 3 apps tinha):** gerado a partir do símbolo isolado da marca
+(`logo-sem-escrita-classico.png`), composto sobre um quadrado opaco `--brand-gold-100` (`#f3e2c2`)
+— mesma linguagem visual dos badges circulares já usados em login/header. Gerados
+`favicon.ico` (multi-resolução 16/32/48), `favicon-16x16.png`, `favicon-32x32.png`,
+`apple-touch-icon.png` (180×180) e, como bônus, `icon-192.png`/`icon-512.png`. Referenciados nos
+3 `index.html`. Os `<title>` das abas já estavam corretos (nome + contexto) desde sessões
+anteriores — nenhuma mudança necessária aí.
+
+**⚠️ Limitação de asset, registrada conforme pedido:** o único arquivo "símbolo isolado" fornecido
+(`logo-sem-escrita-classico.png` / `logo-light-sem-escrita.png`) é uma marca horizontal larga
+(bigode + tesoura juntos, proporção ~2,8:1) — **não existe um ícone quadrado/compacto pronto** nos
+arquivos de marca. Pra caber num favicon sem distorcer nem esticar a arte, recortei só o bigode
+(excluindo a tesoura, ~79% da largura do bbox recortado) e centralizei sobre o fundo quadrado
+dourado. Verifiquei visualmente em 192px (ótimo) e 32px (ainda legível como silhueta de bigode,
+fino mas reconhecível) antes de finalizar. **Se você tiver — ou quiser gerar — uma versão quadrada
+oficial do símbolo (só o bigode, ou bigode+tesoura compactado), me manda que eu troco o favicon
+por ela**; o que está publicado hoje é o recorte mais sensato possível a partir do material
+existente, não a versão ideal.
+
+**Paleta nos elementos de destaque:** auditei (`grep` de hex literal fora do `index.css`) os 3
+apps em busca de cor "inventada" fora do sistema de tokens — não achei nenhuma; os poucos hex
+literais encontrados são `#fff` em texto sobre botão colorido e fallbacks defensivos de `var()`
+(`var(--state-success, #2e7d32)`). Botões primários, chips selecionados e destaques já usam
+`--accent-primary`/`--brand-*` consistentemente desde antes desta sessão — nada a reescrever aqui.
+
+**Verificação:** os 3 apps rodados localmente (`env-up.sh`) e conferidos por screenshot headless
+(login/landing de cada um, 430×900) — logo aparece certo, sem imagem quebrada, sem quebra de
+layout. Favicon e imagens de marca confirmadas com HTTP 200 nas 3 portas de dev. `npx turbo run
+build` — **5/5 pacotes verdes**; `dist/` de cada app conferido com favicons e `brand/` presentes
+(cópia estática do Vite via `public/`). Suíte completa (456 testes, 3 fusos) reconfirmada verde
+depois do build, sem nenhum arquivo em comum com a Parte 1.
+
 ## Como rodar localmente
 
 ```bash

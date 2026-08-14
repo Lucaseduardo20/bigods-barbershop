@@ -32,10 +32,12 @@ export function Login({ aoEntrar }: { aoEntrar: () => void }) {
     >
       <div className="w-full max-w-[360px]">
         <div className="text-center mb-8">
-          <div className="brand-wordmark text-[34px]" style={{ color: 'var(--brand-cream)' }}>
-            Bigod's Barber
-          </div>
-          <div className="text-[13px] mt-1" style={{ color: 'var(--brand-beige)' }}>
+          <img
+            src="/brand/logo-full-light.png"
+            alt="Bigod's Barber"
+            style={{ height: 76, width: 'auto', margin: '0 auto', display: 'block' }}
+          />
+          <div className="text-[13px] mt-3" style={{ color: 'var(--brand-beige)' }}>
             Painel de gestão
           </div>
         </div>

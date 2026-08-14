@@ -11,10 +11,11 @@ export function Landing({
 }) {
   return (
     <div className="hero">
-      <div className="hero-mark">B</div>
-      <div className="brand-wordmark" style={{ fontSize: 30, color: 'var(--brand-cream)' }}>
-        {nomeEmpresa}
-      </div>
+      <img
+        src="/brand/logo-full-light.png"
+        alt={nomeEmpresa}
+        style={{ height: 96, width: 'auto', maxWidth: '85%', marginBottom: 4 }}
+      />
       <div className="text-[28px] font-extrabold mt-4 leading-tight" style={{ maxWidth: 360 }}>
         Seu corte, na hora certa
       </div>

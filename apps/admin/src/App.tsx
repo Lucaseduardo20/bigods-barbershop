@@ -71,7 +71,7 @@ export default function App() {
     <TimezoneProvider>
       <div className="app-shell">
         <header className="flex items-center justify-between px-5 pt-5 pb-2">
-          <div className="brand-wordmark">Bigod's Barber</div>
+          <img src="/brand/logo-full-dark.png" alt="Bigod's Barber" style={{ height: 34, width: 'auto' }} />
           <div className="flex items-center gap-2">
             <div
               className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-[14px]"

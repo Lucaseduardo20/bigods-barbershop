@@ -26,8 +26,13 @@ export function Login({ onEnviar }: { onEnviar: (telefone: string) => Promise<vo
   return (
     <div className="auth-bg">
       <div className="auth-card">
-        <div className="auth-mark">B</div>
-        <div style={{ textAlign: 'center', fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>
+        <div className="auth-mark">
+          <img src="/brand/symbol-dark.png" alt="Bigod's Barber" style={{ width: '70%', height: 'auto' }} />
+        </div>
+        <div className="brand-wordmark" style={{ textAlign: 'center', fontSize: 24, color: 'var(--text-primary)' }}>
+          Bigod's Barber
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text-secondary)', marginTop: 2 }}>
           Área do cliente
         </div>
         <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', textAlign: 'center', margin: '6px 0 22px' }}>

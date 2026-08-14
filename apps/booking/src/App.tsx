@@ -531,6 +531,7 @@ function StepHeader({ step, modo, onBack }: { step: number; modo: string; onBack
             Progresso salvo automaticamente
           </div>
         </div>
+        <img src="/brand/symbol-dark.png" alt="Bigod's Barber" style={{ height: 22, width: 'auto', flexShrink: 0 }} />
       </div>
       {modo !== 'pacote' && (
         <div className="stepper">

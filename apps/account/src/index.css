@@ -74,6 +74,12 @@ body {
   box-shadow: 0 0 60px rgba(28, 19, 10, 0.08);
 }
 
+.brand-wordmark {
+  font-family: var(--font-brand);
+  color: var(--brand-ink);
+  letter-spacing: 0.02em;
+}
+
 /* ---- Botões / inputs (mesma linguagem do admin/booking) ---- */
 .btn {
   border: none;
