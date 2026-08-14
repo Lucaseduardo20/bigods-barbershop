@@ -7,6 +7,7 @@ import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
+import { precificarCarrinho } from '../../catalog/domain/desconto-progressivo';
 import {
   DISPONIBILIDADE_REPOSITORY,
   DisponibilidadeRepository,
@@ -141,9 +142,29 @@ export class AgendarAvulsoUseCase {
     // transação porque o valor do abatimento (FASE 4a) precisa do total
     // ANTES de existir o Atendimento (ordem: sabe quanto abater → cria o
     // atendimento já com o abatimento snapshot, nunca o contrário).
+    //
+    // DESCONTO PROGRESSIVO (substituiu os combos fixos): a tabela de degraus é
+    // global da empresa, mas incide sobre o preço DAQUELE barbeiro — por isso
+    // entra DEPOIS de `precoDeReferencia`, nunca antes. O `valorCobrado` de
+    // cada item já sai com o desconto embutido, porque é ele que vira o
+    // snapshot do que foi realmente cobrado (§ snapshot de valores) e a base da
+    // comissão.
+    //
+    // DECISAO_PENDENTE: comissão sobre o valor COM desconto (o barbeiro divide
+    // o desconto com a casa) ou sobre o preço cheio (a casa banca sozinha)? Hoje
+    // é sobre o valor com desconto, que é a consequência natural de o snapshot
+    // ser o valor cobrado — mas é decisão de negócio, não técnica. Ver
+    // DECISOES_PENDENTES.md #29.
+    const tabelaDeDesconto = await this.parametros.tabelaDeDesconto(input.companyId);
+    const carrinho = precificarCarrinho(
+      servicos.map((s) => ({ servicoId: s.id, precoCheio: precoDeReferencia(s, barbeiro) })),
+      tabelaDeDesconto,
+    );
+    const precoFinalPorServico = new Map(carrinho.itens.map((i) => [i.servicoId, i.precoFinal]));
+
     const itensComPreco = servicos.map((s) => ({
       servicoId: s.id,
-      valorCobrado: precoDeReferencia(s, barbeiro),
+      valorCobrado: precoFinalPorServico.get(s.id)!,
       duracao: s.duracao,
       itemDoPacoteId: null,
     }));

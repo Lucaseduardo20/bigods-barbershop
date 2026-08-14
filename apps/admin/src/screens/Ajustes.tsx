@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ParametrosDTO, UsuarioDTO } from '@bigods/contracts';
+import type { ParametrosDTO, TabelaDeDescontoDTO, UsuarioDTO } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api, limparSessao } from '../lib/api';
 import { Badge, ErroEstado, Loading, useApi } from '../components/ui';
@@ -39,7 +39,10 @@ export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
         </button>
       </div>
       {ehAdmin ? (
-        <Parametros />
+        <>
+          <Parametros />
+          <DescontoProgressivo />
+        </>
       ) : (
         <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
           Parâmetros da empresa são restritos ao admin.
@@ -127,6 +130,160 @@ function Parametros() {
             onClick={salvar}
           >
             Salvar
+          </button>
+          {erroSalvar && (
+            <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
+              {erroSalvar}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tabela de desconto progressivo dos avulsos — substituiu os combos fixos do
+ * catálogo ("Corte + Barba R$70" como item), que obrigavam o cliente a decidir
+ * entre clicar no combo ou nos serviços separados.
+ *
+ * O admin edita os degraus por POSIÇÃO no carrinho e um teto opcional. A mesma
+ * tabela vale para todos os barbeiros, mas o desconto incide sobre o preço de
+ * cada um (que pode ter override).
+ */
+function DescontoProgressivo() {
+  const { dados, erro, carregando, recarregar } = useApi(
+    () => api<TabelaDeDescontoDTO>('/parametros/desconto'),
+    [],
+  );
+  const [rascunho, setRascunho] = useState<TabelaDeDescontoDTO | null>(null);
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  const tabela = rascunho ?? dados;
+  const sujo = rascunho !== null;
+
+  const editar = (mudanca: Partial<TabelaDeDescontoDTO>) => {
+    if (!tabela) return;
+    setRascunho({ ...tabela, ...mudanca });
+  };
+
+  /** Próxima posição livre: 2 se não há degrau nenhum, senão a última + 1. */
+  const proximaPosicao = (t: TabelaDeDescontoDTO) =>
+    t.degraus.length === 0 ? 2 : Math.max(...t.degraus.map((d) => d.posicao)) + 1;
+
+  const salvar = async () => {
+    if (!tabela) return;
+    setErroSalvar(null);
+    setSalvando(true);
+    try {
+      await api('/parametros/desconto', {
+        method: 'PUT',
+        body: {
+          degraus: tabela.degraus.map((d) => ({ posicao: d.posicao, valorCentavos: d.valorCentavos })),
+          tetoCentavos: tabela.tetoCentavos,
+        },
+      });
+      setRascunho(null);
+      recarregar();
+    } catch (e) {
+      setErroSalvar(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="mt-5">
+      <div className="label">Desconto progressivo (avulsos)</div>
+      {carregando && <Loading />}
+      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
+      {tabela && (
+        <div className="card flex flex-col gap-4">
+          <div className="text-[12.5px]" style={{ color: 'var(--text-muted)' }}>
+            O 1º serviço do carrinho sempre sai por preço cheio. Cada degrau abaixo abate um valor
+            fixo quando o cliente chega naquela posição. Vale para todos os barbeiros, sempre sobre
+            o preço de cada um.
+          </div>
+
+          {tabela.degraus.length === 0 && (
+            <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
+              Nenhum degrau configurado — nenhum desconto é aplicado.
+            </div>
+          )}
+
+          {tabela.degraus
+            .slice()
+            .sort((a, b) => a.posicao - b.posicao)
+            .map((degrau) => (
+              <div key={degrau.posicao} className="flex items-end gap-2.5">
+                <div style={{ flex: 1 }}>
+                  <div className="text-[14px] font-semibold mb-1.5">{degrau.posicao}º serviço</div>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={(degrau.valorCentavos / 100).toString()}
+                    onChange={(e) =>
+                      editar({
+                        degraus: tabela.degraus.map((d) =>
+                          d.posicao === degrau.posicao
+                            ? { ...d, valorCentavos: Math.max(0, Math.round(Number(e.target.value) * 100)) }
+                            : d,
+                        ),
+                      })
+                    }
+                  />
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() =>
+                    editar({ degraus: tabela.degraus.filter((d) => d.posicao !== degrau.posicao) })
+                  }
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
+
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() =>
+              editar({
+                degraus: [...tabela.degraus, { posicao: proximaPosicao(tabela), valorCentavos: 0 }],
+              })
+            }
+          >
+            + Adicionar degrau
+          </button>
+
+          <div>
+            <div className="text-[14px] font-semibold mb-1.5">Teto do desconto</div>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="Sem teto"
+              value={tabela.tetoCentavos === null ? '' : (tabela.tetoCentavos / 100).toString()}
+              onChange={(e) =>
+                editar({
+                  tetoCentavos:
+                    e.target.value.trim() === ''
+                      ? null
+                      : Math.max(0, Math.round(Number(e.target.value) * 100)),
+                })
+              }
+            />
+            <div className="text-[11px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
+              O desconto acumulado nunca passa deste valor, por mais serviços que o cliente some.
+              Em branco = sem teto.
+            </div>
+          </div>
+
+          <button className="btn btn-sm" disabled={!sujo || salvando} onClick={salvar}>
+            {salvando ? 'Salvando…' : 'Salvar'}
           </button>
           {erroSalvar && (
             <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>

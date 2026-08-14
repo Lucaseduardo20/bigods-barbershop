@@ -30,7 +30,7 @@ import {
   PASSO,
   salvarEstado,
   servicosSelecionados,
-  totalCentavos,
+  precificarCarrinhoFunil,
   type FormaPagamento,
   type FunnelState,
 } from './lib/funnel-state';
@@ -200,9 +200,18 @@ function Funil() {
   }
 
 
+  /**
+   * Total do carrinho de avulsos JÁ com o desconto progressivo — mesma função
+   * de cálculo da API. Mostrar o preço cheio aqui faria o cliente ver um valor
+   * (e um PIX) diferente do que será cobrado.
+   */
+  const totalAvulsoComDesconto = () =>
+    precificarCarrinhoFunil(servicosParaPreco, estado.servicoIds, empresa.descontoProgressivo)
+      .totalFinalCentavos;
+
   // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO.
   if (cobranca && intencaoId) {
-    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicosParaPreco, estado.servicoIds);
+    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalAvulsoComDesconto();
     return (
       <div className="funnel-shell">
         <PixAguardando
@@ -417,6 +426,7 @@ function Funil() {
         selecionados={estado.servicoIds}
         onToggle={toggleServico}
         erroDecisao={erroDecisao}
+        tabelaDeDesconto={empresa.descontoProgressivo}
         carregando={servicosDoBarbeiroReq.carregando}
       />
     );
@@ -460,6 +470,7 @@ function Funil() {
       <Confirmacao
         estado={estado}
         servicos={servicosParaPreco}
+        tabelaDeDesconto={empresa.descontoProgressivo}
         enviando={enviando}
         erroEnvio={erroEnvio}
         onFormaPagamento={(f: FormaPagamento) => patch({ formaPagamento: f })}
@@ -498,7 +509,7 @@ function Funil() {
   })();
 
   const ehPacote = estado.modo === 'pacote';
-  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicosParaPreco, estado.servicoIds);
+  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalAvulsoComDesconto();
   const duracao = ehPacote ? 0 : duracaoMinutos(servicosParaPreco, estado.servicoIds);
   const resumo = ehPacote
     ? (estado.ofertaNome ?? 'Pacote')

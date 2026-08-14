@@ -11,8 +11,6 @@
  * ou um @ inventado. Basta preencher aqui.
  */
 
-const PENDENTE = null;
-
 export const BARBEARIA = {
   nome: "Bigod's Barber",
 
@@ -29,13 +27,13 @@ export const BARBEARIA = {
   )}`,
 
   /** PENDENTE — @ do Instagram da barbearia. Ex.: 'bigodsbarber'. */
-  instagram: PENDENTE as string | null,
+  instagram: "bigods.barbershop" as string,
 
   /** PENDENTE — telefone de contato público em E.164, sem "+". Ex.: '5511999998888'. */
-  whatsapp: PENDENTE as string | null,
+  whatsapp: 5511990036469 as number,
 
   /** PENDENTE — link do perfil no Google (avaliações). Sem ele, usamos o mapsUrl. */
-  googleUrl: PENDENTE as string | null,
+  googleUrl: 'https://share.google/LiEqwXuTqbnKaBqEZ',
 
   /**
    * PENDENTE DE CONFIRMAÇÃO — formas aceitas no balcão. Esta lista é o exemplo

@@ -1,12 +1,14 @@
-import type { ServicoDTO } from '@bigods/contracts';
+import type { ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
 import { dinheiro, rotuloDia } from '../lib/format';
-import { servicosSelecionados, totalCentavos, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
+import { precificarCarrinhoFunil, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
+import { ResumoDoDesconto } from '../components/ResumoDoDesconto';
 import { AlertaErro } from '../components/ui';
 import { BARBEARIA } from '../lib/barbearia';
 
 export function Confirmacao({
   estado,
   servicos,
+  tabelaDeDesconto,
   enviando,
   erroEnvio,
   onFormaPagamento,
@@ -14,15 +16,17 @@ export function Confirmacao({
 }: {
   estado: FunnelState;
   servicos: ServicoDTO[];
+  tabelaDeDesconto: TabelaDeDescontoDTO;
   enviando: boolean;
   erroEnvio: string | null;
   onFormaPagamento: (f: FormaPagamento) => void;
   onConfirmar: () => void;
 }) {
   const ehPacote = estado.modo === 'pacote';
-  const itens = servicosSelecionados(servicos, estado.servicoIds);
-  const totalAvulso = totalCentavos(servicos, estado.servicoIds);
-  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : totalAvulso;
+  // Mesmo cálculo da API (função compartilhada): o total exibido aqui é o que
+  // será cobrado, item a item.
+  const carrinho = precificarCarrinhoFunil(servicos, estado.servicoIds, tabelaDeDesconto);
+  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : carrinho.totalFinalCentavos;
   const dia = estado.data ? rotuloDia(estado.data).longo : '';
 
   const linha = (rotulo: string, valor: string) => (
@@ -56,13 +60,26 @@ export function Confirmacao({
               Serviços Realizados
             </div>
             <div className="flex flex-col gap-1.5">
-              {itens.map((s) => (
-                <div key={s.id} className="flex justify-between text-[14px]">
-                  <span>{s.nome}</span>
-                  <span className="font-bold">{dinheiro(s.precoAvulsoCentavos)}</span>
+              {carrinho.itens.map((item) => (
+                <div key={item.servico.id} className="flex justify-between text-[14px]">
+                  <span>{item.servico.nome}</span>
+                  <span className="font-bold">
+                    {/* Preço cheio riscado ao lado do cobrado: sem isso o
+                        desconto some da percepção do cliente. */}
+                    {item.descontoCentavos > 0 && (
+                      <span
+                        className="font-semibold mr-1.5"
+                        style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}
+                      >
+                        {dinheiro(item.precoCheioCentavos)}
+                      </span>
+                    )}
+                    {dinheiro(item.precoFinalCentavos)}
+                  </span>
                 </div>
               ))}
             </div>
+            {carrinho.temDesconto && <ResumoDoDesconto carrinho={carrinho} />}
             <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
             {estado.barbeiroNome && linha('Barbeiro', estado.barbeiroNome)}
             {linha('Quando', `${dia} · ${estado.horaInicio}`)}

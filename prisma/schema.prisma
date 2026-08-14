@@ -90,9 +90,14 @@ model Company {
   // não constante global — outras barbearias em outros fusos usarão o sistema.
   // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
   timezone               String @default("America/Sao_Paulo")
+  // Desconto progressivo dos avulsos (substituiu os combos fixos): teto do
+  // desconto acumulado, por mais serviços que o cliente some. null = sem teto.
+  // Os degraus por posição ficam em DegrauDeDesconto.
+  descontoTetoCentavos   Int?
 
   servicos      Servico[]
   produtos      Produto[]
+  degrausDesconto DegrauDeDesconto[]
   barbeiros     Barbeiro[]
   clientes      Cliente[]
   atendimentos  Atendimento[]
@@ -102,6 +107,23 @@ model Company {
   intencoes     IntencaoDePagamento[]
   pacoteOfertas PacoteOferta[]
   vales         Vale[]
+}
+
+/**
+ * Um degrau da tabela de desconto progressivo: "o serviço na POSIÇÃO N do
+ * carrinho abate `valorCentavos`". Posição 1 nunca tem degrau (o primeiro
+ * serviço é sempre preço cheio). Tabela GLOBAL da empresa — a mesma para todos
+ * os barbeiros —, mas o desconto incide sobre o preço DAQUELE barbeiro.
+ */
+model DegrauDeDesconto {
+  id            String @id
+  companyId     String
+  posicao       Int
+  valorCentavos Int
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, posicao])
 }
 
 model Servico {

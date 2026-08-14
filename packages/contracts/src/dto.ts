@@ -1,3 +1,4 @@
+import { TabelaDeDescontoDTO } from './desconto';
 import {
   FormaPagamento,
   OrigemAtendimento,
@@ -440,6 +441,12 @@ export interface EmpresaPublicaDTO {
    * SEMPRE `false` em produção (o boot recusa DEMO_MODE=true em produção).
    */
   demoMode: boolean;
+  /**
+   * Tabela de desconto progressivo dos avulsos. Vai para o funil porque ele
+   * precisa MOSTRAR o desconto antes de o cliente confirmar — usando a mesma
+   * função de cálculo que a API usa para cobrar (`calcularDescontoProgressivo`).
+   */
+  descontoProgressivo: TabelaDeDescontoDTO;
 }
 export interface BarbeiroPublicoDTO {
   id: string;

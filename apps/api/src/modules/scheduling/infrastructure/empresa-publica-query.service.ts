@@ -13,11 +13,20 @@ export class EmpresaPublicaQueryService {
       // Sem tenant explícito válido → erro, nunca fallback (DOMAIN.md §2.4)
       throw new NotFoundException(`Empresa ${companyId} não encontrada`);
     }
+    const degraus = await this.prisma.degrauDeDesconto.findMany({
+      where: { companyId },
+      orderBy: { posicao: 'asc' },
+    });
+
     return {
       companyId: company.id,
       nome: company.nome,
       timezone: company.timezone,
       demoMode: process.env.DEMO_MODE === 'true',
+      descontoProgressivo: {
+        degraus: degraus.map((d) => ({ posicao: d.posicao, valorCentavos: d.valorCentavos })),
+        tetoCentavos: company.descontoTetoCentavos,
+      },
     };
   }
 }

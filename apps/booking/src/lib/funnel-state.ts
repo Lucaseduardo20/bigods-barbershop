@@ -1,4 +1,5 @@
-import type { BarbeiroPublicoDTO, ServicoDTO } from '@bigods/contracts';
+import { calcularDescontoProgressivo } from '@bigods/contracts';
+import type { BarbeiroPublicoDTO, ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
 
 /**
  * Passos do funil. §4a: barbeiro vem ANTES de serviço/pacote nas duas
@@ -157,6 +158,57 @@ export function servicosSelecionados(servicos: ServicoDTO[], ids: string[]): Ser
 
 export function totalCentavos(servicos: ServicoDTO[], ids: string[]): number {
   return servicosSelecionados(servicos, ids).reduce((acc, s) => acc + s.precoAvulsoCentavos, 0);
+}
+
+export interface ItemDoCarrinhoFunil {
+  servico: ServicoDTO;
+  precoCheioCentavos: number;
+  descontoCentavos: number;
+  precoFinalCentavos: number;
+}
+
+export interface CarrinhoFunil {
+  itens: ItemDoCarrinhoFunil[];
+  totalCheioCentavos: number;
+  descontoTotalCentavos: number;
+  totalFinalCentavos: number;
+  temDesconto: boolean;
+}
+
+/**
+ * Preço do carrinho de avulsos COM o desconto progressivo.
+ *
+ * Usa `calcularDescontoProgressivo` de `@bigods/contracts` — exatamente a mesma
+ * função que a API usa para cobrar. É isso que garante que o número mostrado
+ * aqui é o número que vai ser cobrado: um cálculo próprio no front seria uma
+ * segunda verdade sobre dinheiro, e a diferença apareceria como cobrança
+ * "errada" para o cliente.
+ *
+ * Os preços já vêm do `/public/servicos` filtrado pelo barbeiro escolhido, ou
+ * seja, são a base DAQUELE barbeiro (com override, se houver).
+ */
+export function precificarCarrinhoFunil(
+  servicos: ServicoDTO[],
+  ids: string[],
+  tabela: TabelaDeDescontoDTO,
+): CarrinhoFunil {
+  const selecionados = servicosSelecionados(servicos, ids);
+  const calculo = calcularDescontoProgressivo(
+    selecionados.map((s) => s.precoAvulsoCentavos),
+    tabela,
+  );
+  return {
+    itens: selecionados.map((servico, i) => ({
+      servico,
+      precoCheioCentavos: servico.precoAvulsoCentavos,
+      descontoCentavos: calculo.descontosPorItemCentavos[i] ?? 0,
+      precoFinalCentavos: servico.precoAvulsoCentavos - (calculo.descontosPorItemCentavos[i] ?? 0),
+    })),
+    totalCheioCentavos: calculo.totalCheioCentavos,
+    descontoTotalCentavos: calculo.descontoTotalCentavos,
+    totalFinalCentavos: calculo.totalFinalCentavos,
+    temDesconto: calculo.descontoTotalCentavos > 0,
+  };
 }
 
 export function duracaoMinutos(servicos: ServicoDTO[], ids: string[]): number {
