@@ -241,6 +241,8 @@ export interface CobrancaDTO {
   intencaoId: string;
   qrCode: string;
   copiaECola: string;
+  /** Prazo da reserva/intenção (ISO) — sessão de OTP+reserva, front mostra contagem regressiva. */
+  expiraEm: string;
 }
 export interface AgendarResponse {
   atendimentoId: string;
@@ -592,6 +594,12 @@ export interface VenderPacotePublicoResponse {
 export interface PagamentoStatusDTO {
   intencaoId: string;
   status: StatusPagamento;
+  /**
+   * Prazo da reserva/intenção (sessão de OTP+reserva) — ISO, null quando não
+   * é pagamento online (presencial) ou em linhas anteriores a essa sessão.
+   * O front usa pra mostrar contagem regressiva ("reservado por 9:59...").
+   */
+  expiraEm: string | null;
 }
 
 // ---------- Agendar com crédito na área do cliente ----------

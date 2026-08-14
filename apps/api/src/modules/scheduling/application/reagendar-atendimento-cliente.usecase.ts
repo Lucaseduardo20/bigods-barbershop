@@ -119,6 +119,12 @@ export class ReagendarAtendimentoClienteUseCase {
       inicio: input.novoInicio,
       cliente: { nome: cliente.nome, telefone: cliente.telefone.e164 },
       gerarCobranca: false,
+      // Sessão de OTP+reserva (Problema 3): reagendar é uma TROCA (cria o
+      // novo antes de cancelar o antigo, ver comentário da classe) — sem
+      // isso, o cliente no limite de 3 presenciais seria recusado ao tentar
+      // mover um dos 3 que ele já tem, porque o antigo ainda contaria no
+      // instante da checagem.
+      aplicarCotaPresencial: false,
       // DECISAO_PENDENTE: se o agendamento antigo foi pago online (PIX), o
       // valor já pago fica vinculado à IntencaoDePagamento do atendimento
       // ANTIGO (agora cancelado) — não é re-emitido nem estornado

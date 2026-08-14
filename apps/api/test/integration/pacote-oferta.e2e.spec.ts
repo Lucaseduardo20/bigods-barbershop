@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -92,6 +95,7 @@ afterAll(async () => {
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
@@ -241,12 +245,19 @@ describe('Venda de uma oferta MISTA reusa o rateio existente (§3.6) sem reescre
     // só aparece/compra no funil público depois de aprovado (Fase 3)
     await http.patch(`/pacote-ofertas/${criada.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
+    const telefone = `11 9${String(Date.now()).slice(-8)}`;
+    const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+    const confirmar = await http
+      .post('/conta/login/confirmar')
+      .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+      .expect(201);
     const venda = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${confirmar.body.token}`)
       .send({
         companyId,
         ofertaId: criada.body.id,
-        cliente: { nome: 'Cliente Misto', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Cliente Misto' },
         formaPagamento: 'presencial',
       })
       .expect(201);

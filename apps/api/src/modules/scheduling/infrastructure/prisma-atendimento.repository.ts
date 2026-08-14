@@ -44,6 +44,7 @@ function paraDominio(row: Row): Atendimento {
     origemLinkBarbeiroId: row.origemLinkBarbeiroId,
     valorAbatidoSaldo: Dinheiro.deCentavos(row.valorAbatidoSaldoCentavos),
     vendaAbatidaId: row.vendaAbatidaId,
+    reservaOnlineExpiraEm: row.reservaOnlineExpiraEm,
   });
 }
 
@@ -63,13 +64,24 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
     const rows = await this.db.atendimento.findMany({
       where: {
         barbeiroId,
-        status: 'AGENDADO',
+        status: { in: ['AGENDADO', 'RESERVADO'] },
         inicio: { lt: fim },
         fim: { gt: inicio },
       },
       include,
     });
     return rows.map(paraDominio);
+  }
+
+  async contarPresenciaisFuturosAtivosDoCliente(clienteId: ClienteId, agora: Date): Promise<number> {
+    return this.db.atendimento.count({
+      where: {
+        clienteId,
+        status: 'AGENDADO',
+        reservaOnlineExpiraEm: null,
+        inicio: { gt: agora },
+      },
+    });
   }
 
   async listarPorPeriodo(companyId: CompanyId, inicio: Date, fim: Date): Promise<Atendimento[]> {
@@ -104,6 +116,7 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       origemLinkBarbeiroId: atendimento.origemLinkBarbeiroId,
       valorAbatidoSaldoCentavos: atendimento.valorAbatidoSaldo.centavos,
       vendaAbatidaId: atendimento.vendaAbatidaId,
+      reservaOnlineExpiraEm: atendimento.reservaOnlineExpiraEm,
     };
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {

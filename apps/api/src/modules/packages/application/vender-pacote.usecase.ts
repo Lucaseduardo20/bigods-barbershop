@@ -12,6 +12,8 @@ import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-g
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Telefone } from '../../../shared/domain/telefone';
 import { DomainEvent } from '../../../shared/events/domain-event';
+import { PRAZO_RESERVA_SEGUNDOS } from '../../payments/domain/prazo-reserva';
+import { CobrancaDTO } from '@bigods/contracts';
 
 export interface VenderPacoteInput {
   companyId: string;
@@ -38,7 +40,7 @@ export interface VenderPacoteOutput {
   clienteId: string;
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
-  cobranca: { intencaoId: string; qrCode: string; copiaECola: string } | null;
+  cobranca: CobrancaDTO | null;
 }
 
 @Injectable()
@@ -75,8 +77,14 @@ export class VenderPacoteUseCase {
     // Calculado ANTES da transação pra já saber, na criação da intenção, se
     // ela vai ter prazo de expiração local (§3.8) — sem precisar de um
     // segundo save depois de chamar o gateway.
+    //
+    // ★ Sessão de OTP+reserva: a janela passou a ser `PRAZO_RESERVA_SEGUNDOS`
+    // (10 min), a MESMA do avulso online — antes era `gateway.expiraEmSegundos`
+    // (1h). Pacote não tem horário pra reservar (não é agenda), mas a spec
+    // agrupa explicitamente "AVULSO ONLINE ou PACOTE" sob o mesmo prazo de
+    // reserva/pagamento — decisão registrada em DECISOES_PENDENTES.md.
     const gerarCobranca = !input.pagamentoImediato && (input.gerarCobranca ?? true);
-    const expiraEm = gerarCobranca ? new Date(Date.now() + this.gateway.expiraEmSegundos * 1000) : null;
+    const expiraEm = gerarCobranca ? new Date(Date.now() + PRAZO_RESERVA_SEGUNDOS * 1000) : null;
 
     const resultado = await this.uow.transacao(async (repos) => {
       let cliente = await repos.clientes.porTelefone(input.companyId, telefone);
@@ -135,11 +143,13 @@ export class VenderPacoteUseCase {
         valor: resultado.intencao.valor,
         descricao: `Pacote ${vendaId}`,
         externalId: resultado.intencao.externalId,
+        expiraEmSegundos: PRAZO_RESERVA_SEGUNDOS,
       });
       cobranca = {
         intencaoId: resultado.intencao.id,
         qrCode: pix.qrCode,
         copiaECola: pix.copiaECola,
+        expiraEm: resultado.intencao.expiraEm!.toISOString(),
       };
     }
 

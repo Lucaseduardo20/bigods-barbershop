@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { OrigemAtendimento } from '@bigods/contracts';
+import { CobrancaDTO, OrigemAtendimento } from '@bigods/contracts';
 import { Atendimento } from '../domain/atendimento.aggregate';
 import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
@@ -30,6 +30,8 @@ import {
   VENDA_DE_PACOTE_REPOSITORY,
   VendaDePacoteRepository,
 } from '../../packages/domain/venda-de-pacote.repository';
+import { PRAZO_RESERVA_SEGUNDOS } from '../../payments/domain/prazo-reserva';
+import { assertNaoExcedeCotaPresencial } from '../domain/regra-cota-presencial';
 
 export interface AgendarAvulsoInput {
   companyId: string;
@@ -47,12 +49,20 @@ export interface AgendarAvulsoInput {
    * Só o cockpit do cliente usa isto; admin/funil público nunca passam.
    */
   abaterSaldoDeVendaId?: string | null;
+  /**
+   * Sessão de OTP+reserva (Problema 3): cota de presenciais futuros ativos
+   * só vale pro canal de auto-atendimento do cliente (funil público +
+   * cockpit) — o admin mantém autonomia de julgamento (ex.: exceção
+   * operacional, cliente VIP). Default true; o controller do admin passa
+   * `false` explicitamente.
+   */
+  aplicarCotaPresencial?: boolean;
 }
 
 export interface AgendarAvulsoOutput {
   atendimentoId: string;
   clienteId: string;
-  cobranca: { intencaoId: string; qrCode: string; copiaECola: string } | null;
+  cobranca: CobrancaDTO | null;
 }
 
 @Injectable()
@@ -151,6 +161,31 @@ export class AgendarAvulsoUseCase {
         }
       }
 
+      // Cobrança online (se pedida) é só sobre o que SOBROU depois do
+      // abatimento — nunca o total bruto, senão o cliente pagaria de novo o
+      // que o saldo já cobriu. Se o saldo já cobre tudo, não há reserva
+      // temporária nenhuma — o atendimento nasce firme, igual a presencial.
+      const valorRestanteCentavos = totalCentavos - valorAbatidoCentavos;
+      const gerarReservaOnline = (input.gerarCobranca ?? false) && valorRestanteCentavos > 0;
+      // Sessão de OTP+reserva (Problema 2): a MESMA janela e o MESMO
+      // instante alimentam a reserva do horário E a intenção de pagamento —
+      // nunca duas chamadas a `new Date()` separadas, pra nunca haver
+      // split-brain entre "reserva expirou" e "intenção expirou".
+      const reservaOnlineExpiraEm = gerarReservaOnline
+        ? new Date(Date.now() + PRAZO_RESERVA_SEGUNDOS * 1000)
+        : null;
+
+      // Problema 3: cota de presenciais futuros ativos — só se aplica a
+      // quem NÃO está gerando reserva online (o pagamento já é a trava
+      // natural desses) e só no canal de auto-atendimento (flag do caller).
+      if (!gerarReservaOnline && (input.aplicarCotaPresencial ?? true)) {
+        const presenciaisAtivos = await repos.atendimentos.contarPresenciaisFuturosAtivosDoCliente(
+          cliente.id,
+          new Date(),
+        );
+        assertNaoExcedeCotaPresencial(presenciaisAtivos);
+      }
+
       const atendimento = Atendimento.agendar({
         id: atendimentoId,
         companyId: input.companyId,
@@ -164,25 +199,20 @@ export class AgendarAvulsoUseCase {
         origemLinkBarbeiroId: input.origemLinkBarbeiroId,
         valorAbatidoSaldo: Dinheiro.deCentavos(valorAbatidoCentavos),
         vendaAbatidaId: valorAbatidoCentavos > 0 ? input.abaterSaldoDeVendaId : null,
+        reservaOnlineExpiraEm,
       });
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
 
-      // Cobrança online (se pedida) é só sobre o que SOBROU depois do
-      // abatimento — nunca o total bruto, senão o cliente pagaria de novo
-      // o que o saldo já cobriu.
-      const valorRestanteCentavos = totalCentavos - valorAbatidoCentavos;
       let intencao: IntencaoDePagamento | null = null;
-      if (input.gerarCobranca && valorRestanteCentavos > 0) {
+      if (gerarReservaOnline) {
         intencao = IntencaoDePagamento.criar({
           id: randomUUID(),
           companyId: input.companyId,
           referencia: { tipo: 'ATENDIMENTO', atendimentoId },
           valor: Dinheiro.deCentavos(valorRestanteCentavos),
           externalId: randomUUID(),
-          // Mesma janela que será pedida ao gateway (`expiresIn`) — expiração
-          // por timeout local, ver IntencaoDePagamento.expiraEm.
-          expiraEm: new Date(Date.now() + this.gateway.expiraEmSegundos * 1000),
+          expiraEm: reservaOnlineExpiraEm,
         });
         await repos.intencoesDePagamento.salvar(intencao);
       }
@@ -197,11 +227,13 @@ export class AgendarAvulsoUseCase {
         valor: resultado.intencao.valor,
         descricao: `Atendimento ${atendimentoId}`,
         externalId: resultado.intencao.externalId,
+        expiraEmSegundos: PRAZO_RESERVA_SEGUNDOS,
       });
       cobranca = {
         intencaoId: resultado.intencao.id,
         qrCode: pix.qrCode,
         copiaECola: pix.copiaECola,
+        expiraEm: resultado.intencao.expiraEm!.toISOString(),
       };
     }
 

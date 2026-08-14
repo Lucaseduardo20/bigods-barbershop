@@ -228,6 +228,25 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- Modal (bottom-sheet — mesmo padrão do admin/account) ---- */
+.dialog-overlay {
+  position: fixed; inset: 0; z-index: 30;
+  background: rgba(28, 19, 10, 0.55);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: overlay-in 0.18s ease-out;
+}
+.dialog {
+  width: 100%; max-width: 560px; max-height: 88dvh;
+  overflow-y: auto; box-sizing: border-box;
+  background: var(--surface-app);
+  border-radius: 22px 22px 0 0;
+  padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 40px rgba(28, 19, 10, 0.18);
+  animation: sheet-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
 /* ---- Checkmark de sucesso (SVG animado, sem dependência de Lottie) ---- */
 .success-badge { width: 96px; height: 96px; }
 .success-badge circle {

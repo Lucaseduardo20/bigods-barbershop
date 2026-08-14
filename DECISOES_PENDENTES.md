@@ -417,3 +417,60 @@ inventar regra de negócio financeira.
 verdade (reverter o crédito de pacote já consumido? notificar o admin
 manualmente? estornar comissão?) é uma decisão financeira que precisa vir do
 dono — hoje fica só registrado em log para revisão manual.
+
+## 28. Janela de pagamento do PACOTE encolheu de 1h pra 10min — decisão minha, a confirmar (sessão de OTP+reserva)
+
+A spec da sessão de OTP+reserva agrupa explicitamente "AVULSO ONLINE ou
+PACOTE (pacote é sempre online)" sob o mesmo passo "reserva TEMPORÁRIA (10
+min) → gera PIX", e o bloco de Testes pede "Pacote (sempre online): mesmo
+comportamento de reserva temporária". Estruturalmente, `VendaDePacote` não
+tem horário nenhum pra reservar — a "reserva do horário" (Problema 2) não se
+aplica a ele. Interpretei a instrução como: mesmo OTP-gate + mesma janela de
+10 minutos pra pagar, só que sem reserva de slot (não existe slot).
+
+**O que mudou de verdade:** antes, `VenderPacoteUseCase` calculava
+`expiraEm`/pedia `expiresIn` ao gateway usando `gateway.expiraEmSegundos`
+(1h, `ABACATEPAY_EXPIRA_SEGUNDOS`). Agora usa `PRAZO_RESERVA_SEGUNDOS` (10
+min, fixo, não é env var) — o cliente que compra um pacote tem bem menos
+tempo pra pagar o PIX do que tinha antes desta sessão.
+
+**Por que não decidi diferente:** a spec agrupa os dois casos na MESMA frase
+da matriz ("AVULSO ONLINE ou PACOTE... reserva TEMPORÁRIA (10 min)"), e o
+bloco de testes pede explicitamente "mesmo comportamento" pro pacote — a
+leitura mais literal e defensável é aplicar os 10 min aos dois. Mas é uma
+mudança real de UX/negócio (menos tempo pra decidir/pagar um pacote, que
+tipicamente é um valor maior que um avulso) que não foi confirmada
+numericamente pelo dono fora dessa leitura da matriz.
+
+**A confirmar com o negócio:** se 10 minutos é tempo suficiente pra pagar um
+pacote (valor tipicamente maior, cliente pode precisar ir no banco/organizar
+o PIX) ou se o pacote deveria manter uma janela mais longa (ex.: os 1h
+antigos, ou algo intermediário) — independente do avulso, já que
+estruturalmente pacote não tem o problema de "buraco na agenda" que motivou
+o prazo curto em primeiro lugar.
+
+## 29. Cota de presenciais (Problema 3) não vale pro admin nem pro reagendar — decisão minha (sessão de OTP+reserva)
+
+A spec diz "vale pra logado e não-logado igualmente" — na minha leitura,
+"logado" se refere ao cliente autenticado no cockpit (`@ContaCliente()`),
+não ao admin/staff. `AgendarAvulsoUseCase` é compartilhado entre o funil
+público, o cockpit do cliente E o painel admin (`POST /atendimentos`) —
+apliquei a cota só nos dois primeiros (`aplicarCotaPresencial: true`,
+default), e o controller do admin passa `aplicarCotaPresencial: false`
+explicitamente.
+
+**Por quê:** a cota existe pra conter abuso de auto-atendimento (um cliente
+com telefone verificado entupindo a agenda sozinho) — não pra limitar o
+julgamento operacional do staff (exceção pra cliente VIP, situação
+especial, etc.). Apliquei a mesma lógica ao `ReagendarAtendimentoClienteUseCase`:
+como ele cria o novo atendimento ANTES de cancelar o antigo (pra nunca
+deixar o cliente sem os dois se o novo horário falhar), contar a cota nesse
+meio-tempo bloquearia incorretamente um cliente no limite tentando só mover
+um agendamento que já tinha — por isso reagendar também passa
+`aplicarCotaPresencial: false`.
+
+**A confirmar com o negócio:** se o admin também deveria ter algum limite
+(ex.: um staff mal-intencionado ou descuidado criando dezenas de presenciais
+fantasma) — hoje não há trava nenhuma pro admin, por design (autonomia de
+julgamento), mas isso presume que o acesso ao painel admin já é
+suficientemente controlado (só quem tem login de staff chega lá).

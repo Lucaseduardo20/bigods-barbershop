@@ -4,10 +4,20 @@ export enum Papel {
 }
 
 export enum StatusAtendimento {
+  /**
+   * Reserva TEMPORÁRIA de horário, pendente de pagamento online (avulso
+   * online ou pacote — sessão de OTP+reserva). Participa da invariante de
+   * conflito de horário (domínio + EXCLUDE) igual a AGENDADO, mas ainda não
+   * é firme: expira por timeout (`Atendimento.reservaOnlineExpiraEm`) se o
+   * pagamento não confirmar a tempo → RESERVA_EXPIRADA.
+   */
+  RESERVADO = 'RESERVADO',
   AGENDADO = 'AGENDADO',
   CONCLUIDO = 'CONCLUIDO',
   CANCELADO = 'CANCELADO',
   NAO_COMPARECEU = 'NAO_COMPARECEU',
+  /** Final. Reserva temporária que não foi paga a tempo — libera o horário. */
+  RESERVA_EXPIRADA = 'RESERVA_EXPIRADA',
 }
 
 export enum OrigemAtendimento {

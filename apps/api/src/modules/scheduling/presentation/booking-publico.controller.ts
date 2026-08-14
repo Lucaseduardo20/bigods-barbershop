@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Inject,
   NotFoundException,
@@ -29,6 +30,7 @@ import {
 } from '@bigods/contracts';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
@@ -40,13 +42,14 @@ import { HorariosDisponiveisQueryService } from '../infrastructure/horarios-disp
 import { Throttle } from '@nestjs/throttler';
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { Publico } from '../../identity/presentation/auth.decorators';
+import { ClienteAtual, ContaCliente } from '../../identity/presentation/cliente.guard';
+import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 class ClientePublicoDto {
   @IsString() @MinLength(1) nome!: string;
-  @IsString() @MinLength(8) telefone!: string;
 }
 
 class AgendarPublicoDto {
@@ -79,6 +82,7 @@ export class BookingPublicoController {
     @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
     private readonly parametros: ParametrosDaEmpresaRepository,
+    @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly empresaQuery: EmpresaPublicaQueryService,
     private readonly horariosQuery: HorariosDisponiveisQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
@@ -170,22 +174,44 @@ export class BookingPublicoController {
     return this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids });
   }
 
-  // Escrita pública: limita por IP (30 por 10 min) — endpoint de escrita sem
-  // rate limit é vetor óbvio de abuso. A invariante de conflito de horário do
-  // domínio já barra duplicidade, mas isto contém flood antes de chegar lá.
-  @Publico()
+  /**
+   * Sessão de OTP+reserva (Problema 1 — agenda falsa): exige sessão de
+   * cliente verificada por OTP (`@ContaCliente()`, reusa o mesmo mecanismo do
+   * login do cockpit — nunca constrói OTP de novo). O front garante que essa
+   * sessão existe ANTES de chamar este endpoint: ou já tinha uma válida
+   * (cliente recorrente, sem repetir OTP), ou acabou de completar
+   * `/conta/login/iniciar` + `/conta/login/confirmar` na tela de confirmação
+   * do funil. O telefone vem SEMPRE da sessão verificada, nunca do corpo da
+   * requisição — impossível reservar/pagar em nome de um telefone que não
+   * provou posse.
+   *
+   * Ainda limita por IP (30 por 10 min) como rede de segurança extra — o
+   * rate limit do OTP em si já existe no login (`THROTTLE_LOGIN`).
+   */
+  @ContaCliente()
   @Throttle({ default: { limit: 30, ttl: 600_000 } })
   @Post('agendamentos')
-  async agendar(@Body() body: AgendarPublicoDto): Promise<AgendarPublicoResponse> {
+  async agendar(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: AgendarPublicoDto,
+  ): Promise<AgendarPublicoResponse> {
+    if (atual.companyId !== body.companyId) {
+      throw new ForbiddenException('Sessão não pertence a esta empresa');
+    }
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== body.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
     const tz = await this.parametros.timezone(body.companyId);
-    // online → gera cobrança PIX na hora; presencial (default) → cobra na conclusão.
+    // online → gera cobrança PIX na hora (reserva TEMPORÁRIA); presencial
+    // (default) → reserva FIRME direto, cobra na conclusão.
     const online = body.formaPagamento === 'online';
     const resultado = await this.agendarAvulso.executar({
       companyId: body.companyId,
       barbeiroId: body.barbeiroId,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
-      cliente: body.cliente,
+      cliente: { nome: body.cliente.nome, telefone: cliente.telefone.e164 },
       gerarCobranca: online,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
     });

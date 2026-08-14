@@ -27,11 +27,13 @@ import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
   IntencaoDePagamentoRepository,
 } from '../../payments/domain/intencao-de-pagamento.repository';
+import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
 import { Publico } from '../../identity/presentation/auth.decorators';
+import { ClienteAtual, ContaCliente } from '../../identity/presentation/cliente.guard';
+import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 
 class ClientePublicoDto {
   @IsString() @MinLength(1) nome!: string;
-  @IsString() @MinLength(8) telefone!: string;
 }
 
 class VenderPacotePublicoDto {
@@ -60,6 +62,7 @@ export class PacotesPublicoController {
     private readonly processarWebhook: ProcessarWebhookUseCase,
     private readonly expirarPagamentoVencido: ExpirarPagamentoVencidoUseCase,
     @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
+    @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
   ) {}
 
   @Publico()
@@ -72,16 +75,33 @@ export class PacotesPublicoController {
     return this.ofertas.listar(companyId, barbeiroId);
   }
 
-  @Publico()
+  /**
+   * Sessão de OTP+reserva: pacote é "sempre online", agrupado com avulso
+   * online sob o mesmo prazo de pagamento (10 min) e a mesma exigência de
+   * sessão verificada — ver `@ContaCliente()` em `BookingPublicoController`
+   * pro racional completo (reusa o MESMO mecanismo, nada novo aqui).
+   * Telefone vem sempre da sessão, nunca do corpo.
+   */
+  @ContaCliente()
   @Throttle({ default: { limit: 30, ttl: 600_000 } })
   @Post('pacotes')
-  async vender(@Body() body: VenderPacotePublicoDto): Promise<VenderPacotePublicoResponse> {
+  async vender(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: VenderPacotePublicoDto,
+  ): Promise<VenderPacotePublicoResponse> {
+    if (atual.companyId !== body.companyId) {
+      throw new ForbiddenException('Sessão não pertence a esta empresa');
+    }
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== body.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
     const oferta = await this.ofertas.porId(body.companyId, body.ofertaId);
     if (!oferta) throw new NotFoundException('Oferta de pacote não encontrada');
 
     const resultado = await this.venderPacote.executar({
       companyId: body.companyId,
-      cliente: body.cliente,
+      cliente: { nome: body.cliente.nome, telefone: cliente.telefone.e164 },
       barbeiroId: oferta.barbeiroId,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)

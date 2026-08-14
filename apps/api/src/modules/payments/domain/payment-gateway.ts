@@ -26,6 +26,14 @@ export interface PaymentGateway {
     valor: Dinheiro;
     descricao: string;
     externalId: string;
+    /**
+     * Override da janela padrão do gateway (`expiraEmSegundos`) — usado pela
+     * reserva temporária (sessão de OTP+reserva) pra pedir à AbacatePay
+     * exatamente a mesma janela da reserva local, nunca mais longa: um PIX
+     * que a AbacatePay ainda aceitasse depois que já desistimos da reserva
+     * seria um split-brain (pagamento confirma uma reserva que já expirou).
+     */
+    expiraEmSegundos?: number;
   }): Promise<CobrancaPix>;
 }
 

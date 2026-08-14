@@ -228,9 +228,11 @@ describe('Cockpit do cliente', () => {
 
   it('confirmar-demo (modo demo) confirma o PIX e libera créditos; idempotente', async () => {
     const fone = `11 94${sufixo}`;
+    const token = await loginToken(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId: ofertaDemoId, cliente: { nome: 'Demo Pag', telefone: fone }, formaPagamento: 'online' })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId: ofertaDemoId, cliente: { nome: 'Demo Pag' }, formaPagamento: 'online' })
       .expect(201);
     const url = `/public/pagamentos/${venda.body.intencaoId}/confirmar-demo?companyId=${companyId}`;
 

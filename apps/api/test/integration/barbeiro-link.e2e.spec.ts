@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -74,12 +77,23 @@ beforeAll(async () => {
   tokenAdmin = login.body.token;
 });
 
+/** Login OTP completo (provider demo) — devolve o token de sessão do cliente. */
+async function loginCompleto(telefone: string): Promise<string> {
+  const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+  const confirmar = await http
+    .post('/conta/login/confirmar')
+    .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+    .expect(201);
+  return confirmar.body.token;
+}
+
 afterAll(async () => {
   await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
   await prisma.atendimento.deleteMany({ where: { companyId } });
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
@@ -128,15 +142,17 @@ describe('PUT /barbeiros/:id/slug', () => {
 
 describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
   it('agendamento avulso sem link não registra origem', async () => {
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}`);
     const res = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '10:00',
-        cliente: { nome: 'Sem Link', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Sem Link' },
       })
       .expect(201);
     const atendimento = await prisma.atendimento.findUnique({ where: { id: res.body.atendimentoId } });
@@ -144,15 +160,17 @@ describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
   });
 
   it('agendamento avulso VINDO do link do barbeiro registra origemLinkBarbeiroId', async () => {
+    const token = await loginCompleto(`11 9${String(Date.now() + 1).slice(-8)}`);
     const res = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '11:00',
-        cliente: { nome: 'Com Link', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
+        cliente: { nome: 'Com Link' },
         origemLinkBarbeiroId: barbeiroId,
       })
       .expect(201);
@@ -168,12 +186,14 @@ describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
       .expect(201);
     await http.patch(`/pacote-ofertas/${oferta.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
+    const token = await loginCompleto(`11 9${String(Date.now() + 2).slice(-8)}`);
     const venda = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         ofertaId: oferta.body.id,
-        cliente: { nome: 'Compra Link', telefone: `11 9${String(Date.now() + 2).slice(-8)}` },
+        cliente: { nome: 'Compra Link' },
         formaPagamento: 'presencial',
         origemLinkBarbeiroId: barbeiroId,
       })

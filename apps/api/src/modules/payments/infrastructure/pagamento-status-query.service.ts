@@ -15,6 +15,10 @@ export class PagamentoStatusQueryService {
   async status(companyId: string, intencaoId: string): Promise<PagamentoStatusDTO | null> {
     const intencao = await this.prisma.intencaoDePagamento.findUnique({ where: { id: intencaoId } });
     if (!intencao || intencao.companyId !== companyId) return null;
-    return { intencaoId: intencao.id, status: StatusPagamento[intencao.status] };
+    return {
+      intencaoId: intencao.id,
+      status: StatusPagamento[intencao.status],
+      expiraEm: intencao.expiraEm ? intencao.expiraEm.toISOString() : null,
+    };
   }
 }

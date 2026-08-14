@@ -113,7 +113,21 @@
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma migrate dev --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma --name restaura_default_origem_comissao --skip-generate)",
       "Bash(DATABASE_URL=\"postgresql://bigods:bigods@localhost:5432/bigods\" npx prisma generate --schema /home/lkt/work/bigods-barber-v2/prisma/schema.prisma)",
       "Bash(docker start *)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(curl -4 -s ifconfig.me)",
+      "Bash(chmod 400 ~/.ssh/bigods-key.pem)",
+      "Bash(cp ~/.ssh/bigods-key.pem /tmp/bigods-key.pem.bak)",
+      "Bash(sed -i '1i -----BEGIN RSA PRIVATE KEY-----' ~/.ssh/bigods-key.pem)",
+      "Bash(openssl rsa *)",
+      "Bash(awk '{print length}' ~/.ssh/bigods-key.pem)",
+      "Bash(bash -c ' *)",
+      "Bash(git fetch *)",
+      "Bash(git worktree *)",
+      "Bash(git checkout *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(gh pr create --base master --head fix/deploy-pull-arg-parsing --title 'fix: corrige parsing de --pull em scripts/deploy.sh' --body ' *)",
+      "Bash(git merge --no-ff fix/deploy-pull-arg-parsing -m ' *)"
     ],
     "additionalDirectories": [
       "/tmp"

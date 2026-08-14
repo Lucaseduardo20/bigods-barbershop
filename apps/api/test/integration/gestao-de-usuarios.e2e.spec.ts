@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -82,6 +85,8 @@ afterAll(async () => {
   await prisma.lancamentoComissao.deleteMany({ where: { companyId } });
   await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
   await prisma.atendimento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
+  await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiro: { companyId } } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiro: { companyId } } });
   await prisma.excecaoPreco.deleteMany({ where: { barbeiro: { companyId } } });
@@ -254,15 +259,22 @@ describe('Desativar (nunca deletar) — soft-disable', () => {
   it('barbeiro desativado não recebe novo agendamento — bloqueado no endpoint, não só escondido na UI', async () => {
     await http.put(`/barbeiros/${barbeiroId}/status`).set('Authorization', `Bearer ${tokenAdmin}`).send({ ativo: false }).expect(200);
 
+    const telefone = `11 9${String(Date.now()).slice(-8)}`;
+    const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+    const confirmar = await http
+      .post('/conta/login/confirmar')
+      .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+      .expect(201);
     const resp = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${confirmar.body.token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: '2030-06-20',
         horaInicio: '10:00',
-        cliente: { nome: 'Tentativa Inativo', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Tentativa Inativo' },
       })
       .expect(400);
     expect(resp.body.message).toMatch(/desativado/i);

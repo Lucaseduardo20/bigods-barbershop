@@ -41,12 +41,13 @@ export class AbacatePayGateway implements PaymentGateway {
     valor: Dinheiro;
     descricao: string;
     externalId: string;
+    expiraEmSegundos?: number;
   }): Promise<CobrancaPix> {
     const corpo = {
       method: 'PIX',
       data: {
         amount: params.valor.centavos,
-        expiresIn: this.config.expiraEmSegundos,
+        expiresIn: params.expiraEmSegundos ?? this.config.expiraEmSegundos,
         description: params.descricao,
         // externalId DIRETO em data (v2) — é o que o webhook devolve em
         // data.transparent.externalId pra reconciliar (§3.8).

@@ -68,6 +68,11 @@ function exigir(nome: string): string {
     ConfirmarLoginClienteUseCase,
     OnPacoteVendidoHandler,
   ],
-  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService],
+  // ClienteGuard exportado (sessão de OTP+reserva): agora usado também fora
+  // de IdentityModule — BookingPublicoController (scheduling) e
+  // PacotesPublicoController (packages) passam a exigir sessão de cliente
+  // (@ContaCliente()) nas escritas públicas. Global, então não precisa de
+  // import explícito nesses módulos (mesmo mecanismo de ClienteSessaoService).
+  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService, ClienteGuard],
 })
 export class IdentityModule {}

@@ -17,6 +17,7 @@ export function PixAguardando({
   intencaoId,
   valorCentavos,
   demoMode,
+  ehPacote,
   onPago,
   onTentarNovo,
 }: {
@@ -24,12 +25,21 @@ export function PixAguardando({
   intencaoId: string;
   valorCentavos: number;
   demoMode: boolean;
+  /** Pacote não reserva horário nenhum (só a intenção de pagamento) — muda o texto. */
+  ehPacote?: boolean;
   onPago: () => void;
   onTentarNovo: () => void;
 }) {
   const [status, setStatus] = useState<'AGUARDANDO' | 'EXPIRADO' | 'FALHOU'>('AGUARDANDO');
   const [copiado, setCopiado] = useState(false);
   const [simulando, setSimulando] = useState(false);
+  // Sessão de OTP+reserva: o cliente vê quanto tempo falta pra reserva/PIX
+  // expirar — nunca uma tela "aguardando" sem noção nenhuma de prazo. Some do
+  // estado inicial via prop; cada poll do status (abaixo) pode atualizar
+  // (mesmo valor na prática, já que reserva e intenção compartilham o mesmo
+  // instante — ver PRAZO_RESERVA_SEGUNDOS no backend).
+  const [expiraEm, setExpiraEm] = useState(cobranca.expiraEm);
+  const [restanteMs, setRestanteMs] = useState(() => new Date(cobranca.expiraEm).getTime() - Date.now());
   const pago = useRef(false);
 
   // Modo demo: sem gateway real não há webhook para confirmar. Este botão simula
@@ -67,6 +77,7 @@ export function PixAguardando({
           setStatus(r.status);
           return; // para o polling
         }
+        if (r.expiraEm) setExpiraEm(r.expiraEm);
       } catch (e) {
         // erro transitório de rede não derruba o polling (segue tentando);
         // só registra para não travar silenciosamente.
@@ -82,6 +93,18 @@ export function PixAguardando({
     };
   }, [intencaoId, onPago]);
 
+  // Contagem regressiva visual — tique de 1s, independente do polling (que
+  // roda a cada 3s). Puramente de exibição: quem decide de verdade se a
+  // reserva morreu é o backend (`expirouPorTempo`), nunca o relógio do
+  // navegador do cliente.
+  useEffect(() => {
+    setRestanteMs(new Date(expiraEm).getTime() - Date.now());
+    const tique = setInterval(() => {
+      setRestanteMs(new Date(expiraEm).getTime() - Date.now());
+    }, 1000);
+    return () => clearInterval(tique);
+  }, [expiraEm]);
+
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(cobranca.copiaECola);
@@ -96,10 +119,16 @@ export function PixAguardando({
     return (
       <div className="flex flex-col items-center text-center gap-3 py-10 px-6">
         <div className="text-[18px] font-extrabold">
-          {status === 'EXPIRADO' ? 'O código PIX expirou' : 'O pagamento não foi concluído'}
+          {status === 'EXPIRADO'
+            ? ehPacote
+              ? 'O tempo para pagar expirou'
+              : 'Sua reserva expirou'
+            : 'O pagamento não foi concluído'}
         </div>
         <div className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-          Nenhum valor foi cobrado. Gere um novo código e tente de novo.
+          {status === 'EXPIRADO' && !ehPacote
+            ? 'Ninguém foi cobrado, mas o horário não ficou mais reservado pra você. Gere um novo horário e tente de novo.'
+            : 'Nenhum valor foi cobrado. Gere um novo código e tente de novo.'}
         </div>
         <button className="btn btn-block" style={{ maxWidth: 320 }} onClick={onTentarNovo}>
           Tentar de novo
@@ -107,6 +136,9 @@ export function PixAguardando({
       </div>
     );
   }
+
+  const restanteSeg = Math.max(0, Math.floor(restanteMs / 1000));
+  const restanteRotulo = `${Math.floor(restanteSeg / 60)}:${String(restanteSeg % 60).padStart(2, '0')}`;
 
   return (
     <div className="flex flex-col items-center text-center gap-4 py-6 px-6">
@@ -135,6 +167,12 @@ export function PixAguardando({
       <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--text-muted)' }}>
         <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Aguardando confirmação…
       </div>
+
+      {restanteMs > 0 && (
+        <div className="text-[13px] font-semibold" style={{ color: restanteSeg <= 60 ? 'var(--status-danger)' : 'var(--text-muted)' }}>
+          {ehPacote ? 'Pague em até' : 'Seu horário está reservado por'} {restanteRotulo}
+        </div>
+      )}
 
       {demoMode && (
         <div className="w-full flex flex-col items-center gap-1.5 mt-2" style={{ maxWidth: 320 }}>

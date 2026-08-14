@@ -3,12 +3,14 @@ import type {
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
   CobrancaDTO,
+  ConfirmarLoginClienteResponse,
   PacoteOfertaDTO,
   ServicoDTO,
   VenderPacotePublicoResponse,
 } from '@bigods/contracts';
 import { api, ApiError } from './lib/api';
 import { COMPANY_ID } from './lib/config';
+import { carregarSessaoBooking, salvarSessaoBooking, limparSessaoBooking } from './lib/session';
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
 import { dinheiro, hojeISO } from './lib/format';
 import { telefoneValido } from './lib/telefone';
@@ -29,6 +31,7 @@ import {
 } from './lib/funnel-state';
 import { ErroEstado, Loading, useApi } from './components/ui';
 import { PixAguardando } from './components/PixAguardando';
+import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
 import { Barbeiro } from './steps/Barbeiro';
@@ -90,6 +93,9 @@ function Funil() {
   // Cobrança PIX pendente (online) — enquanto existir, mostramos a tela de espera.
   const [cobranca, setCobranca] = useState<CobrancaDTO | null>(null);
   const [intencaoId, setIntencaoId] = useState<string | null>(null);
+  // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
+  // pausa aqui até o telefone ser verificado.
+  const [mostrandoOtp, setMostrandoOtp] = useState(false);
 
   useEffect(() => {
     salvarEstado(estado);
@@ -180,6 +186,7 @@ function Funil() {
     return <Sucesso estado={estado} pago={pago} onNovo={reset} />;
   }
 
+
   // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO.
   if (cobranca && intencaoId) {
     const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalCentavos(servicosParaPreco, estado.servicoIds);
@@ -190,6 +197,7 @@ function Funil() {
           intencaoId={intencaoId}
           valorCentavos={valor}
           demoMode={empresa.demoMode}
+          ehPacote={estado.modo === 'pacote'}
           onPago={() => {
             setPago(true);
             setCobranca(null);
@@ -295,10 +303,15 @@ function Funil() {
     }
   };
 
-  const confirmar = async () => {
+  // Sessão de OTP+reserva (Problema 1): telefone verificado ANTES de reservar
+  // ou cobrar. Com sessão local válida, envia direto (sem OTP de novo); sem
+  // sessão, pausa em `mostrandoOtp` até o cliente confirmar o código. Um
+  // token que a API rejeita (expirado/inválido) cai no mesmo caminho — nunca
+  // um erro genérico, sempre a chance de reverificar.
+  const enviarComSessao = async (token: string) => {
     setEnviando(true);
     setErroEnvio(null);
-    const cliente = { nome: estado.nome.trim(), telefone: estado.telefone };
+    const cliente = { nome: estado.nome.trim() };
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
     // ver Confirmacao.tsx); avulso segue a escolha do cliente.
     const online = estado.modo === 'pacote' || estado.formaPagamento === 'online';
@@ -310,6 +323,7 @@ function Funil() {
       if (estado.modo === 'pacote') {
         const r = await api<VenderPacotePublicoResponse>('/public/pacotes', {
           method: 'POST',
+          token,
           body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, origemLinkBarbeiroId },
         });
         if (online && r.cobranca) {
@@ -322,6 +336,7 @@ function Funil() {
       } else {
         const r = await api<AgendarPublicoResponse>('/public/agendamentos', {
           method: 'POST',
+          token,
           body: {
             companyId: COMPANY_ID,
             barbeiroId: estado.barbeiroId,
@@ -342,10 +357,25 @@ function Funil() {
         }
       }
     } catch (e) {
-      setErroEnvio(e instanceof ApiError ? e.message : String(e));
+      if (e instanceof ApiError && e.status === 401) {
+        limparSessaoBooking();
+        setMostrandoOtp(true);
+      } else {
+        setErroEnvio(e instanceof ApiError ? e.message : String(e));
+      }
     } finally {
       setEnviando(false);
     }
+  };
+
+  const confirmar = async () => {
+    setErroEnvio(null);
+    const sessao = carregarSessaoBooking();
+    if (!sessao) {
+      setMostrandoOtp(true);
+      return;
+    }
+    await enviarComSessao(sessao.token);
   };
 
   // ---- Corpo do passo atual ----
@@ -469,6 +499,19 @@ function Funil() {
         {corpo}
       </div>
       {cta && <SummaryBar resumo={resumo} total={total} duracao={duracao} cta={cta} />}
+      {/* Sessão de OTP+reserva: modal sobre a Confirmação — sem sessão local válida, pausa
+          o envio aqui até o telefone ser verificado. Não é passo próprio do funil. */}
+      {mostrandoOtp && (
+        <OtpVerificacao
+          telefone={estado.telefone}
+          onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
+            salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
+            setMostrandoOtp(false);
+            void enviarComSessao(sessao.token);
+          }}
+          onCancelar={() => setMostrandoOtp(false)}
+        />
+      )}
     </div>
   );
 }

@@ -7,16 +7,22 @@ import { Icon, Loading, useApi } from '../components/ui';
 import { QuandoBloco } from '../components/QuandoBloco';
 
 const rotuloStatus: Record<StatusAtendimento, string> = {
+  // Sessão de OTP+reserva: avulso online passa por RESERVADO até o pagamento
+  // confirmar; se não pagar a tempo, vira RESERVA_EXPIRADA (nunca revive).
+  [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Não compareceu',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'Expirado',
 };
 const corStatus: Record<StatusAtendimento, string> = {
+  [StatusAtendimento.RESERVADO]: 'var(--state-warning)',
   [StatusAtendimento.AGENDADO]: 'var(--accent-primary)',
   [StatusAtendimento.CONCLUIDO]: 'var(--state-success, #2e7d32)',
   [StatusAtendimento.CANCELADO]: 'var(--state-danger)',
   [StatusAtendimento.NAO_COMPARECEU]: 'var(--state-warning)',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'var(--text-muted)',
 };
 
 /**

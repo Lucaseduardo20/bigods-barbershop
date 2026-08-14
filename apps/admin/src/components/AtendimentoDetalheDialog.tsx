@@ -8,16 +8,23 @@ import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
 
 export const toneStatus: Record<StatusAtendimento, string> = {
+  // Sessão de OTP+reserva: avulso online fica RESERVADO até o pagamento
+  // confirmar (some da agenda firme, mas ocupa o horário) — nunca revive
+  // depois de RESERVA_EXPIRADA.
+  [StatusAtendimento.RESERVADO]: 'warning',
   [StatusAtendimento.AGENDADO]: 'info',
   [StatusAtendimento.CONCLUIDO]: 'success',
   [StatusAtendimento.CANCELADO]: 'danger',
   [StatusAtendimento.NAO_COMPARECEU]: 'warning',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'neutral',
 };
 export const labelStatus: Record<StatusAtendimento, string> = {
+  [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Faltou',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'Expirado',
 };
 
 /**

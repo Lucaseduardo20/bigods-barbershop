@@ -72,6 +72,20 @@ da instrução original sobre `transparent.lost` — ver DECISOES_PENDENTES.md #
 **428 testes verdes no backend**, idênticos sob os 3 fusos (`npm run
 test:multitz`). `turbo run build` verde nos 5 pacotes.
 
+Sessão de OTP+reserva (2026-08-13, "agenda falsa + buraco na agenda +
+enxurrada de presenciais" — ver seção dedicada perto do fim deste arquivo):
+três problemas do funil anônimo, três travas distintas. OTP obrigatório na
+confirmação do agendamento/compra pra quem não tem sessão (reusa o mecanismo
+de login do cockpit, zero OTP novo construído); avulso online passou a nascer
+`RESERVADO` (novo estado, temporário) em vez de `AGENDADO` firme, expira
+sozinho em 10 min sem pagamento e libera o horário; cota de 3 presenciais
+futuros ativos por cliente, só no canal de auto-atendimento (não vale pro
+admin). **Dois desvios/decisões próprias reportados com destaque**: a janela
+de pagamento do pacote encolheu de 1h pra 10min (DECISOES_PENDENTES.md #28) e
+a cota de presenciais não se aplica ao admin/reagendar (DECISOES_PENDENTES.md
+#29). **456 testes verdes no backend**, idênticos sob os 3 fusos. `turbo run
+build` verde nos 5 pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -2170,6 +2184,104 @@ de sandbox carregados:
 8. **Assinatura inválida:** enviar manualmente um POST pra
    `/webhooks/abacatepay` sem header `X-Webhook-Signature` (ex.: via curl) e
    confirmar 401, sem nenhum efeito em nenhuma intenção.
+
+## OTP obrigatório + reserva temporária + cota de presenciais (2026-08-13) ✅
+
+Três problemas reais do funil de agendamento anônimo, cada um com sua trava específica —
+suíte confirmada verde (428 testes) antes de tocar em qualquer código, como pedido.
+
+### Matriz implementada
+
+| Cenário | OTP | Reserva |
+|---|---|---|
+| Presencial, sem sessão | Exige OTP na confirmação | Firme direto após o OTP |
+| Presencial, com sessão | Sem OTP | Firme direto |
+| Online/pacote, sem sessão | Exige OTP na confirmação | Temporária (10 min) → firme no pagamento |
+| Online/pacote, com sessão | Sem OTP | Temporária (10 min) → firme no pagamento |
+
+### Problema 1 — agenda falsa (qualquer telefone reservava sem provar posse)
+
+**Solução:** `POST /public/agendamentos` e `POST /public/pacotes` passaram de `@Publico()` pra
+`@ContaCliente()` — mesma sessão de cliente do login do cockpit (`IdentityProvider` + OTP +
+`ClienteSessaoService`), **zero mecanismo de OTP novo construído**. O telefone do request DTO foi
+**removido** — vem sempre da sessão verificada, nunca do corpo (testado explicitamente: um
+telefone forjado no body é ignorado). Sem sessão local válida, o front (`apps/booking`) roda
+`/conta/login/iniciar` + `/conta/login/confirmar` — só depois de escolher barbeiro/serviço/
+horário, nunca antes (protegendo conversão). Com sessão salva (token HMAC, 30 dias, localStorage
+próprio de `apps/booking`), pula o OTP.
+
+### Problema 2 — buraco na agenda (PIX nunca pago prendia o horário pra sempre)
+
+**Solução:** novo estado `RESERVADO` em `StatusAtendimento` (+ `RESERVA_EXPIRADA`, final). Avulso
+online nasce `RESERVADO`, não `AGENDADO` — participa da invariante de conflito de horário (domínio
++ constraint `EXCLUDE` do Postgres, estendida pra cobrir os dois status) igual a um agendamento
+firme, mas expira sozinho se não pagar a tempo. `PRAZO_RESERVA_SEGUNDOS = 600` (10 min, constante
+nomeada) alimenta, no MESMO instante calculado uma única vez: `Atendimento.reservaOnlineExpiraEm`,
+`IntencaoDePagamento.expiraEm` e o `expiresIn` pedido de verdade à AbacatePay — nunca duas chamadas
+a "agora" separadas, pra nunca haver split-brain entre "reserva expirou" e "intenção expirou", nem
+a AbacatePay aceitar um pagamento depois que a reserva local já foi liberada.
+
+`ExpirarPagamentoVencidoUseCase` (já existia da sessão do AbacatePay, só pra intenção) passou a
+rodar numa transação que expira a intenção **e** a reserva do atendimento juntas — disparado pelo
+próprio polling do funil (`GET /public/pagamentos/:id`), sem cron. `ProcessarWebhookUseCase` ganhou
+um branch para `referencia.tipo === 'ATENDIMENTO'`: pagamento confirmado chama
+`Atendimento.confirmarReserva()` (`RESERVADO → AGENDADO`) na mesma transação do
+`IntencaoDePagamento.confirmarPagamento()`. A projeção pública de horários livres
+(`GET /public/horarios`) também não mostra mais como ocupado um slot `RESERVADO` cujo prazo já
+passou, mesmo que ninguém ainda tenha lido o status pra disparar a expiração de verdade.
+
+**★ Pacote também passou a usar essa mesma janela de 10 min** (era 1h) — decisão minha, reportada
+em detalhe em `DECISOES_PENDENTES.md` #28, porque `VendaDePacote` não tem horário pra reservar
+(a spec agrupa avulso-online e pacote sob o mesmo prazo, mas isso é uma leitura minha, não um
+número confirmado pelo dono pro caso do pacote especificamente).
+
+### Problema 3 — enxurrada de presenciais (OTP prova telefone real, não impede volume)
+
+**Solução:** `LIMITE_PRESENCIAIS_FUTUROS_ATIVOS = 3` (`regra-cota-presencial.ts`, domínio puro). Um
+cliente não pode ter mais de 3 `Atendimento` `AGENDADO`, futuros, **presenciais** (nunca passaram
+pelo canal online — detectado via `reservaOnlineExpiraEm IS NULL`, sem campo novo nem relação com
+`IntencaoDePagamento`) ao mesmo tempo. Online nunca conta nem é limitado (pagamento já é a trava
+natural). Só vale pro canal de auto-atendimento (funil público + cockpit) — **o admin e o
+reagendar (cancela+cria) ficam de fora**, decisão minha detalhada em `DECISOES_PENDENTES.md` #29.
+
+### Testes
+
+**456 testes verdes no backend** (44 arquivos, +28 sobre a sessão anterior), idênticos sob
+`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`. Novo arquivo dedicado
+`test/integration/otp-reserva.e2e.spec.ts` (8 testes: reserva nasce `RESERVADO` e ocupa o horário
+na projeção pública, confirmação vira firme, duas reservas concorrentes pro mesmo slot → 422,
+reserva expira e libera o slot pra uma nova reserva, webhook tardio numa reserva já expirada não
+revive, e os 3 cenários de cota de presenciais). `atendimento.spec.ts` ganhou 10 testes de domínio
+da máquina de reserva. Oito arquivos e2e pré-existentes precisaram de ajuste mecânico (obter uma
+sessão de cliente via login OTP demo antes de chamar os endpoints públicos, já que passaram a
+exigir `@ContaCliente()`) — nenhuma regra de negócio pré-existente mudou de comportamento nesses
+arquivos, só a forma de autenticar a chamada de teste. `turbo run build` verde nos 5 pacotes —
+incluiu corrigir 3 mapas exaustivos `Record<StatusAtendimento, ...>` no admin/account que não
+cobriam os dois status novos (erro de compilação real, pego pelo build, não pelos testes).
+
+### Roteiro de smoke test manual (para o dono rodar)
+
+1. **Presencial sem sessão:** no funil público (`apps/booking`), escolher barbeiro/serviço/
+   horário, marcar "pagar na barbearia", confirmar → aparece a tela de código OTP. Digitar o
+   código (modo demo: aparece na tela; produção: chega por WhatsApp) → o agendamento confirma
+   direto, sem reserva/PIX.
+2. **Presencial com sessão:** repetir o fluxo acima no MESMO navegador — a segunda vez não deve
+   pedir OTP de novo (sessão local salva).
+3. **Avulso online:** escolher "pagar agora (PIX)" → confirmar (OTP se necessário) → tela de PIX
+   aparece com **contagem regressiva** ("Seu horário está reservado por 9:59…"). Não pagar e
+   esperar o prazo passar → a tela deve trocar sozinha pra "sua reserva expirou, gere um novo
+   horário"; o mesmo horário deve voltar a aparecer disponível pra outro cliente.
+4. **Avulso online, pagando a tempo:** repetir o passo 3, mas pagar (ou simular, em modo demo)
+   dentro da janela — a tela avança pra sucesso e o atendimento aparece firme na agenda do admin.
+5. **Pacote:** comprar um pacote → confirmar que também pede OTP (se sem sessão) e mostra a
+   contagem regressiva do PIX — sem menção a "horário" (pacote não reserva agenda).
+6. **Cota de presenciais:** com o MESMO telefone, marcar 3 presenciais em horários diferentes →
+   tentar um 4º → deve recusar com a mensagem "você já tem 3 horários marcados...". Cancelar um
+   dos 3 pelo cockpit (`apps/account`) → tentar de novo → deve aceitar.
+7. **Cota não bloqueia online:** com o telefone do passo 6 já no limite de 3 presenciais, comprar
+   um pacote ou marcar um avulso online → deve funcionar normalmente (a cota é só de presenciais).
+8. **Admin sem cota:** pelo painel admin, criar mais de 3 presenciais pro mesmo cliente → não deve
+   ser bloqueado (autonomia do staff, decisão registrada em DECISOES_PENDENTES.md #29).
 
 ## Como rodar localmente
 

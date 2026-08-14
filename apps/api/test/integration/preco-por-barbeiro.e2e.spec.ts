@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -105,6 +108,16 @@ beforeAll(async () => {
   tokenAdmin2 = login2.body.token;
 });
 
+/** Login OTP completo (provider demo) — devolve o token de sessão do cliente. */
+async function loginCompleto(telefone: string): Promise<string> {
+  const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+  const confirmar = await http
+    .post('/conta/login/confirmar')
+    .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+    .expect(201);
+  return confirmar.body.token;
+}
+
 afterAll(async () => {
   await prisma.lancamentoComissao.deleteMany({ where: { barbeiroId: { in: [barbeiroId, barbeiroId2] } } });
   await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
@@ -112,6 +125,7 @@ afterAll(async () => {
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
@@ -312,21 +326,25 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
     await http.patch(`/pacote-ofertas/${ofertaB1.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
     await http.patch(`/pacote-ofertas/${ofertaB2.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin2}`).expect(200);
 
+    const tokenB1 = await loginCompleto(`11 9${String(Date.now()).slice(-8)}`);
     const compraB1 = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${tokenB1}`)
       .send({
         companyId,
         ofertaId: ofertaB1.body.id,
-        cliente: { nome: 'Cliente Funil B1', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Cliente Funil B1' },
         formaPagamento: 'presencial',
       })
       .expect(201);
+    const tokenB2 = await loginCompleto(`11 9${String(Date.now() + 1).slice(-8)}`);
     const compraB2 = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${tokenB2}`)
       .send({
         companyId,
         ofertaId: ofertaB2.body.id,
-        cliente: { nome: 'Cliente Funil B2', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
+        cliente: { nome: 'Cliente Funil B2' },
         formaPagamento: 'presencial',
       })
       .expect(201);
@@ -352,15 +370,17 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
       .send({ precos: [{ servicoId: corteId, precoCentavos: 5500 }] })
       .expect(200);
 
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}`);
     const resp = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '16:00',
-        cliente: { nome: 'Cliente Avulso Override', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Cliente Avulso Override' },
         formaPagamento: 'presencial',
       })
       .expect(201);

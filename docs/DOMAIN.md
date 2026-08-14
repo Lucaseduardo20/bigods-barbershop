@@ -41,9 +41,16 @@ Dois consumidores da mesma regra:
 - **Escrita** (criar agendamento): a invariante "não existem dois atendimentos sobrepostos
   para o mesmo barbeiro" é garantida no domínio **e** por uma constraint de exclusão no
   Postgres (`EXCLUDE USING gist` sobre um range temporal). O banco recusa fisicamente a
-  sobreposição, mesmo sob concorrência.
+  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO)` — a reserva
+  TEMPORÁRIA de um avulso online (§3.5, §3.8) ocupa o horário igual a um agendamento firme,
+  senão duas reservas concorrentes pro mesmo slot poderiam ambas nascer (sessão de OTP+reserva,
+  Problema 2).
 - **Leitura** (listar horários livres): é uma **projeção**, não a fonte da verdade. Pode ser
-  otimizada livremente. Se ela errar por corrida, a escrita rejeita — sem inconsistência.
+  otimizada livremente. Se ela errar por corrida, a escrita rejeita — sem inconsistência. Ao
+  listar, uma `RESERVADO` cujo prazo já passou (`reservaOnlineExpiraEm`) NÃO conta como ocupada,
+  mesmo que ainda não tenha sido lazy-expirada por ninguém (o EXCLUDE do banco só entende status,
+  não timestamp — quem escreve um novo agendamento naquele slot é quem, na prática, força a
+  reserva vencida a ceder, via a mesma invariante de conflito).
 
 **Por quê:** na v1, essa regra foi implementada duas vezes (query SQL na criação, comparação
 em memória na listagem) e as duas podiam divergir. A causa raiz foi não separar invariante de
@@ -328,6 +335,7 @@ Um serviço (ou conjunto de serviços) marcado com um barbeiro em um horário.
 | `formaPagamento` | FormaPagamento \| null | preenchido só na conclusão — ver regra generalizada abaixo |
 | `motivoCancelamento` | string \| null | obrigatório se CANCELADO |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio o agendamento, se veio de algum (só registro, ver §8.4) |
+| `reservaOnlineExpiraEm` | Date \| null | sessão de OTP+reserva — setado SÓ na criação de um avulso ONLINE; ver §4.1 e §8.9 |
 
 **`ItemAtendido`** (value object dentro do agregado):
 
@@ -351,10 +359,10 @@ ontem continua valendo R$40. Sem snapshot, o histórico e o extrato de comissão
 retroativamente — inaceitável num sistema que precisa ser auditável.
 
 **Invariantes:**
-- Não existem dois `Atendimento` com status ativo (`AGENDADO`) sobrepostos no tempo para o mesmo
-  `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no Postgres. `IntervaloDeTempo`
-  é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se tocam (o fim de um é igual ao
-  início do outro) não conflitam.
+- Não existem dois `Atendimento` com status ativo (`AGENDADO` **ou** `RESERVADO`, §4.1) sobrepostos
+  no tempo para o mesmo `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no
+  Postgres. `IntervaloDeTempo` é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se
+  tocam (o fim de um é igual ao início do outro) não conflitam.
 - O `intervalo` deve estar contido em alguma `DisponibilidadeBarbeiro` daquele barbeiro naquela
   data — a disponibilidade é procurada pelo **dia civil local** do início do atendimento (§2.6),
   nunca pelo dia UTC bruto do instante.
@@ -580,7 +588,8 @@ pagamento nunca confirmaria).
 
 **Fluxo:**
 1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente
-   (`agora + gateway.expiraEmSegundos`).
+   (`agora + PRAZO_RESERVA_SEGUNDOS`, sessão de OTP+reserva — §8.9 — a MESMA janela e o MESMO
+   instante do `Atendimento.reservaOnlineExpiraEm` quando a referência é um atendimento avulso).
 2. Infra chama `POST /v2/transparents/create` na AbacatePay, passando nosso `externalId` em
    `data.externalId`. Resposta devolve QR Code (`brCodeBase64`) e copia-e-cola (`brCode`).
 3. Webhook `transparent.completed` chega → assinatura validada (ver abaixo) → busca a intenção
@@ -770,26 +779,40 @@ soft-delete (foi assim que a v1 acabou com cancelamento representado de duas for
 
 ### 4.1 `Atendimento`
 
+Sessão de OTP+reserva (Problema 2): avulso ONLINE nasce `RESERVADO` (temporário), não
+`AGENDADO` — vira firme só quando o pagamento confirma, ou expira sozinho se não confirmar a
+tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
+
 ```
-                    ┌─────────────┐
-                    │  AGENDADO   │
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌────────────┐  ┌────────────┐  ┌────────────┐
-    │ CONCLUIDO  │  │ CANCELADO  │  │ NAO_COMPA- │
-    │            │  │ (c/ motivo)│  │  RECEU     │
-    └────────────┘  └────────────┘  └────────────┘
-       (final)         (final)          (final)
+   ┌────────────┐  pagamento     ┌─────────────┐
+   │ RESERVADO  │ ─confirmado──▶ │  AGENDADO   │◄── presencial nasce direto aqui
+   └──────┬─────┘                └──────┬──────┘
+          │ timeout                     │
+          ▼                ┌────────────┼───────────────┐
+   ┌──────────────┐        ▼            ▼               ▼
+   │ RESERVA_     │ ┌────────────┐┌────────────┐  ┌────────────┐
+   │ EXPIRADA     │ │ CONCLUIDO  ││ CANCELADO  │  │ NAO_COMPA- │
+   └──────────────┘ │            ││ (c/ motivo)│  │  RECEU     │
+      (final)       └────────────┘└────────────┘  └────────────┘
+                        (final)      (final)          (final)
 ```
 
+- `RESERVADO → AGENDADO` (`confirmarReserva`): pagamento online confirmado (webhook
+  `transparent.completed` ou `confirmar-demo`, §3.8). Só agora emite `AtendimentoAgendado` — não
+  na criação da reserva, pra nunca notificar "você está agendado" antes de existir pagamento
+  algum (Fase 2 de notificação, ainda não construída, mas o evento já existe pra ela plugar).
+- `RESERVADO → RESERVA_EXPIRADA` (`expirarReserva`): prazo (`reservaOnlineExpiraEm`) vencido sem
+  pagamento — libera o horário (não conflita mais, §2.1). Sempre disparado na MESMA transação em
+  que a `IntencaoDePagamento` vinculada expira (`ExpirarPagamentoVencidoUseCase`), nunca isolado —
+  senão intenção e reserva podem divergir (uma expirada, a outra não).
 - `AGENDADO → CONCLUIDO`: emite `AtendimentoConcluido`. Exige `formaPagamento` se `AVULSO`.
 - `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado` com `antecipado: boolean`
   (`true` se cancelado antes do horário marcado) — usado pelo handler de Pacote para decidir se o
   item associado conta falta (§3.5, §4.2).
 - `AGENDADO → NAO_COMPARECEU`: emite `ClienteFaltou`.
 - **Estados finais não transicionam.** Reagendar = criar um novo `Atendimento`, não mutar o antigo.
-  (Isso preserva a auditoria: o histórico mostra que houve uma falta.)
+  (Isso preserva a auditoria: o histórico mostra que houve uma falta.) `RESERVA_EXPIRADA` é final
+  igual aos outros — uma reserva morta nunca revive, nem por um webhook tardio.
 
 ### 4.2 `ItemDoPacote`
 
@@ -1071,22 +1094,33 @@ essa classe inteira de bug antes que ela nasça. É a maior razão pela qual est
 
 ## 8. Casos de uso principais
 
-### 8.1 Agendar avulso (funil público, sem login)
+### 8.1 Agendar avulso (funil público) — sessão de OTP+reserva
 
 ```
+0. Exigir sessão de cliente verificada por OTP (@ContaCliente — mesmo
+   mecanismo do login do cockpit). Sem sessão ativa, o front roda OTP ANTES
+   deste passo (ver §8.9); o telefone usado é sempre o da sessão, nunca do
+   corpo da requisição.
 1. Validar serviços existem, estão ativos, e o barbeiro os atende
 2. Calcular intervalo (soma das durações)
 3. Validar que o intervalo cabe na disponibilidade do barbeiro
    → a disponibilidade é buscada pelo DIA CIVIL local (fuso da empresa) do
      horário pedido, nunca pelo dia UTC bruto do instante (§2.6)
-4. Encontrar-ou-criar Cliente pelo telefone (normalizado)
-5. Criar Atendimento (AGENDADO, origem=AVULSO)
-   → invariante de sobreposição validada no domínio
-   → constraint EXCLUDE do Postgres como rede de segurança
-6. Criar IntencaoDePagamento (AGUARDANDO)
-7. Chamar AbacatePay, retornar QR Code
+4. Encontrar-ou-criar Cliente pelo telefone (da sessão, normalizado)
+5. PRESENCIAL: cota de presenciais futuros ativos (§8.9) — recusa o 4º.
+   ONLINE: pula a cota (pagamento já é a trava natural contra abuso).
+6. Criar Atendimento
+   → PRESENCIAL: nasce AGENDADO (firme) direto, como sempre foi.
+   → ONLINE: nasce RESERVADO (temporário, §4.1, §8.9), não AGENDADO —
+     sem isso, um PIX nunca pago prenderia o horário pra sempre.
+   → invariante de sobreposição validada no domínio (cobre AGENDADO E
+     RESERVADO, §2.1) — constraint EXCLUDE do Postgres como rede de segurança
+6b. ONLINE: criar IntencaoDePagamento (AGUARDANDO), expiraEm = MESMO instante
+    de Atendimento.reservaOnlineExpiraEm (nunca duas chamadas a "agora",
+    senão intenção e reserva podem divergir por milissegundos)
+7. ONLINE: chamar AbacatePay pedindo expiresIn = essa mesma janela, retornar QR Code
 
-TUDO em UMA transação (passos 4-6).
+TUDO em UMA transação (passos 4-6b).
 Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou, órfão no banco.
 ```
 
@@ -1329,6 +1363,49 @@ confundidos**:
 Confundir os dois é o erro mais comum em relatório financeiro — por isso a API devolve os
 dois separados e nomeados (`totalXAcumuladoCentavos` vs. `xNoPeriodoCentavos`), nunca um
 número só.
+
+---
+
+### 8.9 OTP obrigatório + reserva temporária + cota de presenciais (sessão de OTP+reserva)
+
+Três problemas reais do funil anônimo, cada um com sua própria trava — não confundir uma com
+a solução da outra:
+
+**Problema 1 — agenda falsa:** qualquer telefone digitado reservava sem provar posse.
+**Solução:** a escrita pública (`POST /public/agendamentos`, `POST /public/pacotes`) exige
+sessão de cliente verificada por OTP (`@ContaCliente()` — mesmo mecanismo do login do cockpit,
+`IdentityProvider` + `ClienteSessaoService`, nada novo construído). Sem sessão salva localmente
+no funil, o front roda `/conta/login/iniciar` + `/conta/login/confirmar` ANTES de confirmar o
+agendamento — depois de escolher barbeiro/serviço/horário, nunca antes (mataria conversão). Com
+sessão válida (recorrência no mesmo navegador), pula o OTP. O `cliente.telefone` do request
+**não existe mais** nesses DTOs — vem sempre do token verificado, nunca do corpo.
+
+**Problema 2 — buraco na agenda:** gerar um PIX pra um avulso online reservava o horário como se
+fosse presencial; se o cliente nunca pagasse, o horário ficava preso pra sempre. **Solução:**
+reserva `RESERVADO` temporária (§4.1) com prazo (`PRAZO_RESERVA_SEGUNDOS`, 10 min, parametrizado
+— não número mágico espalhado) — a MESMA janela alimenta `Atendimento.reservaOnlineExpiraEm`,
+`IntencaoDePagamento.expiraEm` (§3.8) e o `expiresIn` pedido de verdade à AbacatePay, sempre a
+partir do MESMO instante calculado uma vez (nunca duas chamadas a "agora" separadas — evita
+split-brain entre "reserva expirou" e "intenção expirou"). `ExpirarPagamentoVencidoUseCase`
+expira os dois juntos, na mesma transação, disparado pelo próprio polling do funil (sem cron).
+
+Pacote (`VendaDePacote`) não tem horário — "reserva do horário" não se aplica a ele
+estruturalmente — mas passou a usar a MESMA janela de 10 min pro prazo de pagamento (era 1h),
+por uniformidade com avulso online (ver DECISOES_PENDENTES.md sobre essa mudança de janela).
+
+**Problema 3 — enxurrada de presenciais:** OTP prova que o telefone é real, mas não impede que o
+MESMO cliente marque dezenas de presenciais (que reservam firme sem pagamento algum). OTP é a
+ferramenta errada aqui — a trava certa é limite de agendamentos. **Solução:**
+`LIMITE_PRESENCIAIS_FUTUROS_ATIVOS = 3` (`regra-cota-presencial.ts`) — um cliente não pode ter
+mais que 3 `Atendimento` `AGENDADO`, futuros, **presenciais** (nunca passaram pelo canal
+online — detectado por `reservaOnlineExpiraEm IS NULL`, sem precisar de campo novo nem relação
+com `IntencaoDePagamento`) ao mesmo tempo. Só vale pro canal de auto-atendimento do cliente
+(funil público + cockpit, `aplicarCotaPresencial: true` por default em `AgendarAvulsoUseCase`) —
+o admin agenda por julgamento próprio (`aplicarCotaPresencial: false` explícito no controller do
+painel), e reagendar (cancela+cria, §8.6) também passa `false` — senão o cliente no limite seria
+recusado ao tentar mover um dos 3 que ele já tem (a implementação cria o novo ANTES de cancelar o
+antigo pra avulso, então por um instante os dois "existem"). Online nunca conta nem é limitado
+por esta cota — o pagamento já é a trava natural contra abuso ali.
 
 ---
 

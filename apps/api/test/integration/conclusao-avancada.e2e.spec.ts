@@ -50,8 +50,21 @@ async function agendarAvulso(horaInicio: string, gerarCobranca: boolean, telefon
   return res.body as { atendimentoId: string; cobranca: { intencaoId: string } | null };
 }
 
+/**
+ * Marca a intenção como PAGA e confirma a reserva do atendimento (RESERVADO
+ * → AGENDADO) — sessão de OTP+reserva: como este arquivo testa CONCLUSÃO, não
+ * pagamento, simulamos direto o estado final que o webhook/confirmar-demo
+ * produziriam, sem exercitar a máquina real de pagamento (coberta em
+ * webhook-abacatepay.e2e.spec.ts / pacote-publico.e2e.spec.ts).
+ */
 async function marcarPago(intencaoId: string) {
-  await prisma.intencaoDePagamento.update({ where: { id: intencaoId }, data: { status: 'PAGO' } });
+  const intencao = await prisma.intencaoDePagamento.update({
+    where: { id: intencaoId },
+    data: { status: 'PAGO' },
+  });
+  if (intencao.atendimentoId) {
+    await prisma.atendimento.update({ where: { id: intencao.atendimentoId }, data: { status: 'AGENDADO' } });
+  }
 }
 
 beforeAll(async () => {

@@ -164,6 +164,10 @@ export class AtendimentosController {
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
       cliente: body.cliente,
       gerarCobranca: body.gerarCobranca,
+      // Sessão de OTP+reserva (Problema 3): cota de presenciais é anti-abuso
+      // do canal de auto-atendimento — o admin agenda por julgamento próprio,
+      // sem essa trava.
+      aplicarCotaPresencial: false,
     });
     return { atendimentoId: resultado.atendimentoId, cobranca: resultado.cobranca };
   }

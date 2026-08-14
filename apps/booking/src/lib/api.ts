@@ -13,14 +13,21 @@ export class ApiError extends Error {
   }
 }
 
-/** Cliente HTTP do funil público — sem token, sem sessão (superfície não autenticada). */
+/**
+ * Cliente HTTP do funil público. Maioria das rotas segue sem token (leitura
+ * de catálogo/horários). Sessão de OTP+reserva: a confirmação (agendar/
+ * comprar pacote) agora exige o token de sessão do cliente (mesmo mecanismo
+ * do login do cockpit) — passe `token` quando disponível.
+ */
 export async function api<T>(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; token?: string } = {},
 ): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const res = await fetch(`${BASE}${path}`, {
     method: options.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
   const data = await res.json().catch(() => null);

@@ -73,6 +73,20 @@ export interface AtendimentoProps {
    */
   valorAbatidoSaldo: Dinheiro;
   vendaAbatidaId: VendaDePacoteId | null;
+  /**
+   * Sessão de OTP+reserva: setado SÓ na criação de um atendimento nascido do
+   * canal ONLINE (avulso com pagamento antecipado) — nunca em presencial.
+   * Serve DOIS propósitos, de propósito:
+   * (1) enquanto `status = RESERVADO`, é o prazo pra `expirouPorTempo()`
+   *     liberar o horário se o pagamento não confirmar a tempo;
+   * (2) depois de `confirmarReserva()` (RESERVADO → AGENDADO), o campo NUNCA
+   *     é limpo — vira marca permanente e barata de "este atendimento veio
+   *     do canal online", usada por `regra-cota-presencial` pra excluir
+   *     corretamente atendimentos online da cota de presenciais (§ Problema 3
+   *     da sessão de OTP+reserva) sem precisar de um relacionamento com
+   *     IntencaoDePagamento.
+   */
+  reservaOnlineExpiraEm: Date | null;
 }
 
 export interface AgendarParams {
@@ -84,12 +98,19 @@ export interface AgendarParams {
   inicio: Date;
   origem: OrigemAtendimento;
   disponibilidades: DisponibilidadeBarbeiro[];
-  /** Atendimentos AGENDADO do mesmo barbeiro que possam conflitar (projeção de leitura; o EXCLUDE do Postgres é a rede de segurança). */
+  /** Atendimentos AGENDADO/RESERVADO do mesmo barbeiro que possam conflitar (projeção de leitura; o EXCLUDE do Postgres é a rede de segurança). */
   atendimentosAtivos: Atendimento[];
   origemLinkBarbeiroId?: BarbeiroId | null;
   /** FASE 4a (sessão-E): abatimento de saldo residual aplicado neste agendamento avulso, se houver. */
   valorAbatidoSaldo?: Dinheiro;
   vendaAbatidaId?: VendaDePacoteId | null;
+  /**
+   * Presente (não-null) ⇒ nasce como reserva TEMPORÁRIA (`RESERVADO`), não
+   * firme — usado pelo caminho de pagamento online (Problema 2: sem isso, um
+   * PIX nunca pago prende o horário pra sempre). Ausente/null ⇒ nasce
+   * `AGENDADO` (firme), comportamento inalterado do caminho presencial.
+   */
+  reservaOnlineExpiraEm?: Date | null;
 }
 
 export class Atendimento extends AggregateRoot {
@@ -136,7 +157,7 @@ export class Atendimento extends AggregateRoot {
     const conflito = params.atendimentosAtivos.find(
       (a) =>
         a.props.barbeiroId === barbeiro.id &&
-        a.props.status === StatusAtendimento.AGENDADO &&
+        (a.props.status === StatusAtendimento.AGENDADO || a.props.status === StatusAtendimento.RESERVADO) &&
         a.props.intervalo.sobrepoe(intervalo),
     );
     if (conflito) {
@@ -145,6 +166,7 @@ export class Atendimento extends AggregateRoot {
       );
     }
 
+    const reservaOnlineExpiraEm = params.reservaOnlineExpiraEm ?? null;
     const atendimento = new Atendimento({
       id: params.id,
       companyId: params.companyId,
@@ -153,24 +175,30 @@ export class Atendimento extends AggregateRoot {
       itens,
       produtos: [],
       intervalo,
-      status: StatusAtendimento.AGENDADO,
+      status: reservaOnlineExpiraEm ? StatusAtendimento.RESERVADO : StatusAtendimento.AGENDADO,
       origem,
       formaPagamento: null,
       motivoCancelamento: null,
       origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
       valorAbatidoSaldo: params.valorAbatidoSaldo ?? Dinheiro.zero(),
       vendaAbatidaId: params.vendaAbatidaId ?? null,
+      reservaOnlineExpiraEm,
     });
-    atendimento.adicionarEvento(
-      new AtendimentoAgendado(
-        params.id,
-        params.companyId,
-        params.clienteId,
-        barbeiro.id,
-        intervalo.inicio,
-        intervalo.fim,
-      ),
-    );
+    // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
+    // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
+    // imediato pro caminho presencial, ou em `confirmarReserva()` pro online.
+    if (!reservaOnlineExpiraEm) {
+      atendimento.adicionarEvento(
+        new AtendimentoAgendado(
+          params.id,
+          params.companyId,
+          params.clienteId,
+          barbeiro.id,
+          intervalo.inicio,
+          intervalo.fim,
+        ),
+      );
+    }
     return atendimento;
   }
 
@@ -278,6 +306,54 @@ export class Atendimento extends AggregateRoot {
     );
   }
 
+  /**
+   * Pagamento online confirmado: a reserva temporária vira firme. Só aqui —
+   * não em `agendar()` — o evento `AtendimentoAgendado` é emitido pra este
+   * atendimento (ver comentário em `agendar()`).
+   */
+  confirmarReserva(): void {
+    if (this.props.status !== StatusAtendimento.RESERVADO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível confirmar reserva: atendimento em estado ${this.props.status}`,
+      );
+    }
+    this.props.status = StatusAtendimento.AGENDADO;
+    this.adicionarEvento(
+      new AtendimentoAgendado(
+        this.props.id,
+        this.props.companyId,
+        this.props.clienteId,
+        this.props.barbeiroId,
+        this.props.intervalo.inicio,
+        this.props.intervalo.fim,
+      ),
+    );
+  }
+
+  /**
+   * Timeout sem pagamento (Problema 2, sessão de OTP+reserva): libera o
+   * horário. Chamado por `ExpirarPagamentoVencidoUseCase` na mesma transação
+   * em que a `IntencaoDePagamento` vinculada expira — nunca isoladamente,
+   * pra nunca haver split-brain entre os dois.
+   */
+  expirarReserva(): void {
+    if (this.props.status !== StatusAtendimento.RESERVADO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível expirar reserva: atendimento em estado ${this.props.status}`,
+      );
+    }
+    this.props.status = StatusAtendimento.RESERVA_EXPIRADA;
+  }
+
+  /** true se ainda está RESERVADO e o prazo da reserva já passou. */
+  expirouPorTempo(agora: Date): boolean {
+    return (
+      this.props.status === StatusAtendimento.RESERVADO &&
+      this.props.reservaOnlineExpiraEm !== null &&
+      agora.getTime() >= this.props.reservaOnlineExpiraEm.getTime()
+    );
+  }
+
   registrarNaoComparecimento(): void {
     this.exigirAgendado('registrar não-comparecimento');
     this.props.status = StatusAtendimento.NAO_COMPARECEU;
@@ -332,4 +408,5 @@ export class Atendimento extends AggregateRoot {
   get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
   get valorAbatidoSaldo() { return this.props.valorAbatidoSaldo; }
   get vendaAbatidaId() { return this.props.vendaAbatidaId; }
+  get reservaOnlineExpiraEm() { return this.props.reservaOnlineExpiraEm; }
 }

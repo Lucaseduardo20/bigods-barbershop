@@ -118,6 +118,83 @@ describe('Atendimento — agendamento', () => {
   });
 });
 
+describe('Atendimento — reserva temporária (sessão de OTP+reserva, Problema 2)', () => {
+  const daqui10min = () => new Date(Date.now() + 10 * 60_000);
+
+  it('com reservaOnlineExpiraEm, nasce RESERVADO (não AGENDADO) e não emite AtendimentoAgendado ainda', () => {
+    const a = agendar({ reservaOnlineExpiraEm: daqui10min() });
+    expect(a.status).toBe(StatusAtendimento.RESERVADO);
+    expect(a.reservaOnlineExpiraEm).not.toBeNull();
+    expect(a.puxarEventos()).toEqual([]);
+  });
+
+  it('sem reservaOnlineExpiraEm (presencial), nasce AGENDADO — comportamento inalterado', () => {
+    const a = agendar();
+    expect(a.status).toBe(StatusAtendimento.AGENDADO);
+    expect(a.reservaOnlineExpiraEm).toBeNull();
+  });
+
+  it('RESERVADO bloqueia conflito de horário igual a AGENDADO', () => {
+    const reserva = agendar({ id: 'at-reserva', inicio: t(10), reservaOnlineExpiraEm: daqui10min() });
+    expect(() =>
+      agendar({ id: 'at-2', inicio: t(10, 15), atendimentosAtivos: [reserva] }),
+    ).toThrow(/Conflito de horário/);
+  });
+
+  it('confirmarReserva: RESERVADO → AGENDADO, emite AtendimentoAgendado só agora', () => {
+    const a = agendar({ reservaOnlineExpiraEm: daqui10min() });
+    a.puxarEventos();
+    a.confirmarReserva();
+    expect(a.status).toBe(StatusAtendimento.AGENDADO);
+    expect(a.puxarEventos().map((e) => e.nome)).toEqual(['AtendimentoAgendado']);
+  });
+
+  it('confirmarReserva em atendimento que não está RESERVADO é rejeitado', () => {
+    const a = agendar(); // já nasce AGENDADO
+    expect(() => a.confirmarReserva()).toThrow(TransicaoDeEstadoInvalidaError);
+  });
+
+  it('expirarReserva: RESERVADO → RESERVA_EXPIRADA (libera o horário)', () => {
+    const a = agendar({ reservaOnlineExpiraEm: daqui10min() });
+    a.expirarReserva();
+    expect(a.status).toBe(StatusAtendimento.RESERVA_EXPIRADA);
+  });
+
+  it('RESERVA_EXPIRADA não bloqueia conflito de horário (slot livre de novo)', () => {
+    const expirada = agendar({ id: 'at-expirada', inicio: t(10), reservaOnlineExpiraEm: daqui10min() });
+    expirada.expirarReserva();
+    const novo = agendar({ id: 'at-2', inicio: t(10, 15), atendimentosAtivos: [expirada] });
+    expect(novo.status).toBe(StatusAtendimento.AGENDADO);
+  });
+
+  it('expirarReserva em atendimento que não está RESERVADO é rejeitado (não revive expirado, não expira firme)', () => {
+    const firme = agendar();
+    expect(() => firme.expirarReserva()).toThrow(TransicaoDeEstadoInvalidaError);
+
+    const jaExpirada = agendar({ reservaOnlineExpiraEm: daqui10min() });
+    jaExpirada.expirarReserva();
+    expect(() => jaExpirada.expirarReserva()).toThrow(TransicaoDeEstadoInvalidaError);
+  });
+
+  it('expirouPorTempo: true só quando RESERVADO e o prazo já passou', () => {
+    const agora = new Date('2026-08-13T12:00:00.000Z');
+    const a = agendar({ reservaOnlineExpiraEm: new Date('2026-08-13T12:00:00.000Z') });
+    expect(a.expirouPorTempo(new Date(agora.getTime() - 1))).toBe(false);
+    expect(a.expirouPorTempo(agora)).toBe(true);
+  });
+
+  it('expirouPorTempo é sempre false pra atendimento presencial (sem reservaOnlineExpiraEm)', () => {
+    const a = agendar();
+    expect(a.expirouPorTempo(new Date(Date.now() + 999_999_999))).toBe(false);
+  });
+
+  it('expirouPorTempo é false depois de confirmarReserva, mesmo com o prazo (velho) vencido', () => {
+    const a = agendar({ reservaOnlineExpiraEm: new Date('2020-01-01T00:00:00.000Z') });
+    a.confirmarReserva();
+    expect(a.expirouPorTempo(new Date())).toBe(false);
+  });
+});
+
 describe('Atendimento — máquina de estado', () => {
   it('AGENDADO → CONCLUIDO exige formaPagamento se AVULSO', () => {
     const a = agendar();

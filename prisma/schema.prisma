@@ -13,10 +13,12 @@ enum Papel {
 }
 
 enum StatusAtendimento {
+  RESERVADO
   AGENDADO
   CONCLUIDO
   CANCELADO
   NAO_COMPARECEU
+  RESERVA_EXPIRADA
 }
 
 enum OrigemAtendimento {
@@ -305,6 +307,12 @@ model Atendimento {
   // acumulador solto).
   valorAbatidoSaldoCentavos Int    @default(0)
   vendaAbatidaId            String?
+  // Sessão de OTP+reserva: prazo da reserva TEMPORÁRIA (status RESERVADO,
+  // canal online) — depois de confirmada (RESERVADO→AGENDADO) o campo
+  // permanece preenchido como marca permanente de "veio do canal online"
+  // (usado pela cota de presenciais pra excluir corretamente atendimentos
+  // online da contagem). Null em qualquer atendimento presencial.
+  reservaOnlineExpiraEm DateTime? @db.Timestamptz(3)
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]

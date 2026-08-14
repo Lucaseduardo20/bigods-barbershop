@@ -7,3 +7,5 @@ dist/
 .DS_Store
 coverage/
 .dev-logs/
+./env.frontends.real
+./AWS_SETUP.md

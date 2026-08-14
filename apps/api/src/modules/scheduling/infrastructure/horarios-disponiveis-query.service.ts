@@ -69,9 +69,18 @@ export class HorariosDisponiveisQueryService {
       this.prisma.atendimento.findMany({
         where: {
           barbeiroId: params.barbeiroId,
-          status: 'AGENDADO',
           inicio: { lt: diaFim },
           fim: { gt: diaInicio },
+          OR: [
+            { status: 'AGENDADO' },
+            // RESERVADO ocupa o horário igual a AGENDADO (mesmo critério do
+            // domínio/EXCLUDE) — MAS uma reserva cujo prazo já passou não
+            // pode aparecer como ocupada aqui, mesmo que ainda não tenha
+            // sido lazy-expirada em `RESERVA_EXPIRADA` por ninguém (sessão
+            // de OTP+reserva, Problema 2: "horário expirado não aparece
+            // como ocupado na projeção pública").
+            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
+          ],
         },
         select: { inicio: true, fim: true },
       }),
