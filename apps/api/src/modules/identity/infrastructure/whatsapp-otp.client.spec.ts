@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HttpWhatsAppOtpClient, WhatsAppEnvioIndisponivelError } from './whatsapp-otp.client';
+import {
+  HttpWhatsAppOtpClient,
+  TelefoneSemWhatsAppError,
+  WhatsAppEnvioIndisponivelError,
+} from './whatsapp-otp.client';
 
 describe('HttpWhatsAppOtpClient (fetch mockado)', () => {
   afterEach(() => {
@@ -28,6 +32,16 @@ describe('HttpWhatsAppOtpClient (fetch mockado)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
     const client = new HttpWhatsAppOtpClient('http://otp.local:3100', 'tok-123');
     await expect(client.enviar('+5511999998888', 'x')).rejects.toThrow(WhatsAppEnvioIndisponivelError);
+  });
+
+  it('422 (número sem WhatsApp) vira TelefoneSemWhatsAppError — não é indisponibilidade', async () => {
+    // Distinção que importa: "indisponível" convida a tentar de novo; número
+    // sem WhatsApp nunca vai receber, e insistir só queima o rate limit do
+    // cliente. Antes esse caso nem existia — o envio para um JID inexistente
+    // era aceito em silêncio e o código sumia.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    const client = new HttpWhatsAppOtpClient('http://otp.local:3100', 'tok-123');
+    await expect(client.enviar('+5511999998888', 'x')).rejects.toThrow(TelefoneSemWhatsAppError);
   });
 
   it('erro de rede (conexão recusada) vira WhatsAppEnvioIndisponivelError, nunca a exceção crua', async () => {

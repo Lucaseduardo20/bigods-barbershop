@@ -1,7 +1,7 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { OtpIdentityProviderBase } from './otp-identity-provider.base';
-import { WhatsAppOtpClient } from './whatsapp-otp.client';
+import { TelefoneSemWhatsAppError, WhatsAppOtpClient } from './whatsapp-otp.client';
 
 /**
  * Provider de identidade real via WhatsApp (Baileys) — substitui o Cognito
@@ -26,7 +26,15 @@ export class WhatsAppIdentityProvider extends OtpIdentityProviderBase {
     const mensagem = `Seu código de acesso Bigod's Barber: *${codigo}*. Válido por ${ttlMinutos} minutos. Não compartilhe com ninguém.`;
     try {
       await this.client.enviar(telefoneE164, mensagem);
-    } catch {
+    } catch (e) {
+      // Número que não existe no WhatsApp não é indisponibilidade: mandar
+      // "tente novamente em instantes" faria o cliente insistir num número que
+      // nunca vai receber (e ainda queimaria o rate limit dele à toa).
+      if (e instanceof TelefoneSemWhatsAppError) {
+        throw new BadRequestException(
+          'Esse número não tem WhatsApp. Confira o número digitado e tente de novo.',
+        );
+      }
       throw new ServiceUnavailableException(
         'Não foi possível enviar o código agora. Tente novamente em instantes.',
       );

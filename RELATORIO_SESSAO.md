@@ -2472,6 +2472,38 @@ funcionando ANTES; o `Cliente` é apagado; agendar, comprar pacote e o cockpit p
 
 **471 testes na API**, idênticos sob os 3 fusos.
 
+## Envio de WhatsApp para JID inventado — o buraco negro do nono dígito (2026-08-14) ✅
+
+Achado em smoke manual: código não chegava, **sem erro nenhum**. Nossa ponta reportava sucesso
+(inclusive o desafio era gravado no banco, o que só acontece depois do envio retornar OK) e o
+cliente ficava esperando.
+
+**Causa:** `services/whatsapp-otp` montava o JID por conta própria —
+`${digitos}@s.whatsapp.net`. Número de celular brasileiro tem o problema do nono dígito: o E.164
+que guardamos é `+55 11 9XXXX-XXXX`, mas o JID real de contas mais antigas costuma ser sem o 9.
+Mandar para um JID inexistente **não dá erro** no Baileys — ele aceita, responde OK, e a mensagem
+não chega a lugar nenhum.
+
+**Correção:** o JID passa a ser resolvido pelo próprio WhatsApp (`sock.onWhatsApp`), nunca
+inventado. Quando o JID canônico difere do número informado, isso vai para o log — sem esse
+registro a diferença entre "número certo" e "número que não recebe nada" é invisível.
+
+Número que não existe no WhatsApp virou erro explícito em vez de buraco negro: serviço responde
+**422**, `HttpWhatsAppOtpClient` levanta `TelefoneSemWhatsAppError` (distinto de
+`WhatsAppEnvioIndisponivelError`), e o provider devolve **400 "Esse número não tem WhatsApp.
+Confira o número digitado"** em vez do 503 "tente novamente em instantes". A distinção importa
+porque as duas situações pedem ações opostas: serviço fora → insistir resolve; número sem
+WhatsApp → insistir nunca resolve e ainda queima o rate limit do cliente.
+
+**Testes (+2):** 422 vira `TelefoneSemWhatsAppError` no cliente HTTP; provider devolve 400 (não
+503) e **não** persiste desafio órfão — mesma garantia que já valia para indisponibilidade.
+
+**473 testes na API**, idênticos sob os 3 fusos.
+
+> Nota operacional: mandar OTP para o MESMO número que hospeda a sessão do Baileys cai na conversa
+> "Mensagens para si mesmo", que não notifica como um chat normal — fácil de achar que não chegou.
+> Para validar entrega, use um segundo número.
+
 ## Como rodar localmente
 
 ```bash

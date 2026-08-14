@@ -8,7 +8,10 @@ import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 // eslint-disable-next-line import/first
 import { WhatsAppIdentityProvider } from '../../src/modules/identity/infrastructure/whatsapp-identity.provider';
 // eslint-disable-next-line import/first
-import { WhatsAppOtpClient } from '../../src/modules/identity/infrastructure/whatsapp-otp.client';
+import {
+  TelefoneSemWhatsAppError,
+  WhatsAppOtpClient,
+} from '../../src/modules/identity/infrastructure/whatsapp-otp.client';
 
 /**
  * `WhatsAppIdentityProvider` direto (sem subir o Nest app inteiro nem HTTP) —
@@ -32,8 +35,13 @@ let prisma: PrismaService;
 class FakeWhatsAppOtpClient implements WhatsAppOtpClient {
   enviados: { telefoneE164: string; mensagem: string }[] = [];
   falharProximoEnvio = false;
+  proximoNumeroSemWhatsApp = false;
 
   async enviar(telefoneE164: string, mensagem: string): Promise<void> {
+    if (this.proximoNumeroSemWhatsApp) {
+      this.proximoNumeroSemWhatsApp = false;
+      throw new TelefoneSemWhatsAppError('Número não encontrado no WhatsApp');
+    }
     if (this.falharProximoEnvio) {
       this.falharProximoEnvio = false;
       throw new Error('serviço whatsapp-otp fora do ar (simulado)');
@@ -178,5 +186,25 @@ describe('WhatsAppIdentityProvider (cliente whatsapp-otp mockado)', () => {
     // depois da falha, o provider continua operando normalmente — nada "quebrou" por dentro.
     const desafio = await provider.iniciarLogin({ companyId, telefoneE164: tel });
     expect(desafio.desafio).toBeTruthy();
+  });
+
+  it('número SEM WhatsApp: 400 pedindo pra conferir o número, não 503 "tente de novo"', async () => {
+    // A distinção existe porque as duas situações pedem ações opostas do
+    // cliente: serviço fora → insistir resolve; número sem WhatsApp → insistir
+    // nunca resolve, só queima o rate limit dele. Antes o Baileys aceitava o
+    // envio para um JID inexistente sem erro nenhum e o código sumia no ar.
+    const client = new FakeWhatsAppOtpClient();
+    client.proximoNumeroSemWhatsApp = true;
+    const provider = new WhatsAppIdentityProvider(prisma, client, 5);
+    const tel = telefone('07');
+    await provider.provisionarUsuario({ companyId, telefoneE164: tel });
+
+    await expect(provider.iniciarLogin({ companyId, telefoneE164: tel })).rejects.toMatchObject({
+      status: 400,
+    });
+
+    // Mesma garantia do caso de indisponibilidade: nada de desafio órfão.
+    const desafiosOrfaos = await prisma.demoDesafioLogin.count({ where: { companyId, telefone: tel } });
+    expect(desafiosOrfaos).toBe(0);
   });
 });
