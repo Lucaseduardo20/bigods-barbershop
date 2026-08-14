@@ -587,9 +587,14 @@ pagamento nunca confirmaria).
 | `expiraEm` | Date \| null | prazo local de expiração do PIX (null quando não é pagamento online, ex. presencial) — ver expiração abaixo |
 
 **Fluxo:**
-1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente
-   (`agora + PRAZO_RESERVA_SEGUNDOS`, sessão de OTP+reserva — §8.9 — a MESMA janela e o MESMO
-   instante do `Atendimento.reservaOnlineExpiraEm` quando a referência é um atendimento avulso).
+1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente. A
+   janela **depende da referência** (sessão de OTP+reserva — §8.9 — dois conceitos diferentes,
+   não uma constante só):
+   - `ATENDIMENTO` (avulso online): `agora + PRAZO_RESERVA_SEGUNDOS` (10 min) — o MESMO instante
+     de `Atendimento.reservaOnlineExpiraEm`, calculado uma única vez.
+   - `VENDA_DE_PACOTE` (pacote): `agora + gateway.expiraEmSegundos` (1h, via
+     `ABACATEPAY_EXPIRA_SEGUNDOS`) — pacote não reserva horário, então o prazo curto da reserva
+     não se aplica a ele (DECISOES_PENDENTES.md #28).
 2. Infra chama `POST /v2/transparents/create` na AbacatePay, passando nosso `externalId` em
    `data.externalId`. Resposta devolve QR Code (`brCodeBase64`) e copia-e-cola (`brCode`).
 3. Webhook `transparent.completed` chega → assinatura validada (ver abaixo) → busca a intenção
@@ -1390,8 +1395,12 @@ split-brain entre "reserva expirou" e "intenção expirou"). `ExpirarPagamentoVe
 expira os dois juntos, na mesma transação, disparado pelo próprio polling do funil (sem cron).
 
 Pacote (`VendaDePacote`) não tem horário — "reserva do horário" não se aplica a ele
-estruturalmente — mas passou a usar a MESMA janela de 10 min pro prazo de pagamento (era 1h),
-por uniformidade com avulso online (ver DECISOES_PENDENTES.md sobre essa mudança de janela).
+estruturalmente, e por isso **não** usa `PRAZO_RESERVA_SEGUNDOS`: o prazo de pagamento do pacote
+continua sendo `gateway.expiraEmSegundos` (1h, via `ABACATEPAY_EXPIRA_SEGUNDOS`), como sempre foi.
+Uma sessão anterior chegou a unificar os dois prazos por engano (pacote herdou os 10min da reserva
+de horário do avulso, já que a spec original os agrupava na mesma frase) — corrigido:
+`DECISOES_PENDENTES.md` #28. São conceitos diferentes (reserva de slot vs. prazo de pagamento de
+um ticket mais alto, que precisa de mais tempo) que não devem voltar a compartilhar constante.
 
 **Problema 3 — enxurrada de presenciais:** OTP prova que o telefone é real, mas não impede que o
 MESMO cliente marque dezenas de presenciais (que reservam firme sem pagamento algum). OTP é a

@@ -164,6 +164,13 @@ describe('Compra de pacote pública', () => {
     expect(venda.body.cobranca).toBeTruthy();
     expect(venda.body.intencaoId).toBeTruthy();
 
+    // DECISOES_PENDENTES.md #28: prazo de pagamento do PACOTE é 1h
+    // (gateway.expiraEmSegundos), NUNCA os 10min de PRAZO_RESERVA_SEGUNDOS
+    // (esse é só do avulso online, que reserva horário — pacote não reserva).
+    const restanteSeg = (new Date(venda.body.cobranca.expiraEm).getTime() - Date.now()) / 1000;
+    expect(restanteSeg).toBeGreaterThan(3500); // ~1h, não ~10min (600s)
+    expect(restanteSeg).toBeLessThanOrEqual(3600);
+
     // status inicial AGUARDANDO
     const s1 = await http.get(`/public/pagamentos/${venda.body.intencaoId}?companyId=${companyId}`).expect(200);
     expect(s1.body.status).toBe('AGUARDANDO');

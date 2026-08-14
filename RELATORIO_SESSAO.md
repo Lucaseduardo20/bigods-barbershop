@@ -2283,6 +2283,30 @@ cobriam os dois status novos (erro de compilação real, pego pelo build, não p
 8. **Admin sem cota:** pelo painel admin, criar mais de 3 presenciais pro mesmo cliente → não deve
    ser bloqueado (autonomia do staff, decisão registrada em DECISOES_PENDENTES.md #29).
 
+## Correção: prazo de pagamento do pacote volta a ser 1h (2026-08-14) ✅
+
+Suíte confirmada verde (456 testes, 3 fusos) antes de tocar em qualquer código, como pedido.
+
+**O bug:** a sessão de OTP+reserva unificou o prazo de pagamento do pacote com
+`PRAZO_RESERVA_SEGUNDOS` (10 min, a constante da reserva de horário do avulso online),
+registrado como decisão própria em `DECISOES_PENDENTES.md` #28 — o dono confirmou que estava
+errado: os 10 minutos existem por causa da reserva de horário (Problema 2 da sessão anterior,
+evitar um slot preso esperando pagamento); `VendaDePacote` não reserva horário nenhum, e é um
+ticket mais alto que merece mais tempo pra pagar.
+
+**A correção:** os dois prazos voltaram a ser conceitos e constantes separados:
+- **Avulso online** continua com `PRAZO_RESERVA_SEGUNDOS` (10 min, fixo,
+  `payments/domain/prazo-reserva.ts`) — ligado à reserva de horário. Nada mudou aqui.
+- **Pacote** voltou a `gateway.expiraEmSegundos` (1h, via `ABACATEPAY_EXPIRA_SEGUNDOS`) —
+  `vender-pacote.usecase.ts` não importa mais `PRAZO_RESERVA_SEGUNDOS`. O comentário na constante
+  do avulso agora avisa explicitamente pra não reunificar os dois por engano de novo.
+
+**Testes:** `pacote-publico.e2e.spec.ts` ganhou uma asserção explícita que a cobrança do pacote
+nasce com `expiraEm` entre 3500 e 3600 segundos no futuro (não ~600s). `otp-reserva.e2e.spec.ts`
+ganhou a mesma checagem em sentido contrário pro avulso online (entre 500 e 600s, tanto na reserva
+do atendimento quanto na cobrança) — prova que os dois caminhos continuam com prazos distintos.
+**456 testes verdes**, idênticos sob os 3 fusos. `DECISOES_PENDENTES.md` #28 marcada ✅ RESOLVIDA.
+
 ## Como rodar localmente
 
 ```bash

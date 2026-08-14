@@ -109,6 +109,16 @@ describe('Reserva temporária (Problema 2): avulso online não trava a agenda in
     expect(atendimento!.status).toBe('RESERVADO');
     expect(atendimento!.reservaOnlineExpiraEm).not.toBeNull();
 
+    // DECISOES_PENDENTES.md #28: avulso online usa PRAZO_RESERVA_SEGUNDOS
+    // (10min) — NUNCA a 1h do prazo de pagamento do pacote. A reserva de
+    // horário e a intenção compartilham o MESMO instante de expiração.
+    const restanteReservaSeg = (atendimento!.reservaOnlineExpiraEm!.getTime() - Date.now()) / 1000;
+    expect(restanteReservaSeg).toBeGreaterThan(500);
+    expect(restanteReservaSeg).toBeLessThanOrEqual(600);
+    const restanteCobrancaSeg = (new Date(res.body.cobranca.expiraEm).getTime() - Date.now()) / 1000;
+    expect(restanteCobrancaSeg).toBeGreaterThan(500);
+    expect(restanteCobrancaSeg).toBeLessThanOrEqual(600);
+
     // ocupa o horário: a projeção pública não oferece mais o mesmo slot
     const horarios = await http
       .get(`/public/horarios?companyId=${companyId}&barbeiroId=${barbeiroId}&data=${DIA}&servicoIds=${corteId}`)

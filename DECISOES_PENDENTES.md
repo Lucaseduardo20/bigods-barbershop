@@ -418,36 +418,37 @@ verdade (reverter o crédito de pacote já consumido? notificar o admin
 manualmente? estornar comissão?) é uma decisão financeira que precisa vir do
 dono — hoje fica só registrado em log para revisão manual.
 
-## 28. Janela de pagamento do PACOTE encolheu de 1h pra 10min — decisão minha, a confirmar (sessão de OTP+reserva)
+## 28. Janela de pagamento do PACOTE — ✅ RESOLVIDO: de volta a 1h, desacoplada do avulso online (2026-08-14)
 
-A spec da sessão de OTP+reserva agrupa explicitamente "AVULSO ONLINE ou
-PACOTE (pacote é sempre online)" sob o mesmo passo "reserva TEMPORÁRIA (10
-min) → gera PIX", e o bloco de Testes pede "Pacote (sempre online): mesmo
-comportamento de reserva temporária". Estruturalmente, `VendaDePacote` não
-tem horário nenhum pra reservar — a "reserva do horário" (Problema 2) não se
-aplica a ele. Interpretei a instrução como: mesmo OTP-gate + mesma janela de
-10 minutos pra pagar, só que sem reserva de slot (não existe slot).
+**Estava:** a sessão de OTP+reserva unificou o prazo de pagamento do pacote
+com `PRAZO_RESERVA_SEGUNDOS` (10min, a mesma constante do avulso online),
+interpretando a spec original ("AVULSO ONLINE ou PACOTE... reserva TEMPORÁRIA
+(10 min)") como aplicável aos dois. Registrado ali mesmo como decisão própria
+a confirmar, não como regra certa.
 
-**O que mudou de verdade:** antes, `VenderPacoteUseCase` calculava
-`expiraEm`/pedia `expiresIn` ao gateway usando `gateway.expiraEmSegundos`
-(1h, `ABACATEPAY_EXPIRA_SEGUNDOS`). Agora usa `PRAZO_RESERVA_SEGUNDOS` (10
-min, fixo, não é env var) — o cliente que compra um pacote tem bem menos
-tempo pra pagar o PIX do que tinha antes desta sessão.
+**Confirmado pelo dono: estava errado.** Os 10 minutos existem por causa da
+RESERVA DE HORÁRIO (Problema 2 — evitar um slot preso esperando pagamento).
+`VendaDePacote` não reserva horário nenhum — não existe slot pra proteger.
+Além disso pacote é ticket mais alto; o cliente precisa de mais tempo pra
+pagar.
 
-**Por que não decidi diferente:** a spec agrupa os dois casos na MESMA frase
-da matriz ("AVULSO ONLINE ou PACOTE... reserva TEMPORÁRIA (10 min)"), e o
-bloco de testes pede explicitamente "mesmo comportamento" pro pacote — a
-leitura mais literal e defensável é aplicar os 10 min aos dois. Mas é uma
-mudança real de UX/negócio (menos tempo pra decidir/pagar um pacote, que
-tipicamente é um valor maior que um avulso) que não foi confirmada
-numericamente pelo dono fora dessa leitura da matriz.
+**Correção aplicada:** os dois prazos voltaram a ser **conceitos e constantes
+separados**, cada um com seu próprio motivo de existir:
+- **Avulso online**: `PRAZO_RESERVA_SEGUNDOS` (10 min, fixo,
+  `apps/api/src/modules/payments/domain/prazo-reserva.ts`) — ligado à reserva
+  de horário (`Atendimento.reservaOnlineExpiraEm`). Inalterado.
+- **Pacote**: `gateway.expiraEmSegundos` (1h, configurável via
+  `ABACATEPAY_EXPIRA_SEGUNDOS`) — o mesmo valor usado antes da sessão de
+  OTP+reserva, sem reserva de horário nenhuma envolvida.
 
-**A confirmar com o negócio:** se 10 minutos é tempo suficiente pra pagar um
-pacote (valor tipicamente maior, cliente pode precisar ir no banco/organizar
-o PIX) ou se o pacote deveria manter uma janela mais longa (ex.: os 1h
-antigos, ou algo intermediário) — independente do avulso, já que
-estruturalmente pacote não tem o problema de "buraco na agenda" que motivou
-o prazo curto em primeiro lugar.
+`vender-pacote.usecase.ts` voltou a usar `this.gateway.expiraEmSegundos`
+(não importa mais `PRAZO_RESERVA_SEGUNDOS`); o comentário em `prazo-reserva.ts`
+foi reforçado explicitamente avisando pra NÃO reunificar os dois por engano de
+novo — são coincidentemente relacionados (os dois "prazo de pagamento online"),
+não a mesma regra. Testado explicitamente:
+`test/integration/pacote-publico.e2e.spec.ts` (cobrança nasce com ~1h de
+`expiraEm`) e `test/integration/otp-reserva.e2e.spec.ts` (avulso online
+continua com ~10min, tanto na reserva quanto na cobrança).
 
 ## 29. Cota de presenciais (Problema 3) não vale pro admin nem pro reagendar — decisão minha (sessão de OTP+reserva)
 
