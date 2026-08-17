@@ -4,6 +4,7 @@ import type {
   BarbeiroPublicoDTO,
   CobrancaDTO,
   ConfirmarLoginClienteResponse,
+  OrderBumpDTO,
   PacoteOfertaDTO,
   ServicoDTO,
   VenderPacotePublicoResponse,
@@ -22,6 +23,7 @@ import {
 } from '@bigods/contracts';
 import { mascararTelefone } from './lib/telefone';
 import {
+  alternarProdutoNoBump,
   aplicarBarbeiroDoLink,
   barbeiroParaAutoSelecionar,
   carregarEstado,
@@ -29,10 +31,12 @@ import {
   estadoInicial,
   limparEstado,
   PASSO,
+  precificarProdutosBump,
   salvarEstado,
   servicosSelecionados,
   precificarCarrinhoFunil,
   urlDoCatalogoDeServicos,
+  urlDoOrderBump,
   type FormaPagamento,
   type FunnelState,
 } from './lib/funnel-state';
@@ -152,6 +156,20 @@ function Funil() {
     [estado.barbeiroId, estado.semPreferencia],
   );
 
+  // Vitrine do order-bump ("Adicione à sua visita") — busca só na confirmação
+  // do avulso (pacote não tem Atendimento pra anexar produto/serviço bump).
+  // Centralizado aqui (não dentro de <OrderBump/>) pelo MESMO motivo de
+  // `servicosDoBarbeiroReq`: o total exibido (SummaryBar, PIX) precisa dos
+  // MESMOS dados que alimentam a lista selecionável, senão preço mostrado e
+  // preço cobrado podem divergir.
+  const orderBumpReq = useApi<OrderBumpDTO | null>(
+    () =>
+      estado.step === PASSO.CONFIRMACAO && estado.modo === 'avulso'
+        ? api<OrderBumpDTO>(urlDoOrderBump(COMPANY_ID, estado.barbeiroId))
+        : Promise.resolve(null),
+    [estado.step, estado.modo, estado.barbeiroId],
+  );
+
   const patch = (p: Partial<FunnelState>) => setEstado((e) => ({ ...e, ...p }));
 
   if (servicosReq.carregando) {
@@ -189,6 +207,34 @@ function Funil() {
     setEstado(estadoInicial);
   };
 
+  /**
+   * Bigod's Club no fim da confirmação do AVULSO (sessão 2026-08-17) —
+   * "mostrar pro cliente as ofertas do bigods club" depois de tudo. O estado
+   * atual é terminal (`concluido: true`); escolher um pacote aqui bifurca pra
+   * uma compra NOVA e separada — mesmo contrato de `escolherOferta`, dados de
+   * contato preservados (o cliente já digitou), resto zerado. Os estados
+   * locais de pagamento (pago/cobrança/PIX) também precisam voltar ao início:
+   * são de uma transação já concluída, não podem vazar pra próxima.
+   */
+  const comprarPacoteDoClub = (o: PacoteOfertaDTO) => {
+    setPago(false);
+    setErroEnvio(null);
+    setCobranca(null);
+    setIntencaoId(null);
+    setEstado({
+      ...estadoInicial,
+      nome: estado.nome,
+      telefone: estado.telefone,
+      email: estado.email,
+      sobreVoce: estado.sobreVoce,
+      modo: 'pacote',
+      ofertaId: o.id,
+      ofertaNome: o.nome,
+      ofertaPrecoCentavos: o.precoCentavos,
+      step: PASSO.DADOS,
+    });
+  };
+
   if (estado.concluido) {
     return (
       <Sucesso
@@ -197,6 +243,7 @@ function Funil() {
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
         onNovo={reset}
+        onComprarPacote={comprarPacoteDoClub}
       />
     );
   }
@@ -209,11 +256,14 @@ function Funil() {
    */
   const totalAvulsoComDesconto = () =>
     precificarCarrinhoFunil(servicosParaPreco, estado.servicoIds, empresa.descontoProgressivo)
-      .totalFinalCentavos;
+      .totalFinalCentavos + precificarProdutosBump(orderBumpReq.dados?.produtos ?? [], estado.produtosBump);
 
-  // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO.
+  // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO. Usa o
+  // valor que a API já confirmou (`valorFinalCentavos`, setado em
+  // `enviarComSessao` a partir de `r.valorTotalCentavos` — já inclui bumps);
+  // o recompute local é só um fallback antes dessa resposta chegar.
   if (cobranca && intencaoId) {
-    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : totalAvulsoComDesconto();
+    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : (estado.valorFinalCentavos ?? totalAvulsoComDesconto());
     return (
       <div className="funnel-shell">
         <PixAguardando
@@ -270,6 +320,22 @@ function Funil() {
         data: null,
         horaInicio: null,
       };
+    });
+  };
+
+  /**
+   * Order-bump de SERVIÇO complementar, na confirmação (sessão 2026-08-17).
+   * Mesma mutação de `servicoIds` que `toggleServico`, mas SEM resetar
+   * data/horaInicio: nesse ponto do funil o horário já foi escolhido, e
+   * `toggleServico` (pensado pra tela de Serviços, onde mudar a seleção
+   * invalida o horário) apagaria a confirmação em andamento. Se a duração
+   * extra não couber mais no horário, o backend recusa na hora de agendar —
+   * o erro aparece normalmente na tela (`erroEnvio`).
+   */
+  const toggleServicoBump = (id: string) => {
+    setEstado((e) => {
+      const has = e.servicoIds.includes(id);
+      return { ...e, servicoIds: has ? e.servicoIds.filter((x) => x !== id) : [...e.servicoIds, id] };
     });
   };
 
@@ -425,6 +491,7 @@ function Funil() {
             cliente,
             formaPagamento: estado.formaPagamento,
             origemLinkBarbeiroId,
+            ...(estado.produtosBump.length > 0 ? { produtosBump: estado.produtosBump } : {}),
           },
         });
         // Só AGORA se sabe quem atende e por quanto, quando não houve escolha
@@ -540,9 +607,12 @@ function Funil() {
         estado={estado}
         servicos={servicosParaPreco}
         tabelaDeDesconto={empresa.descontoProgressivo}
+        orderBump={orderBumpReq.dados ?? null}
         enviando={enviando}
         erroEnvio={erroEnvio}
         onFormaPagamento={(f: FormaPagamento) => patch({ formaPagamento: f })}
+        onToggleServicoBump={toggleServicoBump}
+        onToggleProdutoBump={(produtoId) => patch({ produtosBump: alternarProdutoNoBump(estado.produtosBump, produtoId) })}
         onConfirmar={confirmar}
       />
     );

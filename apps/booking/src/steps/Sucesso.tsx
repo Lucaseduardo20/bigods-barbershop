@@ -1,6 +1,8 @@
+import type { PacoteOfertaDTO } from '@bigods/contracts';
 import { dinheiro, instanteDeDataHoraLocal, rotuloDia } from '../lib/format';
 import type { FunnelState } from '../lib/funnel-state';
 import { Onboarding } from '../components/Onboarding';
+import { BigodsClub } from '../components/BigodsClub';
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
 import { baixarIcs, linkGoogleAgenda, type EventoDeAgenda } from '../lib/agenda';
 
@@ -10,6 +12,7 @@ export function Sucesso({
   timezone,
   duracaoMinutos,
   onNovo,
+  onComprarPacote,
 }: {
   estado: FunnelState;
   pago: boolean;
@@ -17,6 +20,8 @@ export function Sucesso({
   timezone: string;
   duracaoMinutos: number;
   onNovo: () => void;
+  /** Bigod's Club no fim da confirmação (sessão 2026-08-17) — vender o pacote depois do avulso fechado. */
+  onComprarPacote: (o: PacoteOfertaDTO) => void;
 }) {
   const primeiroNome = estado.nome.trim().split(/\s+/)[0] || 'até logo';
   const ehPacote = estado.modo === 'pacote';
@@ -60,6 +65,14 @@ export function Sucesso({
         )}
 
         <InfoDaBarbearia />
+
+        {/* "incluir também na confirmação do atendimento, depois de tudo,
+            oferecer o bigods club" — vitrine no fim do sucesso do avulso.
+            Sem barbeiro específico: o cliente já fechou a visita de hoje, a
+            oferta aqui é geral, não amarrada a quem atendeu. */}
+        <div className="mt-6">
+          <BigodsClub barbeiroId={null} ofertaId={null} onSelect={onComprarPacote} />
+        </div>
 
         <button className="btn btn-ghost btn-block mt-6" onClick={onNovo}>
           Fazer outro agendamento

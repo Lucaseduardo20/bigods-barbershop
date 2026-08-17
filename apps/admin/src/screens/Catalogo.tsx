@@ -75,6 +75,16 @@ function Servicos() {
     recarregar();
   };
 
+  /**
+   * Order-bump: "este serviço aparece como sugestão de complemento na
+   * confirmação do funil". Lista curada aqui mesmo, sem tela nova — mesmo
+   * toggle simples de Ativo/Inativo.
+   */
+  const alternarBump = async (s: ServicoDTO) => {
+    await api(`/servicos/${s.id}`, { method: 'PATCH', body: { sugeridoNoBump: !s.sugeridoNoBump } });
+    recarregar();
+  };
+
   const salvarPreco = async (id: string) => {
     setSalvandoPreco(true);
     try {
@@ -99,6 +109,8 @@ function Servicos() {
       </div>
       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
         Preço de referência da casa — cada barbeiro pode ter um override próprio (aba Barbeiros).
+        "No order-bump" sugere este serviço como complemento na confirmação do funil (o cliente já
+        selecionado não vê a sugestão do que já escolheu).
       </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
@@ -126,6 +138,7 @@ function Servicos() {
             </div>
             {editandoPrecoId !== s.id && (
               <div className="flex items-center gap-2 flex-shrink-0">
+                {s.sugeridoNoBump && <Badge tone="gold">No order-bump</Badge>}
                 <Badge tone={s.ativo ? 'success' : 'neutral'}>{s.ativo ? 'Ativo' : 'Inativo'}</Badge>
                 <button
                   className="btn btn-ghost btn-sm"
@@ -135,6 +148,9 @@ function Servicos() {
                   }}
                 >
                   Editar preço
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => alternarBump(s)}>
+                  {s.sugeridoNoBump ? 'Tirar do bump' : 'Sugerir no bump'}
                 </button>
                 <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(s)}>
                   {s.ativo ? 'Desativar' : 'Reativar'}
@@ -190,6 +206,12 @@ function Produtos() {
     recarregar();
   };
 
+  /** Order-bump: mesmo mecanismo de Servicos() acima — "sugerir: sim/não". */
+  const alternarBump = async (p: ProdutoDTO) => {
+    await api(`/produtos/${p.id}`, { method: 'PATCH', body: { sugeridoNoBump: !p.sugeridoNoBump } });
+    recarregar();
+  };
+
   return (
     <div className="mb-5">
       <div className="flex items-center justify-between mb-2">
@@ -202,7 +224,8 @@ function Produtos() {
         </div>
       </div>
       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-        Venda mínima, sem controle de estoque — só nome, preço e ativo/inativo.
+        Venda mínima, sem controle de estoque — só nome, preço e ativo/inativo. "No order-bump"
+        sugere este produto na confirmação do funil ("Adicione à sua visita").
       </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
@@ -217,7 +240,11 @@ function Produtos() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {p.sugeridoNoBump && <Badge tone="gold">No order-bump</Badge>}
               <Badge tone={p.ativo ? 'success' : 'neutral'}>{p.ativo ? 'Ativo' : 'Inativo'}</Badge>
+              <button className="btn btn-ghost btn-sm" onClick={() => alternarBump(p)}>
+                {p.sugeridoNoBump ? 'Tirar do bump' : 'Sugerir no bump'}
+              </button>
               <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(p)}>
                 {p.ativo ? 'Desativar' : 'Reativar'}
               </button>

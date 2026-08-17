@@ -86,6 +86,20 @@ a cota de presenciais não se aplica ao admin/reagendar (DECISOES_PENDENTES.md
 #29). **456 testes verdes no backend**, idênticos sob os 3 fusos. `turbo run
 build` verde nos 5 pacotes.
 
+Sessão de order-bump (2026-08-17, "Adicione à sua visita" — ver seção dedicada
+perto do fim deste arquivo): um order-bump só na confirmação do funil avulso,
+oferecendo produtos (que já existiam no catálogo mas não apareciam no funil) e
+serviços complementares. Decisão do dono: começar SIMPLES, sem motor de regras
+condicionais (DECISOES_PENDENTES #32/#33). Serviço-bump reusa exatamente a
+mesma lógica de serviço avulso (desconto progressivo + preço por barbeiro,
+provado por teste que os dois caminhos geram o mesmo valor cobrado); produto-
+bump reusa o mecanismo de venda de produto anexada ao atendimento, agora
+disponível já na criação. Online, o bump recalcula a cobrança PIX ANTES do QR
+nascer — nunca um QR gerado e "completado" depois. Bigod's Club também passou
+a aparecer no fim da confirmação do avulso. **558 testes verdes no backend,
+36 no booking**, idênticos sob os 3 fusos. `turbo run build` verde nos 5
+pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -2853,6 +2867,88 @@ os serviços fica fora mesmo com comissão menor, o atribuído está realmente l
 com o atribuído, ninguém livre → 422) e 11 e2e de cliente da casa (a marca é por barbeiro,
 idempotência, e os quatro casos de autorização). **544 testes na API**, verdes nos 3 fusos; build
 verde nos 5 pacotes.
+
+## Order-bump no funil — "Adicione à sua visita" (2026-08-17) ✅
+
+Suíte confirmada verde (558 API + 33 booking) antes de tocar em qualquer código. Um order-bump só
+na confirmação do funil avulso, dois tipos de item — **produtos** (que já existiam no catálogo mas
+não apareciam no funil) e **serviços complementares** (ex.: corte → oferecer barba). Objetivo do
+dono: vender produto, aumentar ticket. Decisão dele desde o início: **começar SIMPLES, sem motor
+de regras condicionais** — isso ficou de fora de propósito (DECISOES_PENDENTES #32/#33).
+
+**Configuração admin:** um toggle por item, `sugeridoNoBump: sim/não`, em `Servico` e `Produto`
+(mesma tela de Catálogo, botão "Sugerir no bump"/"Tirar do bump" ao lado do já existente
+Ativar/Desativar). Uma lista geral — sem segmentação por serviço escolhido ou por barbeiro, além
+do filtro óbvio: `GET /public/order-bump` já exclui o que o barbeiro escolhido não atende, e o
+front nunca sugere um serviço complementar que o cliente já tem no carrinho.
+
+**Preço sem caminho paralelo (o ponto mais delicado da sessão):**
+- Serviço-bump não tem cálculo próprio — adicionar um é literalmente colocar o id na MESMA lista
+  `servicoIds` que a tela de serviços usa. Entra no desconto progressivo e usa o preço DO
+  BARBEIRO exatamente como um serviço escolhido do jeito normal; provado por teste e2e que agendar
+  "corte + barba direto" e "corte + barba pelo bump" gera o MESMO `valorTotalCentavos` e os MESMOS
+  valores gravados em `ItemAtendido`.
+- Produto-bump reusa o mecanismo do walk-in add-on (`ItemProdutoAtendido`) — só que agora
+  disponível já na CRIAÇÃO do agendamento, não só entre agendar e concluir. Snapshot do preço no
+  momento (mudar o preço do produto depois não altera o que já foi gravado — testado); comissão de
+  produto do barbeiro sai normal na conclusão, porque o handler de comissão não distingue produto
+  anexado na criação de produto anexado depois.
+- **Online:** o total do produto/serviço do bump entra na MESMA transação que calcula o valor da
+  `IntencaoDePagamento` — o QR PIX já nasce com o total certo (serviços + bump), nunca é gerado
+  primeiro e "completado" depois. Testado lendo o valor embutido no `copiaECola` do gateway fake e
+  comparando com `intencaoDePagamento.valorCentavos`.
+- **Presencial:** bump soma no valor total (a cobrar no balcão), sem gerar PIX nenhum.
+- Pacote não tem order-bump: é crédito pré-pago sem `Atendimento` para anexar nada.
+
+**Também na tela de sucesso do avulso** (pedido explícito do dono: "depois de tudo, oferecer o
+Bigod's Club"): reusa o MESMO componente `BigodsClub` do topo do funil, com um handler novo
+(`comprarPacoteDoClub`) que bifurca pra uma compra de pacote nova, preservando nome/telefone/email
+já digitados e resetando o resto — o agendamento que acabou de fechar é estado terminal, a compra
+do clube é uma transação nova e separada, nunca um carrinho híbrido.
+
+**Bug pego durante a implementação, corrigido antes de virar problema real:** a tela de espera do
+PIX calculava o valor exibido recomputando o total localmente (`totalAvulsoComDesconto()`), que
+não sabia nada sobre produto do bump — mostraria um valor MENOR que o realmente cobrado assim que
+o primeiro bump de produto fosse usado. Corrigido para usar `estado.valorFinalCentavos` (o que a
+API já confirmou) como fonte, com o recompute local só como fallback antes da resposta chegar.
+
+**Handler de toggle do serviço-bump é dedicado, não reaproveita o da tela de Serviços:** o
+`toggleServico` da tela normal zera `data`/`horaInicio` de propósito (mudar seleção ali invalida o
+horário escolhido) — reusar ele na confirmação apagaria o horário já escolhido no meio do bump.
+`toggleServicoBump` faz a mesma mutação de `servicoIds`, sem esse reset; se a duração extra não
+couber mais no horário, o backend recusa normalmente na hora de confirmar.
+
+### Testes (+13)
+
+6 de domínio (`Atendimento` nasce com produtos já na criação, quantidade inválida rejeitada,
+produto não mexe no intervalo, evento de conclusão carrega o snapshot correto) e 8 e2e de dinheiro
+num arquivo dedicado (`order-bump.e2e.spec.ts`): vitrine só mostra o que está marcado e o que o
+barbeiro atende, admin liga/desliga muda a vitrine, serviço-bump = mesmo preço que selecionar
+direto, produto-bump com snapshot e comissão corretos, snapshot sobrevive a mudança de preço
+depois, produto inativo recusado, e os dois casos de pagamento (online recalcula o PIX antes do
+QR, presencial soma no valor do balcão). +3 de lógica pura no front (`servicosSugeridosDoBump`).
+**558 testes na API, 36 no booking**, verdes nos 3 fusos (`npm run test:multitz -w @bigods/api`);
+build verde nos 5 pacotes.
+
+### Roteiro de smoke test manual (foco em dinheiro)
+
+1. No admin (Catálogo), marque um serviço (ex. Barba) e um produto (ex. Shampoo) como "no bump".
+2. No funil, selecione só Corte, avance até Confirmação. A seção "Adicione à sua visita" deve
+   mostrar Barba e Shampoo — nunca um serviço que você já tenha selecionado na tela anterior.
+3. Toque em Barba: o "Total" da confirmação deve subir exatamente o preço de Barba (menos o
+   desconto progressivo do 2º serviço, se a tabela estiver configurada) — o MESMO valor que dá se
+   você voltar e selecionar Barba na tela de Serviços em vez do bump.
+4. Toque em Shampoo: o "Total" sobe o preço cheio do produto, sem desconto (produto não entra no
+   desconto progressivo).
+5. Escolha "Pagar agora" (online) e confirme: o QR PIX tem que refletir o total com os dois bumps
+   somados — confira contra o valor mostrado na tela de espera.
+6. Repita com "Pagar na barbearia": sem QR, mas o valor final (na tela de sucesso, se exibido, ou
+   no painel admin) tem que incluir os bumps.
+7. No painel admin, confira o atendimento criado: o item de produto deve aparecer anexado, e ao
+   concluir o atendimento, a comissão de produto do barbeiro deve aparecer no extrato dele.
+8. Na tela de sucesso de um agendamento avulso (não-pacote), confirme que o Bigod's Club aparece
+   no fim — e que escolher um pacote ali abre uma compra nova, não mistura com o agendamento que
+   acabou de fechar.
 
 ## Como rodar localmente
 

@@ -15,27 +15,39 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsIn,
+  IsInt,
   IsOptional,
+  IsPositive,
   IsString,
   Matches,
   MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { FormaPagamentoFunil, LIMITE_DIAS_AGENDAMENTO, MAX_SOBRE_VOCE } from '@bigods/contracts';
+import {
+  FormaPagamentoFunil,
+  LIMITE_DIAS_AGENDAMENTO,
+  MAX_SOBRE_VOCE,
+} from '@bigods/contracts';
 import {
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
   DiasDisponiveisDTO,
   EmpresaPublicaDTO,
   HorariosDisponiveisDTO,
+  OrderBumpDTO,
+  ProdutoDTO,
   ServicoDTO,
 } from '@bigods/contracts';
 import { EhCelularBrasileiro, EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { somarDias } from '../domain/regra-janela-agendamento';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
+import { Servico } from '../../catalog/domain/servico.aggregate';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
+import { PRODUTO_REPOSITORY, ProdutoRepository } from '../../products/domain/produto.repository';
+import { Produto } from '../../products/domain/produto.aggregate';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
@@ -55,6 +67,11 @@ import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+class ProdutoBumpDto {
+  @IsString() @MinLength(1) produtoId!: string;
+  @IsInt() @IsPositive() quantidade!: number;
+}
 
 class ClientePublicoDto {
   @EhNomeDeCliente() nome!: string;
@@ -81,6 +98,15 @@ class AgendarPublicoDto {
   @IsOptional() @IsIn(['online', 'presencial']) formaPagamento?: FormaPagamentoFunil;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
+  /**
+   * Order-bump (sessão 2026-08-17): produtos escolhidos na vitrine "Adicione à
+   * sua visita", na confirmação. Serviço complementar do bump NÃO vem aqui —
+   * ele já está em `servicoIds`, porque adicionar via bump é literalmente a
+   * mesma coisa que ter selecionado na tela de serviços (mesmo desconto
+   * progressivo, mesmo preço por barbeiro — nenhum caminho paralelo).
+   */
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProdutoBumpDto)
+  produtosBump?: ProdutoBumpDto[];
 }
 
 /**
@@ -101,6 +127,7 @@ export class BookingPublicoController {
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
     private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
+    @Inject(PRODUTO_REPOSITORY) private readonly produtos: ProdutoRepository,
     private readonly empresaQuery: EmpresaPublicaQueryService,
     private readonly horariosQuery: HorariosDisponiveisQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
@@ -126,16 +153,69 @@ export class BookingPublicoController {
     const servicos = await this.servicos.listar(id);
     return servicos
       .filter((s) => s.ativo && (!barbeiro || barbeiro.atende(s.id)))
-      .map((s) => ({
-        id: s.id,
-        nome: s.nome,
-        // §3.2.2: preço do BARBEIRO escolhido (override ?? referência) — sem
-        // barbeiro selecionado ainda, mostra a referência da casa (mesma regra
-        // de precoPara com barbeiroDono=null tratada como "sem override").
-        precoAvulsoCentavos: (barbeiro ? precoDeReferencia(s, barbeiro) : s.precoAvulso).centavos,
-        duracaoMinutos: s.duracao.minutos,
-        ativo: s.ativo,
-      }));
+      .map((s) => this.paraServicoDTO(s, barbeiro));
+  }
+
+  /**
+   * Mesmo mapeamento em dois endpoints (`/public/servicos` e o order-bump):
+   * preço do BARBEIRO escolhido (override ?? referência); sem barbeiro ainda,
+   * mostra a referência da casa (§3.2.2, mesma regra de `precoPara` com
+   * `barbeiroDono=null` tratada como "sem override").
+   */
+  private paraServicoDTO(s: Servico, barbeiro: Barbeiro | null): ServicoDTO {
+    return {
+      id: s.id,
+      nome: s.nome,
+      precoAvulsoCentavos: (barbeiro ? precoDeReferencia(s, barbeiro) : s.precoAvulso).centavos,
+      duracaoMinutos: s.duracao.minutos,
+      ativo: s.ativo,
+      sugeridoNoBump: s.sugeridoNoBump,
+    };
+  }
+
+  private paraProdutoDTO(p: Produto): ProdutoDTO {
+    return {
+      id: p.id,
+      nome: p.nome,
+      precoCentavos: p.preco.centavos,
+      ativo: p.ativo,
+      sugeridoNoBump: p.sugeridoNoBump,
+    };
+  }
+
+  /**
+   * Order-bump (sessão 2026-08-17): vitrine de "Adicione à sua visita" —
+   * serviços complementares e produtos, os dois marcados pelo admin como
+   * `sugeridoNoBump`. SEM motor de regras condicionais (decisão consciente,
+   * DECISOES_PENDENTES): a mesma lista vale para todo mundo, o único filtro é
+   * "o barbeiro escolhido atende este serviço" (mesma regra de
+   * `/public/servicos` — não faz sentido sugerir o que ele não faz).
+   *
+   * Excluir os serviços que o cliente JÁ selecionou fica por conta do FRONT
+   * (ele já tem o carrinho em mãos) — não há necessidade de mandar
+   * `servicoIds` aqui só para filtrar isso.
+   */
+  @Publico()
+  @Get('order-bump')
+  async orderBump(
+    @Query('companyId') companyId?: string,
+    @Query('barbeiroId') barbeiroId?: string,
+  ): Promise<OrderBumpDTO> {
+    const id = this.exigirCompanyId(companyId);
+    await this.empresaQuery.empresa(id);
+    const barbeiro = barbeiroId ? await this.barbeiros.porId(barbeiroId) : null;
+
+    const [servicos, produtos] = await Promise.all([
+      this.servicos.listar(id),
+      this.produtos.listar(id),
+    ]);
+
+    return {
+      servicos: servicos
+        .filter((s) => s.ativo && s.sugeridoNoBump && (!barbeiro || barbeiro.atende(s.id)))
+        .map((s) => this.paraServicoDTO(s, barbeiro)),
+      produtos: produtos.filter((p) => p.ativo && p.sugeridoNoBump).map((p) => this.paraProdutoDTO(p)),
+    };
   }
 
   @Publico()
@@ -300,6 +380,7 @@ export class BookingPublicoController {
       },
       gerarCobranca: online,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
+      produtosBump: body.produtosBump,
     });
     return {
       atendimentoId: resultado.atendimentoId,

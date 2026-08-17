@@ -9,6 +9,8 @@ export interface ProdutoProps {
   nome: string;
   preco: Dinheiro;
   ativo: boolean;
+  /** Order-bump: aparece como sugestão na confirmação do funil. */
+  sugeridoNoBump: boolean;
 }
 
 /**
@@ -22,14 +24,21 @@ export class Produto extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<ProdutoProps, 'ativo'> & { ativo?: boolean }): Produto {
+  static criar(
+    props: Omit<ProdutoProps, 'ativo' | 'sugeridoNoBump'> & { ativo?: boolean; sugeridoNoBump?: boolean },
+  ): Produto {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Produto exige nome');
     }
     if (!props.preco.ehPositivo()) {
       throw new InvarianteVioladaError('Produto exige preço positivo');
     }
-    return new Produto({ ...props, nome: props.nome.trim(), ativo: props.ativo ?? true });
+    return new Produto({
+      ...props,
+      nome: props.nome.trim(),
+      ativo: props.ativo ?? true,
+      sugeridoNoBump: props.sugeridoNoBump ?? false,
+    });
   }
 
   static reconstituir(props: ProdutoProps): Produto {
@@ -58,9 +67,15 @@ export class Produto extends AggregateRoot {
     this.props.ativo = true;
   }
 
+  /** Admin liga/desliga a sugestão no order-bump do funil — sem regra condicional, só sim/não. */
+  definirSugeridoNoBump(valor: boolean): void {
+    this.props.sugeridoNoBump = valor;
+  }
+
   get id() { return this.props.id; }
   get companyId() { return this.props.companyId; }
   get nome() { return this.props.nome; }
   get preco() { return this.props.preco; }
   get ativo() { return this.props.ativo; }
+  get sugeridoNoBump() { return this.props.sugeridoNoBump; }
 }

@@ -1,7 +1,8 @@
-import type { ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
+import type { OrderBumpDTO, ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
 import { dinheiro, rotuloDia } from '../lib/format';
-import { precificarCarrinhoFunil, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
+import { precificarCarrinhoFunil, precificarProdutosBump, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
 import { ResumoDoDesconto } from '../components/ResumoDoDesconto';
+import { OrderBump } from '../components/OrderBump';
 import { AlertaErro } from '../components/ui';
 import { BARBEARIA } from '../lib/barbearia';
 
@@ -9,24 +10,33 @@ export function Confirmacao({
   estado,
   servicos,
   tabelaDeDesconto,
+  orderBump,
   enviando,
   erroEnvio,
   onFormaPagamento,
+  onToggleServicoBump,
+  onToggleProdutoBump,
   onConfirmar,
 }: {
   estado: FunnelState;
   servicos: ServicoDTO[];
   tabelaDeDesconto: TabelaDeDescontoDTO;
+  /** Vitrine "Adicione à sua visita" — null enquanto carrega/sem itens. Só existe no avulso. */
+  orderBump: OrderBumpDTO | null;
   enviando: boolean;
   erroEnvio: string | null;
   onFormaPagamento: (f: FormaPagamento) => void;
+  onToggleServicoBump: (servicoId: string) => void;
+  onToggleProdutoBump: (produtoId: string) => void;
   onConfirmar: () => void;
 }) {
   const ehPacote = estado.modo === 'pacote';
   // Mesmo cálculo da API (função compartilhada): o total exibido aqui é o que
-  // será cobrado, item a item.
+  // será cobrado, item a item. Serviço do bump já está em servicoIds — entra
+  // no MESMO cálculo, sem caminho de preço paralelo.
   const carrinho = precificarCarrinhoFunil(servicos, estado.servicoIds, tabelaDeDesconto);
-  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : carrinho.totalFinalCentavos;
+  const produtosBumpCentavos = ehPacote ? 0 : precificarProdutosBump(orderBump?.produtos ?? [], estado.produtosBump);
+  const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : carrinho.totalFinalCentavos + produtosBumpCentavos;
   const dia = estado.data ? rotuloDia(estado.data).longo : '';
   // O preço mostrado é referência da casa enquanto não há barbeiro definido.
   const precoEstimado = !ehPacote && estado.semPreferencia && !estado.barbeiroId;
@@ -82,6 +92,32 @@ export function Confirmacao({
               ))}
             </div>
             {carrinho.temDesconto && <ResumoDoDesconto carrinho={carrinho} />}
+            {estado.produtosBump.length > 0 && (
+              <>
+                <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
+                <div
+                  className="text-[11px] font-bold uppercase"
+                  style={{ letterSpacing: '0.06em', color: 'var(--text-muted)' }}
+                >
+                  Produtos
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {estado.produtosBump.map((sel) => {
+                    const produto = orderBump?.produtos.find((p) => p.id === sel.produtoId);
+                    if (!produto) return null;
+                    return (
+                      <div key={sel.produtoId} className="flex justify-between text-[14px]">
+                        <span>
+                          {produto.nome}
+                          {sel.quantidade > 1 && ` ×${sel.quantidade}`}
+                        </span>
+                        <span className="font-bold">{dinheiro(produto.precoCentavos * sel.quantidade)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
             <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
             {estado.barbeiroNome
               ? linha('Barbeiro', estado.barbeiroNome)
@@ -105,6 +141,16 @@ export function Confirmacao({
           </span>
         </div>
       </div>
+
+      {/* Order-bump: avulso-only — pacote é crédito pré-pago, sem Atendimento pra anexar produto/serviço. */}
+      {!ehPacote && (
+        <OrderBump
+          dados={orderBump}
+          estado={estado}
+          onToggleServico={onToggleServicoBump}
+          onToggleProduto={onToggleProdutoBump}
+        />
+      )}
 
       {/* Escolha de pagamento (online/presencial) só existe no avulso — pacote é sempre online. */}
       {!ehPacote && (

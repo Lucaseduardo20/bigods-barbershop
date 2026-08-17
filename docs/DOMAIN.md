@@ -153,6 +153,7 @@ Serviço oferecido pela barbearia.
 | `precoAvulso` | Dinheiro | preço quando comprado individualmente |
 | `duracao` | Duracao (minutos) | |
 | `ativo` | boolean | soft-disable, nunca deletar (histórico depende dele) |
+| `sugeridoNoBump` | boolean | vitrine do order-bump do funil (§8.13, sessão 2026-08-17) |
 
 **Invariantes:** preço > 0; duração > 0.
 
@@ -742,11 +743,13 @@ desativado, porque histórico de venda/comissão depende dele.
 | `nome` | string | |
 | `preco` | Dinheiro | |
 | `ativo` | boolean | soft-disable |
+| `sugeridoNoBump` | boolean | vitrine do order-bump do funil (§8.13, sessão 2026-08-17) |
 
 **Invariantes:** nome não-vazio; `preco` positivo.
 
-Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` na
-conclusão (§3.5, `ItemProdutoAtendido`) ou numa `VendaDeProduto` avulsa (§3.10).
+Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` — na conclusão
+(§3.5, `ItemProdutoAtendido`) ou já na criação, via order-bump (§8.13) — ou numa `VendaDeProduto`
+avulsa (§3.10).
 
 ---
 
@@ -1575,6 +1578,46 @@ avisa que pode variar; a resposta de `POST /public/agendamentos` traz o barbeiro
 atribuído e o `valorTotalCentavos` efetivamente cobrado, e é isso que a tela de
 sucesso exibe.
 
+### 8.13 Order-bump — "Adicione à sua visita" (sessão 2026-08-17)
+
+Na confirmação do funil avulso, uma seção oferece complementos de um toque: **serviços
+complementares** (ex.: corte → oferecer barba) e **produtos** do catálogo (que antes existiam mas
+não apareciam no funil). Objetivo de negócio: vender produto e aumentar ticket, sem inventar um
+segundo carrinho.
+
+**Configuração é curadoria simples, não motor de regras.** O admin marca `sugeridoNoBump: boolean`
+em `Servico` e `Produto` — uma vitrine geral, igual para todo cliente, sem segmentação por serviço
+selecionado ou por barbeiro (além do filtro óbvio de `barbeiro.atende`). Um motor condicional
+("se o carrinho tem X, ofereça Y") e segmentação por perfil são evolução futura, fora de escopo
+desta sessão (DECISOES_PENDENTES.md).
+
+**Dois tipos de item, dois mecanismos — nenhum caminho de preço paralelo:**
+
+- **Serviço complementar**: adicionar pelo bump é *literalmente* adicionar o id à mesma lista de
+  serviços do carrinho (`servicoIds`). Não existe um segundo cálculo: entra no desconto progressivo
+  (§3.2.3) e usa o `precoDeReferencia` do barbeiro (§3.2.2) exatamente como um serviço escolhido na
+  tela normal. Isso é o que garante "adicionar barba pelo bump ou pela tela de serviços dá o mesmo
+  preço final" — não é uma regra de teste, é a arquitetura: se algum dia existirem dois caminhos de
+  preço para o mesmo serviço, já é bug por construção.
+- **Produto**: vira uma venda de produto anexada ao `Atendimento` (mecanismo `ItemProdutoAtendido`,
+  §3.9/§3.5) já na CRIAÇÃO do agendamento — o mesmo mecanismo do walk-in add-on que antes só
+  acontecia entre agendar e concluir, só que disponível também no funil público. Snapshot do preço
+  no momento (§3.5); sem desconto progressivo (regra é só de serviço); comissão de produto do
+  barbeiro se aplica normalmente quando o atendimento é concluído (evento `AtendimentoConcluido`,
+  §2.3, não distingue produto anexado na criação de produto anexado depois — o handler é o mesmo).
+- **Filtro óbvio:** um serviço complementar que o cliente já tem no carrinho nunca aparece de novo
+  na vitrine do bump (não insiste em oferecer barba se ele já pôs barba).
+
+**Pagamento segue o agendamento, sempre recalculado ANTES de qualquer cobrança nascer.** Bump
+online entra na mesma transação que gera a `IntencaoDePagamento` e a cobrança PIX — o valor do QR
+já é agendamento + bumps, nunca um QR de serviços seguido de um ajuste fora dele. Bump presencial
+soma no valor a cobrar no balcão. Pacote não tem order-bump: é crédito pré-pago, sem `Atendimento`
+para anexar produto ou serviço complementar.
+
+Depois de tudo — inclusive depois da confirmação do avulso, na tela de sucesso — o funil também
+mostra o Bigod's Club (§8.11): o order-bump vende mais na MESMA visita; o clube, no fim, é a
+tentativa de vender a PRÓXIMA.
+
 ---
 
 ## 9. Testes — onde investir
@@ -1652,3 +1695,5 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Divisão de lucro entre sócios | Contabilidade da empresa, **não** domínio do produto | Fora do produto — planilha/contador, a partir dos números do sistema |
 | Resgate cruzado de crédito entre barbeiros | `VendaDePacote.barbeiroId` (sessão-B, Fase 2) trava o crédito ao dono; deixar outro barbeiro consumir quebra a relação preço-do-dono ↔ rateio congelado, sem regra de negócio definida pra isso ainda | Precisaria de uma decisão explícita de como converter/rebalancear o rateio entre barbeiros — decisão futura, registrada em DECISOES_PENDENTES |
 | Relatório/dashboard de origemLink | `origemLinkBarbeiroId` (§8.5, Fase 4c) é só registro nesta sessão — não há tela nem métrica | Read model simples quando "quanto cada barbeiro converte pelo próprio link" virar pergunta de negócio real |
+| Order-bump com regras condicionais / segmentação | Decisão do dono para começar SIMPLES (§8.13, sessão 2026-08-17): vitrine curada é uma lista geral, sem "se o carrinho tem X, ofereça Y" nem segmentação por serviço/barbeiro | Motor de regras condicionais sobre a mesma vitrine, quando houver evidência de que a lista geral não converte o suficiente — registrado em DECISOES_PENDENTES |
+| Upsell de troca-pra-cima (trocar um serviço por uma versão premium) | Fora de escopo desta sessão — o order-bump (§8.13) só ADICIONA itens, nunca substitui um já escolhido | O mecanismo atual já comporta um serviço premium como item de bump comum, quando um existir no catálogo; troca-pra-cima de verdade (substituir, não somar) é decisão de UX/negócio futura, registrada em DECISOES_PENDENTES |

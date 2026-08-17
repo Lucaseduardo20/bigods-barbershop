@@ -548,3 +548,44 @@ Fui de centavos porque "menor comissão" só tem significado econômico em dinhe
 — e porque o preço por barbeiro já existe e seria estranho ignorá-lo justamente
 no critério de custo. Trocar é mudar só o número que entra na cascata; a ordem
 dos critérios e os testes de desempate não mudam.
+
+---
+
+## 32. Order-bump com regras condicionais / segmentação (sessão 2026-08-17)
+
+**Fora de escopo nesta sessão, decisão explícita do dono ("Começar SIMPLES").**
+
+O order-bump ("Adicione à sua visita", DOMAIN.md §8.13) hoje é uma vitrine curada à mão pelo
+admin — `sugeridoNoBump: boolean` em `Servico`/`Produto`, uma lista geral, igual para todo cliente
+(só filtrada pelo que o barbeiro escolhido atende e pelo que já está no carrinho). NÃO existe:
+
+- motor de regras condicionais ("se o carrinho tem corte, ofereça barba"; "se é a primeira visita,
+  ofereça X");
+- segmentação por serviço selecionado, por barbeiro, por histórico do cliente, por horário;
+- ordenação/priorização de itens na vitrine além da ordem natural do catálogo.
+
+**A discutir com o dono, se ele quiser evoluir:**
+- vale a pena medir conversão da vitrine geral atual antes de investir num motor de regras?
+- regras por serviço (matriz servico→sugestões) ou por atributo (categoria de serviço)?
+- quem edita as regras — ainda o admin, numa tela nova, ou fica hardcoded?
+
+Não modelei nada disso agora porque cada resposta muda a forma de configuração (schema novo,
+tela nova) — melhor esperar a vitrine simples provar (ou não) que vale a pena investir mais.
+
+---
+
+## 33. Upsell de troca-pra-cima (serviço premium) (sessão 2026-08-17)
+
+**Fora de escopo nesta sessão.**
+
+O order-bump (DOMAIN.md §8.13) só ADICIONA itens ao carrinho — nunca substitui um serviço já
+selecionado por uma versão mais cara dele ("troca seu corte simples por um corte + tratamento").
+Isso é um mecanismo diferente: precisaria saber qual serviço "vira" qual (uma relação de
+upgrade/substituição), e a UX de trocar (não somar) é distinta da de adicionar com um toque.
+
+**O mecanismo atual já comporta um serviço premium como item comum de bump** — se a barbearia
+cadastrar "Corte Premium" como `Servico` com `sugeridoNoBump: true`, ele aparece na vitrine e pode
+ser ADICIONADO ao lado do corte normal (não troca por ele). Trocar de verdade é decisão de UX/
+negócio futura: precisa decidir se o upgrade remove o item original do carrinho, como isso afeta
+o desconto progressivo (§3.2.3, muda a composição do carrinho no meio do fluxo), e se faz sentido
+ter dois preços "concorrendo" na mesma vitrine.

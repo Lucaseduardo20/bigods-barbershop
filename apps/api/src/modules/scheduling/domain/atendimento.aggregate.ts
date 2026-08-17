@@ -95,6 +95,14 @@ export interface AgendarParams {
   clienteId: ClienteId;
   barbeiro: Barbeiro;
   itens: ItemAtendido[];
+  /**
+   * Order-bump (sessão 2026-08-17): produtos anexados JÁ NA CRIAÇÃO — mesmo
+   * value object de `adicionarProduto` (add-on na conclusão), só que aqui o
+   * cliente escolheu ainda no funil, antes de o horário ficar reservado.
+   * Nunca afeta `intervalo`/disponibilidade (produto não consome tempo de
+   * agenda) — mesma razão de `adicionarProduto` não revalidar sobreposição.
+   */
+  produtos?: ItemProdutoAtendido[];
   inicio: Date;
   origem: OrigemAtendimento;
   disponibilidades: DisponibilidadeBarbeiro[];
@@ -166,6 +174,15 @@ export class Atendimento extends AggregateRoot {
       );
     }
 
+    const produtos = params.produtos ?? [];
+    for (const produto of produtos) {
+      if (!Number.isInteger(produto.quantidade) || produto.quantidade <= 0) {
+        throw new InvarianteVioladaError(
+          `Quantidade deve ser inteiro positivo: ${produto.quantidade}`,
+        );
+      }
+    }
+
     const reservaOnlineExpiraEm = params.reservaOnlineExpiraEm ?? null;
     const atendimento = new Atendimento({
       id: params.id,
@@ -173,7 +190,7 @@ export class Atendimento extends AggregateRoot {
       clienteId: params.clienteId,
       barbeiroId: barbeiro.id,
       itens,
-      produtos: [],
+      produtos,
       intervalo,
       status: reservaOnlineExpiraEm ? StatusAtendimento.RESERVADO : StatusAtendimento.AGENDADO,
       origem,

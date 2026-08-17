@@ -26,10 +26,17 @@ class AtualizarProdutoDto {
   @IsOptional() @IsString() @MinLength(1) nome?: string;
   @IsOptional() @IsInt() @IsPositive() precoCentavos?: number;
   @IsOptional() @IsBoolean() ativo?: boolean;
+  @IsOptional() @IsBoolean() sugeridoNoBump?: boolean;
 }
 
 function paraDTO(p: Produto): ProdutoDTO {
-  return { id: p.id, nome: p.nome, precoCentavos: p.preco.centavos, ativo: p.ativo };
+  return {
+    id: p.id,
+    nome: p.nome,
+    precoCentavos: p.preco.centavos,
+    ativo: p.ativo,
+    sugeridoNoBump: p.sugeridoNoBump,
+  };
 }
 
 /**
@@ -78,6 +85,7 @@ export class ProdutosController {
     if (body.precoCentavos !== undefined) produto.atualizarPreco(Dinheiro.deCentavos(body.precoCentavos));
     if (body.ativo === true) produto.reativar();
     if (body.ativo === false) produto.desativar();
+    if (body.sugeridoNoBump !== undefined) produto.definirSugeridoNoBump(body.sugeridoNoBump);
     await this.produtos.salvar(produto);
     return paraDTO(produto);
   }

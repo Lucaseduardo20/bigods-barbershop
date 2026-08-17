@@ -154,6 +154,12 @@ model Servico {
   precoAvulsoCentavos Int
   duracaoMinutos      Int
   ativo               Boolean @default(true)
+  // Order-bump (sessão 2026-08-17): "este serviço aparece como sugestão de
+  // complemento na confirmação do funil". Lista curada pelo admin — sem
+  // segmentação por serviço/barbeiro, sem motor de regras condicionais
+  // (decisão consciente, ver DECISOES_PENDENTES). Default false: serviço novo
+  // não vira sugestão sozinho.
+  sugeridoNoBump      Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -163,11 +169,14 @@ model Servico {
 // Produto (raiz) — venda de produto MÍNIMA, SEM controle de estoque (decisão
 // consciente: sem quantidade/fornecedor). Soft-disable como Servico.
 model Produto {
-  id            String  @id
-  companyId     String
-  nome          String
-  precoCentavos Int
-  ativo         Boolean @default(true)
+  id             String  @id
+  companyId      String
+  nome           String
+  precoCentavos  Int
+  ativo          Boolean @default(true)
+  // Order-bump (sessão 2026-08-17) — mesmo mecanismo do Servico acima: só um
+  // "aparece como sugestão: sim/não", curado pelo admin.
+  sugeridoNoBump Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])
 

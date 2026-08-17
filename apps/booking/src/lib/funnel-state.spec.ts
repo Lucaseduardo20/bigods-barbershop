@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   aplicarBarbeiroDoLink,
+  alternarProdutoNoBump,
   barbeiroParaAutoSelecionar,
   estadoInicial,
   PASSO,
+  precificarProdutosBump,
   sanitizarEstadoCarregado,
+  servicosSugeridosDoBump,
   urlDoCatalogoDeServicos,
+  urlDoOrderBump,
   totalCentavos,
 } from './funnel-state';
 
@@ -67,10 +71,10 @@ describe('totalCentavos — bug de preço errado desde a primeira tela (sessão-
     // preco-por-barbeiro.e2e.spec.ts), o total bate com o override, não com
     // a referência da casa.
     const listaComOverrideDoBarbeiro = [
-      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 5500, duracaoMinutos: 30, ativo: true },
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 5500, duracaoMinutos: 30, ativo: true, sugeridoNoBump: false },
     ];
     const listaReferenciaDaCasa = [
-      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30, ativo: true },
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30, ativo: true, sugeridoNoBump: false },
     ];
 
     expect(totalCentavos(listaComOverrideDoBarbeiro, [servicoId])).toBe(5500);
@@ -125,5 +129,77 @@ describe('urlDoCatalogoDeServicos', () => {
 
   it('sem preferência não vence um barbeiro já escolhido', () => {
     expect(urlDoCatalogoDeServicos('bigods', 'bar-1', true)).toContain('barbeiroId=bar-1');
+  });
+});
+
+describe('urlDoOrderBump', () => {
+  it('com barbeiro, filtra a vitrine pelo preço/atendimento dele', () => {
+    expect(urlDoOrderBump('bigods', 'bar-1')).toBe('/public/order-bump?companyId=bigods&barbeiroId=bar-1');
+  });
+
+  it('sem barbeiro (ainda não escolheu, ou sem preferência), busca a vitrine geral', () => {
+    expect(urlDoOrderBump('bigods', null)).toBe('/public/order-bump?companyId=bigods');
+  });
+});
+
+describe('alternarProdutoNoBump', () => {
+  it('primeiro toque adiciona com quantidade 1', () => {
+    expect(alternarProdutoNoBump([], 'prod-gel')).toEqual([{ produtoId: 'prod-gel', quantidade: 1 }]);
+  });
+
+  it('segundo toque no MESMO produto remove — "com um toque", sem seletor de quantidade', () => {
+    const comUm = alternarProdutoNoBump([], 'prod-gel');
+    expect(alternarProdutoNoBump(comUm, 'prod-gel')).toEqual([]);
+  });
+
+  it('não mexe nos outros produtos já escolhidos', () => {
+    const atual = [{ produtoId: 'prod-gel', quantidade: 1 }];
+    expect(alternarProdutoNoBump(atual, 'prod-pomada')).toEqual([
+      { produtoId: 'prod-gel', quantidade: 1 },
+      { produtoId: 'prod-pomada', quantidade: 1 },
+    ]);
+  });
+});
+
+describe('precificarProdutosBump', () => {
+  const catalogo = [
+    { id: 'prod-gel', nome: 'Gel', precoCentavos: 1500, ativo: true, sugeridoNoBump: true },
+    { id: 'prod-pomada', nome: 'Pomada', precoCentavos: 3500, ativo: true, sugeridoNoBump: true },
+  ];
+
+  it('soma preço × quantidade dos produtos selecionados', () => {
+    expect(
+      precificarProdutosBump(catalogo, [
+        { produtoId: 'prod-gel', quantidade: 2 },
+        { produtoId: 'prod-pomada', quantidade: 1 },
+      ]),
+    ).toBe(1500 * 2 + 3500);
+  });
+
+  it('nenhum produto selecionado → zero', () => {
+    expect(precificarProdutosBump(catalogo, [])).toBe(0);
+  });
+
+  it('ignora produtoId que não existe mais no catálogo carregado (defensivo)', () => {
+    expect(precificarProdutosBump(catalogo, [{ produtoId: 'prod-sumiu', quantidade: 1 }])).toBe(0);
+  });
+});
+
+describe('servicosSugeridosDoBump — filtro óbvio: não insiste no que já foi escolhido', () => {
+  const vitrine = [
+    { id: 'svc-barba', nome: 'Barba', precoAvulsoCentavos: 3000, duracaoMinutos: 20, ativo: true, sugeridoNoBump: true },
+    { id: 'svc-sobrancelha', nome: 'Sobrancelha', precoAvulsoCentavos: 1500, duracaoMinutos: 10, ativo: true, sugeridoNoBump: true },
+  ];
+
+  it('remove da vitrine o serviço que o cliente já selecionou na tela normal', () => {
+    expect(servicosSugeridosDoBump(vitrine, ['svc-barba']).map((s) => s.id)).toEqual(['svc-sobrancelha']);
+  });
+
+  it('sem nada selecionado, a vitrine inteira aparece', () => {
+    expect(servicosSugeridosDoBump(vitrine, [])).toEqual(vitrine);
+  });
+
+  it('selecionado um serviço que nem está na vitrine (ex.: corte), não filtra nada', () => {
+    expect(servicosSugeridosDoBump(vitrine, ['svc-corte'])).toEqual(vitrine);
   });
 });

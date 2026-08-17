@@ -118,6 +118,63 @@ describe('Atendimento — agendamento', () => {
   });
 });
 
+describe('Atendimento — produtos JÁ na criação (order-bump, sessão 2026-08-17)', () => {
+  const produtoGel = () => ({
+    produtoId: 'prod-gel',
+    quantidade: 2,
+    valorUnitario: Dinheiro.deCentavos(1500),
+  });
+
+  it('nasce com os produtos do bump anexados', () => {
+    const atendimento = agendar({ produtos: [produtoGel()] });
+    expect(atendimento.produtos).toEqual([produtoGel()]);
+  });
+
+  it('sem produtos informados, nasce com lista vazia (comportamento de sempre)', () => {
+    const atendimento = agendar();
+    expect(atendimento.produtos).toEqual([]);
+  });
+
+  it('produto no bump NÃO altera o intervalo do atendimento — produto não consome tempo de agenda', () => {
+    const semBump = agendar();
+    const comBump = agendar({ produtos: [produtoGel()] });
+    expect(comBump.intervalo.inicio).toEqual(semBump.intervalo.inicio);
+    expect(comBump.intervalo.fim).toEqual(semBump.intervalo.fim);
+  });
+
+  it('rejeita quantidade não-positiva, mesma invariante de adicionarProduto', () => {
+    expect(() =>
+      agendar({ produtos: [{ ...produtoGel(), quantidade: 0 }] }),
+    ).toThrow(InvarianteVioladaError);
+    expect(() =>
+      agendar({ produtos: [{ ...produtoGel(), quantidade: -1 }] }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('produto do bump passa a exigir forma de pagamento na conclusão (mesma regra generalizada)', () => {
+    const atendimento = agendar({
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      itens: [{ ...itemCorte(), itemDoPacoteId: 'item-1' }],
+      produtos: [produtoGel()],
+    });
+    expect(() => atendimento.concluir()).toThrow(InvarianteVioladaError);
+    expect(() => atendimento.concluir(FormaPagamento.PIX)).not.toThrow();
+  });
+
+  it('evento de conclusão carrega o snapshot do produto anexado na criação', () => {
+    const atendimento = agendar({ produtos: [produtoGel()] });
+    atendimento.concluir(FormaPagamento.DINHEIRO);
+    const evento = atendimento
+      .puxarEventos()
+      .find((e) => e.nome === 'AtendimentoConcluido') as unknown as {
+      produtos: { produtoId: string; quantidade: number; valorUnitarioCentavos: number }[];
+    };
+    expect(evento.produtos).toEqual([
+      { produtoId: 'prod-gel', quantidade: 2, valorUnitarioCentavos: 1500 },
+    ]);
+  });
+});
+
 describe('Atendimento — reserva temporária (sessão de OTP+reserva, Problema 2)', () => {
   const daqui10min = () => new Date(Date.now() + 10 * 60_000);
 

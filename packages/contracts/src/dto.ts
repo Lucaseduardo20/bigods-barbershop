@@ -37,6 +37,8 @@ export interface ServicoDTO {
   precoAvulsoCentavos: number;
   duracaoMinutos: number;
   ativo: boolean;
+  /** Order-bump: aparece como sugestão de complemento na confirmação do funil. */
+  sugeridoNoBump: boolean;
 }
 export interface CriarServicoRequest {
   nome: string;
@@ -47,6 +49,7 @@ export interface AtualizarServicoRequest {
   nome?: string;
   precoAvulsoCentavos?: number;
   ativo?: boolean;
+  sugeridoNoBump?: boolean;
 }
 
 // ---------- Staff ----------
@@ -510,6 +513,25 @@ export interface AgendarPublicoResponse {
   valorTotalCentavos: number;
 }
 
+/**
+ * Order-bump (sessão 2026-08-17): vitrine de complementos mostrada na
+ * confirmação do funil — "Adicione à sua visita". Lista curada pelo admin
+ * (`sugeridoNoBump`), SEM motor de regras condicionais (decisão consciente,
+ * ver DECISOES_PENDENTES). `servicos` já vem com o preço do barbeiro
+ * escolhido (mesma regra de `/public/servicos`) e SEM os serviços que o
+ * cliente já selecionou — quem filtra isso é o próprio front, contra o
+ * carrinho que ele já tem em mãos.
+ */
+export interface OrderBumpDTO {
+  servicos: ServicoDTO[];
+  produtos: ProdutoDTO[];
+}
+/** Um produto do order-bump escolhido pelo cliente, com a quantidade. */
+export interface ProdutoBumpRequest {
+  produtoId: string;
+  quantidade: number;
+}
+
 // ---------- Área do cliente (login OTP por telefone) ----------
 // Tenant explícito: o app da conta carrega o `companyId` (deploy da barbearia)
 // e o envia em toda chamada — sem resolução implícita de empresa (§2.4).
@@ -668,6 +690,8 @@ export interface ProdutoDTO {
   nome: string;
   precoCentavos: number;
   ativo: boolean;
+  /** Order-bump: aparece como sugestão na confirmação do funil. */
+  sugeridoNoBump: boolean;
 }
 export interface CriarProdutoRequest {
   nome: string;
@@ -677,6 +701,7 @@ export interface AtualizarProdutoRequest {
   nome?: string;
   precoCentavos?: number;
   ativo?: boolean;
+  sugeridoNoBump?: boolean;
 }
 
 export interface ItemVendaDeProdutoDTO {

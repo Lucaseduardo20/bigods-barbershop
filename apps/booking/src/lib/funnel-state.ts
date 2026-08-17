@@ -1,5 +1,11 @@
 import { calcularDescontoProgressivo } from '@bigods/contracts';
-import type { BarbeiroPublicoDTO, ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
+import type {
+  BarbeiroPublicoDTO,
+  ProdutoBumpRequest,
+  ProdutoDTO,
+  ServicoDTO,
+  TabelaDeDescontoDTO,
+} from '@bigods/contracts';
 
 /**
  * Passos do funil. §4a: barbeiro vem ANTES de serviço/pacote nas duas
@@ -67,6 +73,15 @@ export interface FunnelState {
   formaPagamento: FormaPagamento;
   /** Compra/agendamento concluído nesta sessão — estado final (§ bug 1). */
   concluido: boolean;
+  /**
+   * Order-bump (sessão 2026-08-17): produtos escolhidos na confirmação, na
+   * seção "Adicione à sua visita". Serviço complementar do bump NÃO tem campo
+   * próprio — adicionar um é literalmente adicionar o id a `servicoIds`
+   * (mesmo desconto progressivo, mesmo preço por barbeiro; nenhum caminho de
+   * preço paralelo). Só existe na trilha avulso — pacote é crédito pré-pago,
+   * sem Atendimento para anexar produto.
+   */
+  produtosBump: ProdutoBumpRequest[];
 }
 
 export const estadoInicial: FunnelState = {
@@ -90,6 +105,7 @@ export const estadoInicial: FunnelState = {
   ofertaPrecoCentavos: null,
   formaPagamento: 'presencial',
   concluido: false,
+  produtosBump: [],
 };
 
 const CHAVE = 'bigods.booking.v1';
@@ -263,4 +279,58 @@ export function urlDoCatalogoDeServicos(
   if (barbeiroId) return `${base}&barbeiroId=${barbeiroId}`;
   if (semPreferencia) return base;
   return null;
+}
+
+/**
+ * URL da vitrine de order-bump ("Adicione à sua visita"). Mesmo padrão de
+ * `urlDoCatalogoDeServicos`: com barbeiro, preço já é o dele; sem barbeiro
+ * (ainda não escolheu, ou "sem preferência"), preço de referência da casa —
+ * a API filtra pela relação `barbeiro.atende`, então nunca sugere o que ele
+ * não faz.
+ */
+export function urlDoOrderBump(companyId: string, barbeiroId: string | null): string {
+  const base = `/public/order-bump?companyId=${encodeURIComponent(companyId)}`;
+  return barbeiroId ? `${base}&barbeiroId=${barbeiroId}` : base;
+}
+
+/**
+ * Liga/desliga um produto do order-bump — "adicionar com um toque" (sem
+ * seletor de quantidade nesta v1, decisão consciente de manter simples).
+ * Segunda batida no mesmo produto remove; quantidade sempre 1.
+ */
+export function alternarProdutoNoBump(
+  atual: ProdutoBumpRequest[],
+  produtoId: string,
+): ProdutoBumpRequest[] {
+  const jaTem = atual.some((p) => p.produtoId === produtoId);
+  if (jaTem) return atual.filter((p) => p.produtoId !== produtoId);
+  return [...atual, { produtoId, quantidade: 1 }];
+}
+
+/**
+ * Total (em centavos) dos produtos do bump — sem desconto progressivo, que é
+ * regra de SERVIÇO. Produto entra no carrinho pelo preço cheio, snapshot
+ * congelado no momento da confirmação (mesmo mecanismo do add-on na
+ * conclusão do atendimento, só que aqui acontece já na criação).
+ */
+export function precificarProdutosBump(
+  produtos: ProdutoDTO[],
+  selecionados: ProdutoBumpRequest[],
+): number {
+  return selecionados.reduce((acc, sel) => {
+    const produto = produtos.find((p) => p.id === sel.produtoId);
+    return produto ? acc + produto.precoCentavos * sel.quantidade : acc;
+  }, 0);
+}
+
+/**
+ * Serviços da vitrine de bump que ainda fazem sentido oferecer — "filtro
+ * óbvio" do spec (sessão 2026-08-17): nunca sugere um serviço complementar
+ * que o cliente JÁ colocou no carrinho pela tela normal de serviços.
+ */
+export function servicosSugeridosDoBump(
+  servicosBump: ServicoDTO[],
+  servicoIdsSelecionados: string[],
+): ServicoDTO[] {
+  return servicosBump.filter((s) => !servicoIdsSelecionados.includes(s.id));
 }

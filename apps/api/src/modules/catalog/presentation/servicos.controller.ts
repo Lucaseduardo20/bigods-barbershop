@@ -28,6 +28,7 @@ class AtualizarServicoDto {
   @IsOptional() @IsString() @MinLength(1) nome?: string;
   @IsOptional() @IsInt() @IsPositive() precoAvulsoCentavos?: number;
   @IsOptional() @IsBoolean() ativo?: boolean;
+  @IsOptional() @IsBoolean() sugeridoNoBump?: boolean;
 }
 
 function paraDTO(s: Servico): ServicoDTO {
@@ -37,6 +38,7 @@ function paraDTO(s: Servico): ServicoDTO {
     precoAvulsoCentavos: s.precoAvulso.centavos,
     duracaoMinutos: s.duracao.minutos,
     ativo: s.ativo,
+    sugeridoNoBump: s.sugeridoNoBump,
   };
 }
 
@@ -82,6 +84,7 @@ export class ServicosController {
     }
     if (body.ativo === true) servico.reativar();
     if (body.ativo === false) servico.desativar();
+    if (body.sugeridoNoBump !== undefined) servico.definirSugeridoNoBump(body.sugeridoNoBump);
     await this.servicos.salvar(servico);
     return paraDTO(servico);
   }

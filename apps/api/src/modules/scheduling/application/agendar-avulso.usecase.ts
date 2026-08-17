@@ -8,6 +8,7 @@ import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { PRODUTO_REPOSITORY, ProdutoRepository } from '../../products/domain/produto.repository';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import { precificarCarrinho } from '../../catalog/domain/desconto-progressivo';
 import {
@@ -81,6 +82,14 @@ export interface AgendarAvulsoInput {
    * — ele precisa poder encaixar um cliente daqui a três meses se quiser.
    */
   aplicarJanelaDeAgendamento?: boolean;
+  /**
+   * Order-bump (sessão 2026-08-17): produtos escolhidos na confirmação do
+   * funil, anexados JÁ NA CRIAÇÃO do atendimento. Serviço complementar do
+   * bump NÃO passa por aqui — ele já está em `servicoIds`, tratado como
+   * qualquer outro serviço escolhido (mesmo desconto progressivo, mesmo
+   * preço por barbeiro; nenhum caminho de preço paralelo).
+   */
+  produtosBump?: { produtoId: string; quantidade: number }[];
 }
 
 export interface AgendarAvulsoOutput {
@@ -98,6 +107,7 @@ export class AgendarAvulsoUseCase {
   constructor(
     @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
     @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
+    @Inject(PRODUTO_REPOSITORY) private readonly produtos: ProdutoRepository,
     @Inject(DISPONIBILIDADE_REPOSITORY) private readonly disponibilidades: DisponibilidadeRepository,
     @Inject(ATENDIMENTO_REPOSITORY) private readonly atendimentos: AtendimentoRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
@@ -116,6 +126,34 @@ export class AgendarAvulsoUseCase {
     if (inativo) {
       throw new BadRequestException(`Serviço ${inativo.nome} está inativo`);
     }
+
+    // Order-bump: produtos escolhidos na confirmação — mesma disciplina de
+    // validação dos serviços (existe, é desta empresa, está ativo).
+    const produtosBump = input.produtosBump ?? [];
+    const produtosDoBump = produtosBump.length
+      ? await this.produtos.porIds(produtosBump.map((p) => p.produtoId))
+      : [];
+    if (produtosDoBump.length !== produtosBump.length) {
+      throw new NotFoundException('Produto inexistente');
+    }
+    const produtoInativo = produtosDoBump.find(
+      (p) => !p.ativo || p.companyId !== input.companyId,
+    );
+    if (produtoInativo) {
+      throw new BadRequestException(`Produto ${produtoInativo.nome} está inativo`);
+    }
+    const produtoPorId = new Map(produtosDoBump.map((p) => [p.id, p]));
+    const produtosComPreco = produtosBump.map((p) => ({
+      produtoId: p.produtoId,
+      quantidade: p.quantidade,
+      // Snapshot do preço vigente AGORA — nunca recalculado do catálogo depois.
+      valorUnitario: produtoPorId.get(p.produtoId)!.preco,
+    }));
+    const totalProdutosCentavos = produtosComPreco.reduce(
+      (acc, p) => acc + p.valorUnitario.centavos * p.quantidade,
+      0,
+    );
+
     // Dia civil LOCAL (fuso da empresa) — nunca a data UTC bruta do instante,
     // que erra perto da virada do dia (ex: 23:30 local pode ser dia seguinte em UTC).
     const tz = await this.parametros.timezone(input.companyId);
@@ -239,11 +277,14 @@ export class AgendarAvulsoUseCase {
         }
       }
 
-      // Cobrança online (se pedida) é só sobre o que SOBROU depois do
-      // abatimento — nunca o total bruto, senão o cliente pagaria de novo o
-      // que o saldo já cobriu. Se o saldo já cobre tudo, não há reserva
-      // temporária nenhuma — o atendimento nasce firme, igual a presencial.
-      const valorRestanteCentavos = totalCentavos - valorAbatidoCentavos;
+      // Cobrança online (se pedida) é sobre o que SOBROU do abatimento (nunca o
+      // total bruto, senão o cliente pagaria de novo o que o saldo já cobriu)
+      // MAIS os produtos do order-bump — o saldo residual do pacote não abate
+      // produto (é crédito de serviço; abater produto com ele seria estender
+      // um benefício não pedido nesta sessão). Se o saldo cobre os serviços
+      // inteiros mas há produto no carrinho, ainda existe cobrança — só que
+      // dela mesma, do produto.
+      const valorRestanteCentavos = totalCentavos - valorAbatidoCentavos + totalProdutosCentavos;
       const gerarReservaOnline = (input.gerarCobranca ?? false) && valorRestanteCentavos > 0;
       // Sessão de OTP+reserva (Problema 2): a MESMA janela e o MESMO
       // instante alimentam a reserva do horário E a intenção de pagamento —
@@ -270,6 +311,7 @@ export class AgendarAvulsoUseCase {
         clienteId: cliente.id,
         barbeiro,
         itens: itensComPreco,
+        produtos: produtosComPreco,
         inicio: input.inicio,
         origem: OrigemAtendimento.AVULSO,
         disponibilidades,
@@ -320,7 +362,10 @@ export class AgendarAvulsoUseCase {
       clienteId: resultado.clienteId,
       cobranca,
       barbeiro: { id: barbeiro.id, nome: barbeiro.nome },
-      valorTotalCentavos: totalCentavos,
+      // Serviços (com desconto progressivo) + produtos do bump — o "preço de
+      // capa" mostrado ao cliente, sem descontar abatimento de saldo residual
+      // (mesmo critério de sempre: quem abate é o cockpit, não o funil público).
+      valorTotalCentavos: totalCentavos + totalProdutosCentavos,
     };
   }
 
