@@ -239,3 +239,28 @@ export function precificarCarrinhoFunil(
 export function duracaoMinutos(servicos: ServicoDTO[], ids: string[]): number {
   return servicosSelecionados(servicos, ids).reduce((acc, s) => acc + s.duracaoMinutos, 0);
 }
+
+/**
+ * Qual URL de catálogo buscar no passo de serviços — `null` quando ainda não
+ * há o que buscar.
+ *
+ * Existe como função pura porque a decisão tem três casos e já causou bug: com
+ * "não tenho preferência" não há `barbeiroId`, e a condição ingênua
+ * (`barbeiroId ? busca : lista vazia`) fazia o passo de serviços aparecer
+ * VAZIO — o cliente via o Bigod's Club e nada embaixo.
+ *
+ * - barbeiro escolhido → catálogo com o preço DELE (override aplicado no back);
+ * - sem preferência → catálogo com o preço de REFERÊNCIA da casa, que é a base
+ *   do "a partir de" (o preço real só existe depois da atribuição);
+ * - ainda não decidiu → nada a buscar.
+ */
+export function urlDoCatalogoDeServicos(
+  companyId: string,
+  barbeiroId: string | null,
+  semPreferencia: boolean,
+): string | null {
+  const base = `/public/servicos?companyId=${encodeURIComponent(companyId)}`;
+  if (barbeiroId) return `${base}&barbeiroId=${barbeiroId}`;
+  if (semPreferencia) return base;
+  return null;
+}

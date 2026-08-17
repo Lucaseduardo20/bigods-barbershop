@@ -5,6 +5,7 @@ import {
   estadoInicial,
   PASSO,
   sanitizarEstadoCarregado,
+  urlDoCatalogoDeServicos,
   totalCentavos,
 } from './funnel-state';
 
@@ -102,5 +103,27 @@ describe('Funil único — bifurcação sem carrinho híbrido', () => {
 
   it('não mexe em progresso de outros passos', () => {
     expect(sanitizarEstadoCarregado({ step: PASSO.DATA_HORA }).step).toBe(PASSO.DATA_HORA);
+  });
+});
+
+describe('urlDoCatalogoDeServicos', () => {
+  it('com barbeiro escolhido, busca o catálogo COM o preço dele', () => {
+    expect(urlDoCatalogoDeServicos('bigods', 'bar-1', false)).toBe(
+      '/public/servicos?companyId=bigods&barbeiroId=bar-1',
+    );
+  });
+
+  it('★ sem preferência, busca mesmo assim — sem barbeiroId, com o preço de referência', () => {
+    // O bug: a condição ingênua olhava só o barbeiroId e devolvia lista vazia,
+    // deixando o passo de serviços em branco para quem não escolheu ninguém.
+    expect(urlDoCatalogoDeServicos('bigods', null, true)).toBe('/public/servicos?companyId=bigods');
+  });
+
+  it('ainda sem decisão nenhuma, não há o que buscar', () => {
+    expect(urlDoCatalogoDeServicos('bigods', null, false)).toBeNull();
+  });
+
+  it('sem preferência não vence um barbeiro já escolhido', () => {
+    expect(urlDoCatalogoDeServicos('bigods', 'bar-1', true)).toContain('barbeiroId=bar-1');
   });
 });

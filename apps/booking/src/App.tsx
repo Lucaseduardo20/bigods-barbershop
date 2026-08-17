@@ -31,6 +31,7 @@ import {
   salvarEstado,
   servicosSelecionados,
   precificarCarrinhoFunil,
+  urlDoCatalogoDeServicos,
   type FormaPagamento,
   type FunnelState,
 } from './lib/funnel-state';
@@ -143,11 +144,11 @@ function Funil() {
   // item selecionado usa SEMPRE esta lista com o preço do barbeiro (bug de
   // preço errado herdado até a confirmação, sessão-D).
   const servicosDoBarbeiroReq = useApi(
-    () =>
-      estado.barbeiroId
-        ? api<ServicoDTO[]>(`/public/servicos?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${estado.barbeiroId}`)
-        : Promise.resolve([]),
-    [estado.barbeiroId],
+    () => {
+      const url = urlDoCatalogoDeServicos(COMPANY_ID, estado.barbeiroId, estado.semPreferencia);
+      return url ? api<ServicoDTO[]>(url) : Promise.resolve([]);
+    },
+    [estado.barbeiroId, estado.semPreferencia],
   );
 
   const patch = (p: Partial<FunnelState>) => setEstado((e) => ({ ...e, ...p }));
