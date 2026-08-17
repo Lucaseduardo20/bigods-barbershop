@@ -1,0 +1,31 @@
+{
+  // O VS Code vigia cada arquivo do workspace com um inotify watch, e o limite
+  // é do SISTEMA (fs.inotify.max_user_watches, 65536 nesta máquina), não do
+  // editor. Num monorepo, `node_modules` sozinho estoura o teto — medimos o
+  // editor segurando 65.178 dos 65.536 watches, o que fazia os servidores de
+  // dev do Vite morrerem no boot com ENOSPC ("não é possível acessar esse
+  // site" nas portas 5173/5174/5175).
+  //
+  // Excluir estas pastas do WATCHER não as esconde da busca nem do editor —
+  // só para de vigiar mudança em arquivo que ninguém edita à mão.
+  //
+  // Vale a partir do próximo "Developer: Reload Window".
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/.turbo/**": true,
+    "**/.dev-logs/**": true,
+    "**/coverage/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/services/whatsapp-otp/session/**": true
+  },
+
+  // Mesma lista para a busca — acelera e evita indexar build.
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.turbo": true,
+    "**/.dev-logs": true
+  }
+}
