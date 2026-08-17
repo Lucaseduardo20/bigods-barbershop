@@ -247,10 +247,14 @@ export class AgendarAvulsoUseCase {
         });
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
-      } else if (input.cliente.email || input.cliente.sobreVoce) {
+      } else {
         // Cliente que já existe: complementa o cadastro com o que ele informou
         // agora. `atualizarDadosOpcionais` ignora campo vazio, então voltar a
         // agendar sem preencher nada nunca apaga o que ele já tinha dito.
+        // `renomear` sempre roda — corrige o placeholder "Cliente" deixado por
+        // um login OTP anterior sem cadastro (§8.9), e mantém o nome digitado
+        // aqui como fonte da verdade (não há edição de perfil ainda).
+        cliente.renomear(input.cliente.nome);
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }

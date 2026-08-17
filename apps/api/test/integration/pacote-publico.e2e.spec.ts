@@ -215,6 +215,24 @@ describe('Compra de pacote pública', () => {
     expect(clientes).toHaveLength(1);
   });
 
+  it('BUG corrigido: login OTP sem cadastro prévio cria o Cliente com nome placeholder "Cliente" — a compra corrige com o nome real', async () => {
+    const fone = `11 93${sufixo}0`;
+    const token = await loginCompleto(fone);
+    // Login sozinho (sem nenhuma compra ainda) sempre grava o placeholder —
+    // ver ConfirmarLoginClienteUseCase. É o que a venda seguinte tem que corrigir.
+    const antes = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(antes!.nome).toBe('Cliente');
+
+    await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Nome Real Do Cliente' } })
+      .expect(201);
+
+    const depois = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(depois!.nome).toBe('Nome Real Do Cliente');
+  });
+
   it('polling de status é idempotente: consultar N vezes não muda nada', async () => {
     const fone = `11 90${sufixo}0`;
     const token = await loginCompleto(fone);

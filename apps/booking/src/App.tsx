@@ -21,7 +21,7 @@ import {
   nomeDeClienteValido,
   preenchido,
 } from '@bigods/contracts';
-import { mascararTelefone } from './lib/telefone';
+import { mascararE164, mascararTelefone } from './lib/telefone';
 import {
   alternarProdutoNoBump,
   aplicarBarbeiroDoLink,
@@ -107,6 +107,14 @@ function Funil() {
   // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
   // pausa aqui até o telefone ser verificado.
   const [mostrandoOtp, setMostrandoOtp] = useState(false);
+  // Sessão já verificada NESTE navegador (localStorage) — enquanto existir, o
+  // cliente não é obrigado a repetir o OTP em nenhum agendamento/compra
+  // (comportamento intencional, ver lib/session.ts). Sem um aviso explícito
+  // disso, quem testa com telefones diferentes no mesmo navegador não percebe
+  // que o código não está mais sendo pedido — parece bug, mas é a sessão de
+  // outro número ainda ativa. `sessaoAtiva` espelha o localStorage em estado
+  // React só para o banner reagir a login/logout sem precisar de reload.
+  const [sessaoAtiva, setSessaoAtiva] = useState(() => carregarSessaoBooking());
 
   useEffect(() => {
     salvarEstado(estado);
@@ -401,6 +409,17 @@ function Funil() {
       step: PASSO.BARBEIRO,
     });
 
+  /**
+   * "Trocar número" no banner de sessão ativa: descarta a sessão salva pra
+   * este navegador voltar a pedir OTP no próximo agendamento/compra — sem
+   * isso, não há como testar/usar outro telefone no mesmo navegador a não
+   * ser limpando o localStorage manualmente.
+   */
+  const trocarNumero = () => {
+    limparSessaoBooking();
+    setSessaoAtiva(null);
+  };
+
   const avancar = () => {
     if (estado.step === PASSO.SERVICOS) {
       patch({ step: PASSO.DATA_HORA, data: estado.data ?? hojeISO(empresa.timezone) });
@@ -513,6 +532,7 @@ function Funil() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         limparSessaoBooking();
+        setSessaoAtiva(null);
         setMostrandoOtp(true);
       } else {
         setErroEnvio(e instanceof ApiError ? e.message : String(e));
@@ -687,6 +707,26 @@ function Funil() {
             )}
           </div>
         )}
+        {/* Sessão de OTP+reserva: aviso explícito de que este navegador já tem
+            telefone verificado — sem isso, quem testa/usa vários números no
+            mesmo navegador não percebe que o código não está sendo pedido de
+            novo por causa da sessão de OUTRO número ainda salva (parece bug,
+            é comportamento intencional — ver lib/session.ts). Só relevante
+            perto de onde o OTP entraria em jogo: Dados e Confirmação. */}
+        {sessaoAtiva && (estado.step === PASSO.DADOS || estado.step === PASSO.CONFIRMACAO) && (
+          <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
+            <span>
+              Número verificado nesta sessão: <strong>{mascararE164(sessaoAtiva.cliente.telefone)}</strong> — não vamos pedir o código de novo.
+            </span>
+            <button
+              className="btn-ghost"
+              style={{ fontSize: 12, fontWeight: 600, textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0 }}
+              onClick={trocarNumero}
+            >
+              não é você? trocar número
+            </button>
+          </div>
+        )}
         {corpo}
       </div>
       {cta && (
@@ -707,6 +747,7 @@ function Funil() {
           telefone={estado.telefone}
           onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
             salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
+            setSessaoAtiva({ token: sessao.token, cliente: sessao.cliente });
             setMostrandoOtp(false);
             void enviarComSessao(sessao.token);
           }}

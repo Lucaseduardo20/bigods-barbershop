@@ -589,3 +589,23 @@ ser ADICIONADO ao lado do corte normal (não troca por ele). Trocar de verdade �
 negócio futura: precisa decidir se o upgrade remove o item original do carrinho, como isso afeta
 o desconto progressivo (§3.2.3, muda a composição do carrinho no meio do fluxo), e se faz sentido
 ter dois preços "concorrendo" na mesma vitrine.
+
+---
+
+## 34. Pacote é da empresa: crédito resgatável com qualquer barbeiro — ✅ RESOLVIDO (2026-08-17)
+
+**Decisão confirmada pelo dono**, em resposta a bug reportado ("as ofertas e pacotes não precisam
+ter vínculo com o barbeiro, é da empresa em si"). Duas opções foram apresentadas:
+
+1. Crédito resgatável com QUALQUER barbeiro ativo da casa que atenda o serviço — o dono da
+   oferta/venda vira só a base de preço do rateio, sem restringir consumo.
+2. Vitrine deixa de filtrar por barbeiro, mas a venda continua amarrada a um "dono" que
+   exclusivamente pode atender aquele crédito.
+
+**Escolhida a opção 1.** Implementado em `VendaDePacote.agendarItem` (parou de exigir
+`barbeiroId === venda.barbeiroId`) e em `GET /public/pacotes` (parou de filtrar por barbeiro
+escolhido no funil — sempre devolve a vitrine inteira da empresa). Documentado em DOMAIN.md §8.14.
+`barbeiroId` de `PacoteOferta`/`VendaDePacote` NÃO foi removido do schema — continua como base de
+preço do rateio (congelado) e autoria/CRUD (§3.11, §4.3), só parou de restringir visibilidade e
+consumo. Ver também DOMAIN.md §11 (linha "Resgate cruzado de crédito entre barbeiros", marcada
+resolvida).

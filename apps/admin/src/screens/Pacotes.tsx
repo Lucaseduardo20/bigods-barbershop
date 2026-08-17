@@ -380,6 +380,13 @@ function VenderDialog({
   );
 }
 
+/**
+ * Sessão 2026-08-17 (pacote é da empresa, não do barbeiro): crédito deixou de
+ * ser travado ao "dono" da venda — pode ser consumido por qualquer barbeiro
+ * ativo que atenda o serviço do item. Antes este diálogo nem oferecia escolha
+ * (mandava sempre `venda.barbeiroId` fixo); agora é um select, com o dono
+ * como sugestão inicial (conveniência, não obrigação).
+ */
 function AgendarCreditoDialog({
   alvo,
   usuario,
@@ -392,14 +399,31 @@ function AgendarCreditoDialog({
   aoSalvar: () => void;
 }) {
   const tz = useTimezone();
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const [data, setData] = useState(() => hojeISO(tz));
   const [horaInicio, setHoraInicio] = useState('10:00');
+  const [barbeiroId, setBarbeiroId] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter(
+    (b) => b.ativo && alvo && b.servicosAtendidos.includes(alvo.item.servicoId),
+  );
+  // Barbeiro não-admin só agenda pra si mesmo (mesmo escopo já usado em
+  // agenda/comissão); admin escolhe livremente entre quem atende o serviço.
+  const opcoesBarbeiro = ehAdmin ? barbeirosQueAtendem : barbeirosQueAtendem.filter((b) => b.id === usuario.barbeiroId);
+  const barbeiroIdEfetivo = idEfetivo(barbeiroId || alvo?.venda.barbeiroId, opcoesBarbeiro);
+
+  useEffect(() => {
+    setBarbeiroId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alvo?.item.id]);
 
   if (!alvo) return null;
 
   const salvar = async () => {
+    if (!barbeiroIdEfetivo) return;
     setSalvando(true);
     setErro(null);
     try {
@@ -408,7 +432,7 @@ function AgendarCreditoDialog({
         body: {
           vendaId: alvo.venda.id,
           itemId: alvo.item.id,
-          barbeiroId: alvo.venda.barbeiroId,
+          barbeiroId: barbeiroIdEfetivo,
           data,
           horaInicio,
         },
@@ -429,18 +453,33 @@ function AgendarCreditoDialog({
           será cobrado ao concluir.
         </div>
         <div>
-          <label className="label">Barbeiro</label>
-          <div className="text-[14px] font-semibold">
-            {alvo.venda.barbeiroNome}{' '}
-            <span className="text-[11px] font-normal" style={{ color: 'var(--text-muted)' }}>
-              (dono do pacote — crédito só pode ser consumido com ele)
-            </span>
+          <label className="label">Barbeiro que vai atender</label>
+          {opcoesBarbeiro.length === 0 ? (
+            <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
+              Nenhum barbeiro ativo atende {alvo.item.servicoNome}.
+            </div>
+          ) : (
+            <select
+              className="select"
+              value={barbeiroIdEfetivo ?? ''}
+              onChange={(e) => setBarbeiroId(e.target.value)}
+            >
+              {opcoesBarbeiro.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nome}
+                  {b.id === alvo.venda.barbeiroId ? ' (dono do pacote)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            Crédito é da empresa — pode ser usado com qualquer barbeiro que atenda o serviço, não só o dono do pacote.
           </div>
         </div>
         <input className="input" type="date" value={data} onChange={(e) => setData(e.target.value)} />
         <input className="input" type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
         {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
-        <button className="btn" disabled={salvando} onClick={salvar}>
+        <button className="btn" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
           {salvando ? 'Agendando…' : 'Agendar com crédito'}
         </button>
       </div>

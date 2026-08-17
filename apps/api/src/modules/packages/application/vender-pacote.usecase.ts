@@ -104,8 +104,11 @@ export class VenderPacoteUseCase {
         });
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
-      } else if (input.cliente.email || input.cliente.sobreVoce) {
-        // Mesmo critério do agendamento: complementa sem apagar o que já havia.
+      } else {
+        // Mesmo critério do agendamento (agendar-avulso.usecase.ts): complementa
+        // sem apagar o que já havia, e corrige o placeholder "Cliente" deixado
+        // por um login OTP anterior sem cadastro (§8.9) com o nome real.
+        cliente.renomear(input.cliente.nome);
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }

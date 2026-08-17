@@ -188,6 +188,29 @@ describe('Avulso PRESENCIAL continua exigindo OTP', () => {
     const atendimento = await prisma.atendimento.findUnique({ where: { id: res.body.atendimentoId } });
     expect(atendimento!.status).toBe('AGENDADO'); // firme, não temporário
   });
+
+  it('BUG corrigido: login OTP sem cadastro prévio cria o Cliente com nome placeholder "Cliente" — agendar corrige com o nome real', async () => {
+    const fone = `11 99${sufixo}9`;
+    const token = await login(fone);
+    const antes = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(antes!.nome).toBe('Cliente');
+
+    const req = http.post('/public/agendamentos').set('Authorization', `Bearer ${token}`);
+    await req
+      .send({
+        companyId,
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: '16:00',
+        cliente: { nome: 'Nome Real Presencial' },
+        formaPagamento: 'presencial',
+      })
+      .expect(201);
+
+    const depois = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(depois!.nome).toBe('Nome Real Presencial');
+  });
 });
 
 describe('★ Sessão vence o corpo — não dá para marcar em nome de outro número', () => {

@@ -70,14 +70,16 @@ export class PacotesPublicoController {
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
   ) {}
 
+  /**
+   * `barbeiroId` não é mais aceito de propósito (sessão 2026-08-17) — pacote
+   * é da empresa, a vitrine não muda conforme o barbeiro escolhido no funil
+   * (ver `PacoteOfertasQueryService.listar`).
+   */
   @Publico()
   @Get('pacotes')
-  async listarOfertas(
-    @Query('companyId') companyId?: string,
-    @Query('barbeiroId') barbeiroId?: string,
-  ): Promise<PacoteOfertaDTO[]> {
+  async listarOfertas(@Query('companyId') companyId?: string): Promise<PacoteOfertaDTO[]> {
     if (!companyId) throw new BadRequestException('Parâmetro companyId obrigatório');
-    return this.ofertas.listar(companyId, barbeiroId);
+    return this.ofertas.listar(companyId);
   }
 
   /**

@@ -46,6 +46,21 @@ export class Cliente extends AggregateRoot {
     if (sobreVoce) this.props.sobreVoce = sobreVoce;
   }
 
+  /**
+   * Nome não é opcional — sempre sobrescreve com o que veio digitado agora.
+   * Existe porque a sessão de OTP+reserva (§8.9) pode criar o `Cliente` ANTES
+   * de qualquer compra/agendamento (login sem cadastro prévio, ver
+   * `ConfirmarLoginClienteUseCase`), com um nome placeholder — sem isto, o
+   * primeiro agendamento/compra que o cliente de fato faz (onde ele digita o
+   * nome real no funil) nunca corrigia o placeholder, e o cadastro ficava com
+   * "Cliente" para sempre. Não há tela de edição de perfil hoje: o funil é a
+   * única fonte da verdade sobre o nome, então ele sempre vence.
+   */
+  renomear(nome: string): void {
+    const limpo = nome.trim();
+    if (limpo && limpo !== this.props.nome) this.props.nome = limpo;
+  }
+
   static reconstituir(props: ClienteProps): Cliente {
     return new Cliente(props);
   }

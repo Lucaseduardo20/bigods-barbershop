@@ -86,9 +86,12 @@ export class AgendarComCreditoUseCase {
       const venda = await repos.vendasDePacote.porId(input.vendaId);
       if (!venda) throw new NotFoundException('Pacote não encontrado');
 
-      // (a) item vira AGENDADO — valida status do item, pagamento do pacote
-      // e que o barbeiro escolhido é o dono do pacote (Fase 2)
-      venda.agendarItem(input.itemId, atendimentoId, input.barbeiroId);
+      // (a) item vira AGENDADO — valida status do item e pagamento do pacote.
+      // Crédito é da empresa (sessão 2026-08-17): qualquer barbeiro pode
+      // atender, não só quem vendeu/aprovou a oferta. "Barbeiro atende o
+      // serviço" é validado logo abaixo, pelo `Atendimento.agendar()` — a
+      // mesma invariante de qualquer atendimento, sem duplicar aqui.
+      venda.agendarItem(input.itemId, atendimentoId);
 
       // (b) Atendimento com valorCobrado = valor RATEADO (nunca o preço avulso)
       const atendimento = Atendimento.agendar({

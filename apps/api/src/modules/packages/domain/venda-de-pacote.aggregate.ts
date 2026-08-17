@@ -180,18 +180,20 @@ export class VendaDePacote extends AggregateRoot {
     this.props.statusPagamento = StatusPagamento.FALHOU;
   }
 
-  /** DISPONIVEL | SEGUNDA_CHANCE → AGENDADO. Exige pacote PAGO. */
   /**
-   * `barbeiroId` é quem vai atender — precisa ser o dono do pacote (Fase 2:
-   * o rateio deste pacote foi calculado com o preço DESTE barbeiro; deixar
-   * outro barbeiro consumir o crédito quebraria essa relação). Resgate
-   * cruzado entre barbeiros fica fora desta sessão (decisão futura).
+   * DISPONIVEL | SEGUNDA_CHANCE → AGENDADO. Exige pacote PAGO.
+   *
+   * Sessão 2026-08-17 (decisão do dono): crédito de pacote é resgatável com
+   * QUALQUER barbeiro da casa, não só o "dono" que vendeu/aprovou a oferta —
+   * pacote é da empresa, não do barbeiro. A trava antiga ("só o dono
+   * consome") saiu daqui; a única restrição que sobra é "o barbeiro escolhido
+   * atende o serviço do item", e essa já é a mesma invariante que
+   * `Atendimento.agendar()` aplica pra QUALQUER atendimento — não precisa
+   * duplicar aqui, o use case cria o `Atendimento` na mesma transação logo
+   * depois de chamar este método.
    */
-  agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId, barbeiroId: BarbeiroId): void {
+  agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId): void {
     this.exigirPago();
-    if (barbeiroId !== this.props.barbeiroId) {
-      throw new InvarianteVioladaError('Crédito só pode ser consumido pelo barbeiro dono do pacote');
-    }
     const item = this.item(itemId);
     if (
       item.status !== StatusItemPacote.DISPONIVEL &&

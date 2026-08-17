@@ -527,7 +527,7 @@ itens individuais, cada um com ciclo de vida próprio.
 | `id` | VendaDePacoteId | |
 | `companyId` | CompanyId | |
 | `clienteId` | ClienteId | |
-| `barbeiroId` | BarbeiroId | **dono do pacote** (sessão-B, Fase 2) — ver regra abaixo |
+| `barbeiroId` | BarbeiroId | **base de preço do rateio** (sessão-B, Fase 2) — ver regra abaixo. NÃO restringe mais quem consome o crédito (sessão 2026-08-17, §8.14) |
 | `valorPago` | Dinheiro | valor total efetivamente pago |
 | `itens` | List\<ItemDoPacote\> | entidades internas |
 | `saldoResidual` | Dinheiro | acumula valor de itens expirados (§4.2); dinheiro **disponível** — pode ser abatido (§8.7) ou reembolsado (§8.7) |
@@ -539,11 +539,20 @@ itens individuais, cada um com ciclo de vida próprio.
 | `statusPagamento` | StatusPagamento | ver §3.8 |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
 
-**Dono do pacote (`barbeiroId`, sessão-B Fase 2):** todo pacote pertence a UM barbeiro —
-é o preço DELE (`precoPara`, §3.2.2) que alimenta o rateio abaixo. Crédito só pode ser
-consumido com o barbeiro dono (`agendarItem` recusa qualquer outro barbeiro —
-`InvarianteVioladaError`). **Resgate cruzado entre barbeiros está fora desta sessão**
-(decisão futura, ver DECISOES_PENDENTES).
+**`barbeiroId` = base de preço do rateio (sessão-B Fase 2), não "dono exclusivo".** É o
+preço DELE (`precoPara`, §3.2.2), vigente na venda, que alimenta o rateio abaixo —
+existe pra que o rateio congelado tenha uma base concreta, não porque o crédito
+pertence só a ele.
+
+**Consumo é da empresa (sessão 2026-08-17, §8.14 — decisão do dono, corrige bug
+reportado):** `agendarItem` **não exige mais** que o barbeiro que vai atender seja o
+`barbeiroId` da venda — qualquer barbeiro ATIVO da casa pode consumir o crédito, contanto
+que atenda o serviço do item. Essa restrição ("atende o serviço") não é verificada aqui:
+é a MESMA invariante que `Atendimento.agendar()` já aplica pra qualquer atendimento
+(§3.5) — o use case cria os dois agregados na mesma transação, então não há brecha entre
+"agendou o item" e "criou um Atendimento com barbeiro inválido". `PacoteOferta.barbeiroId`
+(§3.11) segue o mesmo raciocínio: deixou de filtrar a vitrine pública por barbeiro
+escolhido — a oferta é sempre da empresa inteira.
 
 **`ItemDoPacote`** (entidade dentro do agregado — **nunca manipulada fora da raiz**):
 
@@ -590,7 +599,7 @@ Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) +
 - Um item nunca tem mais de 1 falta computada (na segunda, expira).
 - Um item não pode ir para `AGENDADO` se não estiver `DISPONIVEL` ou `SEGUNDA_CHANCE`.
 - Não é possível consumir item de um pacote com `statusPagamento != PAGO`.
-- `agendarItem` exige que o barbeiro passado seja o `barbeiroId` dono do pacote (sessão-B, Fase 2).
+- `agendarItem` (desde 2026-08-17) não valida mais o barbeiro — só "barbeiro atende o serviço", e isso é `Atendimento.agendar()` quem garante.
 
 **Eventos emitidos:**
 - `PacoteVendido`
@@ -789,7 +798,7 @@ rateio, só é a fonte da composição e do preço que alimentam a venda.
 |---|---|---|
 | `id` | PacoteOfertaId | |
 | `companyId` | CompanyId | |
-| `barbeiroId` | BarbeiroId | **dono da oferta** (Fase 2) — cada barbeiro tem seu próprio catálogo |
+| `barbeiroId` | BarbeiroId | **autor/base de preço** (Fase 2) — quem cadastrou e cujo preço alimenta a composição. NÃO restringe mais a quem vê a oferta no funil (sessão 2026-08-17, §8.14) |
 | `nome` | string | |
 | `composicao` | List\<{servicoId, quantidade}\> | **MISTA**: N serviços distintos, cada um com sua quantidade (ex.: 2 cortes + 2 barbas no mesmo pacote) |
 | `preco` | Dinheiro | **única fonte de verdade persistida** — ver regra de precificação abaixo |
@@ -827,6 +836,12 @@ barbeiros com preços diferentes para os mesmos serviços. Isso é correto e esp
 
 **Autorização:** "barbeiro cria/edita → PENDENTE" — o barbeiro dono (ou um admin em
 nome dele) pode criar/editar sua própria oferta; só um admin aprova/rejeita (ver §4.3).
+Isso continua igual — a mudança de 2026-08-17 foi só na VITRINE pública (§8.14): antes,
+`GET /public/pacotes?barbeiroId=X` só devolvia ofertas cujo `barbeiroId` fosse X; um
+cliente que escolhesse um barbeiro diferente do autor nunca via aquela oferta, mesmo
+sendo a mesma barbearia. Agora a vitrine pública é sempre a empresa inteira
+(`listarPorEmpresa`), independente de qual barbeiro o cliente escolheu no funil —
+`barbeiroId` continua existindo só para autoria/preço-base/CRUD.
 
 **Uso na venda:** `expandirServicoIds()` repete cada `servicoId` da composição pela
 `quantidade` — o mesmo array plano que `VenderPacoteUseCase` já aceitava antes desta
@@ -1618,6 +1633,33 @@ Depois de tudo — inclusive depois da confirmação do avulso, na tela de suces
 mostra o Bigod's Club (§8.11): o order-bump vende mais na MESMA visita; o clube, no fim, é a
 tentativa de vender a PRÓXIMA.
 
+### 8.14 Pacote é da empresa, não do barbeiro (sessão 2026-08-17 — correção de bug)
+
+Bug reportado pelo dono depois de testar em produção: "as ofertas e pacotes não precisam ter
+vínculo com o barbeiro, é da empresa em si, por que não podemos mostrar pacotes para barbeiro x e
+não mostrar pra barbeiro y". Duas restrições, historicamente ligadas ao mesmo campo
+(`barbeiroId` — Fase 2, §3.6/§3.11), foram removidas — **cada uma por um motivo distinto,
+confirmado com o dono antes de implementar**:
+
+1. **Visibilidade da vitrine (`PacoteOferta`, §3.11):** `GET /public/pacotes` deixou de aceitar
+   `barbeiroId` como filtro — sempre devolve TODAS as ofertas aprovadas da empresa
+   (`listarPorEmpresa`), não importa qual barbeiro o cliente escolheu no funil. Antes, escolher
+   Lucas escondia o pacote que só o Gabriel tinha cadastrado, mesmo sendo a mesma barbearia.
+2. **Consumo do crédito (`VendaDePacote.agendarItem`, §3.6):** deixou de exigir que o barbeiro
+   que vai atender seja o `barbeiroId` "dono" da venda. Decisão explícita do dono, escolhida entre
+   duas opções apresentadas ("qualquer barbeiro da casa" vs. "só quem foi escolhido na compra") —
+   ele confirmou a primeira. A única restrição que sobra é "o barbeiro atende o serviço", e essa
+   já é garantida por `Atendimento.agendar()` (§3.5) — não duplicada no agregado do pacote.
+
+**O que NÃO mudou:** `barbeiroId` continua existindo em `PacoteOferta` e `VendaDePacote` — é a
+base de PREÇO (`precoPara`, §3.2.2) usada no rateio (§3.6) e na composição da oferta, e continua
+sendo quem "cadastrou" pra fins de CRUD/autorização (§4.3). Nenhuma migration foi necessária —
+mudança de comportamento, não de schema.
+
+**Painel:** o diálogo "Agendar com crédito" (cockpit) antes nem oferecia escolha — mandava sempre
+o `barbeiroId` da venda, fixo. Virou um `<select>` com todo barbeiro ATIVO que atende o serviço do
+item, sugerindo o dono como default (conveniência, não obrigação).
+
 ---
 
 ## 9. Testes — onde investir
@@ -1693,7 +1735,7 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Desconto progressivo por volume no carrinho | Mecânica distinta do pacote pré-pago; sem evidência operacional | Regra de precificação nova no catálogo |
 | App mobile nativo | Web responsiva resolve; app da v1 morreu sem resolver problema real | PWA primeiro; nativo só se surgir necessidade que só ele resolve |
 | Divisão de lucro entre sócios | Contabilidade da empresa, **não** domínio do produto | Fora do produto — planilha/contador, a partir dos números do sistema |
-| Resgate cruzado de crédito entre barbeiros | `VendaDePacote.barbeiroId` (sessão-B, Fase 2) trava o crédito ao dono; deixar outro barbeiro consumir quebra a relação preço-do-dono ↔ rateio congelado, sem regra de negócio definida pra isso ainda | Precisaria de uma decisão explícita de como converter/rebalancear o rateio entre barbeiros — decisão futura, registrada em DECISOES_PENDENTES |
+| ~~Resgate cruzado de crédito entre barbeiros~~ | **Saiu desta lista** (sessão 2026-08-17, §8.14) — decisão do dono: crédito é da empresa, resgatável com qualquer barbeiro ativo que atenda o serviço. `barbeiroId` da venda virou só a base de preço do rateio (congelada, sem mudar retroativamente) | Implementado |
 | Relatório/dashboard de origemLink | `origemLinkBarbeiroId` (§8.5, Fase 4c) é só registro nesta sessão — não há tela nem métrica | Read model simples quando "quanto cada barbeiro converte pelo próprio link" virar pergunta de negócio real |
 | Order-bump com regras condicionais / segmentação | Decisão do dono para começar SIMPLES (§8.13, sessão 2026-08-17): vitrine curada é uma lista geral, sem "se o carrinho tem X, ofereça Y" nem segmentação por serviço/barbeiro | Motor de regras condicionais sobre a mesma vitrine, quando houver evidência de que a lista geral não converte o suficiente — registrado em DECISOES_PENDENTES |
 | Upsell de troca-pra-cima (trocar um serviço por uma versão premium) | Fora de escopo desta sessão — o order-bump (§8.13) só ADICIONA itens, nunca substitui um já escolhido | O mecanismo atual já comporta um serviço premium como item de bump comum, quando um existir no catálogo; troca-pra-cima de verdade (substituir, não somar) é decisão de UX/negócio futura, registrada em DECISOES_PENDENTES |

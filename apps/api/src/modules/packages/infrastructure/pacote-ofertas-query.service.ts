@@ -23,14 +23,18 @@ export class PacoteOfertasQueryService {
   ) {}
 
   /**
-   * Ofertas ativas E APROVADAS — opcionalmente filtradas por barbeiro (§4a,
-   * funil por barbeiro escolhido). Fase 3: pendente/rejeitado/rascunho nunca
-   * aparece no funil público, só o admin vê (via CRUD).
+   * Ofertas ativas E APROVADAS da empresa — sessão 2026-08-17: pacote é da
+   * CASA, não do barbeiro. Antes, escolher um barbeiro específico no funil
+   * filtrava a vitrine só pras ofertas QUE ELE cadastrou — um cliente que
+   * escolhesse Lucas nunca via o pacote que o Gabriel tinha configurado,
+   * mesmo sendo a mesma barbearia. `barbeiroId` de cada oferta continua
+   * existindo (é o preço-base usado na composição, §3.11), mas não filtra
+   * mais a visibilidade — todo cliente vê toda oferta aprovada da empresa,
+   * não importa com quem vai agendar. Fase 3: pendente/rejeitado/rascunho
+   * nunca aparece no funil público, só o admin vê (via CRUD).
    */
-  async listar(companyId: string, barbeiroId?: string): Promise<PacoteOfertaDTO[]> {
-    const todas = barbeiroId
-      ? await this.ofertas.listarPorBarbeiro(barbeiroId)
-      : await this.ofertas.listarPorEmpresa(companyId);
+  async listar(companyId: string): Promise<PacoteOfertaDTO[]> {
+    const todas = await this.ofertas.listarPorEmpresa(companyId);
     const ativas = todas.filter(
       (o) => o.ativo && o.companyId === companyId && o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO,
     );

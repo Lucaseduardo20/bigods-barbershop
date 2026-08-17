@@ -5,7 +5,7 @@ import { Db } from '../../../shared/infrastructure/db';
 import { PacoteOferta } from '../domain/pacote-oferta.aggregate';
 import { PacoteOfertaRepository } from '../domain/pacote-oferta.repository';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
-import { BarbeiroId, CompanyId, PacoteOfertaId } from '../../../shared/domain/ids';
+import { CompanyId, PacoteOfertaId } from '../../../shared/domain/ids';
 
 type LinhaComItens = PacoteOfertaPrisma & { itens: PacoteOfertaItemPrisma[] };
 
@@ -33,11 +33,6 @@ export class PrismaPacoteOfertaRepository implements PacoteOfertaRepository {
 
   async listarPorEmpresa(companyId: CompanyId): Promise<PacoteOferta[]> {
     const rows = await this.db.pacoteOferta.findMany({ where: { companyId }, include: { itens: true }, orderBy: { nome: 'asc' } });
-    return rows.map(paraDominio);
-  }
-
-  async listarPorBarbeiro(barbeiroId: BarbeiroId): Promise<PacoteOferta[]> {
-    const rows = await this.db.pacoteOferta.findMany({ where: { barbeiroId }, include: { itens: true }, orderBy: { nome: 'asc' } });
     return rows.map(paraDominio);
   }
 
