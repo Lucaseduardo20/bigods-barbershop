@@ -1,9 +1,6 @@
-import { descontoNominalCentavos } from '@bigods/contracts';
-import type { ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
+import type { ServicoDTO } from '@bigods/contracts';
 import { dinheiro } from '../lib/format';
 import { Loading } from '../components/ui';
-import { ProximoDegrau, ResumoDoDesconto } from '../components/ResumoDoDesconto';
-import { precificarCarrinhoFunil } from '../lib/funnel-state';
 
 export function Servicos({
   servicos,
@@ -11,14 +8,11 @@ export function Servicos({
   onToggle,
   erroDecisao,
   carregando,
-  tabelaDeDesconto,
 }: {
   servicos: ServicoDTO[];
   selecionados: string[];
   onToggle: (id: string) => void;
   erroDecisao: string | null;
-  /** Tabela vinda de `/public/empresa` — o desconto é da empresa, não do front. */
-  tabelaDeDesconto: TabelaDeDescontoDTO;
   /** Bug "tela branca" (sessão-C): logo depois do skip de barbeiro único, a
    * lista filtrada por barbeiro ainda não chegou — sem isto, a etapa
    * renderizava título + lista vazia, sem nenhum indicativo de carregamento. */
@@ -32,21 +26,16 @@ export function Servicos({
       </div>
     );
   }
-  const carrinho = precificarCarrinhoFunil(servicos, selecionados, tabelaDeDesconto);
-
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-[22px] font-extrabold">O que vai ser?</div>
+      {/* A economia NÃO vive aqui. Ela aparecia acima da lista e, ao surgir/
+          sumir a cada clique, empurrava os itens para baixo — o cliente
+          clicava num serviço e outro mudava de lugar. Foi para a barra de
+          resumo, que é fixa no rodapé e não desloca nada. */}
       <div className="text-[13px] -mt-1.5 mb-1" style={{ color: 'var(--text-muted)' }}>
         Pode escolher mais de um — quanto mais serviços, maior o desconto.
       </div>
-
-      {carrinho.temDesconto && <ResumoDoDesconto carrinho={carrinho} />}
-      <ProximoDegrau
-        quantidadeAtual={selecionados.length}
-        descontoAtualCentavos={descontoNominalCentavos(selecionados.length, tabelaDeDesconto)}
-        descontoComMaisUmCentavos={descontoNominalCentavos(selecionados.length + 1, tabelaDeDesconto)}
-      />
       {servicos.map((s) => {
         const on = selecionados.includes(s.id);
         return (

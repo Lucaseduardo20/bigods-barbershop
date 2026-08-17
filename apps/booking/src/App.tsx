@@ -14,6 +14,7 @@ import { carregarSessaoBooking, salvarSessaoBooking, limparSessaoBooking } from 
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
 import { dinheiro, hojeISO } from './lib/format';
 import {
+  descontoNominalCentavos,
   celularBrasileiroValido,
   emailValido,
   nomeDeClienteValido,
@@ -504,7 +505,6 @@ function Funil() {
           selecionados={estado.servicoIds}
           onToggle={toggleServico}
           erroDecisao={erroDecisao}
-          tabelaDeDesconto={empresa.descontoProgressivo}
           carregando={servicosDoBarbeiroReq.carregando}
         />
       </div>
@@ -582,6 +582,16 @@ function Funil() {
   const total = ehPacote
     ? (estado.ofertaPrecoCentavos ?? 0)
     : (estado.valorFinalCentavos ?? totalAvulsoComDesconto());
+
+  // Economia do carrinho, exibida na BARRA (não acima da lista): a barra é
+  // fixa no rodapé, então mostrar/esconder isto não desloca os serviços.
+  const carrinhoAvulso = ehPacote
+    ? null
+    : precificarCarrinhoFunil(servicosParaPreco, estado.servicoIds, empresa.descontoProgressivo);
+  const proximoGanhoCentavos = ehPacote
+    ? 0
+    : descontoNominalCentavos(estado.servicoIds.length + 1, empresa.descontoProgressivo) -
+      descontoNominalCentavos(estado.servicoIds.length, empresa.descontoProgressivo);
   const duracao = ehPacote ? 0 : duracaoMinutos(servicosParaPreco, estado.servicoIds);
   const resumo = ehPacote
     ? (estado.ofertaNome ?? 'Pacote')
@@ -609,7 +619,17 @@ function Funil() {
         )}
         {corpo}
       </div>
-      {cta && <SummaryBar resumo={resumo} total={total} duracao={duracao} cta={cta} />}
+      {cta && (
+        <SummaryBar
+          resumo={resumo}
+          total={total}
+          duracao={duracao}
+          cta={cta}
+          descontoCentavos={carrinhoAvulso?.descontoTotalCentavos ?? 0}
+          totalCheioCentavos={carrinhoAvulso?.totalCheioCentavos ?? 0}
+          proximoGanhoCentavos={estado.step === PASSO.SERVICOS ? proximoGanhoCentavos : 0}
+        />
+      )}
       {/* Sessão de OTP+reserva: modal sobre a Confirmação — sem sessão local válida, pausa
           o envio aqui até o telefone ser verificado. Não é passo próprio do funil. */}
       {mostrandoOtp && (
@@ -660,11 +680,19 @@ function SummaryBar({
   total,
   duracao,
   cta,
+  descontoCentavos,
+  totalCheioCentavos,
+  proximoGanhoCentavos,
 }: {
   resumo: string;
   total: number;
   duracao: number;
   cta: { label: string; disabled: boolean; onClick: () => void };
+  /** Desconto progressivo já aplicado no `total`. 0 = sem desconto. */
+  descontoCentavos: number;
+  totalCheioCentavos: number;
+  /** Quanto o cliente ganharia somando mais um serviço. 0 = não vale mostrar. */
+  proximoGanhoCentavos: number;
 }) {
   return (
     <div className="summary-bar">
@@ -682,6 +710,29 @@ function SummaryBar({
           )}
         </span>
       </div>
+      {/* Economia logo acima do CTA: é o último olhar antes de continuar, e
+          aqui o aparecer/sumir não empurra a lista de serviços. */}
+      {descontoCentavos > 0 && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 mb-2.5"
+          style={{ background: 'var(--surface-brand-tint)', color: 'var(--brand-gold-700)' }}
+        >
+          <span className="text-[12.5px] font-bold">
+            🎉 Você está economizando {dinheiro(descontoCentavos)}
+          </span>
+          <span
+            className="text-[12px] font-semibold flex-shrink-0"
+            style={{ textDecoration: 'line-through', opacity: 0.75 }}
+          >
+            {dinheiro(totalCheioCentavos)}
+          </span>
+        </div>
+      )}
+      {descontoCentavos === 0 && proximoGanhoCentavos > 0 && (
+        <div className="text-[12px] font-semibold mb-2.5" style={{ color: 'var(--brand-gold-700)' }}>
+          Adicione mais um serviço e ganhe {dinheiro(proximoGanhoCentavos)} de desconto.
+        </div>
+      )}
       <button className="btn btn-block" disabled={cta.disabled} onClick={cta.onClick}>
         {cta.label} →
       </button>
