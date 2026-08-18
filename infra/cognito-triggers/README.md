@@ -120,14 +120,26 @@ aws lambda add-permission \
 
 ### 5. Ligar os triggers no User Pool
 
-Console → **Cognito → User pools → (seu pool) → User pool properties →
-Lambda triggers → Add Lambda trigger**:
+Console → **Cognito → User pools → (seu pool) → Extensions → Add Lambda trigger**.
 
-| Trigger type | Função |
+⚠️ Em **Trigger type**, escolha o card **Custom authentication** — NÃO
+"Authentication". São categorias diferentes: "Authentication" traz Pre/Post
+authentication e Pre token generation, que não têm nada a ver com o nosso
+fluxo. Só ao marcar *Custom authentication* é que aparecem as três opções
+certas.
+
+Repita o **Add Lambda trigger** três vezes (o console atribui uma função por
+tipo de trigger), sempre com *Trigger type = Custom authentication*:
+
+| Opção (dentro de Custom authentication) | Função |
 |---|---|
 | Define auth challenge | `bigods-cognito-define-auth` |
 | Create auth challenge | `bigods-cognito-create-auth` |
 | Verify auth challenge response | `bigods-cognito-verify-auth` |
+
+No fim, a tela de Extensions deve listar os três. Faltando qualquer um, o login
+quebra de um jeito específico: sem o **Define** o Cognito não sabe o que
+perguntar; sem o **Create** não sai SMS; sem o **Verify** nenhum código é aceito.
 
 ### 6. Habilitar CUSTOM_AUTH no App Client
 
