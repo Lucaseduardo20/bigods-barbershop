@@ -176,11 +176,14 @@ não o CLI — `aws sts get-caller-identity` dentro do container responde
 
 ```bash
 docker compose exec api node -e "
-require('@aws-sdk/credential-provider-node').fromNodeProviderChain()()
-  .then(c => console.log('CREDENCIAL OK —', c.accessKeyId.slice(0,6) + '…'))
+require('@aws-sdk/credential-provider-node').defaultProvider()()
+  .then(c => console.log('CREDENCIAL OK — key:', String(c.accessKeyId).slice(0,6) + '…'))
   .catch(e => console.log('SEM CREDENCIAL —', e.message))
 "
 ```
+
+> É `defaultProvider` mesmo — `fromNodeProviderChain` existe, mas no pacote
+> `@aws-sdk/credential-providers` (plural), que não é dependência daqui.
 
 E no HOST (fora do container), para saber se a instância tem role anexada:
 
