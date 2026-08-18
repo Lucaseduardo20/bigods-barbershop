@@ -170,6 +170,41 @@ usuário antes do primeiro login. A role da EC2 (ou a credencial em
 `InitiateAuth` e `RespondToAuthChallenge` são APIs de cliente (não-autenticadas),
 não precisam de IAM.
 
+**Conferir se a credencial chega na API.** A imagem da API traz o *SDK* da AWS,
+não o CLI — `aws sts get-caller-identity` dentro do container responde
+`aws: not found`, e isso não diz nada sobre credencial. Use o Node, que está lá:
+
+```bash
+docker compose exec api node -e "
+require('@aws-sdk/credential-provider-node').fromNodeProviderChain()()
+  .then(c => console.log('CREDENCIAL OK —', c.accessKeyId.slice(0,6) + '…'))
+  .catch(e => console.log('SEM CREDENCIAL —', e.message))
+"
+```
+
+E no HOST (fora do container), para saber se a instância tem role anexada:
+
+```bash
+TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+| Host | Container | Diagnóstico |
+|---|---|---|
+| vazio | — | role não anexada à instância |
+| nome da role | OK | tudo certo |
+| nome da role | SEM CREDENCIAL | **hop limit do IMDSv2**: o container não alcança o metadata |
+
+O terceiro caso é o que mais engana (a role está lá, mas o SDK não a enxerga
+de dentro do Docker). Correção, do CloudShell:
+
+```bash
+aws ec2 modify-instance-metadata-options --region us-east-1 \
+  --instance-id <ID> --http-put-response-hop-limit 2 --http-tokens required
+```
+
 ### 8. Variáveis da API
 
 No `.env` do servidor:
