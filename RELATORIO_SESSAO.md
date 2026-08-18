@@ -3168,6 +3168,42 @@ regra nova, nenhum apagado: o rateio agora prova que o override **não** muda o 
 que aceita qualquer serviço; e o consumo ganhou os dois casos novos (preso ao barbeiro da compra ×
 livre quando não houve escolha).
 
+### ACL do barbeiro (segunda rodada, mesmo dia)
+
+Testando em produção, o dono viu o barbeiro enxergando o que não devia: os pacotes vendidos por
+outros barbeiros, o botão "+ Vender", e a aba "Catálogo de ofertas" que ao ser clicada dava erro de
+papel insuficiente. O pedido veio com um princípio junto: **"se ele não tem acesso, ele não pode
+ver"**.
+
+Eram três **brechas reais de backend**, não só de tela — `GET /pacotes` não escopava por barbeiro,
+`POST /pacotes` (vender) não exigia admin, e `POST /atendimentos/com-credito` deixava um barbeiro
+agendar item de pacote de qualquer outro (e até em nome de terceiro). Corrigido no servidor
+primeiro, com 11 e2e que tentam exatamente esses requests diretos; só depois a tela escondeu aba,
+botão e ação.
+
+| Ação | Barbeiro | Admin |
+|---|---|---|
+| Listar pacotes | só os comprados COM ELE | todos |
+| Vender / confirmar pagamento | **403** | sim |
+| Catálogo de ofertas / reembolsos | **403** (aba nem aparece) | sim |
+| Agendar com crédito | só pacote DELE, em nome dele | qualquer |
+
+Pacote comprado **sem** barbeiro não é de ninguém: não aparece para barbeiro nenhum, só o admin
+distribui.
+
+**Ajustes** virou o que o dono pediu: perfil (avatar + papéis) e **trocar a própria senha** — antes
+não existia esse endpoint, só o reset pelo admin, então o barbeiro dependia do dono para trocar.
+`PUT /auth/senha` exige a senha ATUAL: sem isso, uma sessão esquecida aberta trancaria o dono para
+fora da própria conta. Os parâmetros da empresa sumiram da tela do barbeiro (antes mostravam um
+aviso de "restrito ao admin", que é justamente o tipo de porta fechada que o dono não quer ver).
+
+⚠️ **Foto de perfil não deu para fazer.** O agregado `Barbeiro` não tem campo de foto e o projeto
+não tem storage de upload configurado — foi exatamente o que travou a Fase 1 da sessão de
+2026-08-14 (DECISOES_PENDENTES #4: os buckets S3 existentes servem o build dos frontends e o
+`--delete` do deploy apagaria qualquer imagem posta ali). O avatar mostra as iniciais, e o lugar
+onde a imagem entra já está marcado no código. Para destravar: bucket dedicado + permissão de
+escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
+
 ### Roteiro de smoke test manual
 
 1. **Admin → Pacotes & Ofertas → Catálogo:** crie uma oferta. Não deve haver campo de barbeiro, e a
@@ -3182,6 +3218,11 @@ livre quando não houve escolha).
    mostra o select.
 6. **Rateio:** dê um override de preço a um barbeiro, venda um pacote com ele escolhido e confira
    que o `valorRateado` dos itens usa o preço da CASA, não o override.
+7. **Entre como um barbeiro não-admin:** a aba "Catálogo de ofertas" não deve existir, nem o botão
+   "+ Vender"; a lista deve mostrar só os pacotes comprados com ele. Em Ajustes, só perfil e
+   "Alterar senha" — nenhum parâmetro de empresa.
+8. **Troque a senha pelo próprio barbeiro:** errar a senha atual tem que recusar; acertando, a
+   senha nova entra e a antiga para de funcionar.
 
 ## Como rodar localmente
 

@@ -21,9 +21,16 @@ export class PacotesQueryService {
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
 
-  async listar(companyId: string, clienteId?: string): Promise<VendaDePacoteDTO[]> {
+  /**
+   * `barbeiroId` escopa a listagem (2026-08-18): barbeiro não-admin só enxerga
+   * os pacotes comprados COM ELE — mesmo princípio da agenda e do extrato de
+   * comissão. Pacote comprado sem barbeiro escolhido (`null`) não é de
+   * ninguém em particular, então não aparece pra barbeiro nenhum: só o admin
+   * vê e decide quem atende. `undefined` = sem escopo (admin vê tudo).
+   */
+  async listar(companyId: string, clienteId?: string, barbeiroId?: string): Promise<VendaDePacoteDTO[]> {
     const vendas = await this.prisma.vendaDePacote.findMany({
-      where: { companyId, ...(clienteId ? { clienteId } : {}) },
+      where: { companyId, ...(clienteId ? { clienteId } : {}), ...(barbeiroId ? { barbeiroId } : {}) },
       include: { itens: { orderBy: { id: 'asc' } } },
       orderBy: { compradoEm: 'desc' },
     });

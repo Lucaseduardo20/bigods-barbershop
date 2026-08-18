@@ -38,6 +38,10 @@ import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
+import {
+  VENDA_DE_PACOTE_REPOSITORY,
+  VendaDePacoteRepository,
+} from '../../packages/domain/venda-de-pacote.repository';
 import { diferencaDiasCivis, instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
@@ -104,6 +108,7 @@ export class AtendimentosController {
     private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
+    @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
   ) {}
 
   @Get()
@@ -175,11 +180,31 @@ export class AtendimentosController {
     return { atendimentoId: resultado.atendimentoId, cobranca: resultado.cobranca };
   }
 
+  /**
+   * Agendar consumindo crédito. ACL (2026-08-18): barbeiro não-admin só mexe
+   * em pacote comprado COM ELE, e o atendimento sai no nome dele — mesmo
+   * escopo da agenda e da listagem de pacotes. Pacote comprado sem barbeiro
+   * escolhido não é de ninguém em particular: quem decide quem atende é o
+   * admin. A checagem é aqui, na borda, como no cockpit do cliente.
+   */
   @Post('com-credito')
   async criarComCredito(
     @Body() body: AgendarComCreditoDto,
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<AgendarResponse> {
+    const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+    if (!ehAdmin) {
+      const venda = await this.vendasDePacote.porId(body.vendaId);
+      if (!venda || venda.companyId !== usuario.companyId) {
+        throw new NotFoundException('Pacote não encontrado');
+      }
+      if (venda.barbeiroId !== usuario.barbeiroId) {
+        throw new ForbiddenException('Este pacote não foi comprado com você');
+      }
+      if (body.barbeiroId !== usuario.barbeiroId) {
+        throw new ForbiddenException('Você só pode agendar em seu próprio nome');
+      }
+    }
     const tz = await this.parametros.timezone(usuario.companyId);
     const resultado = await this.agendarComCredito.executar({
       companyId: usuario.companyId,

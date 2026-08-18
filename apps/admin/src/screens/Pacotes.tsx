@@ -41,21 +41,26 @@ const tonePagamento: Record<StatusPagamento, string> = {
 type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
 
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [aba, setAba] = useState<Aba>('vendidos');
-  // Reembolsos saiu daqui na sessão 2026-08-17 (Parte 1) — dinheiro é assunto
-  // do Financeiro. Ver screens/Reembolsos.tsx.
+  // "Se ele não tem acesso, ele não pode ver" (2026-08-18): o catálogo de
+  // ofertas é admin-only no backend, então a aba nem aparece pro barbeiro —
+  // antes ela aparecia e o clique caía num erro de papel insuficiente.
+  // Reembolsos saiu daqui na Parte 1 (2026-08-17) — é assunto do Financeiro.
   const tabs = [
     { value: 'vendidos' as const, label: 'Vendidos' },
-    { value: 'catalogo' as const, label: 'Catálogo de ofertas' },
+    ...(ehAdmin ? [{ value: 'catalogo' as const, label: 'Catálogo de ofertas' }] : []),
   ];
 
   return (
     <div className="px-5">
-      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Pacotes & Ofertas</h1>
-      <Tabs value={aba} onChange={setAba} tabs={tabs} />
+      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">
+        {ehAdmin ? 'Pacotes & Ofertas' : 'Pacotes dos meus clientes'}
+      </h1>
+      {ehAdmin && <Tabs value={aba} onChange={setAba} tabs={tabs} />}
       <div className="mt-3">
         {aba === 'vendidos' && <PacotesVendidos usuario={usuario} />}
-        {aba === 'catalogo' && <CatalogoDeOfertas usuario={usuario} />}
+        {aba === 'catalogo' && ehAdmin && <CatalogoDeOfertas usuario={usuario} />}
       </div>
     </div>
   );
@@ -63,6 +68,7 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
 
 function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
   const tz = useTimezone();
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [venderAberto, setVenderAberto] = useState(false);
   const [agendarItem, setAgendarItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
   const [confirmando, setConfirmando] = useState<string | null>(null);
@@ -85,14 +91,19 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
     <div>
       <div className="flex items-end justify-between mb-3">
         <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-        <button className="btn btn-sm" onClick={() => setVenderAberto(true)}>
-          + Vender
-        </button>
+        {/* Vender pacote é ação de caixa — admin-only no backend, escondido aqui. */}
+        {ehAdmin && (
+          <button className="btn btn-sm" onClick={() => setVenderAberto(true)}>
+            + Vender
+          </button>
+        )}
       </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
       {!carregando && !erro && (dados ?? []).length === 0 && (
-        <Vazio texto="Nenhum pacote vendido ainda." />
+        <Vazio
+          texto={ehAdmin ? 'Nenhum pacote vendido ainda.' : 'Nenhum cliente comprou pacote com você ainda.'}
+        />
       )}
       <div className="flex flex-col gap-2.5">
         {(dados ?? []).map((v) => (
@@ -119,7 +130,7 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone={tonePagamento[v.statusPagamento]}>{v.statusPagamento}</Badge>
-                {v.statusPagamento === StatusPagamento.AGUARDANDO && (
+                {ehAdmin && v.statusPagamento === StatusPagamento.AGUARDANDO && (
                   <button
                     className="btn btn-sm"
                     disabled={confirmando === v.id}
@@ -164,7 +175,7 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
       </div>
 
       <VenderDialog
-        aberto={venderAberto}
+        aberto={venderAberto && ehAdmin}
         aoFechar={() => setVenderAberto(false)}
         aoSalvar={() => {
           setVenderAberto(false);

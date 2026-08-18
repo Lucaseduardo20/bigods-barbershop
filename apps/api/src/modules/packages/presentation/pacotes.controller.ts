@@ -42,14 +42,26 @@ export class PacotesController {
     private readonly consulta: PacotesQueryService,
   ) {}
 
+  /**
+   * Barbeiro não-admin só enxerga os pacotes comprados COM ELE (2026-08-18) —
+   * mesmo escopo da agenda e do extrato. Filtro no BACKEND, não na tela: o
+   * front esconder é conveniência, isto aqui é a garantia.
+   */
   @Get()
   async listar(
     @UsuarioAtual() usuario: UsuarioAutenticado,
     @Query('clienteId') clienteId?: string,
   ): Promise<VendaDePacoteDTO[]> {
-    return this.consulta.listar(usuario.companyId, clienteId);
+    const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+    return this.consulta.listar(
+      usuario.companyId,
+      clienteId,
+      ehAdmin ? undefined : usuario.barbeiroId,
+    );
   }
 
+  /** Vender pacote é ação de caixa — só admin (2026-08-18). */
+  @Papeis(Papel.ADMIN)
   @Post()
   async vender(
     @Body() body: VenderPacoteDto,
@@ -68,8 +80,10 @@ export class PacotesController {
   /**
    * Bug 8: confirma manualmente o pagamento presencial ("na barbearia") de um
    * pacote AGUARDANDO — mesmo caminho idempotente do webhook (§ domínio),
-   * só que disparado pelo admin em vez do gateway.
+   * só que disparado pelo admin em vez do gateway. Confirmar dinheiro que
+   * entrou é caixa: admin-only (2026-08-18).
    */
+  @Papeis(Papel.ADMIN)
   @Post(':id/confirmar-pagamento')
   async confirmarPagamento(
     @Param('id') id: string,

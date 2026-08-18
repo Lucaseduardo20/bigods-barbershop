@@ -1782,6 +1782,34 @@ barbeiro" — leitura fiel, já que o cliente de fato escolheu aquele barbeiro n
 - **Painel:** "Agendar com crédito" fixa o barbeiro da compra quando há um; a venda manual do admin
   tem barbeiro **opcional** ("Qualquer barbeiro").
 
+#### ACL do barbeiro sobre pacotes (2026-08-18)
+
+Pedido do dono: *"o barbeiro pode apenas ver os pacotes vendidos PARA ELE, e agendar um item do
+pacote do cliente DELE, nada mais que isso"* — e, sobre a tela: *"se ele não tem acesso, ele não
+pode ver"*.
+
+| Ação | Barbeiro não-admin | Admin |
+|---|---|---|
+| `GET /pacotes` | só os comprados COM ELE | todos |
+| `POST /pacotes` (vender) | **403** | sim |
+| `POST /pacotes/:id/confirmar-pagamento` | **403** | sim |
+| `/pacote-ofertas/*` (catálogo) | **403** | sim |
+| `/pacotes/reembolsos/*` | **403** | sim |
+| `POST /atendimentos/com-credito` | só pacote DELE, em nome dele | qualquer |
+| `PUT /auth/senha` (própria senha) | sim | sim |
+
+Pacote comprado **sem** barbeiro escolhido não é de ninguém em particular: não aparece para
+barbeiro nenhum e só o admin distribui quem atende.
+
+**A garantia é o servidor, não a tela.** Cada linha acima tem e2e que tenta o request direto
+(`acl-barbeiro-pacotes.e2e.spec.ts`); esconder aba e botão é conveniência de UX em cima disso —
+antes a aba "Catálogo de ofertas" aparecia e o clique caía num erro de papel insuficiente, que é
+exatamente o que o dono não quer ver.
+
+**Troca da própria senha** (`PUT /auth/senha`) é a única ação do barbeiro em Ajustes. Exige a senha
+ATUAL — sem isso, uma sessão esquecida aberta trancaria o dono para fora da própria conta. Reusa
+`validarCredenciais`, a mesma conferência do login; não há segunda implementação de senha.
+
 ---
 
 ## 9. Testes — onde investir
