@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react';
-import type { AgendarComCreditoContaResponse, PerfilClienteDTO } from '@bigods/contracts';
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  AgendarComCreditoContaResponse,
+  BarbeiroPublicoDTO,
+  PerfilClienteDTO,
+} from '@bigods/contracts';
 import { StatusItemPacote } from '@bigods/contracts';
 import { api, ApiError } from '../lib/api';
+import { COMPANY_ID } from '../lib/config';
 import { hojeISO, rotuloDia } from '../lib/format';
-import { Icon, Spinner } from '../components/ui';
+import { Icon, Spinner, useApi } from '../components/ui';
 import { QuandoBloco } from '../components/QuandoBloco';
 
 interface CreditoLivre {
@@ -11,7 +16,12 @@ interface CreditoLivre {
   itemId: string;
   servicoId: string;
   servicoNome: string;
-  /** Dono do pacote — crédito só pode ser consumido com ele (§ preço por barbeiro). */
+  /**
+   * Quem VENDEU o pacote — é a base do preço congelado no rateio (§3.6), não
+   * o dono do crédito. Desde 2026-08-17 (DOMAIN.md §8.14) o crédito é da
+   * empresa: pode ser usado com qualquer barbeiro que atenda o serviço.
+   * Serve aqui só como sugestão inicial na escolha.
+   */
   barbeiroId: string;
   barbeiroNome: string;
 }
@@ -69,6 +79,7 @@ export function BookCredit({
   );
   const [data, setData] = useState<string>(() => hojeISO(tz));
   const [hora, setHora] = useState<string | null>(null);
+  const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -76,19 +87,53 @@ export function BookCredit({
 
   const credito = livres.find((l) => l.servicoId === servicoId) ?? null;
 
+  // Quem pode atender ESTE serviço — crédito de pacote é da empresa, então a
+  // escolha é livre entre os barbeiros ativos que fazem o serviço (§8.14).
+  const barbeirosReq = useApi(
+    () =>
+      servicoId
+        ? api<BarbeiroPublicoDTO[]>(
+            `/public/barbeiros?companyId=${encodeURIComponent(COMPANY_ID)}&servicoIds=${servicoId}`,
+          )
+        : Promise.resolve([]),
+    [servicoId],
+  );
+  const barbeiros = barbeirosReq.dados ?? [];
+
+  // Sugere quem vendeu o pacote (é o barbeiro que o cliente já conhece), mas
+  // só se ele ainda atende o serviço — senão, o primeiro da lista. Trocar de
+  // serviço volta para a sugestão.
+  useEffect(() => {
+    if (barbeiros.length === 0) return;
+    setBarbeiroId((atual) => {
+      if (atual && barbeiros.some((b) => b.id === atual)) return atual;
+      const dono = credito && barbeiros.find((b) => b.id === credito.barbeiroId);
+      return (dono ?? barbeiros[0]!).id;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeirosReq.dados, servicoId]);
+
+  // Trocar de barbeiro invalida o horário escolhido: a agenda é de cada um.
+  const escolherBarbeiro = (id: string) => {
+    setBarbeiroId(id);
+    setHora(null);
+  };
+
+  const barbeiroEscolhido = barbeiros.find((b) => b.id === barbeiroId) ?? null;
+
   if (sucesso) {
     return <Sucesso dia={sucesso.dia} hora={sucesso.hora} onVoltar={onAgendado} />;
   }
 
   const confirmar = async () => {
-    if (!credito || !hora) return;
+    if (!credito || !hora || !barbeiroId) return;
     setEnviando(true);
     setErro(null);
     try {
       await api<AgendarComCreditoContaResponse>('/conta/agendamentos', {
         method: 'POST',
         token,
-        body: { vendaId: credito.vendaId, itemId: credito.itemId, barbeiroId: credito.barbeiroId, data, horaInicio: hora },
+        body: { vendaId: credito.vendaId, itemId: credito.itemId, barbeiroId, data, horaInicio: hora },
       });
       const r = rotuloDia(data);
       setSucesso({ dia: r.longo, hora });
@@ -128,24 +173,50 @@ export function BookCredit({
 
       {servicoId && credito && (
         <>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            Com <strong>{credito.barbeiroNome}</strong> — dono deste pacote, o crédito só pode ser usado com ele.
-          </div>
-          <QuandoBloco
-            tz={tz}
-            barbeiroId={credito.barbeiroId}
-            servicoIds={[servicoId]}
-            data={data}
-            hora={hora}
-            onDia={(d) => {
-              setData(d);
-              setHora(null);
-            }}
-            onHora={setHora}
-          />
-          <button className="btn btn-block btn-lg" style={{ marginTop: 8 }} disabled={!hora} onClick={() => setConfirmando(true)}>
-            Confirmar horário
-          </button>
+          {/* Crédito é da empresa (§8.14): o cliente escolhe com quem usar,
+              não fica preso a quem vendeu o pacote. */}
+          <Secao titulo="Com quem?">
+            {barbeirosReq.carregando && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Carregando…</div>}
+            {!barbeirosReq.carregando && barbeiros.length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--state-danger)' }}>
+                Nenhum barbeiro disponível para {credito.servicoNome} no momento.
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {barbeiros.map((b) => (
+                <button
+                  key={b.id}
+                  className={`selectable ${b.id === barbeiroId ? 'selected' : ''}`}
+                  onClick={() => escolherBarbeiro(b.id)}
+                >
+                  <div style={{ fontWeight: 700 }}>{b.nome}</div>
+                  {b.id === credito.barbeiroId && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>vendeu este pacote</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </Secao>
+
+          {barbeiroId && (
+            <>
+              <QuandoBloco
+                tz={tz}
+                barbeiroId={barbeiroId}
+                servicoIds={[servicoId]}
+                data={data}
+                hora={hora}
+                onDia={(d) => {
+                  setData(d);
+                  setHora(null);
+                }}
+                onHora={setHora}
+              />
+              <button className="btn btn-block btn-lg" style={{ marginTop: 8 }} disabled={!hora} onClick={() => setConfirmando(true)}>
+                Confirmar horário
+              </button>
+            </>
+          )}
         </>
       )}
 
@@ -158,6 +229,7 @@ export function BookCredit({
             <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Confirmar agendamento</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14 }}>
               <Linha rotulo="Serviço" valor={credito.servicoNome} />
+              {barbeiroEscolhido && <Linha rotulo="Barbeiro" valor={barbeiroEscolhido.nome} />}
               <Linha rotulo="Horário" valor={`${rotuloDia(data).longo} · ${hora}`} />
               <div style={{ background: 'var(--surface-brand-tint)', borderRadius: 'var(--radius-md)', padding: 10, fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Icon name="ticket" size={16} /> Este agendamento usa 1 crédito do seu pacote. Nenhum valor será cobrado.

@@ -260,7 +260,7 @@ function VenderDialog({
           <input className="input" placeholder="Nome do cliente" value={nome} onChange={(e) => setNome(e.target.value)} />
           <input className="input" placeholder="Telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
           <div>
-            <label className="label">Barbeiro dono do pacote</label>
+            <label className="label">Barbeiro (base do preço)</label>
             <select className="select" value={barbeiroIdEfetivo ?? ''} onChange={(e) => setBarbeiroId(e.target.value)}>
               {barbeirosQueAtendem.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -269,8 +269,8 @@ function VenderDialog({
               ))}
             </select>
             <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              O rateio usa o preço deste barbeiro (referência ou override) — crédito só pode ser
-              consumido com ele.
+              O rateio congela o preço DESTE barbeiro (referência ou override). O crédito, porém, é
+              da empresa — o cliente pode usar com qualquer barbeiro que atenda o serviço.
             </div>
           </div>
           <div>
