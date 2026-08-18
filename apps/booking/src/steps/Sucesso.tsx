@@ -72,7 +72,7 @@ export function Sucesso({
             Sem barbeiro específico: o cliente já fechou a visita de hoje, a
             oferta aqui é geral, não amarrada a quem atendeu. */}
         <div className="mt-6">
-          <BigodsClub barbeiroId={null} ofertaId={null} onSelect={onComprarPacote} />
+          <BigodsClub ofertaId={null} onSelect={onComprarPacote} />
         </div>
 
         <button className="btn btn-ghost btn-block mt-6" onClick={onNovo}>

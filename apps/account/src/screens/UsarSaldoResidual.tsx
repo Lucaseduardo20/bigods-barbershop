@@ -49,7 +49,13 @@ export function UsarSaldoResidual({
   const servicosReq = useApi(
     () =>
       venda
-        ? api<ServicoDTO[]>(`/public/servicos?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${venda.barbeiroId}`)
+        ? api<ServicoDTO[]>(
+            `/public/servicos?companyId=${encodeURIComponent(COMPANY_ID)}${
+              // Pacote comprado sem barbeiro (2026-08-18): preço de referência
+              // da casa, e o servidor atribui quem atende na confirmação.
+              venda.barbeiroId ? `&barbeiroId=${venda.barbeiroId}` : ''
+            }`,
+          )
         : Promise.resolve([]),
     [venda?.barbeiroId],
   );

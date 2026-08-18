@@ -13,7 +13,6 @@ function paraDominio(row: LinhaComItens): PacoteOferta {
   return PacoteOferta.reconstituir({
     id: row.id,
     companyId: row.companyId,
-    barbeiroId: row.barbeiroId,
     nome: row.nome,
     composicao: row.itens.map((i) => ({ servicoId: i.servicoId, quantidade: i.quantidade })),
     preco: Dinheiro.deCentavos(row.precoCentavos),
@@ -39,7 +38,6 @@ export class PrismaPacoteOfertaRepository implements PacoteOfertaRepository {
   async salvar(oferta: PacoteOferta): Promise<void> {
     const dados = {
       companyId: oferta.companyId,
-      barbeiroId: oferta.barbeiroId,
       nome: oferta.nome,
       precoCentavos: oferta.preco.centavos,
       ativo: oferta.ativo,

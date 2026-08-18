@@ -25,7 +25,8 @@ class ClienteInlineDto {
 }
 
 class VenderPacoteDto {
-  @IsString() @MinLength(1) barbeiroId!: string;
+  /** Opcional (2026-08-18): com barbeiro, só ele atende os serviços do pacote. */
+  @IsOptional() @IsString() @MinLength(1) barbeiroId?: string;
   @ValidateNested() @Type(() => ClienteInlineDto) cliente!: ClienteInlineDto;
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) servicoIds!: string[];
   @IsInt() @IsPositive() valorPagoCentavos!: number;
@@ -57,7 +58,7 @@ export class PacotesController {
     return this.venderPacote.executar({
       companyId: usuario.companyId,
       cliente: body.cliente,
-      barbeiroId: body.barbeiroId,
+      barbeiroId: body.barbeiroId ?? null,
       servicoIds: body.servicoIds,
       valorPagoCentavos: body.valorPagoCentavos,
       pagamentoImediato: body.pagamentoImediato,

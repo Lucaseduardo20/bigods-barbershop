@@ -146,8 +146,8 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('precoPara: override do barbeiro alimenta o rateio de VendaDePacote', () => {
-  it('barbeiro sem override usa o preço avulso da casa (referência)', async () => {
+describe('★ Rateio de pacote usa a REFERÊNCIA DA CASA, não o override do barbeiro (2026-08-18)', () => {
+  it('barbeiro sem override: peso é o preço avulso da casa', async () => {
     const res = await http
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)
@@ -164,8 +164,10 @@ describe('precoPara: override do barbeiro alimenta o rateio de VendaDePacote', (
     expect(itens.map((i) => i.valorRateadoCentavos)).toEqual([3429, 2571]);
   });
 
-  it('override de preço do barbeiro muda o PESO do rateio (não é o preço avulso da casa)', async () => {
-    // Corte custa R$50 para ESTE barbeiro (casa cobra R$40) — barba sem override.
+  it('★ override do barbeiro NÃO muda o rateio: a oferta é da empresa, então a base é uma só', async () => {
+    // Até 2026-08-17 o peso vinha do preço DO BARBEIRO dono. Com o pacote sendo
+    // da empresa (um preço para todos), o rateio virou o mesmo para todos —
+    // override de barbeiro vale para AVULSO, não para pacote.
     await http
       .put(`/barbeiros/${barbeiroId}/precos`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
@@ -184,8 +186,8 @@ describe('precoPara: override do barbeiro alimenta o rateio de VendaDePacote', (
       })
       .expect(201);
     const itens = await prisma.itemDoPacote.findMany({ where: { vendaId: res.body.vendaId }, orderBy: { valorRateadoCentavos: 'desc' } });
-    // Peso 5000:3000 (não mais 4000:3000): 6000×5000/8000=3750, 6000×3000/8000=2250
-    expect(itens.map((i) => i.valorRateadoCentavos)).toEqual([3750, 2250]);
+    // Peso da CASA (4000:3000), apesar do override de 5000 no corte.
+    expect(itens.map((i) => i.valorRateadoCentavos)).toEqual([3429, 2571]);
 
     // limpa o override pros testes seguintes partirem de novo do zero
     await http.put(`/barbeiros/${barbeiroId}/precos`).set('Authorization', `Bearer ${tokenAdmin}`).send({ precos: [] }).expect(200);
@@ -218,7 +220,8 @@ describe('★ Snapshot protegido — TESTE OBRIGATÓRIO (Fase 2): venda antiga e
       orderBy: { servicoId: 'asc' },
     });
     const itemCorte = itensAntes.find((i) => i.servicoId === corteId)!;
-    expect(itemCorte.valorRateadoCentavos).toBe(3750); // 6000×5000/8000, com o override
+    // Base da CASA (4000:3000) — o override de 5000 não entra no rateio de pacote.
+    expect(itemCorte.valorRateadoCentavos).toBe(3429);
 
     // 3) agenda com crédito e conclui — gera comissão sobre o valor RATEADO (não o avulso)
     const agendar = await http
@@ -235,8 +238,8 @@ describe('★ Snapshot protegido — TESTE OBRIGATÓRIO (Fase 2): venda antiga e
     const lancamentoAntes = await prisma.lancamentoComissao.findFirstOrThrow({
       where: { atendimentoId: agendar.body.atendimentoId },
     });
-    expect(lancamentoAntes.valorBaseCentavos).toBe(3750); // valor RATEADO, não o preço avulso nem o override bruto
-    expect(lancamentoAntes.valorComissaoCentavos).toBe(1875); // 50% de 3750
+    expect(lancamentoAntes.valorBaseCentavos).toBe(3429); // valor RATEADO (base da casa), nunca o preço de tabela
+    expect(lancamentoAntes.valorComissaoCentavos).toBe(1715); // 50% de 3429, arredondado
 
     // snapshot completo ANTES da mudança de preço (já com o item CONSUMIDO e a
     // comissão gerada — o estado "final" desta venda) — comparação byte a byte depois
@@ -253,12 +256,12 @@ describe('★ Snapshot protegido — TESTE OBRIGATÓRIO (Fase 2): venda antiga e
     // 5) a venda antiga e o lançamento de comissão continuam EXATAMENTE iguais
     const itemDoPacoteDepois = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: itemCorte.id } });
     expect(itemDoPacoteDepois).toEqual(itemDoPacoteAntes);
-    expect(itemDoPacoteDepois.valorRateadoCentavos).toBe(3750);
+    expect(itemDoPacoteDepois.valorRateadoCentavos).toBe(3429);
 
     const lancamentoDepois = await prisma.lancamentoComissao.findUniqueOrThrow({ where: { id: lancamentoAntes.id } });
     expect(lancamentoDepois).toEqual(lancamentoSnapshot);
-    expect(lancamentoDepois.valorBaseCentavos).toBe(3750);
-    expect(lancamentoDepois.valorComissaoCentavos).toBe(1875);
+    expect(lancamentoDepois.valorBaseCentavos).toBe(3429);
+    expect(lancamentoDepois.valorComissaoCentavos).toBe(1715);
 
     // uma venda NOVA, feita agora, já usa o preço novo (R$99,99) — prova que a
     // proteção é só sobre o que já existe, não trava o preço do barbeiro pra sempre
@@ -315,46 +318,33 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
     expect(semBarbeiro.body.find((s: { id: string }) => s.id === corteId).precoAvulsoCentavos).toBe(4000);
   });
 
-  it('comprar a MESMA composição de oferta com dois barbeiros diferentes gera rateios diferentes, cada um coerente com o preço do respectivo barbeiro', async () => {
-    // overrides do teste anterior: b1 corte=5500, b2 corte=7700; barba sem override (3000 pros dois)
+  it('★ a MESMA oferta comprada por clientes de barbeiros diferentes rateia IGUAL (a oferta é da empresa)', async () => {
+    // Até 2026-08-17 cada barbeiro tinha a própria oferta e o rateio seguia o
+    // preço DELE. Agora existe UMA oferta da casa: dois clientes que compram o
+    // mesmo pacote recebem o mesmo rateio, mesmo escolhendo barbeiros com
+    // overrides diferentes (b1 corte=5500, b2 corte=7700 do teste anterior).
     const composicao = [
       { servicoId: corteId, quantidade: 1 },
       { servicoId: barbaId, quantidade: 1 },
     ];
-    const ofertaB1 = await http
+    const oferta = await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ barbeiroId, nome: 'Combo Ponta-a-Ponta B1', composicao, precoCentavos: 7000 })
+      .send({ nome: 'Combo Da Casa', composicao, precoCentavos: 7000 })
       .expect(201);
-    const ofertaB2 = await http
-      .post('/pacote-ofertas')
-      .set('Authorization', `Bearer ${tokenAdmin2}`)
-      .send({ barbeiroId: barbeiroId2, nome: 'Combo Ponta-a-Ponta B2', composicao, precoCentavos: 7000 })
-      .expect(201);
-    await http.patch(`/pacote-ofertas/${ofertaB1.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
-    await http.patch(`/pacote-ofertas/${ofertaB2.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin2}`).expect(200);
+    await http.patch(`/pacote-ofertas/${oferta.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
     const tokenB1 = await loginCompleto(`11 9${String(Date.now()).slice(-8)}`);
     const compraB1 = await http
       .post('/public/pacotes')
       .set('Authorization', `Bearer ${tokenB1}`)
-      .send({
-        companyId,
-        ofertaId: ofertaB1.body.id,
-        cliente: { nome: 'Cliente Funil B1' },
-        formaPagamento: 'presencial',
-      })
+      .send({ companyId, ofertaId: oferta.body.id, cliente: { nome: 'Cliente Funil B1' }, barbeiroId })
       .expect(201);
     const tokenB2 = await loginCompleto(`11 9${String(Date.now() + 1).slice(-8)}`);
     const compraB2 = await http
       .post('/public/pacotes')
       .set('Authorization', `Bearer ${tokenB2}`)
-      .send({
-        companyId,
-        ofertaId: ofertaB2.body.id,
-        cliente: { nome: 'Cliente Funil B2' },
-        formaPagamento: 'presencial',
-      })
+      .send({ companyId, ofertaId: oferta.body.id, cliente: { nome: 'Cliente Funil B2' }, barbeiroId: barbeiroId2 })
       .expect(201);
 
     const itensB1 = await prisma.itemDoPacote.findMany({ where: { vendaId: compraB1.body.vendaId } });
@@ -362,13 +352,18 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
     const corteB1 = itensB1.find((i) => i.servicoId === corteId)!.valorRateadoCentavos;
     const corteB2 = itensB2.find((i) => i.servicoId === corteId)!.valorRateadoCentavos;
 
-    // peso B1: 5500:3000 (soma 8500) — peso B2: 7700:3000 (soma 10700)
-    expect(corteB1).toBe(Math.round((7000 * 5500) / 8500));
-    expect(corteB2).toBe(Math.round((7000 * 7700) / 10700));
-    expect(corteB1).not.toBe(corteB2);
+    // Peso da CASA (4000:3000), igual para os dois — nenhum override entra.
+    expect(corteB1).toBe(Math.round((7000 * 4000) / 7000));
+    expect(corteB1).toBe(corteB2);
     // invariante do rateio continua valendo nos dois (§2.5): soma == valor pago
     expect(itensB1.reduce((acc, i) => acc + i.valorRateadoCentavos, 0)).toBe(7000);
     expect(itensB2.reduce((acc, i) => acc + i.valorRateadoCentavos, 0)).toBe(7000);
+
+    // …e cada venda ficou amarrada ao barbeiro que o cliente escolheu.
+    const vendaB1 = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: compraB1.body.vendaId } });
+    const vendaB2 = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: compraB2.body.vendaId } });
+    expect(vendaB1.barbeiroId).toBe(barbeiroId);
+    expect(vendaB2.barbeiroId).toBe(barbeiroId2);
   });
 
   it('agendar avulso pelo FUNIL PÚBLICO com barbeiro que tem override cobra o OVERRIDE, não a referência da casa', async () => {
@@ -400,7 +395,10 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
     await http.put(`/barbeiros/${barbeiroId}/precos`).set('Authorization', `Bearer ${tokenAdmin}`).send({ precos: [] }).expect(200);
   });
 
-  it('criar oferta com serviço que o barbeiro dono NÃO atende é rejeitado com mensagem clara, via endpoint real (não só no domínio)', async () => {
+  it('a oferta aceita qualquer serviço do catálogo — não há mais "barbeiro dono" para atender', async () => {
+    // A regra "o barbeiro dono precisa atender o serviço" morreu junto com o
+    // dono (2026-08-18). Quem valida "este barbeiro atende" é o AGENDAMENTO,
+    // na hora de usar o crédito.
     const servicoForaId = `svc-pxb-fora-${randomUUID()}`;
     await prisma.servico.create({
       data: { id: servicoForaId, companyId, nome: 'Serviço Que Ninguém Atende', precoAvulsoCentavos: 1000, duracaoMinutos: 10 },
@@ -410,16 +408,15 @@ describe('BUG-RAIZ (sessão-C): preço por barbeiro ponta-a-ponta — endpoint r
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId,
-        nome: 'Oferta Inválida',
+        nome: 'Oferta Da Casa Com Serviço Novo',
         composicao: [{ servicoId: servicoForaId, quantidade: 1 }],
-        precoCentavos: 500,
+        precoCentavos: 900,
       })
-      .expect(422);
+      .expect(201);
 
-    expect(resp.body.message).toMatch(/não atende/i);
-    expect(await prisma.pacoteOferta.count({ where: { nome: 'Oferta Inválida' } })).toBe(0);
-
+    expect(resp.body.precoCentavos).toBe(900);
+    await prisma.pacoteOfertaItem.deleteMany({ where: { ofertaId: resp.body.id } });
+    await prisma.pacoteOferta.delete({ where: { id: resp.body.id } });
     await prisma.servico.delete({ where: { id: servicoForaId } });
   });
 });

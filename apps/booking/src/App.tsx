@@ -533,7 +533,16 @@ function Funil() {
         const r = await api<VenderPacotePublicoResponse>('/public/pacotes', {
           method: 'POST',
           token,
-          body: { companyId: COMPANY_ID, ofertaId: estado.ofertaId, cliente, origemLinkBarbeiroId },
+          body: {
+            companyId: COMPANY_ID,
+            ofertaId: estado.ofertaId,
+            cliente,
+            origemLinkBarbeiroId,
+            // A oferta é da empresa, mas a COMPRA amarra ao barbeiro escolhido
+            // (2026-08-18): só ele atende os serviços deste pacote. Sem
+            // escolha ("não tenho preferência"), vai null e qualquer um atende.
+            barbeiroId: estado.barbeiroId,
+          },
         });
         if (online && r.cobranca) {
           setCobranca(r.cobranca);
@@ -632,7 +641,6 @@ function Funil() {
     corpo = (
       <div className="flex flex-col gap-5">
         <BigodsClub
-          barbeiroId={estado.barbeiroId}
           ofertaId={estado.ofertaId}
           onSelect={escolherOferta}
         />

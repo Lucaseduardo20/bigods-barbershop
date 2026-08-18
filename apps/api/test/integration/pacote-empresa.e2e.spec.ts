@@ -14,13 +14,11 @@ import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
 
 /**
- * Pacote é da EMPRESA, não do barbeiro (sessão 2026-08-17, correção de bug
- * reportado pelo dono): "não podemos mostrar pacotes para barbeiro x e não
- * mostrar pra barbeiro y" — a vitrine pública não filtra mais por barbeiro
- * escolhido, e o crédito comprado é resgatável com QUALQUER barbeiro da casa
- * (decisão do dono), não só quem vendeu/aprovou a oferta. `barbeiroId` na
- * oferta continua existindo (é a base de preço da composição), só deixou de
- * restringir visibilidade e consumo.
+ * Pacote é da EMPRESA (2026-08-18, decisão do dono levada ao fim): a OFERTA
+ * não tem mais barbeiro nenhum — nem dono, nem base de preço (o rateio usa a
+ * referência da casa). A ÚNICA regra de barbeiro que sobrou está na COMPRA:
+ * se o cliente escolheu um barbeiro ao comprar, só ele atende os serviços
+ * daquele pacote; comprou sem escolher, qualquer um atende.
  */
 
 const companyId = `co-pacemp-${randomUUID()}`;
@@ -87,7 +85,7 @@ beforeAll(async () => {
     ],
   });
   await prisma.disponibilidade.createMany({
-    data: [barbeiroConsumidorId, barbeiroSemServicoId].map((barbeiroId) => ({
+    data: [barbeiroVendedorId, barbeiroConsumidorId, barbeiroSemServicoId].map((barbeiroId) => ({
       id: `disp-${randomUUID()}`,
       barbeiroId,
       data: DIA,
@@ -112,7 +110,7 @@ afterAll(async () => {
   await prisma.demoDesafioLogin.deleteMany({ where: { companyId } });
   await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
-  await prisma.disponibilidade.deleteMany({ where: { barbeiroId: { in: [barbeiroConsumidorId, barbeiroSemServicoId] } } });
+  await prisma.disponibilidade.deleteMany({ where: { barbeiroId: { in: [barbeiroVendedorId, barbeiroConsumidorId, barbeiroSemServicoId] } } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId: { in: [barbeiroVendedorId, barbeiroConsumidorId] } } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
@@ -120,19 +118,19 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('Vitrine pública não filtra mais por barbeiro escolhido', () => {
-  it('oferta cadastrada/aprovada por um barbeiro aparece mesmo pedindo ?barbeiroId= de outro (ou nenhum)', async () => {
+describe('Vitrine pública não filtra por barbeiro — a oferta é da empresa', () => {
+  it('a oferta aparece para todo cliente, com ou sem ?barbeiroId=', async () => {
     const criada = await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ barbeiroId: barbeiroVendedorId, nome: 'Pacote da Casa', composicao: [{ servicoId: corteId, quantidade: 3 }], precoCentavos: 12000 })
+      .send({ nome: 'Pacote da Casa', composicao: [{ servicoId: corteId, quantidade: 3 }], precoCentavos: 12000 })
       .expect(201);
     await http.patch(`/pacote-ofertas/${criada.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
     const semFiltro = await http.get(`/public/pacotes?companyId=${companyId}`).expect(200);
     expect(semFiltro.body.some((o: { id: string }) => o.id === criada.body.id)).toBe(true);
 
-    // ?barbeiroId= de um barbeiro DIFERENTE do dono da oferta — antes filtrava, agora é ignorado.
+    // ?barbeiroId= é simplesmente ignorado pelo endpoint (a oferta é da casa).
     const comOutroBarbeiro = await http
       .get(`/public/pacotes?companyId=${companyId}&barbeiroId=${barbeiroConsumidorId}`)
       .expect(200);
@@ -140,15 +138,14 @@ describe('Vitrine pública não filtra mais por barbeiro escolhido', () => {
   });
 });
 
-describe('Crédito de pacote é resgatável com QUALQUER barbeiro da casa', () => {
-  it('pacote comprado com um barbeiro é agendado e concluído por OUTRO, sem erro', async () => {
-    // Vende o pacote com barbeiroVendedorId "dono" (base de preço da composição).
+describe('★ A única regra de barbeiro: quem o cliente escolheu NA COMPRA', () => {
+  it('comprou COM um barbeiro escolhido → só ele atende; outro barbeiro é recusado', async () => {
     const venda = await http
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
         barbeiroId: barbeiroVendedorId,
-        cliente: { nome: 'Cliente Cruzado', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Cliente Preso', telefone: `11 9${String(Date.now()).slice(-8)}` },
         servicoIds: [corteId],
         valorPagoCentavos: 4500,
         pagamentoImediato: true,
@@ -156,7 +153,38 @@ describe('Crédito de pacote é resgatável com QUALQUER barbeiro da casa', () =
       .expect(201);
     const item = await prisma.itemDoPacote.findFirstOrThrow({ where: { vendaId: venda.body.vendaId } });
 
-    // Agenda com o CONSUMIDOR — barbeiro diferente do vendedor/dono, mas que atende o serviço.
+    // Outro barbeiro, mesmo atendendo o serviço, é recusado.
+    await http
+      .post('/atendimentos/com-credito')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ vendaId: venda.body.vendaId, itemId: item.id, barbeiroId: barbeiroConsumidorId, data: DIA, horaInicio: '08:00' })
+      .expect(422);
+    expect((await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('DISPONIVEL');
+
+    // Com o barbeiro da compra, agenda normalmente.
+    const agendar = await http
+      .post('/atendimentos/com-credito')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({ vendaId: venda.body.vendaId, itemId: item.id, barbeiroId: barbeiroVendedorId, data: DIA, horaInicio: '08:00' })
+      .expect(201);
+    const atendimento = await prisma.atendimento.findUniqueOrThrow({ where: { id: agendar.body.atendimentoId } });
+    expect(atendimento.barbeiroId).toBe(barbeiroVendedorId);
+  });
+
+  it('comprou SEM escolher barbeiro → qualquer um que atenda o serviço pode; comissão vai para quem atendeu', async () => {
+    const venda = await http
+      .post('/pacotes')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        cliente: { nome: 'Cliente Livre', telefone: `11 9${String(Date.now() + 2).slice(-8)}` },
+        servicoIds: [corteId],
+        valorPagoCentavos: 4500,
+        pagamentoImediato: true,
+      })
+      .expect(201);
+    expect((await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } })).barbeiroId).toBeNull();
+    const item = await prisma.itemDoPacote.findFirstOrThrow({ where: { vendaId: venda.body.vendaId } });
+
     const agendar = await http
       .post('/atendimentos/com-credito')
       .set('Authorization', `Bearer ${tokenAdmin}`)
@@ -172,20 +200,17 @@ describe('Crédito de pacote é resgatável com QUALQUER barbeiro da casa', () =
       .send({ formaPagamento: 'DINHEIRO' })
       .expect(201);
 
-    // comissão vai para quem ATENDEU (o consumidor), não pra quem vendeu.
+    // comissão é de quem ATENDEU, sempre.
     const lancamento = await prisma.lancamentoComissao.findFirstOrThrow({ where: { atendimentoId: agendar.body.atendimentoId } });
     expect(lancamento.barbeiroId).toBe(barbeiroConsumidorId);
-
-    const itemDepois = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: item.id } });
-    expect(itemDepois.status).toBe('CONSUMIDO');
+    expect((await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: item.id } })).status).toBe('CONSUMIDO');
   });
 
-  it('mas ainda precisa ser um barbeiro que ATENDE o serviço — invariante de Atendimento.agendar(), não removida', async () => {
+  it('sem barbeiro na compra, ainda precisa ser alguém que ATENDE o serviço — invariante de Atendimento.agendar()', async () => {
     const venda = await http
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId: barbeiroVendedorId,
         cliente: { nome: 'Cliente Sem Servico', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
         servicoIds: [corteId],
         valorPagoCentavos: 4500,

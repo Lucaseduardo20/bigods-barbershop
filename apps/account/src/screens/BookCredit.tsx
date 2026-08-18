@@ -17,13 +17,13 @@ interface CreditoLivre {
   servicoId: string;
   servicoNome: string;
   /**
-   * Quem VENDEU o pacote — é a base do preço congelado no rateio (§3.6), não
-   * o dono do crédito. Desde 2026-08-17 (DOMAIN.md §8.14) o crédito é da
-   * empresa: pode ser usado com qualquer barbeiro que atenda o serviço.
-   * Serve aqui só como sugestão inicial na escolha.
+   * Barbeiro que o cliente escolheu AO COMPRAR (2026-08-18). A oferta é da
+   * empresa e não tem dono, mas a compra amarra: com barbeiro escolhido, só
+   * ele atende os serviços deste pacote. `null` = comprou sem escolher, então
+   * a escolha é livre aqui.
    */
-  barbeiroId: string;
-  barbeiroNome: string;
+  barbeiroId: string | null;
+  barbeiroNome: string | null;
 }
 
 export function BookCredit({
@@ -87,31 +87,34 @@ export function BookCredit({
 
   const credito = livres.find((l) => l.servicoId === servicoId) ?? null;
 
-  // Quem pode atender ESTE serviço — crédito de pacote é da empresa, então a
-  // escolha é livre entre os barbeiros ativos que fazem o serviço (§8.14).
+  // Pacote COMPRADO COM um barbeiro fica preso a ele — foi com ele que o
+  // cliente decidiu se tratar. Comprado sem escolher, a escolha é livre entre
+  // quem atende o serviço.
+  const presoAoBarbeiroDaCompra = !!credito?.barbeiroId;
   const barbeirosReq = useApi(
     () =>
-      servicoId
+      servicoId && !presoAoBarbeiroDaCompra
         ? api<BarbeiroPublicoDTO[]>(
             `/public/barbeiros?companyId=${encodeURIComponent(COMPANY_ID)}&servicoIds=${servicoId}`,
           )
         : Promise.resolve([]),
-    [servicoId],
+    [servicoId, presoAoBarbeiroDaCompra],
   );
   const barbeiros = barbeirosReq.dados ?? [];
 
-  // Sugere quem vendeu o pacote (é o barbeiro que o cliente já conhece), mas
-  // só se ele ainda atende o serviço — senão, o primeiro da lista. Trocar de
-  // serviço volta para a sugestão.
   useEffect(() => {
+    // Preso: o barbeiro é o da compra, sem escolha. Livre: primeiro da lista
+    // até o cliente trocar. Trocar de serviço recomeça a decisão.
+    if (credito?.barbeiroId) {
+      setBarbeiroId(credito.barbeiroId);
+      return;
+    }
     if (barbeiros.length === 0) return;
-    setBarbeiroId((atual) => {
-      if (atual && barbeiros.some((b) => b.id === atual)) return atual;
-      const dono = credito && barbeiros.find((b) => b.id === credito.barbeiroId);
-      return (dono ?? barbeiros[0]!).id;
-    });
+    setBarbeiroId((atual) =>
+      atual && barbeiros.some((b) => b.id === atual) ? atual : barbeiros[0]!.id,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [barbeirosReq.dados, servicoId]);
+  }, [barbeirosReq.dados, servicoId, credito?.barbeiroId]);
 
   // Trocar de barbeiro invalida o horário escolhido: a agenda é de cada um.
   const escolherBarbeiro = (id: string) => {
@@ -119,7 +122,9 @@ export function BookCredit({
     setHora(null);
   };
 
-  const barbeiroEscolhido = barbeiros.find((b) => b.id === barbeiroId) ?? null;
+  const nomeDoBarbeiroEscolhido = presoAoBarbeiroDaCompra
+    ? credito?.barbeiroNome ?? null
+    : barbeiros.find((b) => b.id === barbeiroId)?.nome ?? null;
 
   if (sucesso) {
     return <Sucesso dia={sucesso.dia} hora={sucesso.hora} onVoltar={onAgendado} />;
@@ -173,30 +178,34 @@ export function BookCredit({
 
       {servicoId && credito && (
         <>
-          {/* Crédito é da empresa (§8.14): o cliente escolhe com quem usar,
-              não fica preso a quem vendeu o pacote. */}
-          <Secao titulo="Com quem?">
-            {barbeirosReq.carregando && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Carregando…</div>}
-            {!barbeirosReq.carregando && barbeiros.length === 0 && (
-              <div style={{ fontSize: 13, color: 'var(--state-danger)' }}>
-                Nenhum barbeiro disponível para {credito.servicoNome} no momento.
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {barbeiros.map((b) => (
-                <button
-                  key={b.id}
-                  className={`selectable ${b.id === barbeiroId ? 'selected' : ''}`}
-                  onClick={() => escolherBarbeiro(b.id)}
-                >
-                  <div style={{ fontWeight: 700 }}>{b.nome}</div>
-                  {b.id === credito.barbeiroId && (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>vendeu este pacote</div>
-                  )}
-                </button>
-              ))}
+          {/* Comprou COM um barbeiro? Fica com ele. Comprou sem escolher?
+              Escolhe agora entre quem atende o serviço (2026-08-18). */}
+          {presoAoBarbeiroDaCompra ? (
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              Com <strong>{credito.barbeiroNome}</strong> — você comprou este pacote com ele, então é
+              com ele que estes serviços são atendidos.
             </div>
-          </Secao>
+          ) : (
+            <Secao titulo="Com quem?">
+              {barbeirosReq.carregando && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Carregando…</div>}
+              {!barbeirosReq.carregando && barbeiros.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--state-danger)' }}>
+                  Nenhum barbeiro disponível para {credito.servicoNome} no momento.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {barbeiros.map((b) => (
+                  <button
+                    key={b.id}
+                    className={`selectable ${b.id === barbeiroId ? 'selected' : ''}`}
+                    onClick={() => escolherBarbeiro(b.id)}
+                  >
+                    <div style={{ fontWeight: 700 }}>{b.nome}</div>
+                  </button>
+                ))}
+              </div>
+            </Secao>
+          )}
 
           {barbeiroId && (
             <>
@@ -229,7 +238,7 @@ export function BookCredit({
             <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Confirmar agendamento</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14 }}>
               <Linha rotulo="Serviço" valor={credito.servicoNome} />
-              {barbeiroEscolhido && <Linha rotulo="Barbeiro" valor={barbeiroEscolhido.nome} />}
+              {nomeDoBarbeiroEscolhido && <Linha rotulo="Barbeiro" valor={nomeDoBarbeiroEscolhido} />}
               <Linha rotulo="Horário" valor={`${rotuloDia(data).longo} · ${hora}`} />
               <div style={{ background: 'var(--surface-brand-tint)', borderRadius: 'var(--radius-md)', padding: 10, fontSize: 12.5, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Icon name="ticket" size={16} /> Este agendamento usa 1 crédito do seu pacote. Nenhum valor será cobrado.

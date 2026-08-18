@@ -1,7 +1,7 @@
 import { StatusAprovacaoPacoteOferta } from '@bigods/contracts';
 import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
-import { BarbeiroId, CompanyId, PacoteOfertaId, ServicoId } from '../../../shared/domain/ids';
+import { CompanyId, PacoteOfertaId, ServicoId } from '../../../shared/domain/ids';
 import {
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
@@ -17,8 +17,6 @@ export interface ItemComposicaoPacote {
 export interface PacoteOfertaProps {
   id: PacoteOfertaId;
   companyId: CompanyId;
-  /** Dono do pacote — cada barbeiro tem seu próprio catálogo de ofertas (Fase 2 do §8). */
-  barbeiroId: BarbeiroId;
   nome: string;
   /** Composição MISTA: N serviços distintos, cada um com sua quantidade. */
   composicao: ItemComposicaoPacote[];
@@ -40,14 +38,16 @@ export interface PacoteOfertaProps {
 
 /**
  * Dados resolvidos pelo CALLER (use case) para validar a oferta — mantém o
- * domínio puro (sem acesso a repositório). `somaAvulsos` é a soma dos preços
- * de referência dos serviços da composição (a partir da Fase 2, é a soma dos
- * preços DO BARBEIRO dono, via `Barbeiro.precoPara`; a Fase 1 usa
- * `Servico.precoAvulso`, a única base que existe até então).
+ * domínio puro (sem acesso a repositório).
+ *
+ * `somaAvulsos` é a soma dos preços de REFERÊNCIA DA CASA (`Servico.precoAvulso`)
+ * dos serviços da composição. Desde 2026-08-18 a oferta é da empresa, não de um
+ * barbeiro: existe UM preço de pacote para todo mundo, então a base de
+ * comparação também precisa ser uma só. Override de preço de barbeiro (§3.2.2)
+ * não entra aqui — ele vale para avulso, não para o catálogo de pacotes.
  */
 export interface ContextoValidacaoPacoteOferta {
   somaAvulsos: Dinheiro;
-  servicosAtendidosPeloBarbeiro: Set<ServicoId>;
 }
 
 export class PacoteOferta extends AggregateRoot {
@@ -56,7 +56,7 @@ export class PacoteOferta extends AggregateRoot {
   }
 
   /**
-   * Barbeiro cria/edita → PENDENTE_APROVACAO por padrão (regra da Fase 3).
+   * Admin cria/edita → PENDENTE_APROVACAO por padrão (regra da Fase 3).
    * `RASCUNHO` existe como estado explícito da máquina, mas nada nesta sessão
    * dispara sua criação automaticamente — só é alcançável passando
    * `statusAprovacao: RASCUNHO` explicitamente.
@@ -120,9 +120,9 @@ export class PacoteOferta extends AggregateRoot {
   }
 
   /**
-   * Aprova — quem chama (admin) já foi autorizado na borda; um admin que
-   * TAMBÉM é o barbeiro dono do pacote PODE aprovar o próprio (decisão
-   * consciente — senão o fluxo trava com um único admin/barbeiro real).
+   * Aprova — quem chama (admin) já foi autorizado na borda. Desde 2026-08-18
+   * o catálogo de ofertas é da empresa e só admin cadastra, então isto virou
+   * na prática o passo "publicar" de um rascunho.
    */
   aprovar(): void {
     if (this.props.statusAprovacao !== StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO) {
@@ -163,9 +163,6 @@ export class PacoteOferta extends AggregateRoot {
       if (!Number.isInteger(item.quantidade) || item.quantidade <= 0) {
         throw new InvarianteVioladaError(`Quantidade inválida para o serviço ${item.servicoId} da composição`);
       }
-      if (!contexto.servicosAtendidosPeloBarbeiro.has(item.servicoId)) {
-        throw new InvarianteVioladaError(`Barbeiro dono não atende o serviço ${item.servicoId} da composição`);
-      }
     }
     if (!preco.ehPositivo()) {
       throw new InvarianteVioladaError('Preço do pacote deve ser maior que zero');
@@ -195,9 +192,6 @@ export class PacoteOferta extends AggregateRoot {
   }
   get companyId() {
     return this.props.companyId;
-  }
-  get barbeiroId() {
-    return this.props.barbeiroId;
   }
   get nome() {
     return this.props.nome;

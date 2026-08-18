@@ -6,9 +6,10 @@ import {
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
 
-const contexto = (somaAvulsosCentavos: number, servicos: string[] = ['svc-corte', 'svc-barba']) => ({
+// 2026-08-18: a oferta é da EMPRESA — não tem barbeiro dono, e o contexto de
+// validação virou só a soma dos preços de referência da CASA.
+const contexto = (somaAvulsosCentavos: number) => ({
   somaAvulsos: Dinheiro.deCentavos(somaAvulsosCentavos),
-  servicosAtendidosPeloBarbeiro: new Set(servicos),
 });
 
 const criar = (
@@ -19,7 +20,6 @@ const criar = (
     {
       id: 'oferta-1',
       companyId: 'co-1',
-      barbeiroId: 'bar-1',
       nome: '5 Cortes',
       composicao: [{ servicoId: 'svc-corte', quantidade: 5 }],
       preco: Dinheiro.deCentavos(17000),
@@ -49,13 +49,15 @@ describe('PacoteOferta', () => {
     ).toThrow(InvarianteVioladaError);
   });
 
-  it('exige que o barbeiro dono atenda todos os serviços da composição', () => {
-    expect(() =>
-      criar(
-        { composicao: [{ servicoId: 'svc-sobrancelha', quantidade: 1 }] },
-        contexto(1000, ['svc-corte']), // barbeiro não atende svc-sobrancelha
-      ),
-    ).toThrow(InvarianteVioladaError);
+  it('a oferta não tem mais barbeiro: qualquer serviço do catálogo entra na composição', () => {
+    // Antes existia "barbeiro dono precisa atender o serviço". Com a oferta
+    // sendo da empresa (2026-08-18), essa amarra deixou de existir — quem
+    // valida "este barbeiro atende" é o agendamento, na hora de usar o crédito.
+    const oferta = criar(
+      { composicao: [{ servicoId: 'svc-sobrancelha', quantidade: 1 }], preco: Dinheiro.deCentavos(900) },
+      contexto(1000),
+    );
+    expect(oferta.composicao).toEqual([{ servicoId: 'svc-sobrancelha', quantidade: 1 }]);
   });
 
   it('exige preço positivo', () => {
@@ -139,7 +141,7 @@ describe('PacoteOferta', () => {
 });
 
 describe('PacoteOferta — workflow de aprovação (sessão-B, Fase 3)', () => {
-  it('criar já nasce PENDENTE_APROVACAO por padrão ("barbeiro cria/edita → pendente")', () => {
+  it('criar já nasce PENDENTE_APROVACAO por padrão (rascunho → publicado)', () => {
     expect(criar().statusAprovacao).toBe(StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO);
   });
 

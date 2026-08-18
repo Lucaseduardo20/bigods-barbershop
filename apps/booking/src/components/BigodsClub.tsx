@@ -19,23 +19,24 @@ import { ErroEstado, Loading, useApi } from '../components/ui';
  *
  * É rótulo de marca sobre os pacotes que já existem: não há mensalidade, status
  * de membro nem benefício recorrente (ver DECISOES_PENDENTES.md #30).
+ *
+ * 2026-08-18: a vitrine é a MESMA para todo mundo — a oferta é da empresa, não
+ * de um barbeiro. Quem o cliente escolheu no funil não filtra nada aqui; só
+ * amarra quem vai atender os serviços do pacote depois da compra.
  */
 export function BigodsClub({
-  barbeiroId,
   ofertaId,
   onSelect,
 }: {
-  /** §4a: barbeiro já escolhido — só as ofertas DELE aparecem. */
-  barbeiroId: string | null;
   ofertaId: string | null;
   onSelect: (o: PacoteOfertaDTO) => void;
 }) {
   const req = useApi(
     () =>
       api<PacoteOfertaDTO[]>(
-        `/public/pacotes?companyId=${encodeURIComponent(COMPANY_ID)}${barbeiroId ? `&barbeiroId=${barbeiroId}` : ''}`,
+        `/public/pacotes?companyId=${encodeURIComponent(COMPANY_ID)}`,
       ),
-    [barbeiroId],
+    [],
   );
 
   // Sem oferta aprovada para este barbeiro, a seção some — melhor do que uma

@@ -47,6 +47,11 @@ class VenderPacotePublicoDto {
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
+  /**
+   * Barbeiro escolhido no funil. Presente ⇒ só ele atende os serviços deste
+   * pacote. Ausente = "não tenho preferência": qualquer um atende.
+   */
+  @IsOptional() @IsString() barbeiroId?: string;
 }
 
 /**
@@ -114,7 +119,9 @@ export class PacotesPublicoController {
         email: body.cliente.email ?? null,
         sobreVoce: body.cliente.sobreVoce ?? null,
       },
-      barbeiroId: oferta.barbeiroId,
+      // Barbeiro ESCOLHIDO no funil (2026-08-18): a oferta não tem dono, mas
+      // se o cliente escolheu alguém, só ele atende os serviços deste pacote.
+      barbeiroId: body.barbeiroId ?? null,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)
       servicoIds: oferta.servicoIds,

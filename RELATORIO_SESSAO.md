@@ -3107,6 +3107,82 @@ nos 5 pacotes.
 9. **Painel:** conclua um atendimento com produto do bump e confira no extrato que a comissão de
    produto saiu sobre o valor **promocional**, não sobre o de tabela.
 
+## Pacote é da empresa — barbeiro dono extinto (2026-08-18) ✅
+
+Fecha o que a sessão anterior tinha começado pela metade. O dono foi explícito: *"não terá mais
+nenhum vínculo do pacote com o Barbeiro […] não terá mais barbeiro dono de pacote, isso será
+extinto. A única regra é: quando o cliente selecionar o barbeiro x e comprar um pacote com ele
+selecionado, só ele poderá atender serviços daquele pacote."*
+
+### O que foi extinto
+
+| Antes | Agora |
+|---|---|
+| `PacoteOferta.barbeiroId` (dono/autor) | **extinto** — a oferta é da empresa |
+| Cada barbeiro com o próprio catálogo | catálogo único da casa, cadastro **admin-only** |
+| Composição limitada ao que o dono atende | qualquer serviço do catálogo |
+| Rateio pesado pelo preço do dono | **referência da casa** (`Servico.precoAvulso`) |
+| Economia exibida variando por barbeiro | uma economia só, igual para todo cliente |
+
+### A única regra que sobrou
+
+`VendaDePacote.barbeiroId` deixou de ser "dono" e virou **o barbeiro que o cliente escolheu ao
+comprar**: escolheu alguém → só ele atende aqueles serviços; não escolheu (`null`) → qualquer
+barbeiro ativo que atenda. A trava vive em `VendaDePacote.agendarItem`; "atende o serviço" continua
+sendo `Atendimento.agendar()` quem garante, sem duplicação.
+
+**Isso reverte, de propósito, o que eu tinha feito ontem** ("qualquer barbeiro pode consumir"). Na
+ocasião o dono escolheu essa opção entre duas; agora refinou a regra. O código de ontem ficou meio
+caminho — a oferta ainda tinha dono e o rateio ainda usava o preço dele.
+
+### Duas decisões de dinheiro, confirmadas antes de mexer
+
+1. **Base do rateio = referência da casa.** Um preço de pacote para todos ⇒ o valor pago se divide
+   igual para todos. Se o peso viesse do barbeiro escolhido, o MESMO pacote pelo MESMO preço se
+   dividiria diferente conforme a escolha — e como o rateado é a base da comissão, dois barbeiros
+   ganhariam diferente pelo mesmo trabalho vendido pelo mesmo valor. Override de barbeiro (§3.2.2)
+   vale para AVULSO, onde o cliente de fato paga o preço daquele barbeiro.
+2. **Cadastro de ofertas vira admin-only.** Sem dono, não existe "as minhas ofertas" para escopar.
+   O workflow de aprovação continua (nasce PENDENTE → APROVADO), agora como "rascunho → publicado".
+
+### Migration
+
+Aditiva: as duas colunas viraram **nuláveis**, nenhum dado perdido, nenhum drop. O código parou de
+ler/escrever `PacoteOferta.barbeiroId`; a coluna fica para rollback seguro (DECISOES_PENDENTES #36).
+Vendas antigas mantêm o barbeiro que tinham — sob a regra nova isso significa "compradas com aquele
+barbeiro", leitura fiel, já que o cliente de fato o escolheu na época.
+
+### Onde aparece
+
+- **Funil:** vitrine do clube igual para todos; o barbeiro escolhido vai no corpo da compra.
+- **Cockpit:** pacote comprado com barbeiro mostra "você comprou com X"; sem barbeiro, abre o passo
+  "Com quem?" entre quem atende o serviço.
+- **Painel:** "Agendar com crédito" fixa o barbeiro da compra quando há um; venda manual do admin
+  tem barbeiro **opcional** ("Qualquer barbeiro").
+
+### Testes
+
+**601 na API**, verdes nos 3 fusos; 46 booking, 37 contracts, 18 admin, 16 account; build verde nos
+5 pacotes. 9 testes existentes afirmavam regras que foram removidas — cada um reescrito para a
+regra nova, nenhum apagado: o rateio agora prova que o override **não** muda o peso; a oferta prova
+que aceita qualquer serviço; e o consumo ganhou os dois casos novos (preso ao barbeiro da compra ×
+livre quando não houve escolha).
+
+### Roteiro de smoke test manual
+
+1. **Admin → Pacotes & Ofertas → Catálogo:** crie uma oferta. Não deve haver campo de barbeiro, e a
+   economia deve bater com o preço de referência da casa. Aprove.
+2. **Funil, com o Erick escolhido:** a oferta tem que aparecer (antes só apareceria se fosse "dele").
+   Compre.
+3. **Cockpit do cliente → usar crédito:** deve dizer "você comprou este pacote com Erick" e NÃO
+   oferecer escolha. Agende e confirme que o atendimento ficou com o Erick.
+4. **Repita comprando sem escolher barbeiro** (use "não tenho preferência" no funil): agora o
+   cockpit abre "Com quem?" com todos que atendem o serviço; escolha outro e confirme.
+5. **Painel → Vendidos → Agendar:** pacote com barbeiro mostra o nome fixo; pacote sem barbeiro
+   mostra o select.
+6. **Rateio:** dê um override de preço a um barbeiro, venda um pacote com ele escolhido e confira
+   que o `valorRateado` dos itens usa o preço da CASA, não o override.
+
 ## Como rodar localmente
 
 ```bash

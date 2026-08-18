@@ -101,7 +101,8 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
               <div>
                 <div className="font-bold text-[14px]">{v.cliente.nome}</div>
                 <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)} · {v.barbeiroNome}
+                  {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)} ·{' '}
+                  {v.barbeiroNome ?? 'qualquer barbeiro'}
                   {v.saldoResidualCentavos > 0 && (
                     <> · saldo residual {dinheiro(v.saldoResidualCentavos)}</>
                   )}
@@ -205,7 +206,9 @@ function VenderDialog({
   const servicos = useApi(() => api<ServicoDTO[]>('/servicos'), []);
   const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
-  const barbeiroIdEfetivo = idEfetivo(barbeiroId, barbeirosQueAtendem);
+  // Sem `idEfetivo` aqui de propósito: "" é uma escolha VÁLIDA (qualquer
+  // barbeiro), não um estado a corrigir para o primeiro da lista.
+  const barbeiroIdEfetivo = barbeiroId || null;
   const mudarQtd = (id: string, delta: number) =>
     setQuantidades((q) => ({ ...q, [id]: Math.max(0, (q[id] ?? 0) + delta) }));
 
@@ -218,7 +221,8 @@ function VenderDialog({
       const res = await api<{ cobranca: { copiaECola: string } | null }>('/pacotes', {
         method: 'POST',
         body: {
-          barbeiroId: barbeiroIdEfetivo,
+          // Opcional (2026-08-18): sem barbeiro, o crédito vale com qualquer um.
+          ...(barbeiroIdEfetivo ? { barbeiroId: barbeiroIdEfetivo } : {}),
           cliente: { nome, telefone },
           servicoIds,
           valorPagoCentavos: valorCentavos,
@@ -260,8 +264,9 @@ function VenderDialog({
           <input className="input" placeholder="Nome do cliente" value={nome} onChange={(e) => setNome(e.target.value)} />
           <input className="input" placeholder="Telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
           <div>
-            <label className="label">Barbeiro (base do preço)</label>
-            <select className="select" value={barbeiroIdEfetivo ?? ''} onChange={(e) => setBarbeiroId(e.target.value)}>
+            <label className="label">Barbeiro (opcional)</label>
+            <select className="select" value={barbeiroId} onChange={(e) => setBarbeiroId(e.target.value)}>
+              <option value="">Qualquer barbeiro</option>
               {barbeirosQueAtendem.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.nome}
@@ -269,8 +274,8 @@ function VenderDialog({
               ))}
             </select>
             <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              O rateio congela o preço DESTE barbeiro (referência ou override). O crédito, porém, é
-              da empresa — o cliente pode usar com qualquer barbeiro que atenda o serviço.
+              Escolhendo um barbeiro, só ele atende os serviços deste pacote. Sem escolher, qualquer
+              um que atenda o serviço pode. O rateio usa sempre o preço de referência da casa.
             </div>
           </div>
           <div>
@@ -306,7 +311,7 @@ function VenderDialog({
           {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
           <button
             className="btn"
-            disabled={salvando || !nome || !telefone || valorCentavos <= 0 || !barbeiroIdEfetivo || servicoIds.length === 0}
+            disabled={salvando || !nome || !telefone || valorCentavos <= 0 || servicoIds.length === 0}
             onClick={salvar}
           >
             {salvando ? 'Vendendo…' : 'Vender pacote'}
@@ -347,9 +352,15 @@ function AgendarCreditoDialog({
   const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter(
     (b) => b.ativo && alvo && b.servicosAtendidos.includes(alvo.item.servicoId),
   );
-  // Barbeiro não-admin só agenda pra si mesmo (mesmo escopo já usado em
-  // agenda/comissão); admin escolhe livremente entre quem atende o serviço.
-  const opcoesBarbeiro = ehAdmin ? barbeirosQueAtendem : barbeirosQueAtendem.filter((b) => b.id === usuario.barbeiroId);
+  // Pacote comprado COM barbeiro: não há escolha, é ele. Sem barbeiro: admin
+  // escolhe entre quem atende; barbeiro não-admin só agenda pra si mesmo
+  // (mesmo escopo já usado em agenda/comissão).
+  const presoAoBarbeiroDaCompra = !!alvo?.venda.barbeiroId;
+  const opcoesBarbeiro = presoAoBarbeiroDaCompra
+    ? barbeirosQueAtendem.filter((b) => b.id === alvo!.venda.barbeiroId)
+    : ehAdmin
+      ? barbeirosQueAtendem
+      : barbeirosQueAtendem.filter((b) => b.id === usuario.barbeiroId);
   const barbeiroIdEfetivo = idEfetivo(barbeiroId || alvo?.venda.barbeiroId, opcoesBarbeiro);
 
   useEffect(() => {
@@ -393,8 +404,12 @@ function AgendarCreditoDialog({
           <label className="label">Barbeiro que vai atender</label>
           {opcoesBarbeiro.length === 0 ? (
             <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
-              Nenhum barbeiro ativo atende {alvo.item.servicoNome}.
+              {presoAoBarbeiroDaCompra
+                ? `${alvo.venda.barbeiroNome ?? 'O barbeiro da compra'} não atende ${alvo.item.servicoNome}.`
+                : `Nenhum barbeiro ativo atende ${alvo.item.servicoNome}.`}
             </div>
+          ) : presoAoBarbeiroDaCompra ? (
+            <div className="text-[14px] font-semibold">{alvo.venda.barbeiroNome}</div>
           ) : (
             <select
               className="select"
@@ -404,13 +419,14 @@ function AgendarCreditoDialog({
               {opcoesBarbeiro.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.nome}
-                  {b.id === alvo.venda.barbeiroId ? ' (dono do pacote)' : ''}
                 </option>
               ))}
             </select>
           )}
           <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-            Crédito é da empresa — pode ser usado com qualquer barbeiro que atenda o serviço, não só o dono do pacote.
+            {presoAoBarbeiroDaCompra
+              ? 'O cliente comprou este pacote com este barbeiro — os serviços são atendidos por ele.'
+              : 'Comprado sem barbeiro escolhido: qualquer um que atenda o serviço pode atender.'}
           </div>
         </div>
         <input className="input" type="date" value={data} onChange={(e) => setData(e.target.value)} />
@@ -470,12 +486,12 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
   const [rejeitando, setRejeitando] = useState<PacoteOfertaDTO | null>(null);
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
 
-  // Não-admin só vê/gerencia o próprio catálogo — mesma restrição de escopo
-  // já aplicada em agenda/comissão pra barbeiro não-admin.
-  const ofertasVisiveis = (dados ?? []).filter((o) => ehAdmin || o.barbeiroId === usuario.barbeiroId);
-  const pendentes = ehAdmin
-    ? ofertasVisiveis.filter((o) => o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO)
-    : [];
+  // 2026-08-18: a oferta é da EMPRESA (não tem dono) e o cadastro é admin-only
+  // no backend — não há mais "as minhas ofertas" pra escopar.
+  const ofertasVisiveis = dados ?? [];
+  const pendentes = ofertasVisiveis.filter(
+    (o) => o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO,
+  );
 
   const alternarAtivo = async (o: PacoteOfertaDTO) => {
     await api(`/pacote-ofertas/${o.id}/status`, { method: 'PATCH', body: { ativo: !o.ativo } });
@@ -526,7 +542,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
             {pendentes.map((o) => (
               <div key={o.id} className="flex items-center justify-between gap-2">
                 <div className="text-[13px]">
-                  <strong>{o.nome}</strong> · {o.barbeiroNome} · {dinheiro(o.precoCentavos)}
+                  <strong>{o.nome}</strong> · {dinheiro(o.precoCentavos)}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button className="btn btn-sm" onClick={() => aprovar(o)}>
@@ -551,7 +567,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
       />
       <div className="flex flex-col gap-2">
         {ofertasVisiveis.map((o) => {
-          const podeEditar = ehAdmin || o.barbeiroId === usuario.barbeiroId;
+          const podeEditar = ehAdmin;
           const aprovada = o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO;
           const pendente = o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO;
           // Mesmo menu de ações de serviços/produtos (components/crud) —
@@ -588,10 +604,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
               key={o.id}
               titulo={o.nome}
               subtitulo={
-                <>
-                  base de preço: {o.barbeiroNome} ·{' '}
-                  {o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')}
-                </>
+                o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')
               }
               badges={[
                 // Um estado só por vez: Ativo/Inativo só é mostrado quando
@@ -626,10 +639,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
       <OfertaDialog
         aberto={aberto}
         editando={editando}
-        barbeiros={barbeirosQueAtendem}
         servicos={servicos}
-        ehAdmin={ehAdmin}
-        barbeiroForcadoId={usuario.barbeiroId}
         aoFechar={() => setAberto(false)}
         aoSalvar={() => {
           setAberto(false);
@@ -649,27 +659,24 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
   );
 }
 
+/**
+ * 2026-08-18: a oferta é da EMPRESA — não tem barbeiro dono. A composição pode
+ * ter qualquer serviço ativo do catálogo, e a base de comparação (soma dos
+ * avulsos) é o preço de REFERÊNCIA DA CASA, igual para todo cliente.
+ */
 function OfertaDialog({
   aberto,
   editando,
-  barbeiros,
   servicos,
-  ehAdmin,
-  barbeiroForcadoId,
   aoFechar,
   aoSalvar,
 }: {
   aberto: boolean;
   editando: PacoteOfertaDTO | null;
-  barbeiros: BarbeiroDTO[];
   servicos: ServicoDTO[];
-  /** Admin escolhe livremente o dono; barbeiro não-admin só cria pra si mesmo. */
-  ehAdmin: boolean;
-  barbeiroForcadoId: string;
   aoFechar: () => void;
   aoSalvar: () => void;
 }) {
-  const [barbeiroId, setBarbeiroId] = useState('');
   const [nome, setNome] = useState('');
   const [linhas, setLinhas] = useState<LinhaComposicao[]>([{ servicoId: '', quantidade: '1' }]);
   const [modo, setModo] = useState<'percentual' | 'preco'>('percentual');
@@ -678,27 +685,17 @@ function OfertaDialog({
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
-  const barbeiroIdEfetivo = editando ? editando.barbeiroId : ehAdmin ? barbeiroId || barbeiros[0]?.id || '' : barbeiroForcadoId;
-  const barbeiroSelecionado = barbeiros.find((b) => b.id === barbeiroIdEfetivo);
-  // ★ Fix "invariante furada": a composição só pode oferecer o que o
-  // barbeiro dono realmente atende — filtrar aqui evita o usuário montar uma
-  // composição que o backend vai recusar (a validação de verdade continua
-  // no domínio; isto é só pra não deixar o admin/barbeiro chegar num beco
-  // sem saída na hora de salvar).
-  const servicosDoBarbeiro = barbeiroSelecionado
-    ? servicos.filter((s) => barbeiroSelecionado.servicosAtendidos.includes(s.id))
-    : servicos;
+  // Sem barbeiro dono, qualquer serviço ativo do catálogo pode compor a oferta.
+  const servicosDisponiveis = servicos;
 
   useEffect(() => {
     if (!aberto) return;
     if (editando) {
-      setBarbeiroId(editando.barbeiroId);
       setNome(editando.nome);
       setLinhas(editando.composicao.map((i) => ({ servicoId: i.servicoId, quantidade: String(i.quantidade) })));
       setModo('preco');
       setPrecoCentavos(editando.precoCentavos);
     } else {
-      setBarbeiroId(ehAdmin ? barbeiros[0]?.id ?? '' : barbeiroForcadoId);
       setNome('');
       setLinhas([{ servicoId: '', quantidade: '1' }]);
       setModo('percentual');
@@ -706,17 +703,14 @@ function OfertaDialog({
       setPrecoCentavos(0);
     }
     setErroSalvar(null);
-  }, [aberto, editando, barbeiros, ehAdmin, barbeiroForcadoId]);
+  }, [aberto, editando]);
 
   const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
-  // Preço EFETIVO do barbeiro dono (override ?? referência) — sem isto, o
-  // preview de "soma dos avulsos"/% aqui divergia do que o backend calcula
-  // de verdade com `precoDeReferencia` ao salvar (mesmo sintoma do bug-raiz:
-  // "override cadastrado não reflete em lugar nenhum", agora também no preview).
-  const precoEfetivo = (servicoId: string): number => {
-    const override = barbeiroSelecionado?.precosServicos.find((p) => p.servicoId === servicoId)?.precoCentavos;
-    return override ?? servicoPorId.get(servicoId)?.precoAvulsoCentavos ?? 0;
-  };
+  // Preço de REFERÊNCIA DA CASA — a mesma base que o backend usa pra validar e
+  // pra exibir a economia no funil (a oferta é da empresa, override de barbeiro
+  // vale só pro avulso). Preview e backend calculam o mesmo número.
+  const precoEfetivo = (servicoId: string): number =>
+    servicoPorId.get(servicoId)?.precoAvulsoCentavos ?? 0;
   const somaAvulsosCentavos = linhas.reduce((acc, l) => {
     const qtd = parseInt(l.quantidade, 10) || 0;
     return acc + qtd * precoEfetivo(l.servicoId);
@@ -732,7 +726,7 @@ function OfertaDialog({
   const percentualCalculado =
     somaAvulsosCentavos > 0 ? ((somaAvulsosCentavos - precoCentavosCalculado) / somaAvulsosCentavos) * 100 : 0;
 
-  const adicionarLinha = () => setLinhas((ls) => [...ls, { servicoId: servicosDoBarbeiro[0]?.id ?? '', quantidade: '1' }]);
+  const adicionarLinha = () => setLinhas((ls) => [...ls, { servicoId: servicosDisponiveis[0]?.id ?? '', quantidade: '1' }]);
   const removerLinha = (i: number) => setLinhas((ls) => ls.filter((_, idx) => idx !== i));
   const atualizarLinha = (i: number, dados: Partial<LinhaComposicao>) =>
     setLinhas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...dados } : l)));
@@ -752,7 +746,7 @@ function OfertaDialog({
       } else {
         await api('/pacote-ofertas', {
           method: 'POST',
-          body: { barbeiroId: barbeiroIdEfetivo, nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
         });
       }
       aoSalvar();
@@ -766,26 +760,17 @@ function OfertaDialog({
   return (
     <Dialog open={aberto} onClose={aoFechar} title={editando ? 'Editar oferta de pacote' : 'Nova oferta de pacote'}>
       <div className="flex flex-col gap-3">
-        {!editando && ehAdmin && (
-          <div>
-            <label className="label">Barbeiro dono</label>
-            <select className="select" value={barbeiroIdEfetivo} onChange={(e) => setBarbeiroId(e.target.value)}>
-              {barbeiros.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+          A oferta é da empresa — vale para todo cliente, com qualquer barbeiro. A economia é
+          calculada sobre o preço de referência da casa.
+        </div>
         <input className="input" placeholder="Nome do pacote" value={nome} onChange={(e) => setNome(e.target.value)} />
 
         <div>
           <label className="label">Composição</label>
-          {servicosDoBarbeiro.length === 0 && (
+          {servicosDisponiveis.length === 0 && (
             <div className="text-[12px] mb-2" style={{ color: 'var(--status-danger)' }}>
-              Este barbeiro ainda não tem nenhum serviço marcado como atendido — configure em
-              Ajustes → Serviços por barbeiro antes de montar uma oferta pra ele.
+              Nenhum serviço cadastrado — crie os serviços no Catálogo antes de montar uma oferta.
             </div>
           )}
           <div className="flex flex-col gap-2">
@@ -797,7 +782,7 @@ function OfertaDialog({
                   onChange={(e) => atualizarLinha(i, { servicoId: e.target.value })}
                 >
                   <option value="">Serviço…</option>
-                  {servicosDoBarbeiro.map((s) => (
+                  {servicosDisponiveis.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.nome} · {dinheiro(precoEfetivo(s.id))}
                     </option>
@@ -818,7 +803,7 @@ function OfertaDialog({
                 )}
               </div>
             ))}
-            <button className="btn btn-ghost btn-sm" disabled={servicosDoBarbeiro.length === 0} onClick={adicionarLinha}>
+            <button className="btn btn-ghost btn-sm" disabled={servicosDisponiveis.length === 0} onClick={adicionarLinha}>
               + adicionar serviço
             </button>
           </div>

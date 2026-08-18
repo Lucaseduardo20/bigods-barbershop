@@ -281,8 +281,12 @@ export interface VendaDePacoteDTO {
   id: string;
   cliente: { id: string; nome: string; telefone: string };
   /** Dono do pacote (Fase 2) — crédito só pode ser consumido com ele. */
-  barbeiroId: string;
-  barbeiroNome: string;
+  /**
+   * Barbeiro escolhido PELO CLIENTE na compra (2026-08-18) — só ele atende os
+   * serviços deste pacote. `null` = comprou sem escolher, qualquer um atende.
+   */
+  barbeiroId: string | null;
+  barbeiroNome: string | null;
   valorPagoCentavos: number;
   saldoResidualCentavos: number;
   /** FASE 4a (sessão-E, §8.7) — soma já abatida em agendamentos avulsos. */
@@ -648,13 +652,11 @@ export interface ItemComposicaoPacoteDTO {
   servicoId: string;
   servicoNome: string;
   quantidade: number;
-  /** Preço de referência unitário usado no cálculo da economia (§ preço por barbeiro, Fase 2). */
+  /** Preço de REFERÊNCIA DA CASA, base do cálculo da economia (a oferta é da empresa). */
   precoUnitarioCentavos: number;
 }
 export interface PacoteOfertaDTO {
   id: string;
-  barbeiroId: string;
-  barbeiroNome: string;
   nome: string;
   composicao: ItemComposicaoPacoteDTO[];
   /** Preço do pacote (o que o cliente paga) — única fonte de verdade. */
@@ -677,7 +679,6 @@ export interface ItemComposicaoPacoteRequest {
   quantidade: number;
 }
 export interface CriarPacoteOfertaRequest {
-  barbeiroId: string;
   nome: string;
   composicao: ItemComposicaoPacoteRequest[];
   precoCentavos: number;
@@ -706,6 +707,11 @@ export interface VenderPacotePublicoRequest {
   companyId: string;
   ofertaId: string;
   cliente: { nome: string; telefone: string };
+  /**
+   * Barbeiro escolhido no funil. Presente ⇒ só ele atende os serviços deste
+   * pacote (2026-08-18). Ausente = "não tenho preferência": qualquer um atende.
+   */
+  barbeiroId?: string | null;
 }
 export interface VenderPacotePublicoResponse {
   vendaId: string;

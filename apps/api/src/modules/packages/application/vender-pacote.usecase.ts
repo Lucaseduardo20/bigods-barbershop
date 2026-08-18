@@ -5,7 +5,6 @@ import { Cliente } from '../../customers/domain/cliente.aggregate';
 import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento.aggregate';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
-import { precoDeReferencia } from '../domain/precificacao-pacote';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
@@ -23,8 +22,13 @@ export interface VenderPacoteInput {
     email?: string | null;
     sobreVoce?: string | null;
   };
-  /** Dono do pacote (Fase 2) — o rateio usa o preço deste barbeiro, vigente agora. */
-  barbeiroId: string;
+  /**
+   * Barbeiro ESCOLHIDO PELO CLIENTE (2026-08-18). Não é dono do pacote — a
+   * oferta é da empresa —, é só a trava de consumo: com ele preenchido, só ele
+   * atende os serviços deste pacote. `null`/ausente = comprou sem escolher.
+   * NÃO afeta o rateio: a base é sempre a referência da casa (ver abaixo).
+   */
+  barbeiroId?: string | null;
   /** serviços do pacote — repetir o id para múltiplas unidades do mesmo serviço */
   servicoIds: string[];
   valorPagoCentavos: number;
@@ -59,8 +63,11 @@ export class VenderPacoteUseCase {
   ) {}
 
   async executar(input: VenderPacoteInput): Promise<VenderPacoteOutput> {
-    const barbeiro = await this.barbeiros.porId(input.barbeiroId);
-    if (!barbeiro || barbeiro.companyId !== input.companyId) {
+    // Barbeiro é OPCIONAL desde 2026-08-18: sem ele, o crédito vale com
+    // qualquer um que atenda o serviço. Quando vem, só se valida que existe e
+    // é desta empresa — o preço dele não entra em nada aqui.
+    const barbeiro = input.barbeiroId ? await this.barbeiros.porId(input.barbeiroId) : null;
+    if (input.barbeiroId && (!barbeiro || barbeiro.companyId !== input.companyId)) {
       throw new NotFoundException('Barbeiro não encontrado');
     }
     const unicos = [...new Set(input.servicoIds)];
@@ -117,14 +124,18 @@ export class VenderPacoteUseCase {
         id: vendaId,
         companyId: input.companyId,
         clienteId: cliente.id,
-        barbeiroId: input.barbeiroId,
+        barbeiroId: input.barbeiroId ?? null,
         valorPago: Dinheiro.deCentavos(input.valorPagoCentavos),
-        // Peso do rateio é o preço DO BARBEIRO vigente agora (Fase 2) — snapshot
-        // congelado no rateio; mudar o preço do barbeiro depois NÃO afeta esta venda.
+        // Peso do rateio é o preço de REFERÊNCIA DA CASA vigente agora
+        // (2026-08-18, decisão do dono): a oferta é da empresa e tem UM preço
+        // para todos, então o valor pago se divide igual para todos — override
+        // de barbeiro (§3.2.2) vale para avulso, não para pacote. Continua
+        // sendo snapshot congelado: mudar o preço do serviço depois NÃO afeta
+        // esta venda.
         itens: input.servicoIds.map((servicoId) => ({
           itemId: randomUUID(),
           servicoId,
-          precoAvulsoNaVenda: precoDeReferencia(porId.get(servicoId)!, barbeiro),
+          precoAvulsoNaVenda: porId.get(servicoId)!.precoAvulso,
         })),
         compradoEm: new Date(),
         origemLinkBarbeiroId: input.origemLinkBarbeiroId,

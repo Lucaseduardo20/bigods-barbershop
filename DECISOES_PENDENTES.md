@@ -632,3 +632,21 @@ estaria lá. Estão marcadas como DEPRECADO no `schema.prisma` e no DOMAIN.md.
 **O que falta decidir:** quando dropar. Sugestão: depois de uma semana de produção estável com a
 vitrine nova, numa migration de limpeza. Enquanto isso, o risco é baixo (coluna morta) mas o
 incômodo é real — alguém lendo o schema pode achar que ainda vale.
+
+---
+
+## 36. `PacoteOferta.barbeiroId` deprecado no banco (2026-08-18)
+
+**Mesma dívida do #35, outra coluna.**
+
+Com o pacote virando da empresa (DOMAIN.md §8.14), `PacoteOferta.barbeiroId` deixou de existir no
+domínio — a oferta não tem dono, não tem base de preço por barbeiro, e o cadastro é admin-only. A
+migration `20260818162756_pacote_sem_dono` apenas **relaxou** a coluna para nulável (nenhum dado
+perdido, nenhum drop), e o código parou de ler/escrever.
+
+`VendaDePacote.barbeiroId` também virou nulável, mas esse campo **continua vivo e com significado
+novo**: é o barbeiro que o cliente escolheu na compra, a única trava de consumo que sobrou.
+
+**O que falta decidir:** quando dropar `PacoteOferta.barbeiroId`. Sugestão: junto da limpeza do
+#35, depois de uma semana estável. Enquanto isso o risco é baixo (coluna morta, nulável), mas quem
+ler o schema pode achar que ainda vale.

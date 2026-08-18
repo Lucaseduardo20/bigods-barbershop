@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   Inject,
   NotFoundException,
@@ -32,10 +31,8 @@ import {
 } from '@bigods/contracts';
 import { PACOTE_OFERTA_REPOSITORY, PacoteOfertaRepository } from '../domain/pacote-oferta.repository';
 import { PacoteOferta } from '../domain/pacote-oferta.aggregate';
-import { somaDeReferencia, precoDeReferencia } from '../domain/precificacao-pacote';
-import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
+import { somaDeReferenciaDaCasa } from '../domain/precificacao-pacote';
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
-import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { Servico } from '../../catalog/domain/servico.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { ServicoId } from '../../../shared/domain/ids';
@@ -54,7 +51,6 @@ class ItemComposicaoDto {
 }
 
 class CriarPacoteOfertaDto implements CriarPacoteOfertaRequest {
-  @IsString() @MinLength(1) barbeiroId!: string;
   @IsString({ message: 'Nome do pacote é obrigatório' }) @MinLength(1, { message: 'Nome do pacote é obrigatório' }) nome!: string;
   @IsArray()
   @ArrayNotEmpty({ message: 'Oferta de pacote exige ao menos um item na composição' })
@@ -82,26 +78,20 @@ class RejeitarPacoteOfertaDto implements RejeitarPacoteOfertaRequest {
   @IsString() @MinLength(1) motivo!: string;
 }
 
-async function paraDTO(
-  oferta: PacoteOferta,
-  barbeiro: Barbeiro,
-  servicos: Map<ServicoId, Servico>,
-): Promise<PacoteOfertaDTO> {
+function paraDTO(oferta: PacoteOferta, servicos: Map<ServicoId, Servico>): PacoteOfertaDTO {
   const composicao: ItemComposicaoPacoteDTO[] = oferta.composicao.map((item) => {
     const servico = servicos.get(item.servicoId)!;
     return {
       servicoId: item.servicoId,
       servicoNome: servico.nome,
       quantidade: item.quantidade,
-      precoUnitarioCentavos: precoDeReferencia(servico, barbeiro).centavos,
+      precoUnitarioCentavos: servico.precoAvulso.centavos,
     };
   });
-  const precoAvulsoTotal = somaDeReferencia(oferta.composicao, servicos, barbeiro);
+  const precoAvulsoTotal = somaDeReferenciaDaCasa(oferta.composicao, servicos);
   const economia = Math.max(0, precoAvulsoTotal.centavos - oferta.preco.centavos);
   return {
     id: oferta.id,
-    barbeiroId: oferta.barbeiroId,
-    barbeiroNome: barbeiro.nome,
     nome: oferta.nome,
     composicao,
     precoCentavos: oferta.preco.centavos,
@@ -116,29 +106,34 @@ async function paraDTO(
 }
 
 /**
- * CRUD de `PacoteOferta` (sessão-B, Fases 1 e 3) — antes um read model só
- * semeado (DECISOES #12, resolvido nesta sessão). Composição MISTA (N
- * serviços distintos por oferta); preço é sempre a fonte de verdade
- * persistida, percentual de desconto é derivado na exibição.
+ * CRUD de `PacoteOferta` — o catálogo de pacotes da EMPRESA.
  *
- * Autorização (Fase 3): criar/editar é do BARBEIRO dono (ou de um admin em
- * nome dele) — "barbeiro cria/edita → PENDENTE". Aprovar/rejeitar é só do
- * admin; um admin que TAMBÉM é o barbeiro dono do pacote PODE aprovar o
- * próprio — nenhuma checagem de "dono não pode aprovar a si mesmo" é feita de
- * propósito (senão o fluxo trava com um único usuário real, caso do Gabriel).
+ * 2026-08-18 (decisão do dono): a oferta deixou de ter barbeiro dono. Ela é da
+ * casa, com UM preço para todo mundo, e a base de comparação é o preço de
+ * referência da casa. Como não existe mais "catálogo do fulano", o cadastro
+ * passou a ser **admin-only** — não havia como escopar "as minhas ofertas" sem
+ * dono, e catálogo da empresa é responsabilidade do admin.
+ *
+ * O workflow de aprovação (§4.3) continua: oferta nasce PENDENTE e só aparece
+ * no funil depois de APROVADA. Com só o admin cadastrando, ele virou na prática
+ * um "rascunho → publicado" — mantido porque é a trava que impede uma oferta
+ * pela metade cair no funil público.
  */
+@Papeis(Papel.ADMIN)
 @Controller('pacote-ofertas')
 export class PacoteOfertasController {
   constructor(
     @Inject(PACOTE_OFERTA_REPOSITORY) private readonly ofertas: PacoteOfertaRepository,
-    @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
     @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
   ) {}
 
   @Get()
   async listar(@UsuarioAtual() usuario: UsuarioAutenticado): Promise<PacoteOfertaDTO[]> {
     const ofertas = await this.ofertas.listarPorEmpresa(usuario.companyId);
-    return this.paraDTOs(ofertas);
+    const servicos = await this.servicosMap(
+      ofertas.flatMap((o) => o.composicao.map((i) => i.servicoId)),
+    );
+    return ofertas.map((o) => paraDTO(o, servicos));
   }
 
   @Post()
@@ -146,24 +141,19 @@ export class PacoteOfertasController {
     @Body() body: CriarPacoteOfertaDto,
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<PacoteOfertaDTO> {
-    this.exigirDonoOuAdmin(usuario, body.barbeiroId);
-    const { barbeiro, servicos } = await this.resolverContexto(usuario.companyId, body.barbeiroId, body.composicao);
+    const servicos = await this.servicosMap(body.composicao.map((i) => i.servicoId));
     const oferta = PacoteOferta.criar(
       {
         id: randomUUID(),
         companyId: usuario.companyId,
-        barbeiroId: body.barbeiroId,
         nome: body.nome,
         composicao: body.composicao,
         preco: Dinheiro.deCentavos(body.precoCentavos),
       },
-      {
-        somaAvulsos: somaDeReferencia(body.composicao, servicos, barbeiro),
-        servicosAtendidosPeloBarbeiro: barbeiro.servicosAtendidos,
-      },
+      { somaAvulsos: somaDeReferenciaDaCasa(body.composicao, servicos) },
     );
     await this.ofertas.salvar(oferta);
-    return paraDTO(oferta, barbeiro, servicos);
+    return paraDTO(oferta, servicos);
   }
 
   @Patch(':id')
@@ -173,17 +163,13 @@ export class PacoteOfertasController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<PacoteOfertaDTO> {
     const oferta = await this.carregar(id, usuario.companyId);
-    this.exigirDonoOuAdmin(usuario, oferta.barbeiroId);
-    const { barbeiro, servicos } = await this.resolverContexto(usuario.companyId, oferta.barbeiroId, body.composicao);
+    const servicos = await this.servicosMap(body.composicao.map((i) => i.servicoId));
     oferta.atualizar(
       { nome: body.nome, composicao: body.composicao, preco: Dinheiro.deCentavos(body.precoCentavos) },
-      {
-        somaAvulsos: somaDeReferencia(body.composicao, servicos, barbeiro),
-        servicosAtendidosPeloBarbeiro: barbeiro.servicosAtendidos,
-      },
+      { somaAvulsos: somaDeReferenciaDaCasa(body.composicao, servicos) },
     );
     await this.ofertas.salvar(oferta);
-    return paraDTO(oferta, barbeiro, servicos);
+    return paraDTO(oferta, servicos);
   }
 
   @Patch(':id/status')
@@ -193,32 +179,20 @@ export class PacoteOfertasController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<PacoteOfertaDTO> {
     const oferta = await this.carregar(id, usuario.companyId);
-    this.exigirDonoOuAdmin(usuario, oferta.barbeiroId);
     if (body.ativo) oferta.reativar();
     else oferta.desativar();
     await this.ofertas.salvar(oferta);
-    const [barbeiro, servicos] = await Promise.all([
-      this.barbeiroOuFalhar(oferta.barbeiroId),
-      this.servicosMap(oferta.composicao.map((i) => i.servicoId)),
-    ]);
-    return paraDTO(oferta, barbeiro, servicos);
+    return paraDTO(oferta, await this.servicosDaOferta(oferta));
   }
 
-  /** Fase 3: só admin aprova — sem checagem de "dono não pode aprovar o próprio" (§ comentário da classe). */
-  @Papeis(Papel.ADMIN)
   @Patch(':id/aprovar')
   async aprovar(@Param('id') id: string, @UsuarioAtual() usuario: UsuarioAutenticado): Promise<PacoteOfertaDTO> {
     const oferta = await this.carregar(id, usuario.companyId);
     oferta.aprovar();
     await this.ofertas.salvar(oferta);
-    const [barbeiro, servicos] = await Promise.all([
-      this.barbeiroOuFalhar(oferta.barbeiroId),
-      this.servicosMap(oferta.composicao.map((i) => i.servicoId)),
-    ]);
-    return paraDTO(oferta, barbeiro, servicos);
+    return paraDTO(oferta, await this.servicosDaOferta(oferta));
   }
 
-  @Papeis(Papel.ADMIN)
   @Patch(':id/rejeitar')
   async rejeitar(
     @Param('id') id: string,
@@ -228,19 +202,7 @@ export class PacoteOfertasController {
     const oferta = await this.carregar(id, usuario.companyId);
     oferta.rejeitar(body.motivo);
     await this.ofertas.salvar(oferta);
-    const [barbeiro, servicos] = await Promise.all([
-      this.barbeiroOuFalhar(oferta.barbeiroId),
-      this.servicosMap(oferta.composicao.map((i) => i.servicoId)),
-    ]);
-    return paraDTO(oferta, barbeiro, servicos);
-  }
-
-  /** Barbeiro só mexe no próprio catálogo; admin mexe em qualquer um. */
-  private exigirDonoOuAdmin(usuario: UsuarioAutenticado, barbeiroId: string): void {
-    if (usuario.papeis.includes(Papel.ADMIN)) return;
-    if (usuario.barbeiroId !== barbeiroId) {
-      throw new ForbiddenException('Só o barbeiro dono (ou um admin) pode criar/editar esta oferta');
-    }
+    return paraDTO(oferta, await this.servicosDaOferta(oferta));
   }
 
   private async carregar(id: string, companyId: string): Promise<PacoteOferta> {
@@ -251,23 +213,8 @@ export class PacoteOfertasController {
     return oferta;
   }
 
-  private async resolverContexto(
-    companyId: string,
-    barbeiroId: string,
-    composicao: { servicoId: string }[],
-  ): Promise<{ barbeiro: Barbeiro; servicos: Map<ServicoId, Servico> }> {
-    const barbeiro = await this.barbeiroOuFalhar(barbeiroId);
-    if (barbeiro.companyId !== companyId) {
-      throw new NotFoundException('Barbeiro não encontrado');
-    }
-    const servicos = await this.servicosMap(composicao.map((i) => i.servicoId));
-    return { barbeiro, servicos };
-  }
-
-  private async barbeiroOuFalhar(barbeiroId: string): Promise<Barbeiro> {
-    const barbeiro = await this.barbeiros.porId(barbeiroId);
-    if (!barbeiro) throw new NotFoundException('Barbeiro não encontrado');
-    return barbeiro;
+  private servicosDaOferta(oferta: PacoteOferta): Promise<Map<ServicoId, Servico>> {
+    return this.servicosMap(oferta.composicao.map((i) => i.servicoId));
   }
 
   private async servicosMap(servicoIds: string[]): Promise<Map<ServicoId, Servico>> {
@@ -277,18 +224,5 @@ export class PacoteOfertasController {
       throw new NotFoundException('Serviço inexistente na composição');
     }
     return new Map(servicos.map((s) => [s.id, s]));
-  }
-
-  private async paraDTOs(ofertas: PacoteOferta[]): Promise<PacoteOfertaDTO[]> {
-    const barbeiroIds = [...new Set(ofertas.map((o) => o.barbeiroId))];
-    const servicoIds = [...new Set(ofertas.flatMap((o) => o.composicao.map((i) => i.servicoId)))];
-    const [barbeiros, servicos] = await Promise.all([
-      Promise.all(barbeiroIds.map((id) => this.barbeiros.porId(id))),
-      this.servicosMap(servicoIds),
-    ]);
-    const barbeiroPorId = new Map(barbeiros.filter((b): b is Barbeiro => !!b).map((b) => [b.id, b]));
-    return Promise.all(
-      ofertas.map((o) => paraDTO(o, barbeiroPorId.get(o.barbeiroId)!, servicos)),
-    );
   }
 }

@@ -232,7 +232,7 @@ model Produto {
 }
 
 // PacoteOferta (raiz, agregado de domínio — sessão "sessão-B"): catálogo de
-// pacotes que a barbearia oferece, com dono (barbeiroId) e composição mista
+// pacotes que a EMPRESA oferece (sem dono — 2026-08-18) e composição mista
 // (N serviços distintos, cada um com sua quantidade). O que se PERSISTE é
 // sempre o preço em centavos — percentual de desconto é sempre DERIVADO na
 // exibição, nunca fonte de verdade (mesma disciplina de snapshot do resto do
@@ -242,7 +242,11 @@ model Produto {
 model PacoteOferta {
   id             String                      @id
   companyId      String
-  barbeiroId     String
+  // ⚠️ DEPRECADO em 2026-08-18 — a oferta é da EMPRESA, não de um barbeiro
+  // (decisão do dono). Ninguém lê nem escreve esta coluna desde então;
+  // mantida nulável só para rollback seguro (sistema em produção), remover
+  // numa migration futura — ver DECISOES_PENDENTES.
+  barbeiroId     String?
   nome           String
   precoCentavos  Int
   ativo          Boolean                     @default(true)
@@ -252,11 +256,10 @@ model PacoteOferta {
   motivoRejeicao  String?
 
   company  Company            @relation(fields: [companyId], references: [id])
-  barbeiro Barbeiro           @relation(fields: [barbeiroId], references: [id])
+  barbeiro Barbeiro?          @relation(fields: [barbeiroId], references: [id])
   itens    PacoteOfertaItem[]
 
   @@index([companyId])
-  @@index([barbeiroId])
 }
 
 // Composição da oferta: quais serviços (e em que quantidade) o pacote inclui.
@@ -465,9 +468,12 @@ model VendaDePacote {
   id                    String          @id
   companyId             String
   clienteId             String
-  // Dono do pacote (sessão-B, Fase 2) — o rateio (§3.6) usa o preço DESTE
-  // barbeiro no momento da venda; crédito só é consumido com ele (§8.2).
-  barbeiroId            String
+  // Barbeiro ESCOLHIDO PELO CLIENTE na compra (2026-08-18). Não é "dono" do
+  // pacote — a oferta é da empresa —, é a única regra que sobrou: se o cliente
+  // comprou com um barbeiro selecionado, só ele atende os serviços daquele
+  // pacote. `null` = comprou sem escolher ("não tenho preferência"): qualquer
+  // barbeiro ativo que atenda o serviço pode consumir o crédito (§8.2).
+  barbeiroId            String?
   valorPagoCentavos     Int
   saldoResidualCentavos Int             @default(0)
   // FASE 4a (sessão-E, §8.7): quanto do saldo residual já foi GASTO
@@ -496,7 +502,7 @@ model VendaDePacote {
   origemLinkBarbeiroId  String?
 
   company              Company                  @relation(fields: [companyId], references: [id])
-  barbeiro             Barbeiro                 @relation(fields: [barbeiroId], references: [id])
+  barbeiro             Barbeiro?                @relation(fields: [barbeiroId], references: [id])
   itens                ItemDoPacote[]
   solicitacoesReembolso SolicitacaoDeReembolso[]
 
