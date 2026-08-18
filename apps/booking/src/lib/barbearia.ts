@@ -44,11 +44,10 @@ export const BARBEARIA = {
 } as const;
 
 export interface LinkDaBarbearia {
+  /** Também escolhe a marca a renderizar — ver `components/IconesDeMarca`. */
   chave: 'instagram' | 'whatsapp' | 'google';
   rotulo: string;
   url: string;
-  /** Emoji usado como ícone — o funil não tem biblioteca de ícones de marca. */
-  icone: string;
 }
 
 /**
@@ -63,7 +62,6 @@ export function linksDaBarbearia(): LinkDaBarbearia[] {
       chave: 'instagram',
       rotulo: `@${BARBEARIA.instagram}`,
       url: `https://instagram.com/${BARBEARIA.instagram}`,
-      icone: '📷',
     });
   }
   if (BARBEARIA.whatsapp) {
@@ -71,14 +69,12 @@ export function linksDaBarbearia(): LinkDaBarbearia[] {
       chave: 'whatsapp',
       rotulo: 'WhatsApp',
       url: `https://wa.me/${BARBEARIA.whatsapp}`,
-      icone: '💬',
     });
   }
   links.push({
     chave: 'google',
     rotulo: 'Google',
     url: BARBEARIA.googleUrl ?? BARBEARIA.mapsUrl,
-    icone: '⭐',
   });
   return links;
 }

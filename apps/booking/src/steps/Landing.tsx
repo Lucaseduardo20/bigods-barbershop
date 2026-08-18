@@ -1,4 +1,5 @@
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
+import { IconeDeMarca } from '../components/IconesDeMarca';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
 
@@ -49,14 +50,15 @@ export function Landing({
             target="_blank"
             rel="noopener noreferrer"
             aria-label={l.rotulo}
-            className="text-[12.5px] font-bold rounded-full px-3.5 py-2"
+            className="text-[12.5px] font-bold rounded-full px-3.5 py-2 inline-flex items-center gap-1.5"
             style={{
               background: 'rgba(255,255,255,0.10)',
               color: 'var(--brand-cream)',
               textDecoration: 'none',
             }}
           >
-            {l.icone} {l.rotulo}
+            <IconeDeMarca chave={l.chave} />
+            {l.rotulo}
           </a>
         ))}
       </div>

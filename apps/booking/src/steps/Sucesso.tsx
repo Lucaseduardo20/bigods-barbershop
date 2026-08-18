@@ -4,6 +4,7 @@ import type { FunnelState } from '../lib/funnel-state';
 import { Onboarding } from '../components/Onboarding';
 import { BigodsClub } from '../components/BigodsClub';
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
+import { IconeDeMarca } from '../components/IconesDeMarca';
 import { baixarIcs, linkGoogleAgenda, type EventoDeAgenda } from '../lib/agenda';
 
 export function Sucesso({
@@ -167,13 +168,15 @@ export function InfoDaBarbearia() {
           {links.map((l) => (
             <a
               key={l.chave}
-              className="text-[12.5px] font-bold rounded-full px-3 py-1.5"
+              className="text-[12.5px] font-bold rounded-full px-3 py-1.5 inline-flex items-center gap-1.5"
               href={l.url}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label={l.rotulo}
               style={{ background: 'var(--surface-sunken)', color: 'var(--text-primary)', textDecoration: 'none' }}
             >
-              {l.icone} {l.rotulo}
+              <IconeDeMarca chave={l.chave} />
+              {l.rotulo}
             </a>
           ))}
         </div>
