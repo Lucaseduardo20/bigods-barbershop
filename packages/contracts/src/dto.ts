@@ -37,8 +37,6 @@ export interface ServicoDTO {
   precoAvulsoCentavos: number;
   duracaoMinutos: number;
   ativo: boolean;
-  /** Order-bump: aparece como sugestão de complemento na confirmação do funil. */
-  sugeridoNoBump: boolean;
 }
 export interface CriarServicoRequest {
   nome: string;
@@ -50,7 +48,6 @@ export interface AtualizarServicoRequest {
   precoAvulsoCentavos?: number;
   duracaoMinutos?: number;
   ativo?: boolean;
-  sugeridoNoBump?: boolean;
 }
 
 // ---------- Staff ----------
@@ -514,24 +511,84 @@ export interface AgendarPublicoResponse {
   valorTotalCentavos: number;
 }
 
+export enum TipoItemDeOrderBump {
+  SERVICO = 'SERVICO',
+  PRODUTO = 'PRODUTO',
+}
+
+/**
+ * Um item da vitrine "Adicione à sua visita" (DOMAIN.md §8.13), já
+ * PRECIFICADO para o barbeiro escolhido.
+ *
+ * O front nunca recalcula preço promocional a partir de percentual: recebe
+ * `precoNormalCentavos` e `precoPromocionalCentavos` prontos e derivada daí a
+ * ênfase visual. O percentual vem calculado junto só para exibição.
+ */
+export interface ItemDeOrderBumpDTO {
+  tipo: TipoItemDeOrderBump;
+  /** `Servico.id` ou `Produto.id`, conforme `tipo`. */
+  id: string;
+  nome: string;
+  /** Preço cheio do item — para serviço, já é o preço DAQUELE barbeiro. */
+  precoNormalCentavos: number;
+  /** O que o cliente paga ao adicionar pelo bump. Igual ao normal quando não há oferta. */
+  precoPromocionalCentavos: number;
+  /** `precoNormal − precoPromocional`. Zero = sem oferta, exibe sem ênfase de promoção. */
+  descontoCentavos: number;
+  /** Derivado, só para exibição ("−30%"). Zero quando não há oferta. */
+  descontoPercentual: number;
+  /** Chamada configurada pelo admin ("Leve pra casa por só R$X"). */
+  mensagem: string | null;
+  /** Só serviço — o bump de serviço ocupa tempo na agenda. */
+  duracaoMinutos: number | null;
+}
+
 /**
  * Order-bump (sessão 2026-08-17): vitrine de complementos mostrada na
- * confirmação do funil — "Adicione à sua visita". Lista curada pelo admin
- * (`sugeridoNoBump`), SEM motor de regras condicionais (decisão consciente,
- * ver DECISOES_PENDENTES). `servicos` já vem com o preço do barbeiro
- * escolhido (mesma regra de `/public/servicos`) e SEM os serviços que o
- * cliente já selecionou — quem filtra isso é o próprio front, contra o
- * carrinho que ele já tem em mãos.
+ * confirmação do funil — "Adicione à sua visita". Lista curada e
+ * PARAMETRIZADA pelo admin (preço promocional, mensagem, ordem), SEM motor de
+ * regras condicionais (decisão do dono, ver DECISOES_PENDENTES). Já vem
+ * ordenada; os serviços vêm com o preço do barbeiro escolhido, e cabe ao front
+ * esconder os que o cliente já tem no carrinho.
  */
 export interface OrderBumpDTO {
-  servicos: ServicoDTO[];
-  produtos: ProdutoDTO[];
+  servicos: ItemDeOrderBumpDTO[];
+  produtos: ItemDeOrderBumpDTO[];
 }
+
 /** Um produto do order-bump escolhido pelo cliente, com a quantidade. */
 export interface ProdutoBumpRequest {
   produtoId: string;
   quantidade: number;
 }
+
+// ---------- Configuração do order-bump (admin, seção Funil de Vendas) ----------
+
+/** Item do catálogo + como (e se) ele está configurado no bump. */
+export interface ConfiguracaoDeOrderBumpDTO {
+  tipo: TipoItemDeOrderBump;
+  /** `Servico.id` ou `Produto.id`. */
+  id: string;
+  nome: string;
+  /** Preço de referência da casa — base do percentual mostrado ao admin. */
+  precoNormalCentavos: number;
+  /** true = aparece na vitrine do funil. */
+  ativoNoBump: boolean;
+  /** null = sem promoção (cobra o preço normal). */
+  precoPromocionalCentavos: number | null;
+  mensagem: string | null;
+  ordem: number;
+}
+
+export interface ConfigurarItemDeOrderBumpRequest {
+  ativo: boolean;
+  /** Preço FINAL em centavos. null remove a promoção. O percentual é derivado, nunca persistido. */
+  precoPromocionalCentavos?: number | null;
+  mensagem?: string | null;
+  ordem?: number;
+}
+
+export const MAX_MENSAGEM_BUMP = 90;
 
 // ---------- Área do cliente (login OTP por telefone) ----------
 // Tenant explícito: o app da conta carrega o `companyId` (deploy da barbearia)
@@ -691,8 +748,6 @@ export interface ProdutoDTO {
   nome: string;
   precoCentavos: number;
   ativo: boolean;
-  /** Order-bump: aparece como sugestão na confirmação do funil. */
-  sugeridoNoBump: boolean;
 }
 export interface CriarProdutoRequest {
   nome: string;
@@ -702,7 +757,6 @@ export interface AtualizarProdutoRequest {
   nome?: string;
   precoCentavos?: number;
   ativo?: boolean;
-  sugeridoNoBump?: boolean;
 }
 
 export interface ItemVendaDeProdutoDTO {

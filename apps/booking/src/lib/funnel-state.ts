@@ -1,8 +1,9 @@
-import { calcularDescontoProgressivo } from '@bigods/contracts';
+import { precificarCarrinhoDoFunil } from '@bigods/contracts';
 import type {
   BarbeiroPublicoDTO,
+  ItemDeOrderBumpDTO,
+  OrderBumpDTO,
   ProdutoBumpRequest,
-  ProdutoDTO,
   ServicoDTO,
   TabelaDeDescontoDTO,
 } from '@bigods/contracts';
@@ -82,6 +83,14 @@ export interface FunnelState {
    * sem Atendimento para anexar produto.
    */
   produtosBump: ProdutoBumpRequest[];
+  /**
+   * Quais serviços do carrinho entraram PELO order-bump (Parte 2). Eles também
+   * estão em `servicoIds` — são serviços do atendimento como qualquer outro —,
+   * mas só quem está aqui paga o preço promocional configurado e sai da escada
+   * do desconto progressivo. É esta lista que vai no corpo do agendamento como
+   * `servicosBump`, para o backend chegar ao MESMO número.
+   */
+  servicosBump: string[];
 }
 
 export const estadoInicial: FunnelState = {
@@ -106,6 +115,7 @@ export const estadoInicial: FunnelState = {
   formaPagamento: 'presencial',
   concluido: false,
   produtosBump: [],
+  servicosBump: [],
 };
 
 const CHAVE = 'bigods.booking.v1';
@@ -206,6 +216,8 @@ export interface ItemDoCarrinhoFunil {
   precoCheioCentavos: number;
   descontoCentavos: number;
   precoFinalCentavos: number;
+  /** true quando o preço veio da promoção do bump, não da escada progressiva. */
+  promocional: boolean;
 }
 
 export interface CarrinhoFunil {
@@ -217,39 +229,65 @@ export interface CarrinhoFunil {
 }
 
 /**
- * Preço do carrinho de avulsos COM o desconto progressivo.
+ * Preço do carrinho de avulsos — desconto progressivo E promoção de order-bump.
  *
- * Usa `calcularDescontoProgressivo` de `@bigods/contracts` — exatamente a mesma
+ * Usa `precificarCarrinhoDoFunil` de `@bigods/contracts` — exatamente a mesma
  * função que a API usa para cobrar. É isso que garante que o número mostrado
  * aqui é o número que vai ser cobrado: um cálculo próprio no front seria uma
  * segunda verdade sobre dinheiro, e a diferença apareceria como cobrança
  * "errada" para o cliente.
  *
  * Os preços já vêm do `/public/servicos` filtrado pelo barbeiro escolhido, ou
- * seja, são a base DAQUELE barbeiro (com override, se houver).
+ * seja, são a base DAQUELE barbeiro (com override, se houver). `promocionais`
+ * mapeia servicoId → preço promocional, vindo já resolvido de
+ * `/public/order-bump` (o front nunca calcula promoção a partir de percentual).
  */
 export function precificarCarrinhoFunil(
   servicos: ServicoDTO[],
   ids: string[],
   tabela: TabelaDeDescontoDTO,
+  promocionais: Map<string, number> = new Map(),
 ): CarrinhoFunil {
   const selecionados = servicosSelecionados(servicos, ids);
-  const calculo = calcularDescontoProgressivo(
-    selecionados.map((s) => s.precoAvulsoCentavos),
+  const calculo = precificarCarrinhoDoFunil(
+    selecionados.map((s) => ({
+      precoCheioCentavos: s.precoAvulsoCentavos,
+      precoPromocionalCentavos: promocionais.get(s.id) ?? null,
+    })),
     tabela,
   );
   return {
     itens: selecionados.map((servico, i) => ({
       servico,
-      precoCheioCentavos: servico.precoAvulsoCentavos,
-      descontoCentavos: calculo.descontosPorItemCentavos[i] ?? 0,
-      precoFinalCentavos: servico.precoAvulsoCentavos - (calculo.descontosPorItemCentavos[i] ?? 0),
+      precoCheioCentavos: calculo.itens[i]!.precoCheioCentavos,
+      descontoCentavos: calculo.itens[i]!.descontoCentavos,
+      precoFinalCentavos: calculo.itens[i]!.precoFinalCentavos,
+      promocional: calculo.itens[i]!.promocional,
     })),
     totalCheioCentavos: calculo.totalCheioCentavos,
     descontoTotalCentavos: calculo.descontoTotalCentavos,
     totalFinalCentavos: calculo.totalFinalCentavos,
     temDesconto: calculo.descontoTotalCentavos > 0,
   };
+}
+
+/**
+ * servicoId → preço promocional, para os serviços que o cliente adicionou PELO
+ * bump. Um serviço só ganha promoção se veio do bump E tem oferta configurada
+ * (`descontoCentavos > 0`) — sem isso, ele é um item normal do carrinho.
+ */
+export function promocionaisDoBump(
+  bump: OrderBumpDTO | null,
+  servicosBump: string[],
+): Map<string, number> {
+  const mapa = new Map<string, number>();
+  if (!bump) return mapa;
+  for (const item of bump.servicos) {
+    if (servicosBump.includes(item.id) && item.descontoCentavos > 0) {
+      mapa.set(item.id, item.precoPromocionalCentavos);
+    }
+  }
+  return mapa;
 }
 
 export function duracaoMinutos(servicos: ServicoDTO[], ids: string[]): number {
@@ -309,17 +347,16 @@ export function alternarProdutoNoBump(
 
 /**
  * Total (em centavos) dos produtos do bump — sem desconto progressivo, que é
- * regra de SERVIÇO. Produto entra no carrinho pelo preço cheio, snapshot
- * congelado no momento da confirmação (mesmo mecanismo do add-on na
- * conclusão do atendimento, só que aqui acontece já na criação).
+ * regra de SERVIÇO. O preço usado é o PROMOCIONAL já resolvido pela API
+ * (`precoPromocionalCentavos`), congelado como snapshot na confirmação.
  */
 export function precificarProdutosBump(
-  produtos: ProdutoDTO[],
+  produtos: ItemDeOrderBumpDTO[],
   selecionados: ProdutoBumpRequest[],
 ): number {
   return selecionados.reduce((acc, sel) => {
     const produto = produtos.find((p) => p.id === sel.produtoId);
-    return produto ? acc + produto.precoCentavos * sel.quantidade : acc;
+    return produto ? acc + produto.precoPromocionalCentavos * sel.quantidade : acc;
   }, 0);
 }
 
@@ -327,10 +364,43 @@ export function precificarProdutosBump(
  * Serviços da vitrine de bump que ainda fazem sentido oferecer — "filtro
  * óbvio" do spec (sessão 2026-08-17): nunca sugere um serviço complementar
  * que o cliente JÁ colocou no carrinho pela tela normal de serviços.
+ *
+ * Um serviço adicionado PELO próprio bump continua aparecendo (marcado como
+ * escolhido), porque é ali mesmo que o cliente o remove — remover não pode
+ * exigir voltar no funil.
  */
 export function servicosSugeridosDoBump(
-  servicosBump: ServicoDTO[],
+  servicosBump: ItemDeOrderBumpDTO[],
   servicoIdsSelecionados: string[],
-): ServicoDTO[] {
-  return servicosBump.filter((s) => !servicoIdsSelecionados.includes(s.id));
+  adicionadosPeloBump: string[] = [],
+): ItemDeOrderBumpDTO[] {
+  return servicosBump.filter(
+    (s) => !servicoIdsSelecionados.includes(s.id) || adicionadosPeloBump.includes(s.id),
+  );
+}
+
+/**
+ * Liga/desliga um serviço complementar do bump. Diferente do `toggleServico`
+ * da tela de serviços, NÃO zera data/hora: aqui o horário já foi escolhido, e
+ * refazer o funil por causa de um complemento é exatamente a fricção que a
+ * Parte 2 veio tirar. Devolve as duas listas juntas porque elas precisam andar
+ * em par — um id em `servicosBump` que não esteja em `servicoIds` é recusado
+ * pelo backend.
+ */
+export function alternarServicoNoBump(
+  servicoIds: string[],
+  servicosBump: string[],
+  servicoId: string,
+): { servicoIds: string[]; servicosBump: string[] } {
+  const jaTem = servicosBump.includes(servicoId);
+  if (jaTem) {
+    return {
+      servicoIds: servicoIds.filter((id) => id !== servicoId),
+      servicosBump: servicosBump.filter((id) => id !== servicoId),
+    };
+  }
+  return {
+    servicoIds: servicoIds.includes(servicoId) ? servicoIds : [...servicoIds, servicoId],
+    servicosBump: [...servicosBump, servicoId],
+  };
 }

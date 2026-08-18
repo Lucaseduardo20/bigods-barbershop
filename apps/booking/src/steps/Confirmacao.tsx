@@ -1,6 +1,12 @@
 import type { OrderBumpDTO, ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
 import { dinheiro, rotuloDia } from '../lib/format';
-import { precificarCarrinhoFunil, precificarProdutosBump, type FormaPagamento, type FunnelState } from '../lib/funnel-state';
+import {
+  precificarCarrinhoFunil,
+  precificarProdutosBump,
+  promocionaisDoBump,
+  type FormaPagamento,
+  type FunnelState,
+} from '../lib/funnel-state';
 import { ResumoDoDesconto } from '../components/ResumoDoDesconto';
 import { OrderBump } from '../components/OrderBump';
 import { AlertaErro } from '../components/ui';
@@ -31,10 +37,12 @@ export function Confirmacao({
   onConfirmar: () => void;
 }) {
   const ehPacote = estado.modo === 'pacote';
-  // Mesmo cálculo da API (função compartilhada): o total exibido aqui é o que
-  // será cobrado, item a item. Serviço do bump já está em servicoIds — entra
-  // no MESMO cálculo, sem caminho de preço paralelo.
-  const carrinho = precificarCarrinhoFunil(servicos, estado.servicoIds, tabelaDeDesconto);
+  // Mesmo cálculo da API (função compartilhada `precificarCarrinhoDoFunil`): o
+  // total exibido aqui é o que será cobrado, item a item — inclusive o preço
+  // promocional dos itens que vieram do bump, que substitui (não empilha com)
+  // o desconto progressivo.
+  const promocionais = promocionaisDoBump(orderBump, estado.servicosBump);
+  const carrinho = precificarCarrinhoFunil(servicos, estado.servicoIds, tabelaDeDesconto, promocionais);
   const produtosBumpCentavos = ehPacote ? 0 : precificarProdutosBump(orderBump?.produtos ?? [], estado.produtosBump);
   const total = ehPacote ? (estado.ofertaPrecoCentavos ?? 0) : carrinho.totalFinalCentavos + produtosBumpCentavos;
   const dia = estado.data ? rotuloDia(estado.data).longo : '';
@@ -72,24 +80,41 @@ export function Confirmacao({
               Serviços Realizados
             </div>
             <div className="flex flex-col gap-1.5">
-              {carrinho.itens.map((item) => (
-                <div key={item.servico.id} className="flex justify-between text-[14px]">
-                  <span>{item.servico.nome}</span>
-                  <span className="font-bold">
-                    {/* Preço cheio riscado ao lado do cobrado: sem isso o
-                        desconto some da percepção do cliente. */}
-                    {item.descontoCentavos > 0 && (
-                      <span
-                        className="font-semibold mr-1.5"
-                        style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}
-                      >
-                        {dinheiro(item.precoCheioCentavos)}
-                      </span>
-                    )}
-                    {dinheiro(item.precoFinalCentavos)}
-                  </span>
-                </div>
-              ))}
+              {carrinho.itens.map((item) => {
+                const veioDoBump = estado.servicosBump.includes(item.servico.id);
+                return (
+                  <div key={item.servico.id} className="flex justify-between items-center text-[14px] gap-2">
+                    <span className="min-w-0 flex items-center gap-1.5">
+                      <span className="truncate">{item.servico.nome}</span>
+                      {item.promocional && <span className="bump-selo">oferta</span>}
+                      {/* Remover ali mesmo — o cliente nunca precisa refazer o
+                          funil para tirar um complemento que ele adicionou. */}
+                      {veioDoBump && (
+                        <button
+                          className="bump-remover"
+                          aria-label={`Remover ${item.servico.nome}`}
+                          onClick={() => onToggleServicoBump(item.servico.id)}
+                        >
+                          remover
+                        </button>
+                      )}
+                    </span>
+                    <span className="font-bold flex-shrink-0">
+                      {/* Preço cheio riscado ao lado do cobrado: sem isso o
+                          desconto some da percepção do cliente. */}
+                      {item.descontoCentavos > 0 && (
+                        <span
+                          className="font-semibold mr-1.5"
+                          style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}
+                        >
+                          {dinheiro(item.precoCheioCentavos)}
+                        </span>
+                      )}
+                      {dinheiro(item.precoFinalCentavos)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
             {carrinho.temDesconto && <ResumoDoDesconto carrinho={carrinho} />}
             {estado.produtosBump.length > 0 && (
@@ -105,13 +130,34 @@ export function Confirmacao({
                   {estado.produtosBump.map((sel) => {
                     const produto = orderBump?.produtos.find((p) => p.id === sel.produtoId);
                     if (!produto) return null;
+                    const temOferta = produto.descontoCentavos > 0;
                     return (
-                      <div key={sel.produtoId} className="flex justify-between text-[14px]">
-                        <span>
-                          {produto.nome}
-                          {sel.quantidade > 1 && ` ×${sel.quantidade}`}
+                      <div key={sel.produtoId} className="flex justify-between items-center text-[14px] gap-2">
+                        <span className="min-w-0 flex items-center gap-1.5">
+                          <span className="truncate">
+                            {produto.nome}
+                            {sel.quantidade > 1 && ` ×${sel.quantidade}`}
+                          </span>
+                          {temOferta && <span className="bump-selo">oferta</span>}
+                          <button
+                            className="bump-remover"
+                            aria-label={`Remover ${produto.nome}`}
+                            onClick={() => onToggleProdutoBump(sel.produtoId)}
+                          >
+                            remover
+                          </button>
                         </span>
-                        <span className="font-bold">{dinheiro(produto.precoCentavos * sel.quantidade)}</span>
+                        <span className="font-bold flex-shrink-0">
+                          {temOferta && (
+                            <span
+                              className="font-semibold mr-1.5"
+                              style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}
+                            >
+                              {dinheiro(produto.precoNormalCentavos * sel.quantidade)}
+                            </span>
+                          )}
+                          {dinheiro(produto.precoPromocionalCentavos * sel.quantidade)}
+                        </span>
                       </div>
                     );
                   })}

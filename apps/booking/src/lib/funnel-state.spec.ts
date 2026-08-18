@@ -1,17 +1,49 @@
 import { describe, expect, it } from 'vitest';
+import type { ItemDeOrderBumpDTO, OrderBumpDTO } from '@bigods/contracts';
 import {
   aplicarBarbeiroDoLink,
   alternarProdutoNoBump,
+  alternarServicoNoBump,
   barbeiroParaAutoSelecionar,
   estadoInicial,
   PASSO,
   precificarProdutosBump,
+  promocionaisDoBump,
   sanitizarEstadoCarregado,
   servicosSugeridosDoBump,
   urlDoCatalogoDeServicos,
   urlDoOrderBump,
   totalCentavos,
 } from './funnel-state';
+
+/** Item da vitrine de bump já precificado pela API (é assim que ele chega). */
+function bumpServico(
+  id: string,
+  nome: string,
+  normal: number,
+  promocional: number,
+): ItemDeOrderBumpDTO {
+  return {
+    tipo: 'SERVICO' as ItemDeOrderBumpDTO['tipo'],
+    id,
+    nome,
+    precoNormalCentavos: normal,
+    precoPromocionalCentavos: promocional,
+    descontoCentavos: normal - promocional,
+    descontoPercentual: normal === 0 ? 0 : Math.round(((normal - promocional) / normal) * 1000) / 10,
+    mensagem: null,
+    duracaoMinutos: 20,
+  };
+}
+
+function bumpProduto(
+  id: string,
+  nome: string,
+  normal: number,
+  promocional: number,
+): ItemDeOrderBumpDTO {
+  return { ...bumpServico(id, nome, normal, promocional), tipo: 'PRODUTO' as ItemDeOrderBumpDTO['tipo'], duracaoMinutos: null };
+}
 
 describe('sanitizarEstadoCarregado', () => {
   it('mantém o estado salvo quando a compra não foi concluída', () => {
@@ -71,10 +103,10 @@ describe('totalCentavos — bug de preço errado desde a primeira tela (sessão-
     // preco-por-barbeiro.e2e.spec.ts), o total bate com o override, não com
     // a referência da casa.
     const listaComOverrideDoBarbeiro = [
-      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 5500, duracaoMinutos: 30, ativo: true, sugeridoNoBump: false },
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 5500, duracaoMinutos: 30, ativo: true },
     ];
     const listaReferenciaDaCasa = [
-      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30, ativo: true, sugeridoNoBump: false },
+      { id: servicoId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30, ativo: true },
     ];
 
     expect(totalCentavos(listaComOverrideDoBarbeiro, [servicoId])).toBe(5500);
@@ -163,17 +195,18 @@ describe('alternarProdutoNoBump', () => {
 
 describe('precificarProdutosBump', () => {
   const catalogo = [
-    { id: 'prod-gel', nome: 'Gel', precoCentavos: 1500, ativo: true, sugeridoNoBump: true },
-    { id: 'prod-pomada', nome: 'Pomada', precoCentavos: 3500, ativo: true, sugeridoNoBump: true },
+    bumpProduto('prod-gel', 'Gel', 1500, 1500),
+    // Pomada em oferta: R$35 → R$28. É o promocional que conta no total.
+    bumpProduto('prod-pomada', 'Pomada', 3500, 2800),
   ];
 
-  it('soma preço × quantidade dos produtos selecionados', () => {
+  it('soma o preço PROMOCIONAL × quantidade dos produtos selecionados', () => {
     expect(
       precificarProdutosBump(catalogo, [
         { produtoId: 'prod-gel', quantidade: 2 },
         { produtoId: 'prod-pomada', quantidade: 1 },
       ]),
-    ).toBe(1500 * 2 + 3500);
+    ).toBe(1500 * 2 + 2800);
   });
 
   it('nenhum produto selecionado → zero', () => {
@@ -187,8 +220,8 @@ describe('precificarProdutosBump', () => {
 
 describe('servicosSugeridosDoBump — filtro óbvio: não insiste no que já foi escolhido', () => {
   const vitrine = [
-    { id: 'svc-barba', nome: 'Barba', precoAvulsoCentavos: 3000, duracaoMinutos: 20, ativo: true, sugeridoNoBump: true },
-    { id: 'svc-sobrancelha', nome: 'Sobrancelha', precoAvulsoCentavos: 1500, duracaoMinutos: 10, ativo: true, sugeridoNoBump: true },
+    bumpServico('svc-barba', 'Barba', 3000, 2100),
+    bumpServico('svc-sobrancelha', 'Sobrancelha', 1500, 1500),
   ];
 
   it('remove da vitrine o serviço que o cliente já selecionou na tela normal', () => {
@@ -201,5 +234,59 @@ describe('servicosSugeridosDoBump — filtro óbvio: não insiste no que já foi
 
   it('selecionado um serviço que nem está na vitrine (ex.: corte), não filtra nada', () => {
     expect(servicosSugeridosDoBump(vitrine, ['svc-corte'])).toEqual(vitrine);
+  });
+
+  it('★ o que o PRÓPRIO bump adicionou continua na vitrine — é ali que o cliente remove', () => {
+    // Sem isto, adicionar a barba pelo bump a faria sumir da lista, e remover
+    // exigiria voltar no funil — a fricção que a Parte 2 veio tirar.
+    const visiveis = servicosSugeridosDoBump(vitrine, ['svc-barba'], ['svc-barba']);
+    expect(visiveis.map((s) => s.id)).toEqual(['svc-barba', 'svc-sobrancelha']);
+  });
+});
+
+describe('alternarServicoNoBump — servicoIds e servicosBump andam em par', () => {
+  it('adicionar coloca o id nas DUAS listas', () => {
+    const r = alternarServicoNoBump(['svc-corte'], [], 'svc-barba');
+    expect(r.servicoIds).toEqual(['svc-corte', 'svc-barba']);
+    expect(r.servicosBump).toEqual(['svc-barba']);
+  });
+
+  it('remover tira das duas — nunca deixa um id de bump fora do carrinho (o backend recusaria)', () => {
+    const r = alternarServicoNoBump(['svc-corte', 'svc-barba'], ['svc-barba'], 'svc-barba');
+    expect(r.servicoIds).toEqual(['svc-corte']);
+    expect(r.servicosBump).toEqual([]);
+  });
+
+  it('não duplica um serviço que já estava no carrinho pela tela normal', () => {
+    const r = alternarServicoNoBump(['svc-barba'], [], 'svc-barba');
+    expect(r.servicoIds).toEqual(['svc-barba']);
+    expect(r.servicosBump).toEqual(['svc-barba']);
+  });
+});
+
+describe('promocionaisDoBump — só entra quem veio do bump E tem oferta de verdade', () => {
+  const vitrine: OrderBumpDTO = {
+    servicos: [
+      bumpServico('svc-barba', 'Barba', 3000, 2100),
+      // sem oferta: promocional == normal
+      bumpServico('svc-sobrancelha', 'Sobrancelha', 1500, 1500),
+    ],
+    produtos: [],
+  };
+
+  it('serviço do bump COM oferta entra com o preço promocional', () => {
+    expect(promocionaisDoBump(vitrine, ['svc-barba']).get('svc-barba')).toBe(2100);
+  });
+
+  it('serviço do bump SEM oferta não entra — volta a ser item normal da escada progressiva', () => {
+    expect(promocionaisDoBump(vitrine, ['svc-sobrancelha']).has('svc-sobrancelha')).toBe(false);
+  });
+
+  it('serviço escolhido na tela normal nunca ganha promoção, mesmo estando na vitrine', () => {
+    expect(promocionaisDoBump(vitrine, []).size).toBe(0);
+  });
+
+  it('sem vitrine carregada, mapa vazio (nunca inventa promoção)', () => {
+    expect(promocionaisDoBump(null, ['svc-barba']).size).toBe(0);
   });
 });

@@ -12,7 +12,6 @@ function paraDominio(row: ProdutoPrisma): Produto {
     nome: row.nome,
     preco: Dinheiro.deCentavos(row.precoCentavos),
     ativo: row.ativo,
-    sugeridoNoBump: row.sugeridoNoBump,
   });
 }
 
@@ -40,7 +39,6 @@ export class PrismaProdutoRepository implements ProdutoRepository {
       nome: produto.nome,
       precoCentavos: produto.preco.centavos,
       ativo: produto.ativo,
-      sugeridoNoBump: produto.sugeridoNoBump,
     };
     await this.db.produto.upsert({
       where: { id: produto.id },

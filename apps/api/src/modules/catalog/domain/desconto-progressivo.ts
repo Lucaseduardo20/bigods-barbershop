@@ -1,7 +1,7 @@
 import {
   TABELA_DE_DESCONTO_VAZIA,
   TabelaDeDescontoDTO,
-  calcularDescontoProgressivo,
+  precificarCarrinhoDoFunil,
 } from '@bigods/contracts';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { ServicoId } from '../../../shared/domain/ids';
@@ -14,12 +14,20 @@ export interface ItemDoCarrinho {
   servicoId: ServicoId;
   /** Preço cheio DAQUELE barbeiro (`precoDeReferencia`), antes do desconto. */
   precoCheio: Dinheiro;
+  /**
+   * Preço promocional do order-bump quando o item foi adicionado POR ALI
+   * (Parte 2, 2026-08-17). Presente = este é o preço final do item, e ele sai
+   * da escada progressiva. Ausente/null = item normal.
+   */
+  precoPromocional?: Dinheiro | null;
 }
 
 export interface ItemPrecificado extends ItemDoCarrinho {
   desconto: Dinheiro;
   /** É este valor que vira o snapshot `ItemAtendido.valorCobrado`. */
   precoFinal: Dinheiro;
+  /** true quando o preço veio da promoção do bump, não da escada progressiva. */
+  promocional: boolean;
 }
 
 export interface CarrinhoPrecificado {
@@ -48,20 +56,27 @@ export function precificarCarrinho(
   itens: ItemDoCarrinho[],
   tabela: TabelaDeDescontoDTO,
 ): CarrinhoPrecificado {
-  const calculo = calcularDescontoProgressivo(
-    itens.map((i) => i.precoCheio.centavos),
+  const calculo = precificarCarrinhoDoFunil(
+    itens.map((i) => ({
+      precoCheioCentavos: i.precoCheio.centavos,
+      precoPromocionalCentavos: i.precoPromocional?.centavos ?? null,
+    })),
     tabela,
   );
 
   const precificados = itens.map((item, indice) => {
-    const desconto = Dinheiro.deCentavos(calculo.descontosPorItemCentavos[indice] ?? 0);
-    const centavosFinais = item.precoCheio.centavos - desconto.centavos;
-    if (centavosFinais < 0) {
+    const linha = calculo.itens[indice]!;
+    if (linha.precoFinalCentavos < 0) {
       // Blindagem: o cálculo já garante isso, mas dinheiro negativo nunca pode
       // atravessar a fronteira do domínio por um bug futuro lá dentro.
-      throw new InvarianteVioladaError('Desconto progressivo deixaria um item com valor negativo');
+      throw new InvarianteVioladaError('Precificação deixaria um item com valor negativo');
     }
-    return { ...item, desconto, precoFinal: Dinheiro.deCentavos(centavosFinais) };
+    return {
+      ...item,
+      desconto: Dinheiro.deCentavos(linha.descontoCentavos),
+      precoFinal: Dinheiro.deCentavos(linha.precoFinalCentavos),
+      promocional: linha.promocional,
+    };
   });
 
   const somaDosDescontos = precificados.reduce((acc, i) => acc + i.desconto.centavos, 0);

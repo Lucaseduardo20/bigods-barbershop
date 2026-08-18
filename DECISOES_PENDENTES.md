@@ -555,22 +555,26 @@ dos critérios e os testes de desempate não mudam.
 
 **Fora de escopo nesta sessão, decisão explícita do dono ("Começar SIMPLES").**
 
-O order-bump ("Adicione à sua visita", DOMAIN.md §8.13) hoje é uma vitrine curada à mão pelo
-admin — `sugeridoNoBump: boolean` em `Servico`/`Produto`, uma lista geral, igual para todo cliente
-(só filtrada pelo que o barbeiro escolhido atende e pelo que já está no carrinho). NÃO existe:
+O order-bump ("Adicione à sua visita", DOMAIN.md §8.13) é uma vitrine curada à mão pelo admin —
+`ItemDeOrderBump` (§3.13), uma lista geral, igual para todo cliente (só filtrada pelo que o
+barbeiro escolhido atende e pelo que já está no carrinho).
+
+**A Parte 2 da sessão (2026-08-17) trouxe PARAMETRIZAÇÃO por item** — preço promocional, mensagem
+e ordem de exibição. Isso NÃO é motor de regras: continua sendo "este item, sempre, para todo
+mundo, com esta oferta". Segue fora de escopo:
 
 - motor de regras condicionais ("se o carrinho tem corte, ofereça barba"; "se é a primeira visita,
   ofereça X");
 - segmentação por serviço selecionado, por barbeiro, por histórico do cliente, por horário;
-- ordenação/priorização de itens na vitrine além da ordem natural do catálogo.
+- limite de uso da oferta (validade, primeira compra, N por cliente).
 
 **A discutir com o dono, se ele quiser evoluir:**
-- vale a pena medir conversão da vitrine geral atual antes de investir num motor de regras?
+- vale a pena medir conversão da vitrine parametrizada atual antes de investir num motor de regras?
 - regras por serviço (matriz servico→sugestões) ou por atributo (categoria de serviço)?
 - quem edita as regras — ainda o admin, numa tela nova, ou fica hardcoded?
 
 Não modelei nada disso agora porque cada resposta muda a forma de configuração (schema novo,
-tela nova) — melhor esperar a vitrine simples provar (ou não) que vale a pena investir mais.
+tela nova) — melhor esperar a vitrine parametrizada provar (ou não) que vale a pena investir mais.
 
 ---
 
@@ -609,3 +613,22 @@ escolhido no funil — sempre devolve a vitrine inteira da empresa). Documentado
 preço do rateio (congelado) e autoria/CRUD (§3.11, §4.3), só parou de restringir visibilidade e
 consumo. Ver também DOMAIN.md §11 (linha "Resgate cruzado de crédito entre barbeiros", marcada
 resolvida).
+
+---
+
+## 35. Colunas `sugeridoNoBump` deprecadas no banco (2026-08-17, Parte 2)
+
+**Dívida técnica consciente, com prazo em aberto.**
+
+`Servico.sugeridoNoBump` e `Produto.sugeridoNoBump` (criadas na Parte 1 desta mesma sessão) foram
+substituídas por `ItemDeOrderBump` (DOMAIN.md §3.13), que guarda o mesmo "aparece: sim/não" mais
+preço promocional, mensagem e ordem. A migration `20260818031633_order_bump_parametrizavel` copiou
+todo `sugeridoNoBump = true` para a tabela nova.
+
+**As colunas antigas continuam no banco, sem nenhum leitor.** Motivo: o sistema está em produção e
+a migration foi feita aditiva — se o deploy precisasse voltar atrás, a configuração antiga ainda
+estaria lá. Estão marcadas como DEPRECADO no `schema.prisma` e no DOMAIN.md.
+
+**O que falta decidir:** quando dropar. Sugestão: depois de uma semana de produção estável com a
+vitrine nova, numa migration de limpeza. Enquanto isso, o risco é baixo (coluna morta) mas o
+incômodo é real — alguém lendo o schema pode achar que ainda vale.

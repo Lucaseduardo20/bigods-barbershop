@@ -107,6 +107,53 @@ model Company {
   intencoes     IntencaoDePagamento[]
   pacoteOfertas PacoteOferta[]
   vales         Vale[]
+  itensOrderBump ItemDeOrderBump[]
+}
+
+/**
+ * ItemDeOrderBump (raiz, sessão 2026-08-17 Parte 2): a PARAMETRIZAÇÃO de um
+ * item na vitrine "Adicione à sua visita" do funil (DOMAIN.md §8.13).
+ *
+ * Por que tabela própria em vez de mais colunas em Servico/Produto: a
+ * configuração é a MESMA para os dois tipos (aparece? por quanto? com que
+ * chamada? em que ordem?), e as invariantes também — duplicar isso nos dois
+ * agregados seria a mesma regra implementada em dois lugares. Aqui é
+ * merchandising do funil, não cadastro de catálogo: quem decide "o que a casa
+ * oferece e por quanto no geral" é Servico/Produto; quem decide "o que é
+ * empurrado no fechamento do pedido, com que oferta" é este agregado.
+ *
+ * Relação polimórfica proposital (`tipo` + `referenciaId`, sem FK): apontar
+ * para duas tabelas distintas com FK exigiria duas colunas nuláveis e uma
+ * checagem de "exatamente uma preenchida". A existência é validada na camada
+ * de aplicação, que já carrega o catálogo de qualquer forma.
+ */
+model ItemDeOrderBump {
+  id        String              @id
+  companyId String
+  tipo      TipoItemDeOrderBump
+  /// Servico.id ou Produto.id, conforme `tipo`.
+  referenciaId String
+  /// Aparece no funil? (o "sim/não" que antes era Servico/Produto.sugeridoNoBump)
+  ativo     Boolean @default(true)
+  /// Preço FINAL do item quando adicionado pelo bump. null = sem promoção,
+  /// cobra o preço normal. Persistimos o preço em centavos, nunca o
+  /// percentual — o percentual exibido é sempre DERIVADO (mesma disciplina do
+  /// preço de PacoteOferta).
+  precoPromocionalCentavos Int?
+  /// Chamada customizável ("Leve pra casa por só R$X"). null = sem mensagem.
+  mensagem  String?
+  /// Ordem de exibição na vitrine (menor primeiro; empate desempata por nome).
+  ordem     Int     @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, tipo, referenciaId])
+  @@index([companyId, ativo])
+}
+
+enum TipoItemDeOrderBump {
+  SERVICO
+  PRODUTO
 }
 
 /**
@@ -154,11 +201,12 @@ model Servico {
   precoAvulsoCentavos Int
   duracaoMinutos      Int
   ativo               Boolean @default(true)
-  // Order-bump (sessão 2026-08-17): "este serviço aparece como sugestão de
-  // complemento na confirmação do funil". Lista curada pelo admin — sem
-  // segmentação por serviço/barbeiro, sem motor de regras condicionais
-  // (decisão consciente, ver DECISOES_PENDENTES). Default false: serviço novo
-  // não vira sugestão sozinho.
+  // ⚠️ DEPRECADO em 2026-08-17 (Parte 2) — substituído por ItemDeOrderBump,
+  // que guarda o mesmo "aparece: sim/não" MAIS preço promocional, mensagem e
+  // ordem. A migration copiou todo `sugeridoNoBump = true` para lá; nada lê
+  // nem escreve esta coluna desde então. Mantida no banco só para rollback
+  // seguro (sistema em produção) — remover numa migration futura, ver
+  // DECISOES_PENDENTES.
   sugeridoNoBump      Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])
@@ -174,8 +222,8 @@ model Produto {
   nome           String
   precoCentavos  Int
   ativo          Boolean @default(true)
-  // Order-bump (sessão 2026-08-17) — mesmo mecanismo do Servico acima: só um
-  // "aparece como sugestão: sim/não", curado pelo admin.
+  // ⚠️ DEPRECADO em 2026-08-17 (Parte 2) — ver a nota igual em Servico:
+  // substituído por ItemDeOrderBump, migrado, não lido por ninguém.
   sugeridoNoBump Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])

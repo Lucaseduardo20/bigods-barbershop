@@ -138,3 +138,123 @@ function indiceDoMaiorPeso(pesos: number[]): number {
   }
   return indice;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Carrinho do funil = desconto progressivo + preço promocional de order-bump
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ItemDoCarrinhoParaPreco {
+  /** Preço cheio DAQUELE barbeiro (referência já resolvida por quem chama). */
+  precoCheioCentavos: number;
+  /**
+   * Preço promocional configurado para este item no order-bump, quando ele foi
+   * adicionado POR ALI. `null`/ausente = item normal do carrinho.
+   */
+  precoPromocionalCentavos?: number | null;
+}
+
+export interface ItemDoCarrinhoPrecificado {
+  precoCheioCentavos: number;
+  descontoCentavos: number;
+  precoFinalCentavos: number;
+  /** true quando o preço veio da promoção do bump, não da escada progressiva. */
+  promocional: boolean;
+}
+
+export interface CarrinhoDoFunilCalculado {
+  /** Na MESMA ordem da entrada. */
+  itens: ItemDoCarrinhoPrecificado[];
+  /** Desconto vindo da escada progressiva (só itens normais). */
+  descontoProgressivoCentavos: number;
+  /** Desconto vindo de preço promocional de bump. */
+  descontoPromocionalCentavos: number;
+  descontoTotalCentavos: number;
+  totalCheioCentavos: number;
+  totalFinalCentavos: number;
+}
+
+/**
+ * ★ REGRA DE PREÇO DO ORDER-BUMP (sessão 2026-08-17, Parte 2) — decisão do dono.
+ *
+ * Um item do carrinho recebe **exatamente UMA** regra de preço, nunca duas:
+ *
+ * - **Com preço promocional de bump** → esse é o preço FINAL do item. Ele não
+ *   recebe desconto progressivo E não conta como posição na escada dos outros.
+ * - **Sem preço promocional** → nada muda: entra na escada progressiva
+ *   normalmente, exatamente como um serviço escolhido na tela de serviços.
+ *
+ * Por que o item promocional sai também da CONTAGEM de posições: se ele
+ * contasse, adicionar um item já descontado aprofundaria o desconto dos outros
+ * — desconto em cima de desconto, em cascata, com o total dependendo da ordem
+ * de quem entrou primeiro. O preço deixaria de ser previsível para o dono e
+ * para o cliente. Fora da escada, o efeito de adicionar um bump é sempre
+ * exatamente "+ preço promocional", e nada mais no carrinho muda.
+ *
+ * `min(promocional, cheio)` blinda o outro lado: preço por barbeiro varia
+ * (§3.2.2), então um promocional configurado sobre a referência da casa pode
+ * ficar ACIMA do preço de um barbeiro mais barato. Promoção nunca vira
+ * acréscimo — no pior caso ela simplesmente não desconta nada.
+ *
+ * Invariantes: nenhum item negativo, Σ itens == totalFinal, total >= 0.
+ */
+export function precificarCarrinhoDoFunil(
+  itens: ItemDoCarrinhoParaPreco[],
+  tabela: TabelaDeDescontoDTO,
+): CarrinhoDoFunilCalculado {
+  const normalizados = itens.map((i) => {
+    const cheio = Math.max(0, Math.trunc(i.precoCheioCentavos));
+    const promoBruto = i.precoPromocionalCentavos;
+    const temPromo = promoBruto !== null && promoBruto !== undefined;
+    // Promoção nunca é acréscimo, nem valor negativo.
+    const promo = temPromo ? Math.min(Math.max(0, Math.trunc(promoBruto!)), cheio) : null;
+    return { cheio, promo };
+  });
+
+  // A escada progressiva enxerga SÓ os itens sem promoção — é isso que impede
+  // desconto em cima de desconto.
+  const indicesNormais = normalizados
+    .map((n, i) => (n.promo === null ? i : -1))
+    .filter((i) => i >= 0);
+  const progressivo = calcularDescontoProgressivo(
+    indicesNormais.map((i) => normalizados[i]!.cheio),
+    tabela,
+  );
+
+  const descontoPorIndice = new Map<number, number>();
+  indicesNormais.forEach((indiceOriginal, posicao) => {
+    descontoPorIndice.set(indiceOriginal, progressivo.descontosPorItemCentavos[posicao] ?? 0);
+  });
+
+  const precificados: ItemDoCarrinhoPrecificado[] = normalizados.map((n, i) => {
+    if (n.promo !== null) {
+      return {
+        precoCheioCentavos: n.cheio,
+        descontoCentavos: n.cheio - n.promo,
+        precoFinalCentavos: n.promo,
+        promocional: true,
+      };
+    }
+    const desconto = descontoPorIndice.get(i) ?? 0;
+    return {
+      precoCheioCentavos: n.cheio,
+      descontoCentavos: desconto,
+      precoFinalCentavos: n.cheio - desconto,
+      promocional: false,
+    };
+  });
+
+  const descontoPromocional = precificados
+    .filter((p) => p.promocional)
+    .reduce((acc, p) => acc + p.descontoCentavos, 0);
+  const totalCheio = precificados.reduce((acc, p) => acc + p.precoCheioCentavos, 0);
+  const totalFinal = precificados.reduce((acc, p) => acc + p.precoFinalCentavos, 0);
+
+  return {
+    itens: precificados,
+    descontoProgressivoCentavos: progressivo.descontoTotalCentavos,
+    descontoPromocionalCentavos: descontoPromocional,
+    descontoTotalCentavos: progressivo.descontoTotalCentavos + descontoPromocional,
+    totalCheioCentavos: totalCheio,
+    totalFinalCentavos: totalFinal,
+  };
+}

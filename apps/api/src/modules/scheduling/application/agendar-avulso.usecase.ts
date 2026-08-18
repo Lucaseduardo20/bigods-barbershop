@@ -9,6 +9,11 @@ import { IntencaoDePagamento } from '../../payments/domain/intencao-de-pagamento
 import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/servico.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
 import { PRODUTO_REPOSITORY, ProdutoRepository } from '../../products/domain/produto.repository';
+import {
+  ITEM_DE_ORDER_BUMP_REPOSITORY,
+  ItemDeOrderBumpRepository,
+} from '../../funnel/domain/item-de-order-bump.repository';
+import { TipoItemDeOrderBump } from '../../funnel/domain/item-de-order-bump.aggregate';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import { precificarCarrinho } from '../../catalog/domain/desconto-progressivo';
 import {
@@ -84,12 +89,17 @@ export interface AgendarAvulsoInput {
   aplicarJanelaDeAgendamento?: boolean;
   /**
    * Order-bump (sessão 2026-08-17): produtos escolhidos na confirmação do
-   * funil, anexados JÁ NA CRIAÇÃO do atendimento. Serviço complementar do
-   * bump NÃO passa por aqui — ele já está em `servicoIds`, tratado como
-   * qualquer outro serviço escolhido (mesmo desconto progressivo, mesmo
-   * preço por barbeiro; nenhum caminho de preço paralelo).
+   * funil, anexados JÁ NA CRIAÇÃO do atendimento.
    */
   produtosBump?: { produtoId: string; quantidade: number }[];
+  /**
+   * Quais dos `servicoIds` foram adicionados PELO order-bump (Parte 2). Só
+   * isso os distingue: quem veio pelo bump paga o preço promocional
+   * configurado e sai da escada do desconto progressivo
+   * (`precificarCarrinhoDoFunil`); os demais seguem a regra de sempre.
+   * Um id aqui precisa estar em `servicoIds`.
+   */
+  servicosBump?: string[];
 }
 
 export interface AgendarAvulsoOutput {
@@ -108,6 +118,7 @@ export class AgendarAvulsoUseCase {
     @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
     @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
     @Inject(PRODUTO_REPOSITORY) private readonly produtos: ProdutoRepository,
+    @Inject(ITEM_DE_ORDER_BUMP_REPOSITORY) private readonly itensDeBump: ItemDeOrderBumpRepository,
     @Inject(DISPONIBILIDADE_REPOSITORY) private readonly disponibilidades: DisponibilidadeRepository,
     @Inject(ATENDIMENTO_REPOSITORY) private readonly atendimentos: AtendimentoRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
@@ -142,13 +153,36 @@ export class AgendarAvulsoUseCase {
     if (produtoInativo) {
       throw new BadRequestException(`Produto ${produtoInativo.nome} está inativo`);
     }
+
+    // Parte 2 (2026-08-17): a configuração de bump é quem diz por QUANTO cada
+    // item sai quando adicionado pelo bump. Carregada uma vez, usada tanto
+    // para o produto (abaixo) quanto para o serviço (na precificação).
+    const servicosBump = new Set(input.servicosBump ?? []);
+    const foraDoCarrinho = [...servicosBump].find((id) => !input.servicoIds.includes(id));
+    if (foraDoCarrinho) {
+      throw new BadRequestException('Serviço de order-bump precisa estar entre os serviços do agendamento');
+    }
+    const precisaDeConfigDeBump = servicosBump.size > 0 || produtosBump.length > 0;
+    const configuracoesDeBump = precisaDeConfigDeBump
+      ? await this.itensDeBump.listarPorEmpresa(input.companyId)
+      : [];
+    const bumpPorChave = new Map(
+      configuracoesDeBump.filter((c) => c.ativo).map((c) => [`${c.tipo}:${c.referenciaId}`, c]),
+    );
+
     const produtoPorId = new Map(produtosDoBump.map((p) => [p.id, p]));
-    const produtosComPreco = produtosBump.map((p) => ({
-      produtoId: p.produtoId,
-      quantidade: p.quantidade,
-      // Snapshot do preço vigente AGORA — nunca recalculado do catálogo depois.
-      valorUnitario: produtoPorId.get(p.produtoId)!.preco,
-    }));
+    const produtosComPreco = produtosBump.map((p) => {
+      const produto = produtoPorId.get(p.produtoId)!;
+      const config = bumpPorChave.get(`${TipoItemDeOrderBump.PRODUTO}:${p.produtoId}`);
+      return {
+        produtoId: p.produtoId,
+        quantidade: p.quantidade,
+        // Snapshot do preço vigente AGORA (promocional quando há oferta
+        // configurada) — nunca recalculado do catálogo depois. A comissão de
+        // produto do barbeiro sai deste valor, o efetivamente cobrado.
+        valorUnitario: config ? config.precoDeVenda(produto.preco) : produto.preco,
+      };
+    });
     const totalProdutosCentavos = produtosComPreco.reduce(
       (acc, p) => acc + p.valorUnitario.centavos * p.quantidade,
       0,
@@ -220,9 +254,30 @@ export class AgendarAvulsoUseCase {
     // é sobre o valor com desconto, que é a consequência natural de o snapshot
     // ser o valor cobrado — mas é decisão de negócio, não técnica. Ver
     // DECISOES_PENDENTES.md #29.
+    //
+    // ORDER-BUMP (Parte 2): um serviço adicionado PELO bump com preço
+    // promocional configurado paga esse preço cravado e sai da escada
+    // progressiva — ver `precificarCarrinhoDoFunil` em @bigods/contracts para
+    // o porquê (nunca desconto em cima de desconto). Sem promoção
+    // configurada, o serviço do bump é indistinguível de um escolhido na tela
+    // de serviços.
     const tabelaDeDesconto = await this.parametros.tabelaDeDesconto(input.companyId);
     const carrinho = precificarCarrinho(
-      servicos.map((s) => ({ servicoId: s.id, precoCheio: precoDeReferencia(s, barbeiro) })),
+      servicos.map((s) => {
+        const precoCheio = precoDeReferencia(s, barbeiro);
+        const config = servicosBump.has(s.id)
+          ? bumpPorChave.get(`${TipoItemDeOrderBump.SERVICO}:${s.id}`)
+          : undefined;
+        return {
+          servicoId: s.id,
+          precoCheio,
+          // `precoDeVenda` já aplica min(promo, preço do barbeiro) — promoção
+          // nunca vira acréscimo. Igual quando não há promoção → o item volta
+          // a ser um item normal do carrinho (entra na escada).
+          precoPromocional:
+            config && config.temOfertaSobre(precoCheio) ? config.precoDeVenda(precoCheio) : null,
+        };
+      }),
       tabelaDeDesconto,
     );
     const precoFinalPorServico = new Map(carrinho.itens.map((i) => [i.servicoId, i.precoFinal]));

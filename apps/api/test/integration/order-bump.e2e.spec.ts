@@ -67,13 +67,13 @@ beforeAll(async () => {
   await prisma.servico.createMany({
     data: [
       { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 5000, duracaoMinutos: 30 },
-      { id: barbaId, companyId, nome: 'Barba', precoAvulsoCentavos: 2500, duracaoMinutos: 20, sugeridoNoBump: true },
+      { id: barbaId, companyId, nome: 'Barba', precoAvulsoCentavos: 2500, duracaoMinutos: 20 },
       { id: sobrancelhaId, companyId, nome: 'Sobrancelha', precoAvulsoCentavos: 1500, duracaoMinutos: 10 },
     ],
   });
   await prisma.produto.createMany({
     data: [
-      { id: shampooId, companyId, nome: 'Shampoo', precoCentavos: 2000, sugeridoNoBump: true },
+      { id: shampooId, companyId, nome: 'Shampoo', precoCentavos: 2000 },
       { id: ceraId, companyId, nome: 'Cera', precoCentavos: 1800 },
     ],
   });
@@ -121,7 +121,23 @@ beforeAll(async () => {
     .set('Authorization', `Bearer ${tokenAdmin}`)
     .send({ degraus: [{ posicao: 2, valorCentavos: 1000 }], tetoCentavos: null })
     .expect(200);
+
+  // Vitrine do bump — SEM preço promocional aqui de propósito: este arquivo
+  // cobre o comportamento "bump sem oferta", que tem que continuar idêntico a
+  // escolher o serviço na tela normal. A parametrização com desconto é coberta
+  // em order-bump-rico.e2e.spec.ts.
+  await ligarNoBump('SERVICO', barbaId);
+  await ligarNoBump('PRODUTO', shampooId);
 });
+
+/** Liga um item na vitrine do order-bump, sem oferta. */
+function ligarNoBump(tipo: 'SERVICO' | 'PRODUTO', referenciaId: string) {
+  return http
+    .put(`/order-bump/${tipo}/${referenciaId}`)
+    .set('Authorization', `Bearer ${tokenAdmin}`)
+    .send({ ativo: true })
+    .expect(200);
+}
 
 afterAll(async () => {
   await prisma.lancamentoComissao.deleteMany({ where: { companyId } });
@@ -133,6 +149,7 @@ afterAll(async () => {
   await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.degrauDeDesconto.deleteMany({ where: { companyId } });
+  await prisma.itemDeOrderBump.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
@@ -143,7 +160,7 @@ afterAll(async () => {
 });
 
 describe('GET /public/order-bump — vitrine curada pelo admin', () => {
-  it('só devolve os itens marcados sugeridoNoBump, filtrados pelo que o barbeiro atende', async () => {
+  it('só devolve os itens configurados na vitrine, filtrados pelo que o barbeiro atende', async () => {
     const res = await http
       .get(`/public/order-bump?companyId=${companyId}&barbeiroId=${barbeiroId}`)
       .expect(200);
@@ -154,20 +171,16 @@ describe('GET /public/order-bump — vitrine curada pelo admin', () => {
     expect(res.body.produtos.find((p: any) => p.id === ceraId)).toBeUndefined();
   });
 
-  it('admin liga/desliga: tirar do bump some da vitrine, sugerir de novo faz voltar', async () => {
-    await http
-      .patch(`/servicos/${sobrancelhaId}`)
-      .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ sugeridoNoBump: true })
-      .expect(200);
+  it('admin liga/desliga: tirar do bump some da vitrine, ligar de novo faz voltar', async () => {
+    await ligarNoBump('SERVICO', sobrancelhaId);
 
     let res = await http.get(`/public/order-bump?companyId=${companyId}&barbeiroId=${barbeiroId}`).expect(200);
     expect(res.body.servicos.map((s: any) => s.id).sort()).toEqual([barbaId, sobrancelhaId].sort());
 
     await http
-      .patch(`/servicos/${sobrancelhaId}`)
+      .put(`/order-bump/SERVICO/${sobrancelhaId}`)
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ sugeridoNoBump: false })
+      .send({ ativo: false })
       .expect(200);
 
     res = await http.get(`/public/order-bump?companyId=${companyId}&barbeiroId=${barbeiroId}`).expect(200);

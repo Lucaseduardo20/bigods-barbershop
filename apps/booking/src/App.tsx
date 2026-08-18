@@ -24,6 +24,7 @@ import {
 import { mascararE164, mascararTelefone } from './lib/telefone';
 import {
   alternarProdutoNoBump,
+  alternarServicoNoBump,
   aplicarBarbeiroDoLink,
   barbeiroParaAutoSelecionar,
   carregarEstado,
@@ -32,6 +33,7 @@ import {
   limparEstado,
   PASSO,
   precificarProdutosBump,
+  promocionaisDoBump,
   salvarEstado,
   servicosSelecionados,
   precificarCarrinhoFunil,
@@ -258,13 +260,54 @@ function Funil() {
 
 
   /**
-   * Total do carrinho de avulsos JÁ com o desconto progressivo — mesma função
-   * de cálculo da API. Mostrar o preço cheio aqui faria o cliente ver um valor
-   * (e um PIX) diferente do que será cobrado.
+   * servicoId → preço promocional, dos serviços que o cliente adicionou pelo
+   * bump. Uma vez só, aqui, porque o mesmo mapa alimenta o total do rodapé, o
+   * resumo da confirmação e o valor do PIX — se cada tela montasse o seu, um
+   * deles ficaria para trás numa mudança futura.
+   */
+  const promocionais = promocionaisDoBump(orderBumpReq.dados ?? null, estado.servicosBump);
+
+  /**
+   * Total do carrinho de avulsos JÁ com desconto progressivo E promoção de
+   * bump — mesma função de cálculo da API (`precificarCarrinhoDoFunil`).
+   * Mostrar outro número aqui faria o cliente ver um valor (e um PIX)
+   * diferente do que será cobrado.
    */
   const totalAvulsoComDesconto = () =>
-    precificarCarrinhoFunil(servicosParaPreco, estado.servicoIds, empresa.descontoProgressivo)
-      .totalFinalCentavos + precificarProdutosBump(orderBumpReq.dados?.produtos ?? [], estado.produtosBump);
+    precificarCarrinhoFunil(
+      servicosParaPreco,
+      estado.servicoIds,
+      empresa.descontoProgressivo,
+      promocionais,
+    ).totalFinalCentavos +
+    precificarProdutosBump(orderBumpReq.dados?.produtos ?? [], estado.produtosBump);
+
+  /**
+   * "Alterar pedido" na tela do PIX (Parte 2, order-bump com remoção): o
+   * cliente já viu o QR e quer tirar/pôr um complemento. Não dá para editar o
+   * carrinho por baixo de um QR já emitido — o valor cobrado seria outro. Então
+   * desfazemos a tentativa no servidor (o QR morre, o horário é devolvido) e
+   * voltamos para a Confirmação; confirmar de novo emite um QR novo, pelo
+   * valor certo. `valorFinalCentavos` volta a `null` porque o valor confirmado
+   * pela API ficou obsoleto no instante em que a reserva foi desfeita.
+   */
+  const alterarPedido = async () => {
+    if (!intencaoId) return;
+    setErroEnvio(null);
+    try {
+      await api('/public/agendamentos/cancelar-reserva', {
+        method: 'POST',
+        body: { companyId: COMPANY_ID, intencaoId },
+      });
+    } catch (e) {
+      // Reserva que já expirou sozinha (ou já foi desfeita) é exatamente o
+      // estado que queríamos — seguir em frente é o comportamento certo.
+      if (!(e instanceof ApiError)) throw e;
+    }
+    setCobranca(null);
+    setIntencaoId(null);
+    patch({ valorFinalCentavos: null, step: PASSO.CONFIRMACAO });
+  };
 
   // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO. Usa o
   // valor que a API já confirmou (`valorFinalCentavos`, setado em
@@ -289,6 +332,8 @@ function Funil() {
             setCobranca(null);
             setIntencaoId(null);
           }}
+          // Só no avulso: pacote não reserva horário nem tem bump pra editar.
+          onAlterarPedido={estado.modo === 'pacote' ? undefined : alterarPedido}
         />
       </div>
     );
@@ -325,6 +370,10 @@ function Funil() {
         ofertaNome: null,
         ofertaPrecoCentavos: null,
         servicoIds: has ? e.servicoIds.filter((x) => x !== id) : [...e.servicoIds, id],
+        // Tirar um serviço na tela de Serviços também o tira da lista de bump —
+        // senão sobraria um id em `servicosBump` fora do carrinho, que o
+        // backend recusa.
+        servicosBump: has ? e.servicosBump.filter((x) => x !== id) : e.servicosBump,
         data: null,
         horaInicio: null,
       };
@@ -333,18 +382,15 @@ function Funil() {
 
   /**
    * Order-bump de SERVIÇO complementar, na confirmação (sessão 2026-08-17).
-   * Mesma mutação de `servicoIds` que `toggleServico`, mas SEM resetar
-   * data/horaInicio: nesse ponto do funil o horário já foi escolhido, e
-   * `toggleServico` (pensado pra tela de Serviços, onde mudar a seleção
-   * invalida o horário) apagaria a confirmação em andamento. Se a duração
-   * extra não couber mais no horário, o backend recusa na hora de agendar —
-   * o erro aparece normalmente na tela (`erroEnvio`).
+   * Mexe em `servicoIds` E `servicosBump` juntos (`alternarServicoNoBump`), mas
+   * SEM resetar data/horaInicio: nesse ponto do funil o horário já foi
+   * escolhido, e `toggleServico` (pensado pra tela de Serviços, onde mudar a
+   * seleção invalida o horário) apagaria a confirmação em andamento. Se a
+   * duração extra não couber mais no horário, o backend recusa na hora de
+   * agendar — o erro aparece normalmente na tela (`erroEnvio`).
    */
   const toggleServicoBump = (id: string) => {
-    setEstado((e) => {
-      const has = e.servicoIds.includes(id);
-      return { ...e, servicoIds: has ? e.servicoIds.filter((x) => x !== id) : [...e.servicoIds, id] };
-    });
+    setEstado((e) => ({ ...e, ...alternarServicoNoBump(e.servicoIds, e.servicosBump, id) }));
   };
 
   /**
@@ -511,6 +557,9 @@ function Funil() {
             formaPagamento: estado.formaPagamento,
             origemLinkBarbeiroId,
             ...(estado.produtosBump.length > 0 ? { produtosBump: estado.produtosBump } : {}),
+            // Quem veio pelo bump paga o promocional e sai da escada — o
+            // backend precisa saber quais são para chegar ao MESMO total.
+            ...(estado.servicosBump.length > 0 ? { servicosBump: estado.servicosBump } : {}),
           },
         });
         // Só AGORA se sabe quem atende e por quanto, quando não houve escolha
@@ -677,7 +726,12 @@ function Funil() {
   // fixa no rodapé, então mostrar/esconder isto não desloca os serviços.
   const carrinhoAvulso = ehPacote
     ? null
-    : precificarCarrinhoFunil(servicosParaPreco, estado.servicoIds, empresa.descontoProgressivo);
+    : precificarCarrinhoFunil(
+        servicosParaPreco,
+        estado.servicoIds,
+        empresa.descontoProgressivo,
+        promocionais,
+      );
   const proximoGanhoCentavos = ehPacote
     ? 0
     : descontoNominalCentavos(estado.servicoIds.length + 1, empresa.descontoProgressivo) -

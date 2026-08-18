@@ -14,7 +14,6 @@ function paraDominio(row: ServicoPrisma): Servico {
     precoAvulso: Dinheiro.deCentavos(row.precoAvulsoCentavos),
     duracao: Duracao.deMinutos(row.duracaoMinutos),
     ativo: row.ativo,
-    sugeridoNoBump: row.sugeridoNoBump,
   });
 }
 
@@ -43,7 +42,6 @@ export class PrismaServicoRepository implements ServicoRepository {
       precoAvulsoCentavos: servico.precoAvulso.centavos,
       duracaoMinutos: servico.duracao.minutos,
       ativo: servico.ativo,
-      sugeridoNoBump: servico.sugeridoNoBump,
     };
     await this.db.servico.upsert({
       where: { id: servico.id },

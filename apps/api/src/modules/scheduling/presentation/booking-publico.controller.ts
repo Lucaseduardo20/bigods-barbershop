@@ -35,9 +35,11 @@ import {
   DiasDisponiveisDTO,
   EmpresaPublicaDTO,
   HorariosDisponiveisDTO,
+  ItemDeOrderBumpDTO,
   OrderBumpDTO,
   ProdutoDTO,
   ServicoDTO,
+  TipoItemDeOrderBump as TipoDTO,
 } from '@bigods/contracts';
 import { EhCelularBrasileiro, EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { somarDias } from '../domain/regra-janela-agendamento';
@@ -48,12 +50,19 @@ import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
 import { PRODUTO_REPOSITORY, ProdutoRepository } from '../../products/domain/produto.repository';
 import { Produto } from '../../products/domain/produto.aggregate';
+import {
+  ITEM_DE_ORDER_BUMP_REPOSITORY,
+  ItemDeOrderBumpRepository,
+} from '../../funnel/domain/item-de-order-bump.repository';
+import { ItemDeOrderBump, TipoItemDeOrderBump } from '../../funnel/domain/item-de-order-bump.aggregate';
+import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
 } from '../../packages/domain/parametros-da-empresa.repository';
 import { AgendarAvulsoUseCase } from '../application/agendar-avulso.usecase';
+import { CancelarReservaOnlineUseCase } from '../application/cancelar-reserva-online.usecase';
 import { EmpresaPublicaQueryService } from '../infrastructure/empresa-publica-query.service';
 import { HorariosDisponiveisQueryService } from '../infrastructure/horarios-disponiveis-query.service';
 import { Throttle } from '@nestjs/throttler';
@@ -100,13 +109,23 @@ class AgendarPublicoDto {
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
   /**
    * Order-bump (sessão 2026-08-17): produtos escolhidos na vitrine "Adicione à
-   * sua visita", na confirmação. Serviço complementar do bump NÃO vem aqui —
-   * ele já está em `servicoIds`, porque adicionar via bump é literalmente a
-   * mesma coisa que ter selecionado na tela de serviços (mesmo desconto
-   * progressivo, mesmo preço por barbeiro — nenhum caminho paralelo).
+   * sua visita", na confirmação.
    */
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProdutoBumpDto)
   produtosBump?: ProdutoBumpDto[];
+  /**
+   * Parte 2: quais dos `servicoIds` vieram do order-bump. Eles TAMBÉM vão em
+   * `servicoIds` (são serviços do atendimento como qualquer outro, ocupam
+   * agenda e viram `ItemAtendido`); esta lista existe só para o backend saber
+   * quem paga preço promocional e sai da escada do desconto progressivo.
+   */
+  @IsOptional() @IsArray() @IsString({ each: true })
+  servicosBump?: string[];
+}
+
+class CancelarReservaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @IsString() @MinLength(1) intencaoId!: string;
 }
 
 /**
@@ -128,9 +147,11 @@ export class BookingPublicoController {
     private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     @Inject(PRODUTO_REPOSITORY) private readonly produtos: ProdutoRepository,
+    @Inject(ITEM_DE_ORDER_BUMP_REPOSITORY) private readonly itensDeBump: ItemDeOrderBumpRepository,
     private readonly empresaQuery: EmpresaPublicaQueryService,
     private readonly horariosQuery: HorariosDisponiveisQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
+    private readonly cancelarReservaOnline: CancelarReservaOnlineUseCase,
   ) {}
 
   @Publico()
@@ -169,7 +190,6 @@ export class BookingPublicoController {
       precoAvulsoCentavos: (barbeiro ? precoDeReferencia(s, barbeiro) : s.precoAvulso).centavos,
       duracaoMinutos: s.duracao.minutos,
       ativo: s.ativo,
-      sugeridoNoBump: s.sugeridoNoBump,
     };
   }
 
@@ -179,21 +199,24 @@ export class BookingPublicoController {
       nome: p.nome,
       precoCentavos: p.preco.centavos,
       ativo: p.ativo,
-      sugeridoNoBump: p.sugeridoNoBump,
     };
   }
 
   /**
    * Order-bump (sessão 2026-08-17): vitrine de "Adicione à sua visita" —
-   * serviços complementares e produtos, os dois marcados pelo admin como
-   * `sugeridoNoBump`. SEM motor de regras condicionais (decisão consciente,
-   * DECISOES_PENDENTES): a mesma lista vale para todo mundo, o único filtro é
-   * "o barbeiro escolhido atende este serviço" (mesma regra de
-   * `/public/servicos` — não faz sentido sugerir o que ele não faz).
+   * serviços complementares e produtos, curados e PARAMETRIZADOS pelo admin
+   * (`ItemDeOrderBump`: aparece? por quanto? com que chamada? em que ordem?).
+   * SEM motor de regras condicionais (decisão do dono, DECISOES_PENDENTES): a
+   * mesma lista vale para todo mundo; o único filtro é "o barbeiro escolhido
+   * atende este serviço" (mesma regra de `/public/servicos` — não faz sentido
+   * sugerir o que ele não faz).
+   *
+   * O preço promocional é resolvido AQUI, contra o preço DAQUELE barbeiro
+   * (§3.2.2) — o front recebe o número pronto e nunca recalcula promoção a
+   * partir de percentual.
    *
    * Excluir os serviços que o cliente JÁ selecionou fica por conta do FRONT
-   * (ele já tem o carrinho em mãos) — não há necessidade de mandar
-   * `servicoIds` aqui só para filtrar isso.
+   * (ele já tem o carrinho em mãos).
    */
   @Publico()
   @Get('order-bump')
@@ -205,16 +228,71 @@ export class BookingPublicoController {
     await this.empresaQuery.empresa(id);
     const barbeiro = barbeiroId ? await this.barbeiros.porId(barbeiroId) : null;
 
-    const [servicos, produtos] = await Promise.all([
+    const [servicos, produtos, configuracoes] = await Promise.all([
       this.servicos.listar(id),
       this.produtos.listar(id),
+      this.itensDeBump.listarPorEmpresa(id),
     ]);
+    const ativos = configuracoes.filter((c) => c.ativo);
+    const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
+    const produtoPorId = new Map(produtos.map((p) => [p.id, p]));
 
+    const itensDeServico: { ordem: number; dto: ItemDeOrderBumpDTO }[] = [];
+    const itensDeProduto: { ordem: number; dto: ItemDeOrderBumpDTO }[] = [];
+    for (const config of ativos) {
+      if (config.tipo === TipoItemDeOrderBump.SERVICO) {
+        const servico = servicoPorId.get(config.referenciaId);
+        if (!servico || !servico.ativo) continue;
+        // Não sugere o que o barbeiro escolhido não faz (mesma regra de /public/servicos).
+        if (barbeiro && !barbeiro.atende(servico.id)) continue;
+        const precoNormal = barbeiro ? precoDeReferencia(servico, barbeiro) : servico.precoAvulso;
+        itensDeServico.push({
+          ordem: config.ordem,
+          dto: this.paraItemDeBumpDTO(config, servico.id, servico.nome, precoNormal, servico.duracao.minutos),
+        });
+      } else {
+        const produto = produtoPorId.get(config.referenciaId);
+        if (!produto || !produto.ativo) continue;
+        itensDeProduto.push({
+          ordem: config.ordem,
+          dto: this.paraItemDeBumpDTO(config, produto.id, produto.nome, produto.preco, null),
+        });
+      }
+    }
+
+    // Ordem de exibição escolhida pelo admin; empate desempata por NOME, para a
+    // vitrine nunca depender da ordem em que o banco devolveu as linhas.
+    const ordenar = (itens: { ordem: number; dto: ItemDeOrderBumpDTO }[]): ItemDeOrderBumpDTO[] =>
+      itens
+        .sort((a, b) => (a.ordem !== b.ordem ? a.ordem - b.ordem : a.dto.nome.localeCompare(b.dto.nome)))
+        .map((i) => i.dto);
+
+    return { servicos: ordenar(itensDeServico), produtos: ordenar(itensDeProduto) };
+  }
+
+  private paraItemDeBumpDTO(
+    config: ItemDeOrderBump,
+    id: string,
+    nome: string,
+    precoNormal: Dinheiro,
+    duracaoMinutos: number | null,
+  ): ItemDeOrderBumpDTO {
+    // A regra de preço mora no agregado (`precoDeVenda`), nunca aqui — é a
+    // mesma chamada que o caso de uso faz na hora de cobrar.
+    const precoDeVenda = config.precoDeVenda(precoNormal);
+    const desconto = precoNormal.centavos - precoDeVenda.centavos;
     return {
-      servicos: servicos
-        .filter((s) => s.ativo && s.sugeridoNoBump && (!barbeiro || barbeiro.atende(s.id)))
-        .map((s) => this.paraServicoDTO(s, barbeiro)),
-      produtos: produtos.filter((p) => p.ativo && p.sugeridoNoBump).map((p) => this.paraProdutoDTO(p)),
+      tipo: TipoDTO[config.tipo],
+      id,
+      nome,
+      precoNormalCentavos: precoNormal.centavos,
+      precoPromocionalCentavos: precoDeVenda.centavos,
+      descontoCentavos: desconto,
+      // Derivado só para exibição ("−30%"), nunca persistido (§3.11).
+      descontoPercentual:
+        precoNormal.centavos === 0 ? 0 : Math.round((desconto / precoNormal.centavos) * 1000) / 10,
+      mensagem: config.mensagem,
+      duracaoMinutos,
     };
   }
 
@@ -381,6 +459,7 @@ export class BookingPublicoController {
       gerarCobranca: online,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       produtosBump: body.produtosBump,
+      servicosBump: body.servicosBump,
     });
     return {
       atendimentoId: resultado.atendimentoId,
@@ -389,6 +468,27 @@ export class BookingPublicoController {
       barbeiro: resultado.barbeiro,
       valorTotalCentavos: resultado.valorTotalCentavos,
     };
+  }
+
+  /**
+   * "Alterar pedido" na tela de espera do PIX (Parte 2, order-bump com
+   * remoção): desfaz a tentativa — mata o QR antigo e devolve o horário —
+   * para o cliente reeditar os bumps e confirmar de novo, gerando um QR novo
+   * com o valor certo. Sem isto, remover um item depois do QR gerado cobraria
+   * o valor antigo, ou deixaria dois códigos vivos para o mesmo horário.
+   *
+   * Público como o resto do funil avulso online (§8.9): `intencaoId` é a
+   * prova de posse — só quem criou a reserva o recebeu.
+   */
+  @Publico()
+  @Throttle({ default: { limit: 30, ttl: 600_000 } })
+  @Post('agendamentos/cancelar-reserva')
+  async cancelarReserva(@Body() body: CancelarReservaDto): Promise<{ ok: true }> {
+    await this.cancelarReservaOnline.executar({
+      companyId: body.companyId,
+      intencaoId: body.intencaoId,
+    });
+    return { ok: true };
   }
 
   private exigirCompanyId(companyId?: string): string {

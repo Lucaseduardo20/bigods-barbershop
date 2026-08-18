@@ -13,6 +13,7 @@ import { PackagesModule } from './modules/packages/packages.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { ProductsModule } from './modules/products/products.module';
+import { FunnelModule } from './modules/funnel/funnel.module';
 import { RolesGuard } from './modules/identity/presentation/roles.guard';
 import {
   TelefoneOuIpThrottlerGuard,
@@ -80,6 +81,7 @@ export function limiteOtpPorOrigemHora(): number {
     PayrollModule,
     PaymentsModule,
     ProductsModule,
+    FunnelModule,
   ],
   providers: [
     // Rate limit primeiro (freia abuso antes de qualquer trabalho), depois auth.

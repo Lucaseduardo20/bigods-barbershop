@@ -11,8 +11,6 @@ export interface ServicoProps {
   precoAvulso: Dinheiro;
   duracao: Duracao;
   ativo: boolean;
-  /** Order-bump: aparece como sugestão de complemento na confirmação do funil. */
-  sugeridoNoBump: boolean;
 }
 
 export class Servico extends AggregateRoot {
@@ -21,7 +19,7 @@ export class Servico extends AggregateRoot {
   }
 
   static criar(
-    props: Omit<ServicoProps, 'ativo' | 'sugeridoNoBump'> & { ativo?: boolean; sugeridoNoBump?: boolean },
+    props: Omit<ServicoProps, 'ativo'> & { ativo?: boolean },
   ): Servico {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Serviço exige nome');
@@ -33,7 +31,6 @@ export class Servico extends AggregateRoot {
       ...props,
       nome: props.nome.trim(),
       ativo: props.ativo ?? true,
-      sugeridoNoBump: props.sugeridoNoBump ?? false,
     });
   }
 
@@ -81,16 +78,10 @@ export class Servico extends AggregateRoot {
     this.props.duracao = novaDuracao;
   }
 
-  /** Admin liga/desliga a sugestão no order-bump do funil — sem regra condicional, só sim/não. */
-  definirSugeridoNoBump(valor: boolean): void {
-    this.props.sugeridoNoBump = valor;
-  }
-
   get id() { return this.props.id; }
   get companyId() { return this.props.companyId; }
   get nome() { return this.props.nome; }
   get precoAvulso() { return this.props.precoAvulso; }
   get duracao() { return this.props.duracao; }
   get ativo() { return this.props.ativo; }
-  get sugeridoNoBump() { return this.props.sugeridoNoBump; }
 }

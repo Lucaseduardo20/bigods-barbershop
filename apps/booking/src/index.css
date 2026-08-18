@@ -279,3 +279,45 @@ body {
   stroke-dasharray: 70; stroke-dashoffset: 70; animation: draw 0.4s 0.5s ease-out forwards;
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* ---- Order-bump "Adicione à sua visita" (Parte 2, 2026-08-17) ----
+   Item com oferta ganha moldura e fundo de promoção; sem oferta fica
+   discreto como qualquer card selecionável — não vale simular promoção
+   onde o admin não configurou nenhuma. */
+.bump-card {
+  width: 100%; text-align: left;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--surface-card);
+  border-radius: 14px; padding: 12px 14px;
+  cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s;
+  display: block;
+}
+.bump-card:hover { border-color: var(--brand-gold-300); }
+.bump-card.oferta {
+  border-color: var(--brand-gold-300);
+  background: linear-gradient(180deg, var(--surface-brand-tint) 0%, var(--surface-card) 60%);
+}
+.bump-card.selecionado {
+  border-color: var(--accent-primary);
+  background: var(--surface-brand-tint);
+  box-shadow: 0 2px 12px rgba(184, 142, 66, .15);
+}
+.bump-selo {
+  flex-shrink: 0;
+  background: var(--accent-primary); color: var(--text-on-gold);
+  border-radius: 999px; padding: 2px 7px;
+  font: 800 10.5px var(--font-ui); letter-spacing: .02em;
+}
+.bump-acao {
+  flex-shrink: 0;
+  font: 700 11.5px var(--font-ui);
+  color: var(--brand-gold-700);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.bump-acao.remover { color: var(--text-muted); }
+.bump-remover {
+  flex-shrink: 0; border: none; background: none; padding: 0;
+  font: 700 11px var(--font-ui); color: var(--text-muted);
+  text-decoration: underline; cursor: pointer;
+}
+.bump-remover:hover { color: var(--status-danger); }

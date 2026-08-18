@@ -3005,6 +3005,108 @@ editável, borda recusa nome vazio/duração não-positiva, CRUD de produto com 
 teste que importa — **editar o catálogo não mexe em atendimento já marcado**. **574 testes na
 API**, verdes nos 3 fusos; build verde nos 5 pacotes.
 
+## Order-bump rico — Parte 2 (2026-08-17) ✅
+
+Commit separado da Parte 1, como o dono pediu. Aqui mexe em dinheiro.
+
+O order-bump deixou de ser um "aparece: sim/não" e virou **parametrizável por item**: preço
+promocional, chamada customizável e ordem de exibição. Sem motor de regras condicionais — continua
+sendo "este item, sempre, para todo mundo, com esta oferta" (DECISOES_PENDENTES #32).
+
+### ★ A regra de preço do bump de serviço (o ponto mais delicado)
+
+**Um item do carrinho recebe exatamente UMA regra de preço, nunca duas:**
+
+| Situação | Preço |
+|---|---|
+| Serviço escolhido na tela de serviços | preço do barbeiro + desconto progressivo |
+| Serviço do bump **com** preço promocional | o promocional, cravado — **fora** da escada progressiva |
+| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal |
+
+O item promocional sai também da **contagem de posições** da escada. Se contasse, adicionar um item
+já descontado aprofundaria o desconto dos outros — desconto sobre desconto, com o total dependendo
+de quem entrou primeiro. Fora da escada, adicionar um bump é sempre exatamente "+ preço
+promocional", e **nada mais no carrinho muda**. É isso que torna o preço previsível.
+
+Duas travas fecham o resto: `min(promocional, preço do barbeiro)` — promoção **nunca vira
+acréscimo**, mesmo que um barbeiro cobre menos que o promocional configurado sobre a referência da
+casa; e o que se **persiste** é sempre o preço final em centavos, nunca o percentual (a UI aceita
+as duas entradas, mas percentual persistido faria a oferta se mover sozinha quando o catálogo
+mudasse).
+
+O cálculo mora numa função só — `precificarCarrinhoDoFunil` em `@bigods/contracts` — usada pelo
+funil e pela API. Duas implementações seriam duas verdades sobre dinheiro.
+
+⚠️ **Mudança consciente em relação à Parte 1:** ali valia "adicionar barba pelo bump ou pela tela de
+serviços dá exatamente o mesmo preço". Com preço promocional isso deixa de valer **de propósito** —
+a oferta só existe no fechamento do pedido, e é esse o incentivo. O princípio que continua valendo
+é o de trás: um item, uma regra de preço.
+
+### Modelagem
+
+Novo agregado `ItemDeOrderBump` (DOMAIN.md §3.13) em vez de mais colunas em `Servico`/`Produto`: a
+configuração e as invariantes são as MESMAS para os dois tipos, e duplicá-las nos dois agregados
+seria a mesma regra em dois lugares. `precoDeVenda(precoBase)` é o **único** lugar onde o preço do
+bump é decidido — vitrine pública e cobrança chamam o mesmo método.
+
+Migration **aditiva**: cria a tabela e copia todo `sugeridoNoBump = true` para ela, então a vitrine
+em produção continua idêntica depois do deploy. As colunas antigas ficaram no banco, deprecadas e
+sem leitor, para rollback seguro (DECISOES_PENDENTES #35) — mas o **código** que as lia/escrevia foi
+removido por inteiro (DTOs, controllers, agregados), porque deixar um `PATCH` que grava numa coluna
+que ninguém lê é pior que remover: parece que funciona.
+
+### Remoção sem refazer o funil
+
+Adicionar e remover são o mesmo toque, na confirmação, e o total atualiza na hora — antes, tirar um
+complemento obrigava a recomeçar. Um serviço adicionado pelo bump continua visível na vitrine
+(marcado como escolhido) justamente para poder ser removido ali.
+
+**O caso difícil — remover depois do QR gerado:** editar o carrinho por baixo de um PIX já emitido
+cobraria o valor errado, e emitir um segundo QR sem matar o primeiro deixaria dois códigos vivos
+para o mesmo horário. "Alterar meu pedido" **desfaz a tentativa** no servidor
+(`CancelarReservaOnlineUseCase`): expira a intenção (QR antigo morre) e libera a reserva do
+horário, na mesma transação — a mesma dupla atômica de `ExpirarPagamentoVencidoUseCase`, só que
+disparada pelo cliente em vez de por timeout. Confirmar de novo emite um QR novo pelo valor certo.
+Reserva já **paga** não é cancelável por aí.
+
+### Testes (+46)
+
+13 do cálculo compartilhado em `@bigods/contracts` (`precificarCarrinhoDoFunil`: promoção não
+empilha com a escada, item promocional não conta posição, `min` blinda acréscimo, total nunca
+negativo, Σ itens == total, ordem não muda nada), 12 do agregado `ItemDeOrderBump` (invariantes de
+oferta, `precoDeVenda`), 13 e2e de dinheiro (`order-bump-rico.e2e.spec.ts`) e 8 de front
+(`promocionaisDoBump`, `alternarServicoNoBump`, remoção na vitrine). Os e2e cobrem exatamente o que
+o dono pediu: admin configura → funil exibe com % correto; adicionar aplica o promocional;
+**remover volta o total ao certo**; online adiciona-e-remove → **o QR reflete o valor final, nunca
+o intermediário**; e o bump de serviço é determinístico.
+
+**599 testes na API**, verdes nos 3 fusos; 46 no booking, 37 em contracts, 18 no admin; build verde
+nos 5 pacotes.
+
+### Roteiro de smoke test manual (foco em cálculo e remoção)
+
+1. **Admin → Funil de Vendas → Order-bump.** Configure a Barba com desconto: teste as duas entradas
+   (preço final e %) e confira que o card mostra o preço riscado + o novo. Ponha uma chamada
+   ("Aproveita e faz a barba!") e ordem 1. Configure um produto igual.
+2. Tente salvar uma oferta MAIOR que o preço normal — tem que ser recusado (seria acréscimo).
+3. **Funil → só Corte → Confirmação.** A seção deve aparecer com pegada de oferta: preço normal
+   riscado, promocional em destaque, selo "−X%", sua chamada.
+4. **Adicione a Barba pelo bump.** O total tem que subir **exatamente o preço promocional** — o
+   Corte não pode mudar de preço (é isso que prova que não há cascata de desconto).
+5. **Compare:** volte, selecione a Barba na tela de Serviços (não pelo bump) e confirme. Agora sim
+   ela entra no desconto progressivo, com preço diferente do bump. Os dois números têm que bater
+   com o que a tela mostrou em cada caso.
+6. **Remova** o bump na confirmação (link "remover" ao lado do item). O total volta na hora, sem
+   refazer nada do funil.
+7. **Online:** adicione o bump, escolha "Pagar agora", gere o QR. Confira o valor. Toque em
+   **"← Alterar meu pedido"**, remova o bump, confirme de novo: o novo QR tem que vir com o valor
+   MENOR, e o QR antigo não pode mais ser pago (tente "Simular pagamento" no antigo — não existe
+   mais; a reserva foi liberada).
+8. **Barbeiro mais barato:** se algum barbeiro tem override de preço abaixo do promocional, abra o
+   funil com ele — o bump deve mostrar o preço DELE, nunca o promocional mais caro.
+9. **Painel:** conclua um atendimento com produto do bump e confira no extrato que a comissão de
+   produto saiu sobre o valor **promocional**, não sobre o de tabela.
+
 ## Como rodar localmente
 
 ```bash

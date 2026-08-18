@@ -20,6 +20,7 @@ export function PixAguardando({
   ehPacote,
   onPago,
   onTentarNovo,
+  onAlterarPedido,
 }: {
   cobranca: CobrancaDTO;
   intencaoId: string;
@@ -29,10 +30,13 @@ export function PixAguardando({
   ehPacote?: boolean;
   onPago: () => void;
   onTentarNovo: () => void;
+  /** Ausente no pacote (não há bump nem horário reservado pra devolver). */
+  onAlterarPedido?: () => Promise<void>;
 }) {
   const [status, setStatus] = useState<'AGUARDANDO' | 'EXPIRADO' | 'FALHOU'>('AGUARDANDO');
   const [copiado, setCopiado] = useState(false);
   const [simulando, setSimulando] = useState(false);
+  const [alterando, setAlterando] = useState(false);
   // Sessão de OTP+reserva: o cliente vê quanto tempo falta pra reserva/PIX
   // expirar — nunca uma tela "aguardando" sem noção nenhuma de prazo. Some do
   // estado inicial via prop; cada poll do status (abaixo) pode atualizar
@@ -172,6 +176,30 @@ export function PixAguardando({
         <div className="text-[13px] font-semibold" style={{ color: restanteSeg <= 60 ? 'var(--status-danger)' : 'var(--text-muted)' }}>
           {ehPacote ? 'Pague em até' : 'Seu horário está reservado por'} {restanteRotulo}
         </div>
+      )}
+
+      {/* Order-bump com remoção (Parte 2, 2026-08-17): o cliente pode querer
+          tirar/pôr um complemento DEPOIS de ver o QR. Editar o carrinho por
+          baixo de um QR já emitido cobraria o valor errado, então este botão
+          desfaz a tentativa (o QR morre, o horário volta) e devolve o cliente
+          para a Confirmação — confirmar de novo emite um QR novo, pelo valor
+          certo. */}
+      {onAlterarPedido && (
+        <button
+          className="btn btn-ghost btn-block"
+          style={{ maxWidth: 320 }}
+          disabled={alterando}
+          onClick={async () => {
+            setAlterando(true);
+            try {
+              await onAlterarPedido();
+            } finally {
+              setAlterando(false);
+            }
+          }}
+        >
+          {alterando ? 'Liberando…' : '← Alterar meu pedido'}
+        </button>
       )}
 
       {demoMode && (

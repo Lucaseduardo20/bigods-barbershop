@@ -1,29 +1,27 @@
-import type { OrderBumpDTO } from '@bigods/contracts';
+import type { ItemDeOrderBumpDTO, OrderBumpDTO } from '@bigods/contracts';
 import { dinheiro } from '../lib/format';
 import { servicosSugeridosDoBump, type FunnelState } from '../lib/funnel-state';
 
 /**
- * Order-bump — "Adicione à sua visita", na confirmação do funil (sessão
- * 2026-08-17). Dois tipos de item, um mecanismo só:
+ * Order-bump — "Adicione à sua visita", na confirmação do funil.
  *
- * - **Serviço complementar**: adicionar aqui é literalmente adicionar o id a
- *   `servicoIds` — o MESMO campo que a tela de serviços usa. Não existe
- *   cálculo de preço próprio: o desconto progressivo e o preço por barbeiro
- *   saem do mesmo `precificarCarrinhoFunil` de sempre, então o preço final é
- *   idêntico a ter selecionado na etapa normal.
- * - **Produto**: vira uma venda anexada ao atendimento na hora da criação —
- *   preço cheio, sem desconto progressivo (regra é só de serviço).
+ * Parte 2 (2026-08-17): cada item é PARAMETRIZADO pelo admin (preço
+ * promocional, chamada, ordem), então aqui ele aparece com cara de oferta —
+ * preço normal riscado, promocional em destaque, quanto o cliente economiza —
+ * e pode ser REMOVIDO no mesmo toque, sem refazer o funil.
  *
- * Lista curada pelo admin (`sugeridoNoBump`), SEM motor de regras
- * condicionais — a vitrine é a mesma para todo mundo, só filtrada pelo que o
- * barbeiro escolhido atende e pelo que o cliente JÁ tem no carrinho (não
- * insiste em sugerir o que ele já escolheu).
+ * Os preços vêm PRONTOS da API (`precoPromocionalCentavos` já resolvido contra
+ * o preço do barbeiro): o front nunca recalcula promoção a partir de
+ * percentual — o percentual é só rótulo.
  *
- * `dados` vem PRÉ-CARREGADO do componente pai (`App.tsx`, mesmo padrão de
- * `servicosDoBarbeiroReq`): evita buscar duas vezes o mesmo catálogo — o pai
- * também precisa dele para somar o total exibido no resumo/PIX. `null`
- * (ainda carregando, erro, ou nada configurado) → não renderiza nada; o
- * order-bump nunca pode travar quem só quer fechar o agendamento.
+ * - **Serviço complementar**: entra em `servicoIds` (é um serviço do
+ *   atendimento como outro qualquer) e em `servicosBump` (é o que faz o
+ *   backend cobrar o promocional e tirá-lo da escada do desconto progressivo).
+ * - **Produto**: vira venda anexada ao atendimento, com snapshot do preço.
+ *
+ * `dados` vem PRÉ-CARREGADO do pai (`App.tsx`, mesmo padrão de
+ * `servicosDoBarbeiroReq`): o total exibido no resumo/PIX precisa sair dos
+ * MESMOS números da vitrine, senão preço mostrado e preço cobrado divergem.
  */
 export function OrderBump({
   dados,
@@ -32,55 +30,107 @@ export function OrderBump({
   onToggleProduto,
 }: {
   dados: OrderBumpDTO | null;
-  estado: Pick<FunnelState, 'servicoIds' | 'produtosBump'>;
+  estado: Pick<FunnelState, 'servicoIds' | 'produtosBump' | 'servicosBump'>;
   onToggleServico: (servicoId: string) => void;
   onToggleProduto: (produtoId: string) => void;
 }) {
   if (!dados) return null;
 
-  // Não insiste no que o cliente já colocou no carrinho.
-  const servicosSugeridos = servicosSugeridosDoBump(dados.servicos, estado.servicoIds);
+  const servicosSugeridos = servicosSugeridosDoBump(
+    dados.servicos,
+    estado.servicoIds,
+    estado.servicosBump,
+  );
   const produtosSugeridos = dados.produtos;
   if (servicosSugeridos.length === 0 && produtosSugeridos.length === 0) return null;
+
+  const temOferta = [...servicosSugeridos, ...produtosSugeridos].some((i) => i.descontoCentavos > 0);
 
   return (
     <div className="flex flex-col gap-2.5">
       <div>
-        <div className="label m-0">Adicione à sua visita</div>
+        <div className="label m-0">
+          {temOferta ? '🔥 Só no fechamento' : 'Adicione à sua visita'}
+        </div>
         <div className="text-[12px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Com um toque — sem compromisso, você tira depois se mudar de ideia.
+          {temOferta
+            ? 'Ofertas que valem só agora, junto deste agendamento — adicione ou tire com um toque.'
+            : 'Com um toque — sem compromisso, você tira depois se mudar de ideia.'}
         </div>
       </div>
       <div className="flex flex-col gap-2">
         {servicosSugeridos.map((s) => (
-          <button
+          <CartaoDeBump
             key={s.id}
-            className="selectable"
-            style={{ flexDirection: 'row', justifyContent: 'space-between' }}
-            onClick={() => onToggleServico(s.id)}
-          >
-            <span className="font-bold text-[14px]">{s.nome}</span>
-            <span className="font-bold text-[14px]">+ {dinheiro(s.precoAvulsoCentavos)}</span>
-          </button>
+            item={s}
+            selecionado={estado.servicosBump.includes(s.id)}
+            onToggle={() => onToggleServico(s.id)}
+          />
         ))}
-        {produtosSugeridos.map((p) => {
-          const selecionado = estado.produtosBump.some((b) => b.produtoId === p.id);
-          return (
-            <button
-              key={p.id}
-              className={`selectable ${selecionado ? 'selected' : ''}`}
-              style={{ flexDirection: 'row', justifyContent: 'space-between' }}
-              onClick={() => onToggleProduto(p.id)}
-            >
-              <span className="font-bold text-[14px]">{p.nome}</span>
-              <span className="flex items-center gap-2">
-                <span className="font-bold text-[14px]">+ {dinheiro(p.precoCentavos)}</span>
-                <span className="select-tick">{selecionado ? '✓' : ''}</span>
-              </span>
-            </button>
-          );
-        })}
+        {produtosSugeridos.map((p) => (
+          <CartaoDeBump
+            key={p.id}
+            item={p}
+            selecionado={estado.produtosBump.some((b) => b.produtoId === p.id)}
+            onToggle={() => onToggleProduto(p.id)}
+          />
+        ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Um item da vitrine. Com oferta, ganha moldura dourada, selo de "−X%" e o
+ * preço normal riscado ao lado do promocional — sem oferta, é a linha discreta
+ * de sempre (não vale fingir promoção onde não há).
+ */
+function CartaoDeBump({
+  item,
+  selecionado,
+  onToggle,
+}: {
+  item: ItemDeOrderBumpDTO;
+  selecionado: boolean;
+  onToggle: () => void;
+}) {
+  const temOferta = item.descontoCentavos > 0;
+  return (
+    <button
+      className={`bump-card ${selecionado ? 'selecionado' : ''} ${temOferta ? 'oferta' : ''}`}
+      onClick={onToggle}
+      aria-pressed={selecionado}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span className="font-bold text-[14px] truncate">{item.nome}</span>
+          {temOferta && <span className="bump-selo">−{item.descontoPercentual}%</span>}
+        </span>
+        <span className="flex items-center gap-2 flex-shrink-0">
+          {temOferta && (
+            <span
+              className="text-[12px] font-semibold"
+              style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}
+            >
+              {dinheiro(item.precoNormalCentavos)}
+            </span>
+          )}
+          <span className="font-extrabold text-[15px]">
+            {selecionado ? '' : '+ '}
+            {dinheiro(item.precoPromocionalCentavos)}
+          </span>
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-2 mt-1">
+        <span className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+          {item.mensagem ??
+            (item.duracaoMinutos ? `+${item.duracaoMinutos} min no seu horário` : 'Leve junto')}
+        </span>
+        {/* Remover é o mesmo toque de adicionar — nunca exige refazer o funil. */}
+        <span className={`bump-acao ${selecionado ? 'remover' : ''}`}>
+          {selecionado ? '✓ adicionado · remover' : 'adicionar'}
+        </span>
+      </div>
+    </button>
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calcularDescontoProgressivo,
   descontoNominalCentavos,
+  precificarCarrinhoDoFunil,
   type TabelaDeDescontoDTO,
 } from './desconto';
 
@@ -132,5 +133,153 @@ describe('calcularDescontoProgressivo', () => {
     expect(r.descontoTotalCentavos).toBe(0);
     expect(r.totalFinalCentavos).toBe(0);
     expect(r.descontosPorItemCentavos).toEqual([]);
+  });
+});
+
+/**
+ * ★ Regra de preço do ORDER-BUMP (sessão 2026-08-17, Parte 2). O que se testa
+ * aqui é exatamente o que o dono pediu para não acontecer: preço imprevisível
+ * por cascata de descontos, e total ambíguo/negativo.
+ */
+describe('precificarCarrinhoDoFunil — promoção de bump x desconto progressivo', () => {
+  it('sem nenhum bump, é IDÊNTICO ao desconto progressivo puro (não muda o que já existia)', () => {
+    const r = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 5000 }, { precoCheioCentavos: 2500 }],
+      TABELA,
+    );
+    const antigo = calcularDescontoProgressivo([5000, 2500], TABELA);
+    expect(r.totalFinalCentavos).toBe(antigo.totalFinalCentavos);
+    expect(r.itens.map((i) => i.precoFinalCentavos)).toEqual([
+      5000 - antigo.descontosPorItemCentavos[0]!,
+      2500 - antigo.descontosPorItemCentavos[1]!,
+    ]);
+  });
+
+  it('item com preço promocional paga EXATAMENTE o promocional — sem receber desconto progressivo por cima', () => {
+    // corte 50 normal + barba 25 com promo de 15
+    const r = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 5000 }, { precoCheioCentavos: 2500, precoPromocionalCentavos: 1500 }],
+      TABELA,
+    );
+    expect(r.itens[1]!.precoFinalCentavos).toBe(1500);
+    expect(r.itens[1]!.promocional).toBe(true);
+    // o corte continua sozinho na escada → 1 item → sem degrau
+    expect(r.itens[0]!.precoFinalCentavos).toBe(5000);
+    expect(r.totalFinalCentavos).toBe(6500);
+  });
+
+  it('★ o item promocional NÃO conta posição na escada dos outros (nada de desconto em cascata)', () => {
+    // Se contasse, o carrinho viraria "2 itens" e o corte ganharia o degrau de
+    // R$10 — o cliente levaria promo E desconto, e o total dependeria de quem
+    // entrou primeiro.
+    const comBump = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 5000 }, { precoCheioCentavos: 2500, precoPromocionalCentavos: 1500 }],
+      TABELA,
+    );
+    const soOCorte = precificarCarrinhoDoFunil([{ precoCheioCentavos: 5000 }], TABELA);
+    // adicionar o bump é sempre exatamente "+ preço promocional", nada mais muda
+    expect(comBump.totalFinalCentavos - soOCorte.totalFinalCentavos).toBe(1500);
+    expect(comBump.itens[0]!.precoFinalCentavos).toBe(soOCorte.itens[0]!.precoFinalCentavos);
+  });
+
+  it('dois serviços normais + um bump: a escada enxerga só os dois normais', () => {
+    const r = precificarCarrinhoDoFunil(
+      [
+        { precoCheioCentavos: 5000 },
+        { precoCheioCentavos: 2500 },
+        { precoCheioCentavos: 2000, precoPromocionalCentavos: 1000 },
+      ],
+      TABELA,
+    );
+    // degrau do 2º = R$10 sobre os normais; bump paga 10 cravado
+    expect(r.descontoProgressivoCentavos).toBe(1000);
+    expect(r.descontoPromocionalCentavos).toBe(1000);
+    expect(r.totalFinalCentavos).toBe(5000 + 2500 - 1000 + 1000);
+  });
+
+  it('promoção acima do preço do barbeiro NUNCA vira acréscimo — min(promo, cheio)', () => {
+    // Promo de R$40 configurada sobre a referência da casa, mas este barbeiro
+    // cobra R$35 pelo serviço. O cliente paga 35, nunca 40.
+    const r = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 3500, precoPromocionalCentavos: 4000 }],
+      TABELA,
+    );
+    expect(r.itens[0]!.precoFinalCentavos).toBe(3500);
+    expect(r.itens[0]!.descontoCentavos).toBe(0);
+    expect(r.totalFinalCentavos).toBe(3500);
+  });
+
+  it('promoção negativa é tratada como zero — total nunca fica negativo', () => {
+    const r = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 3000, precoPromocionalCentavos: -5000 }],
+      TABELA,
+    );
+    expect(r.itens[0]!.precoFinalCentavos).toBe(0);
+    expect(r.totalFinalCentavos).toBe(0);
+    expect(r.totalFinalCentavos).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a soma dos itens bate exatamente com o total — nenhum centavo some', () => {
+    const r = precificarCarrinhoDoFunil(
+      [
+        { precoCheioCentavos: 3333 },
+        { precoCheioCentavos: 777 },
+        { precoCheioCentavos: 1111 },
+        { precoCheioCentavos: 999, precoPromocionalCentavos: 499 },
+      ],
+      TABELA,
+    );
+    expect(somar(r.itens.map((i) => i.precoFinalCentavos))).toBe(r.totalFinalCentavos);
+    expect(somar(r.itens.map((i) => i.descontoCentavos))).toBe(r.descontoTotalCentavos);
+    expect(r.totalCheioCentavos - r.descontoTotalCentavos).toBe(r.totalFinalCentavos);
+    r.itens.forEach((i) => expect(i.precoFinalCentavos).toBeGreaterThanOrEqual(0));
+  });
+
+  it('carrinho só de bumps: nenhuma escada, cada um paga o seu promocional', () => {
+    const r = precificarCarrinhoDoFunil(
+      [
+        { precoCheioCentavos: 2500, precoPromocionalCentavos: 1500 },
+        { precoCheioCentavos: 2000, precoPromocionalCentavos: 1200 },
+      ],
+      TABELA,
+    );
+    expect(r.descontoProgressivoCentavos).toBe(0);
+    expect(r.totalFinalCentavos).toBe(2700);
+  });
+
+  it('promocional igual ao preço cheio: válido, só não desconta nada', () => {
+    const r = precificarCarrinhoDoFunil(
+      [{ precoCheioCentavos: 2500, precoPromocionalCentavos: 2500 }],
+      TABELA,
+    );
+    expect(r.itens[0]!.descontoCentavos).toBe(0);
+    expect(r.itens[0]!.promocional).toBe(true);
+    expect(r.totalFinalCentavos).toBe(2500);
+  });
+
+  it('ordem dos itens não muda o total (mesma garantia do desconto progressivo)', () => {
+    const a = precificarCarrinhoDoFunil(
+      [
+        { precoCheioCentavos: 5000 },
+        { precoCheioCentavos: 2500 },
+        { precoCheioCentavos: 2000, precoPromocionalCentavos: 1000 },
+      ],
+      TABELA,
+    );
+    const b = precificarCarrinhoDoFunil(
+      [
+        { precoCheioCentavos: 2000, precoPromocionalCentavos: 1000 },
+        { precoCheioCentavos: 2500 },
+        { precoCheioCentavos: 5000 },
+      ],
+      TABELA,
+    );
+    expect(a.totalFinalCentavos).toBe(b.totalFinalCentavos);
+  });
+
+  it('carrinho vazio não quebra', () => {
+    const r = precificarCarrinhoDoFunil([], TABELA);
+    expect(r.totalFinalCentavos).toBe(0);
+    expect(r.itens).toEqual([]);
   });
 });

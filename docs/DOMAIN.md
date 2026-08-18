@@ -153,7 +153,7 @@ Serviço oferecido pela barbearia.
 | `precoAvulso` | Dinheiro | preço quando comprado individualmente |
 | `duracao` | Duracao (minutos) | |
 | `ativo` | boolean | soft-disable, nunca deletar (histórico depende dele) |
-| `sugeridoNoBump` | boolean | vitrine do order-bump do funil (§8.13, sessão 2026-08-17) |
+| ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** preço > 0; duração > 0.
 
@@ -759,7 +759,7 @@ desativado, porque histórico de venda/comissão depende dele.
 | `nome` | string | |
 | `preco` | Dinheiro | |
 | `ativo` | boolean | soft-disable |
-| `sugeridoNoBump` | boolean | vitrine do order-bump do funil (§8.13, sessão 2026-08-17) |
+| ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** nome não-vazio; `preco` positivo.
 
@@ -893,6 +893,50 @@ prévia), registrada como lançamento único no ledger, com `registradoPorId` pa
 auditoria. **Sem trava de saldo** — decisão do dono: o ledger reflete o que foi pago de
 verdade, mesmo que o saldo fique negativo; não há validação "não pode pagar mais que o
 saldo".
+
+---
+
+### 3.13 `ItemDeOrderBump` (raiz) — sessão 2026-08-17, Parte 2
+
+Parametrização de um item na vitrine "Adicione à sua visita" do funil (§8.13): **merchandising**,
+não cadastro. `Servico`/`Produto` respondem "o que a casa oferece e por quanto no geral"; este
+agregado responde "o que é empurrado no fechamento do pedido, com que oferta".
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | ItemDeOrderBumpId | |
+| `companyId` | CompanyId | |
+| `tipo` | SERVICO \| PRODUTO | discriminador da referência |
+| `referenciaId` | ServicoId \| ProdutoId | conforme `tipo` |
+| `ativo` | boolean | aparece na vitrine do funil |
+| `precoPromocional` | Dinheiro \| null | preço FINAL no bump. `null` = sem oferta, cobra o normal |
+| `mensagem` | string \| null | chamada customizável ("Leve pra casa por só R$X"), máx. 90 |
+| `ordem` | int ≥ 0 | ordem de exibição; empate desempata por nome |
+
+**Por que tabela própria em vez de mais colunas em `Servico`/`Produto`:** a configuração e as
+invariantes são as MESMAS para os dois tipos — duplicá-las nos dois agregados seria a mesma regra
+implementada em dois lugares (§10). A relação é polimórfica de propósito (`tipo` + `referenciaId`,
+sem FK): duas FKs nuláveis exigiriam uma checagem de "exatamente uma preenchida"; a existência é
+validada na aplicação, que já carrega o catálogo de qualquer forma.
+
+**Invariantes:**
+- `precoPromocional`, quando presente: **> 0** e **≤ preço de catálogo** do item — oferta que
+  ultrapassa o preço normal é acréscimo disfarçado, não desconto. (Brinde a R$0 é recusado: decisão
+  consciente, não foi pedido.)
+- `mensagem` aparada; vazia vira `null`. `ordem` inteiro não-negativo.
+
+**`precoDeVenda(precoBase)` é o único lugar onde o preço do bump é decidido** — usado tanto pela
+vitrine pública quanto pelo caso de uso que cobra, para serviço e para produto. Aplica
+`min(promocional, precoBase)`, então promoção nunca vira acréscimo mesmo com preço por barbeiro
+mais baixo que o promocional (§3.2.2). Ver a regra completa em §8.13.
+
+O que se persiste é sempre o preço final em centavos; o "−30%" mostrado é **derivado** de
+(preço base, promocional) — mesma disciplina de `PacoteOferta` (§3.11).
+
+**Migração:** substituiu `Servico.sugeridoNoBump`/`Produto.sugeridoNoBump` (Parte 1 da mesma
+sessão). A migration copiou todo `sugeridoNoBump = true` para cá; as colunas antigas ficaram no
+banco, deprecadas e sem leitor, só para rollback seguro — remover numa migration futura
+(DECISOES_PENDENTES).
 
 ---
 
@@ -1607,34 +1651,71 @@ complementares** (ex.: corte → oferecer barba) e **produtos** do catálogo (qu
 não apareciam no funil). Objetivo de negócio: vender produto e aumentar ticket, sem inventar um
 segundo carrinho.
 
-**Configuração é curadoria simples, não motor de regras.** O admin marca `sugeridoNoBump: boolean`
-em `Servico` e `Produto` — uma vitrine geral, igual para todo cliente, sem segmentação por serviço
-selecionado ou por barbeiro (além do filtro óbvio de `barbeiro.atende`). Um motor condicional
-("se o carrinho tem X, ofereça Y") e segmentação por perfil são evolução futura, fora de escopo
-desta sessão (DECISOES_PENDENTES.md).
+**Configuração é curadoria PARAMETRIZADA, não motor de regras.** Cada item da vitrine é um
+agregado `ItemDeOrderBump` (§3.13): aparece ou não, por quanto sai, com que chamada, em que ordem.
+A vitrine é geral — igual para todo cliente, sem segmentação por perfil, por horário ou por
+composição do carrinho (além do filtro óbvio de `barbeiro.atende`). Um motor condicional ("se o
+carrinho tem X, ofereça Y") continua fora de escopo (DECISOES_PENDENTES #32).
 
-**Dois tipos de item, dois mecanismos — nenhum caminho de preço paralelo:**
+**Dois tipos de item, um mecanismo de preço:**
 
-- **Serviço complementar**: adicionar pelo bump é *literalmente* adicionar o id à mesma lista de
-  serviços do carrinho (`servicoIds`). Não existe um segundo cálculo: entra no desconto progressivo
-  (§3.2.3) e usa o `precoDeReferencia` do barbeiro (§3.2.2) exatamente como um serviço escolhido na
-  tela normal. Isso é o que garante "adicionar barba pelo bump ou pela tela de serviços dá o mesmo
-  preço final" — não é uma regra de teste, é a arquitetura: se algum dia existirem dois caminhos de
-  preço para o mesmo serviço, já é bug por construção.
+- **Serviço complementar**: entra na mesma lista de serviços do carrinho (`servicoIds`) — é um
+  serviço do atendimento como outro qualquer: ocupa agenda, vira `ItemAtendido`, exige que o
+  barbeiro o atenda. O que o distingue é a lista paralela `servicosBump`, que diz **quem veio pelo
+  bump** e portanto paga o preço promocional configurado.
 - **Produto**: vira uma venda de produto anexada ao `Atendimento` (mecanismo `ItemProdutoAtendido`,
   §3.9/§3.5) já na CRIAÇÃO do agendamento — o mesmo mecanismo do walk-in add-on que antes só
-  acontecia entre agendar e concluir, só que disponível também no funil público. Snapshot do preço
-  no momento (§3.5); sem desconto progressivo (regra é só de serviço); comissão de produto do
-  barbeiro se aplica normalmente quando o atendimento é concluído (evento `AtendimentoConcluido`,
-  §2.3, não distingue produto anexado na criação de produto anexado depois — o handler é o mesmo).
-- **Filtro óbvio:** um serviço complementar que o cliente já tem no carrinho nunca aparece de novo
-  na vitrine do bump (não insiste em oferecer barba se ele já pôs barba).
+  acontecia entre agendar e concluir. Snapshot do preço **efetivamente cobrado** (o promocional,
+  quando há oferta); a comissão de produto do barbeiro incide sobre esse valor efetivo, não sobre
+  o preço de tabela.
+- **Filtro óbvio:** um serviço complementar que o cliente já tem no carrinho não aparece na vitrine
+  — exceto o que ele adicionou pelo próprio bump, que continua visível porque é ali que ele remove.
+
+#### ★ Regra de preço do bump de serviço (decisão do dono, Parte 2)
+
+Um item do carrinho recebe **exatamente UMA** regra de preço, nunca duas:
+
+| Situação | Preço |
+|---|---|
+| Serviço escolhido na tela de serviços | preço do barbeiro (§3.2.2) + desconto progressivo (§3.2.3) |
+| Serviço do bump **com** preço promocional | o promocional, cravado — **fora** da escada progressiva |
+| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal (entra na escada) |
+
+O item promocional sai também da **contagem de posições** da escada. Se contasse, adicionar um
+item já descontado aprofundaria o desconto dos outros — desconto sobre desconto, em cascata, com
+o total dependendo de quem entrou primeiro. Fora da escada, o efeito de adicionar um bump é sempre
+exatamente "+ preço promocional", e nada mais no carrinho muda. Isso é o que torna o preço
+previsível para o dono e para o cliente.
+
+Duas travas fecham o resto:
+- `min(promocional, preço do barbeiro)` — promoção **nunca vira acréscimo**. Preço é por barbeiro,
+  então um promocional configurado sobre a referência da casa pode ficar acima do preço de um
+  barbeiro mais barato; nesse caso ele simplesmente não desconta nada.
+- O que se **persiste** é sempre o preço final em centavos, nunca o percentual (a UI aceita as duas
+  formas de entrada). Percentual persistido faria a oferta se mover sozinha quando o preço de
+  catálogo mudasse — mesma disciplina de `PacoteOferta` (§3.11).
+
+O cálculo mora numa função só, `precificarCarrinhoDoFunil` em `@bigods/contracts`, usada pelo funil
+e pela API — duas implementações seriam duas verdades sobre dinheiro.
+
+> **Mudança consciente em relação à Parte 1 desta mesma sessão:** ali valia "adicionar barba pelo
+> bump ou pela tela de serviços dá exatamente o mesmo preço". Com preço promocional por item, isso
+> deixa de valer **de propósito** — a oferta só existe no fechamento do pedido, e é justamente esse
+> o incentivo. O que continua valendo é o princípio por trás: **um item, uma regra de preço**.
 
 **Pagamento segue o agendamento, sempre recalculado ANTES de qualquer cobrança nascer.** Bump
 online entra na mesma transação que gera a `IntencaoDePagamento` e a cobrança PIX — o valor do QR
 já é agendamento + bumps, nunca um QR de serviços seguido de um ajuste fora dele. Bump presencial
 soma no valor a cobrar no balcão. Pacote não tem order-bump: é crédito pré-pago, sem `Atendimento`
 para anexar produto ou serviço complementar.
+
+**Remoção sem refazer o funil (Parte 2).** Adicionar e remover são o mesmo toque, na própria
+confirmação, e o total atualiza na hora. Depois que o QR já foi emitido, editar o carrinho por
+baixo dele cobraria o valor errado — então "Alterar meu pedido" **desfaz a tentativa** no servidor
+(`CancelarReservaOnlineUseCase`): expira a intenção (o QR antigo morre) e libera a reserva do
+horário, na mesma transação — a mesma dupla atômica de `ExpirarPagamentoVencidoUseCase`, só que
+disparada por decisão do cliente em vez de por timeout. Confirmar de novo emite um QR novo pelo
+valor certo. Reserva já **paga** não é cancelável por aí: dinheiro que entrou é outro fluxo.
 
 Depois de tudo — inclusive depois da confirmação do avulso, na tela de sucesso — o funil também
 mostra o Bigod's Club (§8.11): o order-bump vende mais na MESMA visita; o clube, no fim, é a
