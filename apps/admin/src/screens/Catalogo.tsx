@@ -1,16 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ProdutoDTO, ServicoDTO, UsuarioDTO } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dinheiro } from '../lib/format';
-import { Badge, BotaoAtualizar, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { CurrencyInput, Dialog, Tabs, useApi } from '../components/ui';
+import { CabecalhoDeCatalogo, EstadoDaLista, ItemDeCatalogo, type AcaoDeItem } from '../components/crud';
 
 type Aba = 'servicos' | 'produtos';
 
 /**
- * PARTE 2 (sessão-D) — reorganização pura. "O que a barbearia oferece e por
- * quanto, no geral" (preço de REFERÊNCIA da casa) — antes vivia dentro de
- * Ajustes; nenhuma lógica/endpoint mudou, só o agrupamento visual.
+ * "O que a barbearia oferece e por quanto, no geral" (preço de REFERÊNCIA da
+ * casa). Sessão 2026-08-17 (Parte 1): CRUD completo e padronizado — serviços e
+ * produtos usam o MESMO componente de linha/menu de ações (`components/crud`),
+ * e a configuração de order-bump saiu daqui para a seção "Funil de Vendas"
+ * (era um botão solto no meio do catálogo, que é assunto de merchandising, não
+ * de cadastro).
  */
 export function Catalogo({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
@@ -45,223 +49,274 @@ export function Catalogo({ usuario }: { usuario: UsuarioDTO }) {
 
 function Servicos() {
   const { dados, erro, carregando, recarregar } = useApi(() => api<ServicoDTO[]>('/servicos'), []);
-  const [novoAberto, setNovoAberto] = useState(false);
-  const [nome, setNome] = useState('');
-  const [precoCentavos, setPrecoCentavos] = useState(0);
-  const [duracao, setDuracao] = useState('30');
-  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
-  const [editandoPrecoId, setEditandoPrecoId] = useState<string | null>(null);
-  const [precoEditado, setPrecoEditado] = useState(0);
-  const [salvandoPreco, setSalvandoPreco] = useState(false);
-
-  const criar = async () => {
-    setErroSalvar(null);
-    try {
-      await api('/servicos', {
-        method: 'POST',
-        body: { nome, precoAvulsoCentavos: precoCentavos, duracaoMinutos: parseInt(duracao, 10) },
-      });
-      setNovoAberto(false);
-      setNome('');
-      setPrecoCentavos(0);
-      recarregar();
-    } catch (e) {
-      setErroSalvar(String((e as Error).message));
-    }
-  };
+  const [editando, setEditando] = useState<ServicoDTO | null>(null);
+  const [criando, setCriando] = useState(false);
 
   const alternarAtivo = async (s: ServicoDTO) => {
     await api(`/servicos/${s.id}`, { method: 'PATCH', body: { ativo: !s.ativo } });
     recarregar();
   };
 
-  /**
-   * Order-bump: "este serviço aparece como sugestão de complemento na
-   * confirmação do funil". Lista curada aqui mesmo, sem tela nova — mesmo
-   * toggle simples de Ativo/Inativo.
-   */
-  const alternarBump = async (s: ServicoDTO) => {
-    await api(`/servicos/${s.id}`, { method: 'PATCH', body: { sugeridoNoBump: !s.sugeridoNoBump } });
-    recarregar();
-  };
-
-  const salvarPreco = async (id: string) => {
-    setSalvandoPreco(true);
-    try {
-      await api(`/servicos/${id}`, { method: 'PATCH', body: { precoAvulsoCentavos: precoEditado } });
-      setEditandoPrecoId(null);
-      recarregar();
-    } finally {
-      setSalvandoPreco(false);
-    }
-  };
+  const acoes = (s: ServicoDTO): AcaoDeItem[] => [
+    { label: 'Editar', onClick: () => setEditando(s) },
+    // Soft-disable: nunca deleta — atendimento histórico referencia o serviço.
+    s.ativo
+      ? { label: 'Desativar', onClick: () => void alternarAtivo(s), perigo: true }
+      : { label: 'Reativar', onClick: () => void alternarAtivo(s) },
+  ];
 
   return (
     <div className="mb-5">
-      <div className="flex items-center justify-between mb-2">
-        <div className="label m-0">Serviços</div>
-        <div className="flex gap-2 items-center">
-          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-          <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
-            + Novo
-          </button>
-        </div>
-      </div>
-      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-        Preço de referência da casa — cada barbeiro pode ter um override próprio (aba Barbeiros).
-        "No order-bump" sugere este serviço como complemento na confirmação do funil (o cliente já
-        selecionado não vê a sugestão do que já escolheu).
-      </div>
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum serviço cadastrado." />}
+      <CabecalhoDeCatalogo
+        descricao={
+          <>
+            Preço de referência da casa — cada barbeiro pode ter um override próprio (aba
+            Usuários). Sugestão no funil agora se configura em <strong>Funil de Vendas</strong>.
+          </>
+        }
+        carregando={carregando}
+        aoAtualizar={recarregar}
+        aoCriar={() => setCriando(true)}
+        rotuloCriar="+ Novo serviço"
+      />
+      <EstadoDaLista
+        carregando={carregando}
+        erro={erro}
+        vazio={(dados ?? []).length === 0}
+        textoVazio="Nenhum serviço cadastrado."
+        aoTentar={recarregar}
+      />
       <div className="flex flex-col gap-2">
         {(dados ?? []).map((s) => (
-          <div key={s.id} className="card flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-[14px] font-bold">{s.nome}</div>
-              {editandoPrecoId === s.id ? (
-                <div className="flex items-center gap-2 mt-1">
-                  <CurrencyInput centavos={precoEditado} onChange={setPrecoEditado} style={{ width: 110 }} />
-                  <button className="btn btn-sm" disabled={salvandoPreco || precoEditado <= 0} onClick={() => salvarPreco(s.id)}>
-                    Salvar
-                  </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setEditandoPrecoId(null)}>
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  {dinheiro(s.precoAvulsoCentavos)} · {s.duracaoMinutos} min
-                </div>
-              )}
-            </div>
-            {editandoPrecoId !== s.id && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {s.sugeridoNoBump && <Badge tone="gold">No order-bump</Badge>}
-                <Badge tone={s.ativo ? 'success' : 'neutral'}>{s.ativo ? 'Ativo' : 'Inativo'}</Badge>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    setEditandoPrecoId(s.id);
-                    setPrecoEditado(s.precoAvulsoCentavos);
-                  }}
-                >
-                  Editar preço
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => alternarBump(s)}>
-                  {s.sugeridoNoBump ? 'Tirar do bump' : 'Sugerir no bump'}
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(s)}>
-                  {s.ativo ? 'Desativar' : 'Reativar'}
-                </button>
-              </div>
-            )}
-          </div>
+          <ItemDeCatalogo
+            key={s.id}
+            titulo={s.nome}
+            subtitulo={`${dinheiro(s.precoAvulsoCentavos)} · ${s.duracaoMinutos} min`}
+            badges={[{ tone: s.ativo ? 'success' : 'neutral', texto: s.ativo ? 'Ativo' : 'Inativo' }]}
+            acoes={acoes(s)}
+          />
         ))}
       </div>
-      <Dialog open={novoAberto} onClose={() => setNovoAberto(false)} title="Novo serviço">
-        <div className="flex flex-col gap-3">
-          <input className="input" placeholder="Nome" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} placeholder="Preço (R$)" />
-          <input
-            className="input"
-            type="number"
-            placeholder="Duração (min)"
-            value={duracao}
-            onChange={(e) => setDuracao(e.target.value)}
-          />
-          {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}
-          <button className="btn" disabled={!nome || precoCentavos <= 0 || !duracao} onClick={criar}>
-            Salvar serviço
-          </button>
-        </div>
-      </Dialog>
+      <ServicoDialog
+        aberto={criando || !!editando}
+        editando={editando}
+        aoFechar={() => {
+          setCriando(false);
+          setEditando(null);
+        }}
+        aoSalvar={() => {
+          setCriando(false);
+          setEditando(null);
+          recarregar();
+        }}
+      />
     </div>
+  );
+}
+
+/** Um diálogo só para criar E editar — os campos são os mesmos. */
+function ServicoDialog({
+  aberto,
+  editando,
+  aoFechar,
+  aoSalvar,
+}: {
+  aberto: boolean;
+  editando: ServicoDTO | null;
+  aoFechar: () => void;
+  aoSalvar: () => void;
+}) {
+  const [nome, setNome] = useState('');
+  const [precoCentavos, setPrecoCentavos] = useState(0);
+  const [duracao, setDuracao] = useState('30');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!aberto) return;
+    setErro(null);
+    setNome(editando?.nome ?? '');
+    setPrecoCentavos(editando?.precoAvulsoCentavos ?? 0);
+    setDuracao(String(editando?.duracaoMinutos ?? 30));
+  }, [aberto, editando]);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    const corpo = {
+      nome: nome.trim(),
+      precoAvulsoCentavos: precoCentavos,
+      duracaoMinutos: parseInt(duracao, 10),
+    };
+    try {
+      if (editando) {
+        await api(`/servicos/${editando.id}`, { method: 'PATCH', body: corpo });
+      } else {
+        await api('/servicos', { method: 'POST', body: corpo });
+      }
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const minutos = parseInt(duracao, 10);
+  const invalido = !nome.trim() || precoCentavos <= 0 || !Number.isFinite(minutos) || minutos <= 0;
+
+  return (
+    <Dialog open={aberto} onClose={aoFechar} title={editando ? `Editar ${editando.nome}` : 'Novo serviço'}>
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className="label">Nome</label>
+          <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Preço de referência</label>
+          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} />
+        </div>
+        <div>
+          <label className="label">Duração (min)</label>
+          <input className="input" type="number" value={duracao} onChange={(e) => setDuracao(e.target.value)} />
+          {editando && (
+            <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Vale só para agendamentos novos — quem já tem horário marcado mantém o bloco reservado.
+            </div>
+          )}
+        </div>
+        {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+        <button className="btn" disabled={salvando || invalido} onClick={salvar}>
+          {salvando ? 'Salvando…' : 'Salvar serviço'}
+        </button>
+      </div>
+    </Dialog>
   );
 }
 
 function Produtos() {
   const { dados, erro, carregando, recarregar } = useApi(() => api<ProdutoDTO[]>('/produtos'), []);
-  const [novoAberto, setNovoAberto] = useState(false);
-  const [nome, setNome] = useState('');
-  const [precoCentavos, setPrecoCentavos] = useState(0);
-  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
-
-  const criar = async () => {
-    setErroSalvar(null);
-    try {
-      await api('/produtos', { method: 'POST', body: { nome, precoCentavos } });
-      setNovoAberto(false);
-      setNome('');
-      setPrecoCentavos(0);
-      recarregar();
-    } catch (e) {
-      setErroSalvar(String((e as Error).message));
-    }
-  };
+  const [editando, setEditando] = useState<ProdutoDTO | null>(null);
+  const [criando, setCriando] = useState(false);
 
   const alternarAtivo = async (p: ProdutoDTO) => {
     await api(`/produtos/${p.id}`, { method: 'PATCH', body: { ativo: !p.ativo } });
     recarregar();
   };
 
-  /** Order-bump: mesmo mecanismo de Servicos() acima — "sugerir: sim/não". */
-  const alternarBump = async (p: ProdutoDTO) => {
-    await api(`/produtos/${p.id}`, { method: 'PATCH', body: { sugeridoNoBump: !p.sugeridoNoBump } });
-    recarregar();
-  };
+  const acoes = (p: ProdutoDTO): AcaoDeItem[] => [
+    { label: 'Editar', onClick: () => setEditando(p) },
+    p.ativo
+      ? { label: 'Desativar', onClick: () => void alternarAtivo(p), perigo: true }
+      : { label: 'Reativar', onClick: () => void alternarAtivo(p) },
+  ];
 
   return (
     <div className="mb-5">
-      <div className="flex items-center justify-between mb-2">
-        <div className="label m-0">Produtos</div>
-        <div className="flex gap-2 items-center">
-          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-          <button className="btn btn-sm" onClick={() => setNovoAberto(true)}>
-            + Novo
-          </button>
-        </div>
-      </div>
-      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-        Venda mínima, sem controle de estoque — só nome, preço e ativo/inativo. "No order-bump"
-        sugere este produto na confirmação do funil ("Adicione à sua visita").
-      </div>
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum produto cadastrado." />}
+      <CabecalhoDeCatalogo
+        descricao={
+          <>
+            Venda mínima, sem controle de estoque — só nome, preço e ativo/inativo. Sugestão no
+            funil se configura em <strong>Funil de Vendas</strong>.
+          </>
+        }
+        carregando={carregando}
+        aoAtualizar={recarregar}
+        aoCriar={() => setCriando(true)}
+        rotuloCriar="+ Novo produto"
+      />
+      <EstadoDaLista
+        carregando={carregando}
+        erro={erro}
+        vazio={(dados ?? []).length === 0}
+        textoVazio="Nenhum produto cadastrado."
+        aoTentar={recarregar}
+      />
       <div className="flex flex-col gap-2">
         {(dados ?? []).map((p) => (
-          <div key={p.id} className="card flex items-center justify-between">
-            <div>
-              <div className="text-[14px] font-bold">{p.nome}</div>
-              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                {dinheiro(p.precoCentavos)}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {p.sugeridoNoBump && <Badge tone="gold">No order-bump</Badge>}
-              <Badge tone={p.ativo ? 'success' : 'neutral'}>{p.ativo ? 'Ativo' : 'Inativo'}</Badge>
-              <button className="btn btn-ghost btn-sm" onClick={() => alternarBump(p)}>
-                {p.sugeridoNoBump ? 'Tirar do bump' : 'Sugerir no bump'}
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(p)}>
-                {p.ativo ? 'Desativar' : 'Reativar'}
-              </button>
-            </div>
-          </div>
+          <ItemDeCatalogo
+            key={p.id}
+            titulo={p.nome}
+            subtitulo={dinheiro(p.precoCentavos)}
+            badges={[{ tone: p.ativo ? 'success' : 'neutral', texto: p.ativo ? 'Ativo' : 'Inativo' }]}
+            acoes={acoes(p)}
+          />
         ))}
       </div>
-      <Dialog open={novoAberto} onClose={() => setNovoAberto(false)} title="Novo produto">
-        <div className="flex flex-col gap-3">
-          <input className="input" placeholder="Nome" value={nome} onChange={(e) => setNome(e.target.value)} />
-          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} placeholder="Preço (R$)" />
-          {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}
-          <button className="btn" disabled={!nome || precoCentavos <= 0} onClick={criar}>
-            Salvar produto
-          </button>
-        </div>
-      </Dialog>
+      <ProdutoDialog
+        aberto={criando || !!editando}
+        editando={editando}
+        aoFechar={() => {
+          setCriando(false);
+          setEditando(null);
+        }}
+        aoSalvar={() => {
+          setCriando(false);
+          setEditando(null);
+          recarregar();
+        }}
+      />
     </div>
+  );
+}
+
+function ProdutoDialog({
+  aberto,
+  editando,
+  aoFechar,
+  aoSalvar,
+}: {
+  aberto: boolean;
+  editando: ProdutoDTO | null;
+  aoFechar: () => void;
+  aoSalvar: () => void;
+}) {
+  const [nome, setNome] = useState('');
+  const [precoCentavos, setPrecoCentavos] = useState(0);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!aberto) return;
+    setErro(null);
+    setNome(editando?.nome ?? '');
+    setPrecoCentavos(editando?.precoCentavos ?? 0);
+  }, [aberto, editando]);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    const corpo = { nome: nome.trim(), precoCentavos };
+    try {
+      if (editando) {
+        await api(`/produtos/${editando.id}`, { method: 'PATCH', body: corpo });
+      } else {
+        await api('/produtos', { method: 'POST', body: corpo });
+      }
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Dialog open={aberto} onClose={aoFechar} title={editando ? `Editar ${editando.nome}` : 'Novo produto'}>
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className="label">Nome</label>
+          <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Preço</label>
+          <CurrencyInput centavos={precoCentavos} onChange={setPrecoCentavos} />
+        </div>
+        {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+        <button className="btn" disabled={salvando || !nome.trim() || precoCentavos <= 0} onClick={salvar}>
+          {salvando ? 'Salvando…' : 'Salvar produto'}
+        </button>
+      </div>
+    </Dialog>
   );
 }

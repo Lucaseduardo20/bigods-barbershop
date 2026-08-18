@@ -5,7 +5,6 @@ import type {
   ItemDoPacoteDTO,
   PacoteOfertaDTO,
   ServicoDTO,
-  SolicitacaoDeReembolsoDTO,
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
@@ -15,6 +14,7 @@ import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, BotaoAtualizar, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { CabecalhoDeCatalogo, EstadoDaLista, ItemDeCatalogo, type AcaoDeItem } from '../components/crud';
 import { idEfetivo } from '../lib/selecao';
 
 const toneItem: Record<StatusItemPacote, string> = {
@@ -41,14 +41,12 @@ const tonePagamento: Record<StatusPagamento, string> = {
 type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
 
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
-  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [aba, setAba] = useState<Aba>('vendidos');
-  // Reembolso é decisão de admin (backend: @Papeis(ADMIN) em /pacotes/reembolsos/*)
-  // — sem a aba, nunca mostra um botão que ia dar 403.
+  // Reembolsos saiu daqui na sessão 2026-08-17 (Parte 1) — dinheiro é assunto
+  // do Financeiro. Ver screens/Reembolsos.tsx.
   const tabs = [
     { value: 'vendidos' as const, label: 'Vendidos' },
     { value: 'catalogo' as const, label: 'Catálogo de ofertas' },
-    ...(ehAdmin ? [{ value: 'reembolsos' as const, label: 'Reembolsos' }] : []),
   ];
 
   return (
@@ -58,67 +56,6 @@ export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
       <div className="mt-3">
         {aba === 'vendidos' && <PacotesVendidos usuario={usuario} />}
         {aba === 'catalogo' && <CatalogoDeOfertas usuario={usuario} />}
-        {aba === 'reembolsos' && ehAdmin && <ReembolsosPendentes />}
-      </div>
-    </div>
-  );
-}
-
-/**
- * FASE 4b (sessão-E, §8.7): fila de pedidos de reembolso manual — o dinheiro
- * já saiu do saldo residual do cliente na hora do pedido (reservado); aqui o
- * admin só confirma que devolveu por fora (PIX). Sem gateway, sem estorno
- * automático.
- */
-function ReembolsosPendentes() {
-  const tz = useTimezone();
-  const [confirmando, setConfirmando] = useState<string | null>(null);
-  const { dados, erro, carregando, recarregar } = useApi(
-    () => api<SolicitacaoDeReembolsoDTO[]>('/pacotes/reembolsos/pendentes'),
-    [],
-  );
-
-  const confirmar = async (id: string) => {
-    setConfirmando(id);
-    try {
-      await api(`/pacotes/reembolsos/${id}/confirmar`, { method: 'POST' });
-      recarregar();
-    } finally {
-      setConfirmando(null);
-    }
-  };
-
-  return (
-    <div>
-      <div className="flex justify-end mb-2">
-        <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-      </div>
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum reembolso pendente." />}
-      <div className="flex flex-col gap-2.5">
-        {(dados ?? []).map((s) => (
-          <div key={s.id} className="card">
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="font-bold text-[14px]">{s.cliente.nome}</div>
-                <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  pedido em {dataCurta(s.criadaEm, tz)} · prazo era até {dataCurta(s.prazoLimiteEm, tz)}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="font-bold text-[16px]">{dinheiro(s.valorCentavos)}</div>
-              </div>
-            </div>
-            <button
-              className="btn btn-sm mt-2"
-              disabled={confirmando === s.id}
-              onClick={() => confirmar(s.id)}
-            >
-              {confirmando === s.id ? 'Confirmando…' : 'Marcar como reembolsado (PIX enviado)'}
-            </button>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -560,29 +497,25 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
-          {ehAdmin ? 'Catálogo de toda a barbearia.' : 'Suas ofertas — cada barbeiro tem o próprio catálogo.'}
-        </div>
-        <div className="flex gap-2 items-center flex-shrink-0">
-          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-          <button
-            className="btn btn-sm"
-            disabled={barbeirosQueAtendem.length === 0 || servicos.length === 0}
-            onClick={() => {
-              setEditando(null);
-              setAberto(true);
-            }}
-          >
-            + Nova
-          </button>
-        </div>
-      </div>
-      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-        Composição pode misturar serviços diferentes. O preço é sempre o que se salva — o
-        percentual de desconto exibido é calculado a partir dele, nunca o contrário. Toda oferta
-        nova entra como Pendente — só depois de Aprovada aparece no funil público.
-      </div>
+      <CabecalhoDeCatalogo
+        descricao={
+          <>
+            {ehAdmin ? 'Catálogo de toda a barbearia. ' : 'Suas ofertas. '}
+            Composição pode misturar serviços diferentes; o preço é sempre o que se salva (o
+            percentual é derivado dele). Oferta nova entra como Pendente — só aparece no funil
+            depois de Aprovada. Todo cliente vê todas as ofertas aprovadas, independente do
+            barbeiro escolhido.
+          </>
+        }
+        carregando={carregando}
+        aoAtualizar={recarregar}
+        criarDesabilitado={barbeirosQueAtendem.length === 0 || servicos.length === 0}
+        rotuloCriar="+ Nova oferta"
+        aoCriar={() => {
+          setEditando(null);
+          setAberto(true);
+        }}
+      />
 
       {pendentes.length > 0 && (
         <div className="card mb-3" style={{ borderStyle: 'dashed', borderColor: 'var(--status-warning)' }}>
@@ -609,54 +542,75 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
         </div>
       )}
 
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && ofertasVisiveis.length === 0 && <Vazio texto="Nenhuma oferta de pacote cadastrada." />}
+      <EstadoDaLista
+        carregando={carregando}
+        erro={erro}
+        vazio={ofertasVisiveis.length === 0}
+        textoVazio="Nenhuma oferta de pacote cadastrada."
+        aoTentar={recarregar}
+      />
       <div className="flex flex-col gap-2">
         {ofertasVisiveis.map((o) => {
           const podeEditar = ehAdmin || o.barbeiroId === usuario.barbeiroId;
+          const aprovada = o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO;
+          const pendente = o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO;
+          // Mesmo menu de ações de serviços/produtos (components/crud) —
+          // aprovar/rejeitar entram nele quando fazem sentido, em vez de virar
+          // mais dois botões soltos empurrando o card.
+          const acoes: AcaoDeItem[] = [
+            ...(podeEditar
+              ? [
+                  {
+                    label: 'Editar',
+                    onClick: () => {
+                      setEditando(o);
+                      setAberto(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(ehAdmin && pendente
+              ? [
+                  { label: 'Aprovar', onClick: () => void aprovar(o) },
+                  { label: 'Rejeitar', onClick: () => setRejeitando(o), perigo: true },
+                ]
+              : []),
+            ...(podeEditar && aprovada
+              ? [
+                  o.ativo
+                    ? { label: 'Desativar', onClick: () => void alternarAtivo(o), perigo: true }
+                    : { label: 'Reativar', onClick: () => void alternarAtivo(o) },
+                ]
+              : []),
+          ];
           return (
-            <div key={o.id} className="card">
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[14px] font-bold">{o.nome}</div>
-                <div className="flex items-center gap-2">
-                  {/* Um estado só por vez: Ativo/Inativo só é mostrado quando
-                      APROVADO — é o único status em que essa flag tem efeito
-                      visível (só oferta aprovada aparece no funil público).
-                      Mostrar "Ativo" ao lado de "Rejeitado"/"Pendente" é o
-                      que causava o badge contraditório. */}
-                  <Badge tone={toneAprovacao[o.statusAprovacao]}>{labelAprovacao[o.statusAprovacao]}</Badge>
-                  {o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO && (
-                    <Badge tone={o.ativo ? 'success' : 'neutral'}>{o.ativo ? 'Ativo' : 'Inativo'}</Badge>
-                  )}
-                  {podeEditar && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        setEditando(o);
-                        setAberto(true);
-                      }}
-                    >
-                      Editar
-                    </button>
-                  )}
-                  {podeEditar && o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(o)}>
-                      {o.ativo ? 'Desativar' : 'Reativar'}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                dono: {o.barbeiroNome} · {o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')}
-              </div>
-              <div className="text-[13px] mt-1">
+            <ItemDeCatalogo
+              key={o.id}
+              titulo={o.nome}
+              subtitulo={
+                <>
+                  base de preço: {o.barbeiroNome} ·{' '}
+                  {o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')}
+                </>
+              }
+              badges={[
+                // Um estado só por vez: Ativo/Inativo só é mostrado quando
+                // APROVADO — é o único status em que essa flag tem efeito
+                // visível (só oferta aprovada aparece no funil público).
+                { tone: toneAprovacao[o.statusAprovacao], texto: labelAprovacao[o.statusAprovacao] },
+                ...(aprovada
+                  ? [{ tone: o.ativo ? 'success' : 'neutral', texto: o.ativo ? 'Ativo' : 'Inativo' }]
+                  : []),
+              ]}
+              acoes={acoes}
+            >
+              <div className="text-[13px] mt-1.5">
                 <strong>{dinheiro(o.precoCentavos)}</strong>
                 {o.economiaCentavos > 0 && (
                   <span style={{ color: 'var(--text-muted)' }}>
                     {' '}
-                    · avulso {dinheiro(o.precoAvulsoTotalCentavos)} · economia {o.economiaPercentual.toFixed(1)}% (base: preço do
-                    barbeiro dono)
+                    · avulso {dinheiro(o.precoAvulsoTotalCentavos)} · economia{' '}
+                    {o.economiaPercentual.toFixed(1)}%
                   </span>
                 )}
               </div>
@@ -665,7 +619,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
                   motivo da rejeição: {o.motivoRejeicao}
                 </div>
               )}
-            </div>
+            </ItemDeCatalogo>
           );
         })}
       </div>

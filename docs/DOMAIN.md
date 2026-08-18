@@ -160,6 +160,13 @@ Serviço oferecido pela barbearia.
 **Nota:** um `Servico` nunca é deletado, apenas desativado. Atendimentos históricos e itens de
 pacote referenciam serviços — deletar quebraria a auditoria.
 
+**Edição (nome, preço, duração):** todos editáveis, e nenhum reescreve o passado —
+`ItemAtendido` guarda `valorCobrado` e `duracaoMinutos` como snapshot (§3.5), então mudar o
+catálogo hoje só afeta agendamentos NOVOS. Renomear é seguro e desejável (é a mesma entidade,
+com o nome corrigido). Até 2026-08-17 o `PATCH` aceitava `nome` e o descartava em silêncio — o
+agregado não tinha `atualizarNome`; e duração não era editável. Corrigido na Parte 1 daquela
+sessão.
+
 ---
 
 ### 3.2 `Barbeiro` (raiz)

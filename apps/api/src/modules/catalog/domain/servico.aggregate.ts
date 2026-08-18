@@ -57,6 +57,30 @@ export class Servico extends AggregateRoot {
     this.props.precoAvulso = novoPreco;
   }
 
+  /**
+   * CRUD completo (sessão 2026-08-17, Parte 1): o controller já ACEITAVA `nome`
+   * no PATCH mas descartava em silêncio — não existia este método. Renomear é
+   * seguro para o histórico: `ItemAtendido` guarda `valorCobrado`/`duracao` como
+   * snapshot (§3.5) e referencia o serviço por id, então o nome novo aparece
+   * retroativamente nas telas (é a mesma entidade, corrigida), sem mexer em
+   * dinheiro nenhum.
+   */
+  atualizarNome(novoNome: string): void {
+    if (!novoNome.trim()) {
+      throw new InvarianteVioladaError('Serviço exige nome');
+    }
+    this.props.nome = novoNome.trim();
+  }
+
+  /**
+   * Duração só vale para agendamentos FUTUROS — `ItemAtendido.duracaoMinutos`
+   * é snapshot do que foi combinado, então atendimento já marcado mantém o
+   * bloco de agenda que reservou.
+   */
+  atualizarDuracao(novaDuracao: Duracao): void {
+    this.props.duracao = novaDuracao;
+  }
+
   /** Admin liga/desliga a sugestão no order-bump do funil — sem regra condicional, só sim/não. */
   definirSugeridoNoBump(valor: boolean): void {
     this.props.sugeridoNoBump = valor;

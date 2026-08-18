@@ -27,6 +27,7 @@ class CriarServicoDto {
 class AtualizarServicoDto {
   @IsOptional() @IsString() @MinLength(1) nome?: string;
   @IsOptional() @IsInt() @IsPositive() precoAvulsoCentavos?: number;
+  @IsOptional() @IsInt() @IsPositive() duracaoMinutos?: number;
   @IsOptional() @IsBoolean() ativo?: boolean;
   @IsOptional() @IsBoolean() sugeridoNoBump?: boolean;
 }
@@ -79,8 +80,14 @@ export class ServicosController {
     if (!servico || servico.companyId !== usuario.companyId) {
       throw new NotFoundException('Serviço não encontrado');
     }
+    // `nome` era aceito pelo DTO e descartado em silêncio até 2026-08-17 —
+    // o agregado não tinha `atualizarNome`. Corrigido junto do CRUD completo.
+    if (body.nome !== undefined) servico.atualizarNome(body.nome);
     if (body.precoAvulsoCentavos !== undefined) {
       servico.atualizarPreco(Dinheiro.deCentavos(body.precoAvulsoCentavos));
+    }
+    if (body.duracaoMinutos !== undefined) {
+      servico.atualizarDuracao(Duracao.deMinutos(body.duracaoMinutos));
     }
     if (body.ativo === true) servico.reativar();
     if (body.ativo === false) servico.desativar();

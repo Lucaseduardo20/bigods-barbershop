@@ -9,23 +9,35 @@ import { AtendimentoDetalheDialog } from '../components/AtendimentoDetalheDialog
 import { idEfetivo } from '../lib/selecao';
 import { Vales } from './Vales';
 import { Fechamento } from './Fechamento';
+import { Reembolsos } from './Reembolsos';
 
 /**
  * Sessão de vale/pagamento: "Comissão" virou "Financeiro" — extrato sozinho
  * não cobre mais tudo que diz respeito ao dinheiro do barbeiro. Sub-abas
  * (mesmo padrão de Catálogo/Pacotes — `Tabs`, sem router) em vez de crescer
  * o bottom-nav: Extrato (todo staff) | Vales (todo staff, escopo por papel
- * já é feito no backend) | Fechamento (só aparece pra admin).
+ * já é feito no backend) | Fechamento e Reembolsos (só aparecem pra admin).
+ *
+ * Sessão 2026-08-17 (Parte 1): Reembolsos veio de "Pacotes & Ofertas" — é
+ * dinheiro saindo da casa, pertence aqui. Só realocação de navegação; a regra
+ * de reembolso (§8.7) não mudou.
  */
-type SubAba = 'extrato' | 'vales' | 'fechamento';
+type SubAba = 'extrato' | 'vales' | 'fechamento' | 'reembolsos';
 
 export function Financeiro({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [subAba, setSubAba] = useState<SubAba>('extrato');
+  // Reembolso é decisão de admin (backend: @Papeis(ADMIN) em
+  // /pacotes/reembolsos/*) — sem a aba, nunca mostra caminho que dá 403.
   const tabs = [
     { value: 'extrato' as const, label: 'Extrato' },
     { value: 'vales' as const, label: 'Vales' },
-    ...(ehAdmin ? [{ value: 'fechamento' as const, label: 'Fechamento' }] : []),
+    ...(ehAdmin
+      ? [
+          { value: 'fechamento' as const, label: 'Fechamento' },
+          { value: 'reembolsos' as const, label: 'Reembolsos' },
+        ]
+      : []),
   ];
 
   return (
@@ -36,6 +48,7 @@ export function Financeiro({ usuario }: { usuario: UsuarioDTO }) {
         {subAba === 'extrato' && <Extrato usuario={usuario} />}
         {subAba === 'vales' && <Vales usuario={usuario} />}
         {subAba === 'fechamento' && ehAdmin && <Fechamento usuario={usuario} />}
+        {subAba === 'reembolsos' && ehAdmin && <Reembolsos />}
       </div>
     </div>
   );

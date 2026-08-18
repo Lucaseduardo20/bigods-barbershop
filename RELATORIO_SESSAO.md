@@ -2950,6 +2950,61 @@ build verde nos 5 pacotes.
    no fim — e que escolher um pacote ali abre uma compra nova, não mistura com o agendamento que
    acabou de fechar.
 
+## Reorganização do admin — Parte 1 (2026-08-17) ✅
+
+Suíte confirmada verde (566 API + 38 booking, 3 fusos) antes de tocar em qualquer código.
+Parte de baixo risco, feita e commitada **separadamente** da Parte 2 (order-bump rico) a pedido
+do dono — pra dar pra distinguir o que quebrou o quê.
+
+### 1a. CRUD de catálogo padronizado (serviços, produtos e ofertas)
+
+Antes, as três telas eram três variações visuais do mesmo CRUD, cada uma com botões soltos na
+linha ("Editar preço", "Desativar", "Sugerir no bump", "Aprovar", "Rejeitar") que iam empurrando o
+card conforme cresciam. Agora existe **um componente só** (`apps/admin/src/components/crud.tsx`):
+
+- `ItemDeCatalogo` — linha com anatomia fixa: título · subtítulo · badges · **um** menu "⋯".
+- `MenuDeAcoes` — as ações do item, fechando ao clicar fora/Esc.
+- `CabecalhoDeCatalogo` e `EstadoDaLista` — o topo (descrição + atualizar + "novo") e o trio
+  carregando/erro/vazio, que as três telas repetiam à mão.
+
+Serviços e produtos ganharam **editar de verdade**, num diálogo único que serve criar e editar.
+Ofertas de pacote passaram a usar a mesma linha e o mesmo menu — aprovar/rejeitar viraram itens
+do menu em vez de mais dois botões na linha. Nada deleta: a ação destrutiva continua sendo
+soft-disable (`ativo: false`), porque histórico de atendimento/comissão referencia o item.
+
+**Bug de backend encontrado no caminho:** `PATCH /servicos/:id` já **aceitava** `nome` no DTO e
+**descartava em silêncio** — o agregado `Servico` nunca teve `atualizarNome`. Duração não era
+editável de jeito nenhum. Os dois foram implementados (`atualizarNome`, `atualizarDuracao`), com
+teste e2e provando que editar o catálogo **não** reescreve atendimento já marcado (valor e duração
+são snapshot em `ItemAtendido`, §3.5).
+
+### 1b. Reembolsos: de "Pacotes & Ofertas" para o Financeiro
+
+Reembolso é dinheiro saindo da casa — pertence junto de comissão/vale/pagamento, não no meio do
+catálogo de pacotes. A tela virou `screens/Reembolsos.tsx` e é uma sub-aba do Financeiro (só
+admin, mesmo escopo de antes). **Nenhuma regra de reembolso mudou** — mesmo endpoint, mesmo caso
+de uso (§8.7); só o lugar onde o admin acessa.
+
+### 1c. Nova seção "Funil de Vendas"
+
+Nova aba (admin-only) que separa **merchandising do funil público** do **cadastro** em si. Nasce
+abrigando a configuração do order-bump, que antes era um botão solto dentro do CRUD de serviços e
+produtos — decidir "isto é oferecido no fechamento do pedido" é decisão de venda, não de cadastro,
+e ficava invisível ali no meio. Mostra serviços e produtos ativos separados por tipo, com contador
+de quantos itens estão na vitrine. É a casa onde a Parte 2 mora.
+
+Com 7 abas na barra de 430px, os rótulos foram encurtados ("Pacotes & Ofertas" → "Pacotes") e a
+`.bottom-nav` ganhou `min-width: 0` + ellipsis — sem isso um rótulo longo espremia os vizinhos e a
+barra deixava de dividir o espaço igualmente.
+
+### Testes (+8)
+
+3 de domínio (`Servico.atualizarNome` incluindo rejeição de nome vazio, `atualizarDuracao`) e 5
+e2e num arquivo dedicado (`catalogo-crud.e2e.spec.ts`): renomear funciona de verdade, duração é
+editável, borda recusa nome vazio/duração não-positiva, CRUD de produto com soft-disable, e o
+teste que importa — **editar o catálogo não mexe em atendimento já marcado**. **574 testes na
+API**, verdes nos 3 fusos; build verde nos 5 pacotes.
+
 ## Como rodar localmente
 
 ```bash

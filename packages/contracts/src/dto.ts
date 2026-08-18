@@ -48,6 +48,7 @@ export interface CriarServicoRequest {
 export interface AtualizarServicoRequest {
   nome?: string;
   precoAvulsoCentavos?: number;
+  duracaoMinutos?: number;
   ativo?: boolean;
   sugeridoNoBump?: boolean;
 }

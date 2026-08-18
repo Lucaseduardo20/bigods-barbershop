@@ -38,4 +38,24 @@ describe('Servico', () => {
     const s = Servico.criar(base);
     expect(() => s.atualizarPreco(Dinheiro.zero())).toThrow(InvarianteVioladaError);
   });
+
+  describe('CRUD completo (sessão 2026-08-17, Parte 1)', () => {
+    it('renomeia (o controller aceitava `nome` no PATCH e descartava em silêncio — não existia o método)', () => {
+      const s = Servico.criar(base);
+      s.atualizarNome('  Corte Degradê  ');
+      expect(s.nome).toBe('Corte Degradê');
+    });
+
+    it('rejeita renomear para vazio — mesma invariante da criação', () => {
+      const s = Servico.criar(base);
+      expect(() => s.atualizarNome('   ')).toThrow(InvarianteVioladaError);
+      expect(s.nome).toBe('Corte');
+    });
+
+    it('atualiza duração (vale só para agendamentos futuros — ItemAtendido guarda snapshot)', () => {
+      const s = Servico.criar(base);
+      s.atualizarDuracao(Duracao.deMinutos(45));
+      expect(s.duracao.minutos).toBe(45);
+    });
+  });
 });
