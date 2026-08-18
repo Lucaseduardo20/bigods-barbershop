@@ -3224,6 +3224,140 @@ escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
 8. **Troque a senha pelo próprio barbeiro:** errar a senha atual tem que recusar; acertando, a
    senha nova entra e a antiga para de funcionar.
 
+## OTP por SMS — Cognito + SMS Gate (2026-08-18) 🚧 aguardando teste real
+
+⚠️ **NÃO ESTÁ EM PRODUÇÃO NEM EM STAGING.** Está na branch `feat/otp-sms-cognito`. O merge só
+depois do teste com SMS real passar (roteiro no fim desta seção). Área de autenticação: se quebrar,
+ninguém entra.
+
+Suíte confirmada verde (616 API) antes de tocar em qualquer código.
+
+### Duas mudanças em relação ao prompt (decisões do dono)
+
+1. **Sem criptografia ponta-a-ponta** no SMS Gate. O conteúdo é um código de 6 dígitos, curto e de
+   uso único — se um dia trafegar link ou dado pessoal, reavaliar.
+2. **Nada mockado como entrega.** O código é o real, lendo credenciais reais. Os testes
+   automatizados mockam `fetch` — não por falta de credencial, mas porque cada SMS custa e gasta a
+   franquia do chip; CI disparando SMS a cada push seria dano, não cobertura.
+
+### O que foi feito
+
+**O adapter do Cognito já existia** (escrito em 2026-07-31, desligado do fluxo na mesma sessão —
+DECISOES #23). Retomei em vez de reescrever: a classe e seus 9 testes estavam intactos. O que
+faltava era religar (`identity.module.ts`), env vars, e trocar o canal de envio do Lambda.
+
+**Os 3 Lambda triggers** já existiam também. O `CreateAuthChallenge` enviava por **SNS**; troquei
+por **SMS Gate**. Efeito colateral bom: sumiu a dependência `@aws-sdk/client-sns`, então os Lambdas
+ficaram com **zero dependências npm** (usam o `fetch` global do Node 20). O deploy virou "colar dois
+arquivos no console da AWS" em vez de empacotar `node_modules`.
+
+**`infra/cognito-triggers/sms-gate.js`** — o cliente do SMS Gate: Basic Auth, normalização E.164,
+timeout com `AbortController`, e erro limpo (`SmsGateError`) em qualquer falha. O
+`CreateAuthChallenge` deixa esse erro **subir**: o Cognito recusa o login em vez de apresentar um
+desafio que o cliente nunca poderia responder — o mesmo princípio de "nunca um desafio órfão" que o
+monólito já seguia.
+
+### ★ Quem é a fonte de verdade do código OTP
+
+Depende do provider, e isso é deliberado:
+
+| Provider | Gera/guarda/confere | Nossa base (`DemoDesafioLogin`) |
+|---|---|---|
+| `cognito` | o **Cognito**, via os triggers | **não usada** nesse fluxo |
+| `whatsapp` / `demo` | **nós** (`OtpIdentityProviderBase`) | guarda hash, TTL, uso único, tentativas |
+
+**Nunca os dois.** Por isso o `CognitoIdentityProvider` não herda de `OtpIdentityProviderBase` — ele
+delega o desafio inteiro para a AWS, e o `desafio` que devolve é a `Session` opaca do Cognito. Dois
+sistemas de código competindo pelo mesmo login é a receita para "o código que chegou não é o que o
+servidor espera".
+
+Consequências operacionais com `cognito`: o limite de tentativas por desafio passa a ser o do
+`DefineAuthChallenge` (3), não o da nossa base (5); e **errar o código não dispara SMS novo** — o
+`CreateAuthChallenge` reaproveita o código entre tentativas da mesma sessão.
+
+### Fases 3 e 4: já estavam prontas
+
+Rastreei os dois pedidos e **ambos já tinham sido feitos na sessão de 2026-08-14** — não havia o que
+remover nem adicionar:
+
+- **Gate do `cognitoSub`:** já não existe. `IniciarLoginClienteUseCase` provisiona a identidade para
+  QUALQUER telefone antes de iniciar, e `OtpIdentityProviderBase.iniciarLogin` documenta em
+  comentário o gate removido e o "não reintroduzir". O único ramo parecido que sobra é defensivo:
+  `CognitoIdentityProvider.iniciarLogin` trata `UserNotFoundException` devolvendo desafio vazio,
+  para o caso de corrida/estado inconsistente no User Pool — não é gate, porque o provisionamento
+  acontece imediatamente antes.
+- **Rate limit por origem:** já existe (`@EnviaOtp()` + throttler `otp-origem`, com
+  `OTP_LIMITE_POR_ORIGEM_HORA`), somado ao limite por telefone. Com SMS ele ficou mais crítico do
+  que era: cada envio agora é dinheiro do chip, e o limite por telefone sozinho não impede varredura
+  (cada número novo ganha um balde próprio).
+
+### Env vars
+
+**Na API** (`.env`):
+
+| Var | Para quê |
+|---|---|
+| `IDENTITY_PROVIDER=cognito` | liga este fluxo |
+| `COGNITO_USER_POOL_ID` | User Pool já criado |
+| `COGNITO_CLIENT_ID` | App Client (sem client secret) |
+| `AWS_REGION` | região do pool |
+| `COGNITO_OTP_TTL_MINUTOS` | só exibição na UI (quem expira é o Cognito) |
+
+**Na Lambda `create-auth`** (console da AWS, não no servidor):
+
+| Var | Obrigatória |
+|---|---|
+| `SMS_GATE_USER` / `SMS_GATE_PASSWORD` | sim |
+| `SMS_GATE_ENDPOINT` / `SMS_GATE_TIMEOUT_MS` | não |
+
+> 🔐 **As credenciais do SMS Gate estavam no `.env.example`, que é versionado no git.** Movi para o
+> `.env` (que é gitignorado) e restaurei o `.env.example` com placeholders. Um `git add -A` teria
+> gravado usuário e senha no histórico do repositório, de onde não saem mais.
+
+### Testes (+27)
+
+14 do `sms-gate.js` (requisição montada, E.164 em 5 formatos, 401, 5xx, rede caída, timeout,
+credencial ausente, corpo ilegível) e 11 dos triggers — incluindo o **fluxo dos três juntos**:
+inicia → gera código → "recebe" o SMS → confere → emite tokens. Mais 2 no boot guard (`cognito`
+aceito em produção, `demo` ainda recusado). **643 testes na API**, verdes nos 3 fusos; build verde
+nos 5 pacotes.
+
+### 🔧 Publicar os Lambdas — passo a passo
+
+O guia completo está em **`infra/cognito-triggers/README.md`** (com os comandos de zip, os handlers
+de cada função, a policy IAM e o troubleshooting). Resumo:
+
+1. Criar 3 funções Lambda, runtime **Node.js 20.x** — sem `npm install`, sem `node_modules`.
+2. Na `create-auth`, subir **dois** arquivos (`create-auth-challenge.js` + `sms-gate.js`) e setar
+   `SMS_GATE_USER` / `SMS_GATE_PASSWORD`. Subir o **timeout para 15s** (o padrão de 3s é curto para
+   uma chamada HTTP externa).
+3. Ligar os 3 triggers no User Pool (Define / Create / Verify auth challenge).
+4. No App Client, marcar **ALLOW_CUSTOM_AUTH**. O client **não pode ter secret** (o adapter não
+   envia `SECRET_HASH`).
+5. Dar à role da API permissão `cognito-idp:AdminCreateUser` e `AdminSetUserPassword` no pool.
+6. `.env` da API: `IDENTITY_PROVIDER=cognito` + as 3 vars do pool. O boot deve logar
+   `IdentityProvider: Cognito (SMS via SMS Gate) — pool <id>`.
+
+### ★ Teste com SMS REAL (obrigatório antes do merge)
+
+Com um telefone que **nunca** usou o sistema — é justamente o cliente de primeira viagem que o gate
+antigo quebrava:
+
+1. Abrir o funil, escolher barbeiro e serviço, ir até a confirmação com **pagar na barbearia**
+   (esse caminho exige OTP).
+2. Digitar o telefone e confirmar. **O SMS tem que chegar no celular**, com um código de 6 dígitos.
+3. Digitar o código **errado** de propósito: tem que recusar **e não chegar um segundo SMS**.
+4. Digitar o código certo: entra, e o agendamento é criado.
+5. Conferir no banco que o `Cliente` ganhou `cognitoSub` preenchido (só na confirmação, nunca antes).
+6. Repetir o login pelo cockpit (`/conta`) com o mesmo telefone — deve pedir código e entrar.
+7. Errar 3 vezes seguidas: a autenticação tem que falhar (limite do `DefineAuthChallenge`).
+
+Se o SMS **não** chegar: CloudWatch da `create-auth` primeiro (erro de credencial/timeout aparece
+lá), depois o app no celular (rodando? com internet? chip ativo?), depois o painel do SMS Gate. O
+2xx do envio significa "o cloud aceitou e enfileirou", **não** "o SMS saiu" — ver DECISOES #37.
+
+**Só depois de 1–7 passarem: merge de `feat/otp-sms-cognito` → `staging` → produção.**
+
 ## Como rodar localmente
 
 ```bash

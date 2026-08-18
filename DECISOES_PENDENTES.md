@@ -650,3 +650,45 @@ novo**: é o barbeiro que o cliente escolheu na compra, a única trava de consum
 **O que falta decidir:** quando dropar `PacoteOferta.barbeiroId`. Sugestão: junto da limpeza do
 #35, depois de uma semana estável. Enquanto isso o risco é baixo (coluna morta, nulável), mas quem
 ler o schema pode achar que ainda vale.
+
+---
+
+## 37. Health check do device no SMS Gate — não implementado por falta de doc confiável (2026-08-18)
+
+O pedido incluía "reporte como detectar device offline (health check da doc) e trate". **Não
+implementei o health check automático**: tentei confirmar o caminho do endpoint na documentação
+oficial (docs.sms-gate.app, sms-gate.app/features/, o OpenAPI em api.sms-gate.app — este último
+exige autenticação) e **não consegui**. Chutar uma rota seria pior que não ter: um health check
+apontando para o lugar errado mente nas duas direções — diz "offline" quando está tudo bem, ou
+"tudo bem" quando o celular está desligado.
+
+**O que existe hoje, e é suficiente para não perder cliente:** o envio falha alto e limpo
+(`SmsGateError`) em timeout, credencial errada, 4xx/5xx e rede caída, e o `CreateAuthChallenge`
+deixa o erro subir — o Cognito recusa o login em vez de apresentar um desafio que o cliente nunca
+poderia responder. O que NÃO é detectado automaticamente: cloud aceitou (2xx) mas o celular está
+offline/sem chip, caso em que a mensagem fica pendente e ninguém recebe nada. O README de deploy
+tem o roteiro manual (CloudWatch → app no celular → painel do SMS Gate).
+
+**Para resolver de verdade:** confirmar na doc (ou por PoC, como foi feito com o endpoint de envio)
+o caminho do health/status e o enum de estados da mensagem; então dá para (a) checar o device antes
+de gerar o desafio, ou (b) consultar o estado da mensagem por id e alertar quando ficar pendente
+tempo demais.
+
+---
+
+## 38. Teste com SMS REAL — pendente, bloqueia o merge para produção (2026-08-18)
+
+Nada do fluxo Cognito+SMS Gate foi exercitado contra a AWS ou contra o SMS Gate de verdade: os
+Lambdas não estão publicados (o dono vai publicar) e todos os testes automatizados usam `fetch`
+mockado de propósito — cada SMS real custa e gasta a franquia do chip, então CI não pode disparar
+envio.
+
+**O que já está provado automaticamente:** a requisição montada (Basic Auth, E.164, corpo), o
+tratamento de falha (timeout, 401, 5xx, rede), o fluxo dos 3 triggers ponta a ponta com `fetch`
+mockado, o adapter do Cognito (SDK mockado) e o boot guard aceitando `cognito` em produção.
+
+**O que só o teste real prova:** que o User Pool está configurado com CUSTOM_AUTH e sem client
+secret, que as permissões IAM da API bastam, que o celular entrega o SMS, e que o código que chega
+é aceito. Roteiro passo a passo no RELATORIO_SESSAO.md.
+
+⚠️ **O merge para produção só depois desse teste passar.**
