@@ -39,7 +39,11 @@ Deve responder com **`"demoMode": true`**. Confira também que os três frontend
 **Dados do ambiente de QA** (seed, `prisma/seed.ts`):
 
 - Empresa: `bigods` · fuso `America/Sao_Paulo` · `pagamentoManualWhatsapp: true`
-- Serviços: **Corte** R$ 40,00 (30 min) · **Barba** R$ 30,00 (20 min)
+- Serviços (preço da CASA): **Corte** R$ 40,00 (30 min) · **Barba** R$ 30,00 (20 min)
+  > ⚠️ **O barbeiro pode ter preço próprio.** Erick Yan, por exemplo, cobra Corte R$ 44,99 e
+  > Barba R$ 29,99 (override por barbeiro, DOMAIN.md §3.2.2). **Nunca confira o total contra o
+  > preço da casa** — leia o preço que a tela mostra para o barbeiro escolhido e confira só a
+  > REGRA do desconto em cima dele.
 - Produtos: **Gel Fixador** R$ 15,00 · **Pomada Modeladora** R$ 35,00
 - Ofertas: **5 Cortes** R$ 170,00 · **4 Barbas** R$ 100,00 · **Combo Corte + Barba** R$ 120,00
 - Desconto progressivo: 2º item −R$ 10,00 · 3º −R$ 5,00 · 4º −R$ 10,00
@@ -114,7 +118,11 @@ imagem partida do navegador.
 Escolha **Erick Yan** → selecione **Corte + Barba**.
 
 **Passa se:** o resumo mostra desconto de **R$ 10,00** no 2º item, e o total é
-**R$ 60,00** (40 + 30 − 10). Adicione um 3º serviço, se houver, e confira −R$ 5,00.
+`preço do Corte + preço da Barba − 10,00` **usando os preços que a própria tela exibe**.
+Com o Erick (44,99 + 29,99): total **R$ 64,98**. Adicione um 3º serviço e confira −R$ 5,00.
+
+Confira também que o desconto é **rateado entre os itens** no resumo (ex.: 29,99 → 25,99 e
+44,99 → 38,99, somando exatamente o total).
 
 ### Caso 5 — Data e horário
 
