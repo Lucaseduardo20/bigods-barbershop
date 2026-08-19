@@ -712,3 +712,23 @@ testado; a flag só desvia a chamada num ponto (`CobrancaOnlineService.gerar()`)
 `comanda-whatsapp.ts`, `pagamento-manual.ts`, `PagamentoManualAguardando.tsx` e o ramo
 `pagamentoManual` dos dois casos de uso. Os endpoints de confirmação manual **ficam** — eles são
 do bug 8 (pagamento no balcão), não deste modo.
+
+---
+
+## 41. Um teste falhou uma vez e não reproduziu (2026-08-19)
+
+Numa corrida da suíte às 15:53, **1 de 727** falhou. Nas **5 corridas seguintes**, 727/727.
+Não sei qual era: o comando estava com `| tail -5`, que cortou justamente o nome do teste.
+
+**O que se sabe:** foi durante a sessão em que o graphify foi instalado, com o assistente
+disparando comandos em paralelo — os hooks novos sobem um processo Python (~208 ms) a cada
+`Bash`/`Grep`/`Read`/`Glob`. A hipótese mais provável é disputa de CPU com os 8 workers do
+vitest afetando algum e2e sensível a tempo, mas é hipótese, não diagnóstico.
+
+**Segunda hipótese:** os e2e derivam telefone/login de `String(Date.now()).slice(-6)`, que
+repete a cada ~16,7 min. Duas corridas separadas por um múltiplo exato disso colidiriam no
+banco. Improvável, mas é o tipo de coisa que falha uma vez em vinte.
+
+**O que fazer se voltar:** rodar `npx vitest run` SEM `| tail` e guardar a saída inteira — o
+nome do teste é o que falta. Com ele, dá para decidir entre estabilizar o teste ou tornar os
+sufixos realmente únicos (`randomUUID()` em vez de fatia de timestamp).

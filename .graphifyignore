@@ -1,0 +1,30 @@
+# Fora do grafo (2026-08-19). O `.gitignore` já é respeitado automaticamente —
+# aqui vai só o que é RASTREADO no git mas não deve ser indexado.
+#
+# Por que isto existe: a extração de código é 100% local (tree-sitter, nada sai
+# da máquina), mas a de DOCUMENTOS manda o conteúdo para um LLM. Qualquer
+# arquivo com segredo dentro tem que estar nesta lista antes de rodar a
+# passagem de docs.
+
+# ── Segredos ───────────────────────────────────────────────────────────────
+# Runbook de infra: hoje tem senha do RDS, AUTH_SECRET e token do WhatsApp
+# REAIS no working tree. Quando esses valores voltarem a ser
+# `$(openssl rand ...)`, remova esta linha — o runbook é justamente um dos
+# documentos que faz sentido no grafo.
+AWS_SETUP.md
+
+# Os *.example são versionados e, apesar do nome, carregam chave de sandbox e
+# webhook secret de verdade. Não têm valor de arquitetura no grafo.
+.env.example
+.env.aws.example
+.env.docker.example
+.env.frontends.example
+
+# ── Ruído ──────────────────────────────────────────────────────────────────
+# Migrations são SQL gerado pelo Prisma; a verdade do schema está em
+# prisma/schema.prisma, que fica no grafo.
+prisma/migrations/
+
+# Saída do próprio graphify — não indexar o mapa dentro do mapa.
+graphify-out/
+graph.json

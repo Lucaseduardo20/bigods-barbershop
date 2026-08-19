@@ -3540,6 +3540,96 @@ Com `PAGAMENTO_MANUAL_WHATSAPP=true` e o número da barbearia no `.env`, API rei
 Vire a flag para `false` e reinicie. Só isso. Ver DECISOES_PENDENTES #38 — inclusive a sugestão de
 **manter** o modo manual desligado por um tempo, como plano B se o gateway cair.
 
+## Grafo de conhecimento (graphify) — 2026-08-19 ✅
+
+Mapa consultável do código: quem chama o quê, o que depende de quê, que caminho liga A a B.
+Substitui o `grep` às cegas quando a pergunta é "onde isso acontece?".
+
+### O que foi instalado
+
+| O quê | Onde |
+|---|---|
+| `uv` 0.12.5 (gerenciador do pacote) | `~/.local/bin/` — binário oficial da Astral, checksum SHA-256 conferido |
+| `graphifyy` 0.9.47 (CLI `graphify`) | env isolado do `uv tool` |
+| Skill do assistente | `.claude/skills/graphify/` (escopo de PROJETO — versionado, o time recebe junto) |
+| Hooks `PreToolUse` | `.claude/settings.json` |
+| Grafo | `graphify-out/` |
+
+O pacote no PyPI é **`graphifyy`** (dois "y") — o nome `graphify` não existe lá. Não é typosquat:
+o próprio README avisa disso, e o `graphifyy` aponta de volta para o repo nos `project_urls`.
+
+### Decisões deste setup
+
+**Hooks portáteis.** O `graphify install` escreveu o caminho absoluto da máquina de quem instalou
+(`/home/<user>/.local/bin/graphify`) nos hooks. Como `.claude/settings.json` é versionado, na
+máquina de qualquer outro dev isso sai com exit 127 a cada `Grep`/`Read`. Trocado por
+`command -v graphify >/dev/null && graphify hook-guard … || true`: acha pelo PATH e vira no-op
+silencioso quando não está instalado.
+
+**Custo dos hooks: ~208 ms por chamada.** Cada `Bash`/`Grep`/`Read`/`Glob` do assistente passa
+pelo `graphify hook-guard`, que sobe um processo Python. Medido nesta máquina: ~208 ms por
+invocação. É o preço de o agente ser lembrado do grafo antes de sair grepando. Se incomodar,
+reduza o `matcher` em `.claude/settings.json` (por exemplo, só `Grep`) ou remova os hooks — o
+resto do setup continua funcionando, só deixa de haver o empurrão automático.
+
+**Extração `--code-only`.** Código é lido com tree-sitter, 100% local, zero chamada de API,
+**nada sai da máquina**. A passagem de *documentos* manda o conteúdo para um LLM — não foi
+rodada (ver "O que falta decidir" abaixo).
+
+**`.graphifyignore` com os segredos.** O `.gitignore` já é respeitado automaticamente, mas há
+arquivo **versionado** com segredo real dentro: `AWS_SETUP.md` (senha do RDS, `AUTH_SECRET`,
+token do WhatsApp) e os `.env*.example` (chave da AbacatePay, webhook secret). Todos excluídos.
+Conferido depois da extração: nenhum desses valores aparece em `graph.json` nem no relatório.
+Quando o `AWS_SETUP.md` for limpo, tire-o do `.graphifyignore` — o runbook é justamente um dos
+documentos que faz sentido no grafo.
+
+**`graph.html` fora do git.** O `graphify-out/` é versionado de propósito (quem clona já
+consulta, é o que faz o mapa ser do time e não de cada um), menos os 3,7 MB da visualização
+interativa: ela é regerada de graça em ~1 min e nenhuma ferramenta a lê. Sobram ~5,3 MB.
+
+**O grafo não substitui o DOMAIN.md.** Anotado no `CLAUDE.md`, fora da seção que o
+`graphify install` gerencia. O grafo sabe como o código **é**; o DOMAIN.md diz como ele
+**deveria ser**. Em conflito, DOMAIN.md vence — a regra não mudou.
+
+### Uso
+
+```bash
+graphify query "onde o desconto progressivo é calculado"   # navegar
+graphify explain "IntencaoDePagamento"                     # um conceito e suas 34 conexões
+graphify path "AgendarAvulsoUseCase" "IntencaoDePagamento"  # como A chega em B
+graphify update .                                          # depois de mexer no código (local, grátis)
+graphify extract . --code-only                             # reconstruir do zero (~1 min)
+```
+
+O `/graphify .` dentro do assistente faz a mesma coisa pela skill.
+
+O `path` é **dirigido** por padrão. Sem caminho, ele avisa e sugere `--undirected` — mas cuidado
+com o resultado não-dirigido: dois agregados quaisquer "se ligam" em 2 saltos por herdarem de
+`AggregateRoot`, o que é verdade e não significa nada. O caminho dirigido é o que responde
+"quem, de fato, chega em quem".
+
+### Estado do grafo
+
+3091 nós · 7840 arestas · 173 comunidades · 98% `EXTRACTED` / 2% `INFERRED` · 391 arquivos de
+código. Os hubs que ele elegeu sozinho são exatamente o domínio: `Atendimento`,
+`VendaDePacote`, `IntencaoDePagamento`, `PacoteOferta`, `Dinheiro`, `Telefone`, `Barbeiro`.
+
+### O que falta decidir
+
+**A passagem de documentos.** 29 documentos ficaram fora — incluindo o `DOMAIN.md`, que é a
+especificação de verdade. Indexá-los ligaria a spec ao código no mesmo grafo (o maior ganho
+possível para "bíblia do ecossistema"), mas:
+
+- o conteúdo dos `.md` é **enviado a um LLM** (pela skill, usando o modelo da sessão, ou headless
+  com `--backend claude` / uma API key);
+- consome token — 29 documentos, dos quais alguns são grandes (`RELATORIO_SESSAO.md` tem 3,4 mil
+  linhas);
+- e as comunidades também só ganham nome semântico ("Pagamentos e webhooks") com LLM. Hoje elas
+  levam o nome do hub, o que já é legível.
+
+Não rodei porque tem custo e manda conteúdo de vocês para fora. Para fazer depois:
+`/graphify .` no assistente, ou `graphify extract . --backend claude`.
+
 ## Como rodar localmente
 
 ```bash

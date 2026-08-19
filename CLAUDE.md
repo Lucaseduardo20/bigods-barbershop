@@ -80,3 +80,30 @@ Estoque/produtos · vale/saque/débito de barbeiro · isolamento multi-tenant di
 ## Quando a spec não cobrir algo
 
 Se uma decisão de regra de negócio não estiver no DOMAIN.md nem aqui: **não invente**. Implemente o mínimo que não bloqueia, marque com `// DECISAO_PENDENTE: <pergunta>` e registre no arquivo `DECISOES_PENDENTES.md` na raiz. Decisões de implementação (nome de variável, lib utilitária) você toma sozinho; decisões de domínio, não.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+### O grafo NÃO substitui o DOMAIN.md
+
+O texto acima é gerado pelo `graphify install` (não edite dentro daquela seção — a
+reinstalação sobrescreve). Esta parte é nossa e vale acima dele:
+
+O grafo indexa **código** — hoje com `--code-only`, então nenhum documento está lá
+dentro. Ele responde "quem chama o quê", "onde isto é usado", "que caminho liga A a B".
+Ele **não** conhece regra de negócio.
+
+- Para **navegar código**: `graphify query` antes de sair grepando. É mais rápido e traz
+  o subgrafo, não o arquivo inteiro.
+- Para **regra de negócio**: `docs/DOMAIN.md`, como sempre. Em conflito entre o grafo e o
+  DOMAIN.md, **DOMAIN.md vence** — a regra da primeira seção deste arquivo não mudou.
+
+Um grafo consultado no lugar do DOMAIN.md diria com muita confiança como o código É,
+justamente quando a pergunta é como ele DEVERIA ser.
