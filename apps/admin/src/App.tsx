@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import type { BarbeiroDTO, UsuarioDTO } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
-import { usuarioSalvo } from './lib/api';
+import { api, usuarioSalvo } from './lib/api';
 import { TimezoneProvider } from './lib/tz-context';
-import { BotaoSair } from './components/ui';
+import { BotaoSair, useApi } from './components/ui';
+import { Foto } from './components/FotoUpload';
 import { Login } from './screens/Login';
+import { Home } from './screens/Home';
 import { Agenda } from './screens/Agenda';
 import { Usuarios } from './screens/Usuarios';
 import { Catalogo } from './screens/Catalogo';
@@ -28,9 +31,10 @@ import { Ajustes } from './screens/Ajustes';
 // (Catálogo) — a config de bump vivia como botão solto dentro do CRUD de
 // serviços/produtos. Reembolsos saiu de "Pacotes & Ofertas" e foi pro
 // Financeiro, onde mora o resto do dinheiro (comissão/vale/pagamento).
-type Aba = 'agenda' | 'usuarios' | 'catalogo' | 'funil' | 'pacotes' | 'financeiro' | 'ajustes';
+type Aba = 'home' | 'agenda' | 'usuarios' | 'catalogo' | 'funil' | 'pacotes' | 'financeiro' | 'ajustes';
 
 const icones: Record<Aba, string> = {
+  home: '🏠',
   agenda: '📅',
   usuarios: '👤',
   catalogo: '🗂️',
@@ -39,9 +43,14 @@ const icones: Record<Aba, string> = {
   financeiro: '💰',
   ajustes: '⚙️',
 };
-// Rótulos curtos: com 7 abas na barra de 430px, nome longo espremia os
-// vizinhos (ver `.bottom-nav button` no index.css — min-width:0 + ellipsis).
+// Rótulos curtos: com 8 abas (a Home entrou em 2026-08-19) numa barra de 390px,
+// sobram ~48px por item e nome longo é truncado com reticências — "Usuári…",
+// "Catálo…", "Financ…" (ver `.bottom-nav button` no index.css: min-width:0 +
+// ellipsis). Já era assim com 7; a Home apertou mais. Se incomodar, o caminho é
+// encurtar rótulo ("Financeiro" → "Caixa"), não voltar a esconder abas —
+// esconder aba de quem tem acesso é o oposto do que decidimos em 2026-08-18.
 const rotulos: Record<Aba, string> = {
+  home: 'Início',
   agenda: 'Agenda',
   usuarios: 'Usuários',
   catalogo: 'Catálogo',
@@ -65,14 +74,29 @@ const rotulos: Record<Aba, string> = {
 // comum (Usuários, Catálogo, Funil de Vendas). Controle real continua nos
 // guards do backend; esconder aba/seção é só não oferecer caminho morto/botão
 // que dá 403.
-const ABAS_ADMIN: Aba[] = ['agenda', 'usuarios', 'catalogo', 'funil', 'pacotes', 'financeiro', 'ajustes'];
-const ABAS_BARBEIRO_NAO_ADMIN: Aba[] = ['agenda', 'pacotes', 'financeiro', 'ajustes'];
+const ABAS_ADMIN: Aba[] = ['home', 'agenda', 'usuarios', 'catalogo', 'funil', 'pacotes', 'financeiro', 'ajustes'];
+const ABAS_BARBEIRO_NAO_ADMIN: Aba[] = ['home', 'agenda', 'pacotes', 'financeiro', 'ajustes'];
+
+/**
+ * Avatar do header. Busca a foto uma vez por sessão do app; enquanto não chega,
+ * mostra as iniciais — nunca um buraco nem um "carregando" no cabeçalho.
+ */
+function FotoDoUsuario({ usuario }: { usuario: UsuarioDTO }) {
+  const { dados } = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const eu = (dados ?? []).find((b) => b.id === usuario.barbeiroId);
+  return <Foto url={eu?.fotoUrl ?? null} nome={usuario.nome} size={36} />;
+}
 
 export default function App() {
   const [usuario, setUsuario] = useState(usuarioSalvo());
   const ehAdmin = usuario?.papeis.includes(Papel.ADMIN) ?? false;
   const abas = ehAdmin ? ABAS_ADMIN : ABAS_BARBEIRO_NAO_ADMIN;
-  const [aba, setAba] = useState<Aba>('agenda');
+  // A HOME é a primeira tela depois do login (2026-08-19). As demais seções
+  // continuam exatamente onde estavam — só mudou por onde se começa.
+  const [aba, setAba] = useState<Aba>('home');
+  // Walk-in disparado pela Home: navega pra Agenda com o diálogo já aberto,
+  // reusando o fluxo que já existe lá.
+  const [walkInPelaHome, setWalkInPelaHome] = useState(false);
 
   if (!usuario) {
     return <Login aoEntrar={() => setUsuario(usuarioSalvo())} />;
@@ -84,22 +108,29 @@ export default function App() {
         <header className="flex items-center justify-between px-5 pt-5 pb-2">
           <img src="/brand/logo-full-dark.png" alt="Bigod's Barber" style={{ height: 34, width: 'auto' }} />
           <div className="flex items-center gap-2">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-[14px]"
-              style={{ background: 'var(--brand-gold-100)', color: 'var(--brand-gold-700)' }}
-            >
-              {usuario.nome
-                .split(' ')
-                .slice(0, 2)
-                .map((p) => p[0])
-                .join('')}
-            </div>
+            {/* Foto de perfil do usuário logado, iniciais como fallback
+                (2026-08-19). A sessão só guarda identidade e papéis, então a
+                foto vem de `GET /barbeiros` — a mesma chamada que Ajustes usa. */}
+            <FotoDoUsuario usuario={usuario} />
             {/* Sempre visível, em qualquer aba — ver comentário de ABAS_BARBEIRO_NAO_ADMIN acima. */}
             <BotaoSair />
           </div>
         </header>
         <main className="pt-2">
-          {aba === 'agenda' && <Agenda usuario={usuario} />}
+          {aba === 'home' && (
+            <Home
+              usuario={usuario}
+              aoNavegar={(destino) => {
+                setWalkInPelaHome(false);
+                setAba(destino);
+              }}
+              aoRegistrarAtendimento={() => {
+                setWalkInPelaHome(true);
+                setAba('agenda');
+              }}
+            />
+          )}
+          {aba === 'agenda' && <Agenda usuario={usuario} abrirNovoAoEntrar={walkInPelaHome} />}
           {aba === 'usuarios' && <Usuarios usuario={usuario} />}
           {aba === 'catalogo' && <Catalogo usuario={usuario} />}
           {aba === 'funil' && <FunilDeVendas usuario={usuario} />}
@@ -109,7 +140,14 @@ export default function App() {
         </main>
         <nav className="bottom-nav">
           {abas.map((a) => (
-            <button key={a} className={aba === a ? 'ativo' : ''} onClick={() => setAba(a)}>
+            <button
+              key={a}
+              className={aba === a ? 'ativo' : ''}
+              onClick={() => {
+                setWalkInPelaHome(false);
+                setAba(a);
+              }}
+            >
               <span className="text-[18px] leading-none">{icones[a]}</span>
               <span className="rotulo">{rotulos[a]}</span>
             </button>

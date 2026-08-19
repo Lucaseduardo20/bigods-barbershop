@@ -1095,6 +1095,52 @@ Imagem quebrada na tela do cliente não é estado aceitável em lugar nenhum.
 
 ---
 
+### 3.15 Home do painel — projeção de leitura (2026-08-19)
+
+Primeira tela depois do login. **Não é um agregado nem uma fonte de verdade**: é uma projeção de
+leitura sobre o que já existe, com uma única métrica calculada (o ticket médio).
+
+**Duas variantes, por papel — nunca uma mistura.** ADMIN vê a home de GESTÃO; BARBEIRO não-admin
+vê a PESSOAL. Quem acumula os dois papéis vê a de gestão (a visão pessoal continua nas seções).
+São dois endpoints separados, e o de gestão é `@Papeis(ADMIN)`: um barbeiro comum não alcança dado
+de gestão nem adivinhando a rota. Na home pessoal o `barbeiroId` vem do TOKEN, não da URL — não
+existe "home pessoal de outro barbeiro" para pedir.
+
+**A regra que rege a tela:** nenhum número da home pode divergir da seção detalhada
+correspondente. Por isso o saldo do barbeiro é lido do **mesmo** `ComissaoQueryService` que o
+Financeiro usa, e não de uma soma nova. Duas somas do mesmo dinheiro em dois lugares é como elas
+começam a divergir.
+
+#### Faturamento — de quais registros soma
+
+    atendimentos CONCLUÍDOS no período (Σ ItemAtendido.valorCobrado + Σ ItemProdutoAtendido)
+  + vendas avulsas de produto no período (Σ item.valorUnitario × quantidade)
+
+Valores **congelados** no atendimento (§3.5) — nunca relidos do catálogo de hoje.
+
+**Venda de PACOTE não entra**: o dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento. Contar também na venda somaria o mesmo dinheiro duas vezes (DECISOES_PENDENTES #44).
+
+#### Ticket médio — a única métrica calculada
+
+    ticket = faturamento do MÊS CORRENTE ÷ atendimentos CONCLUÍDOS no mês corrente
+
+Mesmo faturamento definido acima — "faturamento da visita" é serviço(s) + produto(s). Centavos
+inteiros, arredondado ao centavo mais próximo (a média de inteiros raramente é inteira). **Sem
+atendimento concluído no mês, o resultado é `null`**, que a tela mostra como "—": dividir por zero
+daria `Infinity`, e a barbearia veria um número sem sentido em vez de "ainda não houve movimento".
+
+É número de **exibição**: não vira lançamento, não é somado a nada, não é base de pagamento a
+ninguém. Se um dia virar base de pagamento, a regra de arredondamento passa a ser decisão do
+negócio, não do `Math.round` (está escrito assim em `ticket-medio.ts`).
+
+#### Pendências
+
+O que espera decisão do admin: `VendaDePacote` em `AGUARDANDO` e `Atendimento` em `RESERVADO` —
+exatamente as duas coisas que têm botão "confirmar pagamento recebido" no painel.
+
+---
+
 ## 4. Máquinas de estado
 
 Estados são **explícitos**. Nunca representar estado com combinação de flags booleanas ou

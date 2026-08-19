@@ -11,14 +11,17 @@ import { NegarValeUseCase } from './application/negar-vale.usecase';
 import { MarcarValePagoUseCase } from './application/marcar-vale-pago.usecase';
 import { RegistrarPagamentoUseCase } from './application/registrar-pagamento.usecase';
 import { ComissaoQueryService } from './infrastructure/comissao-query.service';
+import { HomeQueryService } from './infrastructure/home-query.service';
+import { HomeController } from './presentation/home.controller';
 import { FechamentoQueryService } from './infrastructure/fechamento-query.service';
 
 @Module({
-  controllers: [ComissaoController, ValesController, PagamentosController, FechamentoController],
+  controllers: [ComissaoController, ValesController, PagamentosController, FechamentoController, HomeController],
   providers: [
     OnAtendimentoConcluidoHandler,
     OnVendaDeProdutoRegistradaHandler,
     ComissaoQueryService,
+    HomeQueryService,
     FechamentoQueryService,
     SolicitarValeUseCase,
     AprovarValeUseCase,

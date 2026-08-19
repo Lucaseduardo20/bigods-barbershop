@@ -451,6 +451,86 @@ export interface FechamentoDTO {
   barbeiros: FechamentoBarbeiroDTO[];
 }
 
+// ---------- Home (primeira tela do admin) ----------
+// Projeção de LEITURA: cada número vem da mesma fonte que a seção detalhada
+// correspondente. Um número da home que diverge da seção é bug, não
+// arredondamento — por isso nada aqui recalcula dinheiro, com a única exceção
+// do ticket médio (agregação documentada em `ticket-medio.ts`).
+
+/** Uma linha de agendamento na home — o mínimo pra reconhecer o compromisso. */
+export interface HomeAgendamentoDTO {
+  atendimentoId: string;
+  /** Instante UTC (ISO) — renderizar no fuso da empresa. */
+  inicio: string;
+  clienteNome: string;
+  barbeiroNome: string;
+  servicos: string;
+  valorTotalCentavos: number;
+  status: StatusAtendimento;
+}
+
+/** Uma linha do extrato financeiro na home (comissão ou pagamento recebido). */
+export interface HomeLancamentoDTO {
+  id: string;
+  tipo: TipoLancamento;
+  /** Instante UTC (ISO). */
+  ocorridoEm: string;
+  valorCentavos: number;
+  /** O que originou: nome do serviço/produto, ou quem registrou o pagamento. */
+  descricao: string;
+}
+
+/** Home do BARBEIRO não-admin: só o que é dele. */
+export interface HomePessoalDTO {
+  barbeiroId: string;
+  nome: string;
+  fotoUrl: string | null;
+  /** Próximos 2 agendamentos DELE (AGENDADO, do agora em diante). */
+  proximosAgendamentos: HomeAgendamentoDTO[];
+  /**
+   * O MESMO número de `ExtratoComissaoDTO.saldoRealCentavos` — lido do mesmo
+   * serviço, nunca recalculado aqui. Pode ser negativo (deve à casa).
+   */
+  saldoRealCentavos: number;
+  /** Últimos 2 lançamentos de COMISSÃO dele. */
+  ultimasComissoes: HomeLancamentoDTO[];
+  /** Últimos 2 PAGAMENTOS que ele recebeu. */
+  ultimosPagamentos: HomeLancamentoDTO[];
+}
+
+/** Uma pendência esperando decisão do admin. */
+export interface HomePendenciaDTO {
+  tipo: 'PACOTE_AGUARDANDO' | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO';
+  id: string;
+  clienteNome: string;
+  valorCentavos: number;
+  /** Instante UTC (ISO) do fato que gerou a pendência. */
+  desde: string;
+}
+
+/** Home do ADMIN: gestão da casa, todos os barbeiros. */
+export interface HomeGestaoDTO {
+  nome: string;
+  fotoUrl: string | null;
+  /** Dia civil local a que "hoje" se refere (YYYY-MM-DD), no fuso da empresa. */
+  hoje: string;
+  agendamentosDeHoje: HomeAgendamentoDTO[];
+  totalAgendamentosDeHoje: number;
+  /**
+   * Faturamento do dia: atendimentos CONCLUÍDOS hoje (serviços + produtos, pelo
+   * valor cobrado congelado) + vendas avulsas de produto de hoje.
+   * NÃO inclui venda de pacote — o pacote entra no faturamento quando o crédito
+   * é consumido, para não contar o mesmo dinheiro duas vezes.
+   */
+  faturamentoDeHojeCentavos: number;
+  concluidosHoje: number;
+  pendencias: HomePendenciaDTO[];
+  /** Mesma regra do faturamento, no mês corrente ÷ concluídos do mês. `null` = sem movimento. */
+  ticketMedioCentavos: number | null;
+  /** Mês civil local a que o ticket se refere (YYYY-MM). */
+  mesDoTicket: string;
+}
+
 // ---------- Parâmetros ----------
 export interface ParametrosDTO {
   prazoReagendamentoDias: number;

@@ -786,3 +786,35 @@ próprio teste.
 
 **O que fica de lição:** qualquer env nova que mude comportamento de negócio precisa de valor
 explícito nesse arquivo. Senão a suíte volta a depender da máquina de quem executa.
+
+---
+
+## 44. Faturamento da home NÃO inclui venda de pacote (2026-08-19)
+
+A home de gestão mostra "quanto entrou hoje" e o ticket médio. Os dois usam a MESMA definição de
+faturamento (DOMAIN.md §3.15):
+
+    atendimentos CONCLUÍDOS no período (serviços + produtos, pelo valor congelado)
+  + vendas avulsas de produto no período
+
+**Venda de pacote não entra.** O dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento — contar também na venda somaria o mesmo dinheiro duas vezes, e o ticket médio (que
+é por VISITA) ficaria distorcido por uma venda que não é visita.
+
+**A consequência, dita em voz alta:** o dia em que a barbearia vende muito pacote mostra
+faturamento baixo na home, e os dias seguintes mostram alto conforme os créditos são usados. Para
+quem olha o número como "quanto entrou no caixa hoje", isso pode parecer errado.
+
+**O que falta decidir:** se o dono prefere ver o caixa do dia (dinheiro que entrou de fato, com a
+venda de pacote no dia da compra) em vez do faturamento por visita. São duas perguntas diferentes
+e ambas legítimas — a segunda exigiria um card separado, porque não dá pra usar o mesmo número
+para as duas coisas sem mentir numa delas.
+
+## 45. "Pendências" da home lista até 5 de cada tipo (2026-08-19)
+
+O card "Esperando você" busca no máximo 5 pacotes aguardando + 5 atendimentos aguardando
+pagamento. Com mais que isso, a home mostra os mais recentes e o "ver tudo" leva pra seção.
+
+Não há contagem total ao lado (ex.: "5 de 12"), porque exigiria duas queries a mais numa tela que
+carrega a cada login. **O que falta decidir:** se o dono precisa do total exato na home. Se
+precisar, é um `count` por tipo — barato, mas hoje não pedido.

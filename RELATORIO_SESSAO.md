@@ -3840,6 +3840,89 @@ default 0. `Barbeiro.comissaoProdutosBp` fica no banco, deprecada e sem leitor, 
 7. **Order-bump:** faça um agendamento pelo funil adicionando o produto na vitrine, conclua no
    admin, e confira que a comissão do produto saiu pela taxa da casa.
 
+## Home do painel — primeira tela depois do login (2026-08-19) ✅
+
+Duas variantes por papel, cada card com "ver tudo" pra seção completa. É tela de **leitura**: a
+única coisa calculada é o ticket médio.
+
+### O que cada card lê — e de qual fonte
+
+**Home PESSOAL** (barbeiro não-admin):
+
+| Card | Fonte |
+|---|---|
+| Próximos 2 atendimentos | `Atendimento` do barbeiro, `AGENDADO`, do agora em diante |
+| Meu saldo na casa | ★ **`ComissaoQueryService.saldo()`** — a MESMA função que o Financeiro usa |
+| Últimas 2 comissões | `LancamentoComissao` tipo `COMISSAO` dele |
+| Últimos 2 pagamentos | `LancamentoComissao` tipo `PAGAMENTO` dele |
+
+**Home de GESTÃO** (admin):
+
+| Card | Fonte |
+|---|---|
+| Agenda de hoje | `Atendimento` da empresa no dia civil local (todos os barbeiros) |
+| Entrou hoje | faturamento do dia — definição abaixo |
+| Concluídos hoje | `count` de `Atendimento` `CONCLUIDO` no dia |
+| Esperando você | `VendaDePacote` `AGUARDANDO` + `Atendimento` `RESERVADO` |
+| Ticket médio | faturamento do mês ÷ concluídos do mês |
+
+★ **O saldo não é recalculado na home.** Tem teste que compara o número da home com o do extrato
+e falha se divergirem — porque um número diferente entre duas telas do mesmo dinheiro é bug, não
+arredondamento.
+
+### Faturamento — de quais registros soma
+
+```
+  atendimentos CONCLUÍDOS no período (serviços + produtos, valor CONGELADO no atendimento)
++ vendas avulsas de produto no período
+```
+
+**Venda de pacote NÃO entra.** O dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento — contar também na venda somaria o mesmo dinheiro duas vezes, e o ticket médio (que é
+por VISITA) ficaria distorcido por algo que não é visita. A consequência está registrada em
+DECISOES_PENDENTES #44: o dia de muita venda de pacote mostra faturamento baixo, e os seguintes
+mostram alto conforme os créditos são usados.
+
+### Ticket médio — a regra
+
+Faturamento do **mês corrente** ÷ atendimentos **concluídos** no mês corrente. Centavos inteiros,
+arredondado ao centavo mais próximo. **Sem atendimento no mês → `null`, que a tela mostra como
+"—"** — nunca `Infinity`, nunca zero disfarçado de número real.
+
+A conta mora em `payroll/domain/ticket-medio.ts`, TypeScript puro, com 7 testes. O caso conferido
+à mão: três visitas de R$ 40,00 / R$ 70,00 / R$ 75,00 (a última com produto) = R$ 185,00 ÷ 3 =
+**R$ 61,67**.
+
+### O que NÃO foi criado de novo
+
+- **Walk-in:** o botão "Registrar atendimento" navega pra Agenda com o diálogo que já existe lá
+  já aberto (`abrirNovoAoEntrar`). Nenhum fluxo novo de criação.
+- **Roteamento:** as seções continuam onde estavam; só mudou por onde se começa. Nenhum link
+  quebrou — a home é uma aba a mais, a primeira.
+- **Foto no header:** reusa o `<Foto>` do `FotoUpload`, com iniciais de fallback.
+
+### ACL
+
+Dois endpoints, não um que muda de forma: `/home/gestao` é `@Papeis(ADMIN)` e `/home/pessoal`
+resolve o barbeiro **pelo token**. Testes provam os três casos: barbeiro comum recebe 403 na
+gestão; sem sessão as duas dão 401; e passar `?barbeiroId=` de outro na home pessoal **não muda
+nada** — continua vindo a dele.
+
+### Smoke test manual
+
+1. **Logar como `gabriel` (admin+barbeiro):** cai na home de **GESTÃO** ("Como a casa está hoje"),
+   com faturamento, concluídos, agenda do dia, pendências e ticket médio. **Não** deve aparecer
+   "Meu saldo na casa".
+2. **Clicar "+ Registrar atendimento":** vai pra Agenda com o diálogo "Novo atendimento avulso"
+   **já aberto**.
+3. **Cada "ver tudo"** leva pra seção certa (Agenda, Financeiro, Pacotes).
+4. **Sair e logar como `igormolinho` (barbeiro puro):** cai na home **PESSOAL** ("Seu dia e seu
+   dinheiro"), com os 4 cards dele. As abas Usuários/Catálogo/Funil **não existem**, e nenhum
+   número de gestão aparece.
+5. ★ **Conferir o saldo:** o valor em "Meu saldo na casa" tem que ser **idêntico** ao que o
+   Financeiro mostra pra ele. Se divergir, é bug — não arredondamento.
+6. **Foto no topo:** quem tem foto vê a foto; quem não tem, as iniciais.
+
 ## Como rodar localmente
 
 ```bash
