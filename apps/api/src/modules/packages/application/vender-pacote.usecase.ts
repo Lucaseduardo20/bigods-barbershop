@@ -8,10 +8,11 @@ import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barb
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
+import { CobrancaOnlineService } from '../../payments/application/cobranca-online.service';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Telefone } from '../../../shared/domain/telefone';
 import { DomainEvent } from '../../../shared/events/domain-event';
-import { CobrancaDTO } from '@bigods/contracts';
+import { CobrancaDTO, PagamentoManualDTO } from '@bigods/contracts';
 
 export interface VenderPacoteInput {
   companyId: string;
@@ -50,6 +51,8 @@ export interface VenderPacoteOutput {
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
   cobranca: CobrancaDTO | null;
+  /** Ponte do WhatsApp quando o modo manual está ligado (no lugar do PIX). */
+  pagamentoManual: PagamentoManualDTO | null;
 }
 
 @Injectable()
@@ -60,6 +63,7 @@ export class VenderPacoteUseCase {
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    private readonly cobrancaOnline: CobrancaOnlineService,
   ) {}
 
   async executar(input: VenderPacoteInput): Promise<VenderPacoteOutput> {
@@ -163,24 +167,43 @@ export class VenderPacoteUseCase {
 
     await this.publisher.publicar(eventos);
 
+    // PIX pelo gateway OU ponte do WhatsApp (modo manual temporário) — a
+    // decisão inteira vive em `CobrancaOnlineService`. A venda fica AGUARDANDO
+    // nos dois casos, e os créditos só liberam na confirmação (webhook no modo
+    // normal, admin no modo manual).
     let cobranca: VenderPacoteOutput['cobranca'] = null;
+    let pagamentoManual: VenderPacoteOutput['pagamentoManual'] = null;
     if (gerarCobranca) {
-      const pix = await this.gateway.criarCobrancaPix({
-        valor: resultado.intencao.valor,
+      const porServico = new Map<string, number>();
+      for (const servicoId of input.servicoIds) {
+        porServico.set(servicoId, (porServico.get(servicoId) ?? 0) + 1);
+      }
+      const r = await this.cobrancaOnline.gerar({
+        intencao: resultado.intencao,
         descricao: `Pacote ${vendaId}`,
-        externalId: resultado.intencao.externalId,
         // Sem override: usa gateway.expiraEmSegundos (1h) — a mesma janela já
         // usada pra calcular `expiraEm` acima, nunca duas chamadas a "agora"
         // separadas (evita split-brain entre "expiresIn pedido" e "expiraEm salvo").
+        comanda: {
+          titulo: 'Compra de pacote',
+          clienteNome: input.cliente.nome,
+          clienteTelefone: telefone.e164,
+          itens: [...porServico.entries()].map(([servicoId, quantidade]) => ({
+            descricao: `${quantidade}× ${porId.get(servicoId)?.nome ?? servicoId}`,
+          })),
+          totalCentavos: input.valorPagoCentavos,
+        },
       });
-      cobranca = {
-        intencaoId: resultado.intencao.id,
-        qrCode: pix.qrCode,
-        copiaECola: pix.copiaECola,
-        expiraEm: resultado.intencao.expiraEm!.toISOString(),
-      };
+      cobranca = r.cobranca;
+      pagamentoManual = r.pagamentoManual;
     }
 
-    return { vendaId, clienteId: resultado.clienteId, intencaoId: resultado.intencao.id, cobranca };
+    return {
+      vendaId,
+      clienteId: resultado.clienteId,
+      intencaoId: resultado.intencao.id,
+      cobranca,
+      pagamentoManual,
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EmpresaPublicaDTO } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
+import { lerConfigPagamentoManual } from '../../../shared/config/pagamento-manual';
 
 /** Dados públicos da empresa que o funil precisa (marca + fuso). */
 @Injectable()
@@ -27,6 +28,10 @@ export class EmpresaPublicaQueryService {
         degraus: degraus.map((d) => ({ posicao: d.posicao, valorCentavos: d.valorCentavos })),
         tetoCentavos: company.descontoTetoCentavos,
       },
+      // TEMPORÁRIO (2026-08-18): o funil usa só pra trocar o subtítulo do botão
+      // ("PIX na hora" → "PIX pelo WhatsApp"). Quem decide de fato é o backend,
+      // na resposta da compra — o front nunca escolhe o meio de pagar.
+      pagamentoManualWhatsapp: lerConfigPagamentoManual().ativo,
     };
   }
 }

@@ -3224,139 +3224,134 @@ escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
 8. **Troque a senha pelo próprio barbeiro:** errar a senha atual tem que recusar; acertando, a
    senha nova entra e a antiga para de funcionar.
 
-## OTP por SMS — Cognito + SMS Gate (2026-08-18) 🚧 aguardando teste real
+## Pagamento manual por WhatsApp — ponte TEMPORÁRIA (2026-08-18) ✅
 
-⚠️ **NÃO ESTÁ EM PRODUÇÃO NEM EM STAGING.** Está na branch `feat/otp-sms-cognito`. O merge só
-depois do teste com SMS real passar (roteiro no fim desta seção). Área de autenticação: se quebrar,
-ninguém entra.
+A AbacatePay leva ~7 dias úteis para liberar produção. Até lá o "pagar online" não pode
+simplesmente sumir do funil — mas também não há PIX para gerar. A ponte: o cliente é mandado pro
+WhatsApp da barbearia com o pedido já escrito, o PIX acontece por fora, e o dono confirma no admin.
 
-Suíte confirmada verde (616 API) antes de tocar em qualquer código.
+**Isto é um andaime, não arquitetura.** Ligar e desligar é uma variável de ambiente.
 
-### Duas mudanças em relação ao prompt (decisões do dono)
+### A flag
 
-1. **Sem criptografia ponta-a-ponta** no SMS Gate. O conteúdo é um código de 6 dígitos, curto e de
-   uso único — se um dia trafegar link ou dado pessoal, reavaliar.
-2. **Nada mockado como entrega.** O código é o real, lendo credenciais reais. Os testes
-   automatizados mockam `fetch` — não por falta de credencial, mas porque cada SMS custa e gasta a
-   franquia do chip; CI disparando SMS a cada push seria dano, não cobertura.
+```bash
+PAGAMENTO_MANUAL_WHATSAPP="true"              # false/ausente = PIX normal pelo gateway
+PAGAMENTO_MANUAL_WHATSAPP_NUMERO="5511990036469"  # E.164, com DDI — destino da comanda
+```
 
-### O que foi feito
+A API **recusa subir** com a flag ligada e sem número (ou com número curto demais para ter DDI):
+melhor quebrar no boot do que mandar o cliente pra um link de WhatsApp quebrado bem na hora de
+pagar. Voltar ao PIX é `false` + restart — **sem deploy de código**.
 
-**O adapter do Cognito já existia** (escrito em 2026-07-31, desligado do fluxo na mesma sessão —
-DECISOES #23). Retomei em vez de reescrever: a classe e seus 9 testes estavam intactos. O que
-faltava era religar (`identity.module.ts`), env vars, e trocar o canal de envio do Lambda.
+### Onde a decisão mora
 
-**Os 3 Lambda triggers** já existiam também. O `CreateAuthChallenge` enviava por **SNS**; troquei
-por **SMS Gate**. Efeito colateral bom: sumiu a dependência `@aws-sdk/client-sns`, então os Lambdas
-ficaram com **zero dependências npm** (usam o `fetch` global do Node 20). O deploy virou "colar dois
-arquivos no console da AWS" em vez de empacotar `node_modules`.
+Num lugar só: `CobrancaOnlineService.gerar()` (`modules/payments/application/`), exatamente onde
+antes havia a chamada direta ao gateway. Nenhum outro ponto do sistema sabe que a flag existe —
+nada de `if` espalhado por caso de uso, controller ou tela.
 
-**`infra/cognito-triggers/sms-gate.js`** — o cliente do SMS Gate: Basic Auth, normalização E.164,
-timeout com `AbortController`, e erro limpo (`SmsGateError`) em qualquer falha. O
-`CreateAuthChallenge` deixa esse erro **subir**: o Cognito recusa o login em vez de apresentar um
-desafio que o cliente nunca poderia responder — o mesmo princípio de "nunca um desafio órfão" que o
-monólito já seguia.
+O que isso comprou de graça: **tudo o que acontece ANTES da cobrança é idêntico nos dois modos**.
+A `IntencaoDePagamento` nasce igual, com o mesmo `expiraEm`; o avulso online nasce `RESERVADO`
+com o mesmo prazo; a expiração por timeout continua valendo, com o mesmo gatilho de polling.
 
-### ★ Quem é a fonte de verdade do código OTP
+★ **É isso que impede buraco de agenda.** O cliente que clica "pagar", vai pro WhatsApp e some
+não prende o horário — a reserva expira sozinha, exatamente como expiraria com um PIX de verdade.
+Não foi escrito código novo pra isso; foi só não mexer no que já estava certo.
 
-Depende do provider, e isso é deliberado:
+### ON vs OFF — o que muda de fato
 
-| Provider | Gera/guarda/confere | Nossa base (`DemoDesafioLogin`) |
+| | Flag OFF (normal) | Flag ON (manual) |
 |---|---|---|
-| `cognito` | o **Cognito**, via os triggers | **não usada** nesse fluxo |
-| `whatsapp` / `demo` | **nós** (`OtpIdentityProviderBase`) | guarda hash, TTL, uso único, tentativas |
+| Resposta da API | `cobranca` (QR + copia-e-cola) | `pagamentoManual` (link `wa.me` + comanda) |
+| Tela do funil | `PixAguardando` | `PagamentoManualAguardando` |
+| Quem confirma | webhook da AbacatePay | admin, no painel |
+| Intenção de pagamento | criada, `AGUARDANDO`, com prazo | **igual** |
+| Reserva do avulso | `RESERVADO`, expira em 10 min | **igual** |
+| OTP | exigido | **igual** |
+| "Pagar na barbearia" | inalterado | **inalterado** |
 
-**Nunca os dois.** Por isso o `CognitoIdentityProvider` não herda de `OtpIdentityProviderBase` — ele
-delega o desafio inteiro para a AWS, e o `desafio` que devolve é a `Session` opaca do Cognito. Dois
-sistemas de código competindo pelo mesmo login é a receita para "o código que chegou não é o que o
-servidor espera".
+Só um dos dois campos vem preenchido, e quem decide é o servidor — o front nunca lê a flag para
+escolher fluxo (só para trocar o texto do botão, para não prometer "PIX na hora" e entregar outra
+coisa na tela seguinte).
 
-Consequências operacionais com `cognito`: o limite de tentativas por desafio passa a ser o do
-`DefineAuthChallenge` (3), não o da nossa base (5); e **errar o código não dispara SMS novo** — o
-`CreateAuthChallenge` reaproveita o código entre tentativas da mesma sessão.
+### Reuso, não reconstrução
 
-### Fases 3 e 4: já estavam prontas
+Nada aqui inventou um caminho de confirmação:
 
-Rastreei os dois pedidos e **ambos já tinham sido feitos na sessão de 2026-08-14** — não havia o que
-remover nem adicionar:
+- **Pacote:** `POST /pacotes/:id/confirmar-pagamento` já existia (bug 8, pagamento no balcão). Só
+  o rótulo do botão mudou — "Confirmar pagamento **recebido**" em vez de "presencial", que agora
+  seria mentira.
+- **Avulso:** `POST /atendimentos/:id/confirmar-pagamento` é novo, mas o corpo dele é uma chamada
+  ao **mesmo `ProcessarWebhookUseCase`** que o gateway usa. Idempotente pelo mesmo motivo de
+  sempre; clicar duas vezes não faz efeito duplo (tem teste).
+- **Expiração:** `ExpirarPagamentoVencidoUseCase`, intocado.
 
-- **Gate do `cognitoSub`:** já não existe. `IniciarLoginClienteUseCase` provisiona a identidade para
-  QUALQUER telefone antes de iniciar, e `OtpIdentityProviderBase.iniciarLogin` documenta em
-  comentário o gate removido e o "não reintroduzir". O único ramo parecido que sobra é defensivo:
-  `CognitoIdentityProvider.iniciarLogin` trata `UserNotFoundException` devolvendo desafio vazio,
-  para o caso de corrida/estado inconsistente no User Pool — não é gate, porque o provisionamento
-  acontece imediatamente antes.
-- **Rate limit por origem:** já existe (`@EnviaOtp()` + throttler `otp-origem`, com
-  `OTP_LIMITE_POR_ORIGEM_HORA`), somado ao limite por telefone. Com SMS ele ficou mais crítico do
-  que era: cada envio agora é dinheiro do chip, e o limite por telefone sozinho não impede varredura
-  (cada número novo ganha um balde próprio).
+Código novo mesmo, só três arquivos: o construtor de comanda (`comanda-whatsapp.ts`, TypeScript
+puro no domínio), o serviço de decisão, e a tela de espera do funil.
 
-### Env vars
+### A comanda
 
-**Na API** (`.env`):
+Chega no WhatsApp da barbearia assim:
 
-| Var | Para quê |
-|---|---|
-| `IDENTITY_PROVIDER=cognito` | liga este fluxo |
-| `COGNITO_USER_POOL_ID` | User Pool já criado |
-| `COGNITO_CLIENT_ID` | App Client (sem client secret) |
-| `AWS_REGION` | região do pool |
-| `COGNITO_OTP_TTL_MINUTOS` | só exibição na UI (quem expira é o Cognito) |
+```
+*Agendamento — Bigod's Barber*
 
-**Na Lambda `create-auth`** (console da AWS, não no servidor):
+*Cliente:* João da Silva
+*Telefone:* +5511998887777
+*Barbeiro:* Gabriel
+*Quando:* 21/08/2026 às 09:00
 
-| Var | Obrigatória |
-|---|---|
-| `SMS_GATE_USER` / `SMS_GATE_PASSWORD` | sim |
-| `SMS_GATE_ENDPOINT` / `SMS_GATE_TIMEOUT_MS` | não |
+*Itens:*
+• Corte — R$ 50,00
+• Barba — R$ 25,00
 
-> 🔐 **As credenciais do SMS Gate estavam no `.env.example`, que é versionado no git.** Movi para o
-> `.env` (que é gitignorado) e restaurei o `.env.example` com placeholders. Um `git add -A` teria
-> gravado usuário e senha no histórico do repositório, de onde não saem mais.
+*Total: R$ 75,00*
 
-### Testes (+27)
+Vou fazer o PIX deste valor. Pode confirmar, por favor?
+```
 
-14 do `sms-gate.js` (requisição montada, E.164 em 5 formatos, 401, 5xx, rede caída, timeout,
-credencial ausente, corpo ilegível) e 11 dos triggers — incluindo o **fluxo dos três juntos**:
-inicia → gera código → "recebe" o SMS → confere → emite tokens. Mais 2 no boot guard (`cognito`
-aceito em produção, `demo` ainda recusado). **643 testes na API**, verdes nos 3 fusos; build verde
-nos 5 pacotes.
+(Está na voz do **cliente** — é ele quem envia. Os `*` viram negrito no WhatsApp.)
 
-### 🔧 Publicar os Lambdas — passo a passo
+No pacote não há barbeiro nem horário, então essas linhas simplesmente não aparecem, e os itens
+saem agrupados (`5× Corte`).
 
-O guia completo está em **`infra/cognito-triggers/README.md`** (com os comandos de zip, os handlers
-de cada função, a policy IAM e o troubleshooting). Resumo:
+### Testes
 
-1. Criar 3 funções Lambda, runtime **Node.js 20.x** — sem `npm install`, sem `node_modules`.
-2. Na `create-auth`, subir **dois** arquivos (`create-auth-challenge.js` + `sms-gate.js`) e setar
-   `SMS_GATE_USER` / `SMS_GATE_PASSWORD`. Subir o **timeout para 15s** (o padrão de 3s é curto para
-   uma chamada HTTP externa).
-3. Ligar os 3 triggers no User Pool (Define / Create / Verify auth challenge).
-4. No App Client, marcar **ALLOW_CUSTOM_AUTH**. O client **não pode ter secret** (o adapter não
-   envia `SECRET_HASH`).
-5. Dar à role da API permissão `cognito-idp:AdminCreateUser` e `AdminSetUserPassword` no pool.
-6. `.env` da API: `IDENTITY_PROVIDER=cognito` + as 3 vars do pool. O boot deve logar
-   `IdentityProvider: Cognito (SMS via SMS Gate) — pool <id>`.
+- **9 de domínio** (`comanda-whatsapp.spec.ts`): conteúdo da comanda, formatação de dinheiro
+  (vírgula, nunca centavos crus), item sem valor não vira "R$ 0,00", link `wa.me` codificado e
+  decodificável, e falha alta quando não há número configurado.
+- **4 de config** (`config-seguranca.spec.ts`): boot recusa flag ligada sem número e com número
+  sem DDI; aceita com máscara; flag desligada não exige nada.
+- **10 e2e** (`pagamento-manual-whatsapp.e2e.spec.ts`): pacote e avulso não geram PIX e devolvem a
+  ponte; crédito de pacote **não agenda** antes da aprovação (422) e agenda depois; avulso
+  `RESERVADO` → `AGENDADO` na aprovação; dupla aprovação é no-op; ★ **reserva abandonada expira e
+  o horário aceita outro cliente**; presencial continua exigindo OTP, sem ponte e sem cobrança;
+  rota de confirmação não é pública.
 
-### ★ Teste com SMS REAL (obrigatório antes do merge)
+A não-regressão do modo OFF é o resto da suíte: todos os outros e2e de pagamento rodam sem a flag
+e continuam verdes.
 
-Com um telefone que **nunca** usou o sistema — é justamente o cliente de primeira viagem que o gate
-antigo quebrava:
+### Roteiro de smoke test manual
 
-1. Abrir o funil, escolher barbeiro e serviço, ir até a confirmação com **pagar na barbearia**
-   (esse caminho exige OTP).
-2. Digitar o telefone e confirmar. **O SMS tem que chegar no celular**, com um código de 6 dígitos.
-3. Digitar o código **errado** de propósito: tem que recusar **e não chegar um segundo SMS**.
-4. Digitar o código certo: entra, e o agendamento é criado.
-5. Conferir no banco que o `Cliente` ganhou `cognitoSub` preenchido (só na confirmação, nunca antes).
-6. Repetir o login pelo cockpit (`/conta`) com o mesmo telefone — deve pedir código e entrar.
-7. Errar 3 vezes seguidas: a autenticação tem que falhar (limite do `DefineAuthChallenge`).
+Com `PAGAMENTO_MANUAL_WHATSAPP=true` e o número da barbearia no `.env`, API reiniciada:
 
-Se o SMS **não** chegar: CloudWatch da `create-auth` primeiro (erro de credencial/timeout aparece
-lá), depois o app no celular (rodando? com internet? chip ativo?), depois o painel do SMS Gate. O
-2xx do envio significa "o cloud aceitou e enfileirou", **não** "o SMS saiu" — ver DECISOES #37.
+1. **Funil → pacote:** a tela de confirmação deve dizer "PIX pelo WhatsApp". Confirme, faça o OTP.
+2. A tela seguinte é a ponte — toque em **"Abrir o WhatsApp"**. A conversa abre com a comanda
+   escrita; confira nome, itens e total. Envie.
+3. **Não pague ainda.** Volte ao funil: continua "aguardando confirmação", girando.
+4. **Admin → Pacotes & Ofertas → Vendidos:** o pacote está `AGUARDANDO`. Clique em **"Confirmar
+   pagamento recebido"**.
+5. O funil avança sozinho em até ~3s, e os créditos aparecem no cockpit do cliente.
+6. **Repita no avulso** escolhendo "Pagar agora": mesma ponte. O atendimento aparece na agenda como
+   "Aguardando pagamento"; abra o detalhe e confirme — vira agendado.
+7. ★ **Teste o abandono:** faça um avulso online, vá pro WhatsApp e **não confirme nada**. Depois de
+   10 minutos o horário tem que voltar a aparecer como livre no funil, e o atendimento sair da
+   agenda firme. É o cenário que mais dói se estiver quebrado.
+8. **Desligue a flag** (`false` + restart) e refaça o passo 1: tem que voltar o QR Code do PIX.
 
-**Só depois de 1–7 passarem: merge de `feat/otp-sms-cognito` → `staging` → produção.**
+### Quando a AbacatePay liberar
+
+Vire a flag para `false` e reinicie. Só isso. Ver DECISOES_PENDENTES #38 — inclusive a sugestão de
+**manter** o modo manual desligado por um tempo, como plano B se o gateway cair.
 
 ## Como rodar localmente
 

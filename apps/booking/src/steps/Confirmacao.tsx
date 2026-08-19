@@ -11,6 +11,7 @@ import { ResumoDoDesconto } from '../components/ResumoDoDesconto';
 import { OrderBump } from '../components/OrderBump';
 import { AlertaErro } from '../components/ui';
 import { BARBEARIA } from '../lib/barbearia';
+import { useEmpresa } from '../lib/empresa-context';
 
 export function Confirmacao({
   estado,
@@ -60,6 +61,10 @@ export function Confirmacao({
   // "pagar na barbearia" aqui, garante caixa adiantado antes de liberar
   // crédito. Avulso: cliente escolhe (default presencial).
   const online = ehPacote || estado.formaPagamento === 'online';
+  // Modo manual (TEMPORÁRIO): o "pagar agora" não gera QR, leva pro WhatsApp
+  // da barbearia. Prometer PIX na hora aqui e entregar outra coisa na tela
+  // seguinte é o tipo de surpresa que faz o cliente desistir no checkout.
+  const viaWhatsapp = useEmpresa().pagamentoManualWhatsapp === true;
 
   return (
     <div className="flex flex-col gap-4">
@@ -203,7 +208,12 @@ export function Confirmacao({
         <div>
           <div className="label">Como quer pagar?</div>
           <div className="grid grid-cols-2 gap-2.5">
-            <PagBtn ativo={online} titulo="Pagar agora" sub="PIX na hora" onClick={() => onFormaPagamento('online')} />
+            <PagBtn
+              ativo={online}
+              titulo="Pagar agora"
+              sub={viaWhatsapp ? 'PIX pelo WhatsApp' : 'PIX na hora'}
+              onClick={() => onFormaPagamento('online')}
+            />
             <PagBtn ativo={!online} titulo="Pagar na barbearia" sub="no dia" onClick={() => onFormaPagamento('presencial')} />
           </div>
         </div>
@@ -215,10 +225,21 @@ export function Confirmacao({
       >
         <span className="text-[16px] leading-none mt-0.5">{online ? '📲' : '💈'}</span>
         <div>
-          {ehPacote ? (
+          {ehPacote && viaWhatsapp ? (
+            <>
+              <strong>Pagamento por PIX, obrigatório na compra de pacote.</strong> Na próxima tela você
+              abre o WhatsApp da barbearia com o pedido pronto e recebe o PIX por lá; seus créditos são
+              liberados assim que o pagamento for confirmado.
+            </>
+          ) : ehPacote ? (
             <>
               <strong>Pagamento por PIX, obrigatório na compra de pacote.</strong> Você recebe o QR Code na próxima
               tela; seus créditos são liberados assim que o pagamento confirmar.
+            </>
+          ) : online && viaWhatsapp ? (
+            <>
+              <strong>Pagamento por PIX pelo WhatsApp.</strong> Na próxima tela você abre a conversa com o
+              pedido pronto e recebe o PIX por lá. Seu horário fica reservado até a confirmação.
             </>
           ) : online ? (
             <>
