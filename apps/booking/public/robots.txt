@@ -1,0 +1,3 @@
+# Funil público de agendamento — deve ser indexado.
+User-agent: *
+Allow: /

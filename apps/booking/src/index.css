@@ -34,7 +34,15 @@
   --border-default: var(--neutral-300);
   --text-primary: var(--neutral-900);
   --text-secondary: var(--neutral-600);
-  --text-muted: var(--neutral-400);
+  /* Não é o --neutral-400 (#ab9a7c): aquele tom dava 2,4–2,7 de contraste sobre
+     nossas superfícies claras, abaixo do mínimo 4,5:1 do WCAG AA, e o texto
+     "muted" carrega coisa funcional (a forma de pagamento, os rótulos do
+     resumo) — não é só decoração.
+     O pior caso NÃO é o branco: é o --surface-brand-tint (#f3e2c2), o fundo
+     creme dos cards de pacote e do banner do barbeiro. Este tom fica em 4,60
+     lá e 5,0–5,9 nas demais superfícies, e continua mais claro que o
+     --text-secondary, preservando a hierarquia. */
+  --text-muted: #70634c;
   --text-on-gold: var(--brand-ink-900);
   --accent-primary: var(--brand-gold);
   --accent-primary-hover: var(--brand-gold-700);
@@ -237,6 +245,16 @@ body {
   border-top: 1px solid var(--border-subtle);
   padding: 12px 20px calc(16px + env(safe-area-inset-bottom));
 }
+
+/* Folga no fim do conteúdo, do tamanho da barra de resumo.
+   A barra é `sticky` e opaca: quando o cliente ainda não rolou até o fim, ela
+   fica POR CIMA dos itens logo abaixo dela. Sem esta folga, o último item
+   encosta na barra e um toque perto da borda cai no "Continuar →" que mora
+   dentro dela — o funil avança com um serviço a menos do que o cliente quis.
+   Medido no QA de 2026-08-19: a barra ocupa ~157 px (17% do desktop, 19% de um
+   celular de 844 px). O valor abaixo cobre a barra no seu estado mais alto,
+   que é quando ela mostra a linha "adicione mais um serviço e ganhe R$ X". */
+.espaco-para-barra { padding-bottom: 176px; }
 
 /* ---- Estados ---- */
 .skeleton { background: var(--surface-sunken); border-radius: 10px; animation: pulse 1.2s ease-in-out infinite; }

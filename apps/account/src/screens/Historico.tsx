@@ -23,6 +23,19 @@ export function Historico({ token, tz, onVoltar }: { token: string; tz: string; 
   );
   const [abertoId, setAbertoId] = useState<string | null>(null);
 
+  /**
+   * Reserva que expirou não entra no histórico do cliente (QA 2026-08-19).
+   * Ela nasce quando alguém abre o pagamento online e não conclui — inclusive
+   * quando o próprio cliente clica "alterar meu pedido" e refaz o agendamento
+   * no mesmo horário. O resultado era o cliente ver "Expirado" logo ao lado do
+   * agendamento que ele ACABOU de confirmar, para o mesmo dia e hora, e achar
+   * que tinha perdido o horário. É ruído de máquina, não fato da vida dele.
+   *
+   * O registro continua no banco — some só desta lista. O admin continua vendo
+   * tudo na agenda.
+   */
+  const visiveis = (dados ?? []).filter((a) => a.status !== StatusAtendimento.RESERVA_EXPIRADA);
+
   return (
     <div style={{ padding: '18px 20px 40px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -34,14 +47,14 @@ export function Historico({ token, tz, onVoltar }: { token: string; tz: string; 
 
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && (dados ?? []).length === 0 && (
+      {!carregando && !erro && visiveis.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '30px 0' }}>
           Nenhum atendimento no histórico ainda.
         </div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {(dados ?? []).map((a, i) => (
+        {visiveis.map((a, i) => (
           <button
             key={a.atendimentoId}
             onClick={() => setAbertoId(a.atendimentoId)}

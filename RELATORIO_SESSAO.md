@@ -3630,6 +3630,107 @@ possível para "bíblia do ecossistema"), mas:
 Não rodei porque tem custo e manda conteúdo de vocês para fora. Para fazer depois:
 `/graphify .` no assistente, ou `graphify extract . --backend claude`.
 
+## Polimento pré-go-live (2026-08-19) ✅
+
+Seis correções pontuais achadas no QA do dia. Nenhuma toca regra de negócio.
+
+### 0. Número do WhatsApp da comanda — o caminho do dinheiro
+
+`PAGAMENTO_MANUAL_WHATSAPP_NUMERO` agora é **`5513991878125`** (55 = Brasil, 13 = DDD). Sem o
+DDI o `wa.me` abre conversa vazia.
+
+**Não há default no código:** `lerConfigPagamentoManual` lê só da env e devolve string vazia se
+ela sumir — e o boot recusa subir com a flag ligada e menos de 12 dígitos. Verificado: nenhum
+número hardcoded em `apps/` ou `packages/`.
+
+O `.env.example` agora explica o formato dígito a dígito e avisa que **este é o número que RECEBE
+os pedidos** — tem que ser um aparelho que alguém olha, e não é necessariamente o número de
+contato do rodapé do funil (esse fica em `apps/booking/src/lib/barbearia.ts`).
+
+**Como validar:** funil → "Pagar agora" → a tela da ponte. O `href` do botão tem que começar com
+`https://wa.me/5513991878125?text=`.
+
+### 1. A barra de resumo cobria o fim da lista de serviços
+
+`.espaco-para-barra` (176 px de `padding-bottom`) no conteúdo do passo, em
+`apps/booking/src/index.css` + `App.tsx`.
+
+**O mecanismo, com precisão:** a `.summary-bar` é `position: sticky` e **opaca**. Enquanto o
+cliente não rolou até o fim, ela fica por cima dos itens logo abaixo. Antes da correção, mesmo
+rolando até o fim, o último serviço parava a **6 px** da barra — encostado. Um toque perto dessa
+borda cai no `"Continuar →"` que mora dentro da barra, e o funil avança com um serviço a menos.
+
+**Medido depois (mobile 390×844):** folga de **176 px** entre o último serviço e a barra, e os
+5 serviços alcançáveis (`elementFromPoint` confirma que o toque cai no botão certo, não na barra).
+
+**Como validar visualmente:** funil → escolha um barbeiro → selecione **um** serviço (é quando a
+barra cresce, mostrando "adicione mais um serviço e ganhe R$ X") → role até o fim. O último
+serviço tem que ficar bem acima da barra, com folga confortável, não colado.
+
+### 2. Contraste do texto secundário
+
+`--text-muted` deixou de apontar para `--neutral-400` (`#ab9a7c`) e virou **`#70634c`**, nos três
+apps.
+
+| Fundo | Antes | Depois |
+|---|---|---|
+| `--surface-card` #ffffff | 2,75 | **5,87** |
+| `--surface-app` #faf7f2 | 2,57 | **5,49** |
+| `--surface-sunken` #f3ede2 | 2,36 | **5,04** |
+| `--surface-brand-tint` #f3e2c2 | 2,08 | **4,60** |
+
+★ **O pior caso não é o branco** — é o creme `#f3e2c2` dos cards de pacote e do banner do
+barbeiro. Na primeira tentativa eu escolhi `#74664f` testando só contra três superfícies e ficou
+**4,38** ali: 0,12 abaixo do mínimo. O Lighthouse pegou. O tom final cobre as quatro.
+
+O `--neutral-400` continua na paleta intacto — ele só alimentava este token, e paleta não precisa
+passar em contraste; texto precisa.
+
+**Resultado:** Lighthouse mobile do funil, acessibilidade **92 → 94**, e os 9 elementos que
+reprovavam viraram **0**.
+
+**Como validar visualmente:** o texto cinza-claro do funil ("Progresso salvo automaticamente",
+"PIX pelo WhatsApp", "SERVIÇOS REALIZADOS", "· 20 min") tem que estar visivelmente mais escuro e
+legível, sem virar preto — ele continua mais claro que o texto secundário.
+
+⚠️ **Sobraram 3 elementos reprovando, de OUTRO par de cores** (não mexi, não estava no escopo):
+a etiqueta "economize R$ X" dos cards de pacote usa `#ffecb9` sobre `#8f6c30` = **4,12**, faltando
+0,38. Corrigir exige escurecer o dourado da etiqueta (para ~`#835f28`) ou trocar o texto para o
+marrom da marca — é decisão de identidade visual, não de polimento. Diga se quer.
+
+### 3. "5 de 5 disponíveis" contava o item já agendado
+
+`apps/account/src/screens/Home.tsx` — o texto virou **"5 de 5 serviços no pacote"**. O número não
+muda (é quanto o cliente ainda tem: disponíveis + agendados); a palavra é que prometia errado.
+Escolhi trocar o texto, e não a contagem, porque o total do pacote é informação útil e "3 de 5
+disponíveis" esconderia que ele ainda tem 5 serviços pagos.
+
+**Como validar:** compre um pacote, libere no admin, agende um crédito. O cartão do pacote deve
+dizer "5 de 5 serviços no pacote" e listar o agendado com o horário ao lado.
+
+### 4. Reserva expirada sumiu do histórico do cliente
+
+`apps/account/src/screens/Historico.tsx` filtra `RESERVA_EXPIRADA` da lista. **O registro continua
+no banco** e o admin continua vendo tudo na agenda — some só da leitura do cliente.
+
+Motivo: essa reserva nasce quando alguém abre o pagamento online e não conclui — inclusive quando
+o próprio cliente clica "alterar meu pedido" e refaz no mesmo horário. O cliente via "Expirado"
+ao lado do agendamento que **acabou de confirmar**, mesmo dia e hora, e se assustava.
+
+**Como validar:** confirmado no QA — o histórico do cliente de teste passou a mostrar só o
+"Cancelado", sem o "Expirado" do mesmo horário.
+
+### 5. SEO e landmarks
+
+- `<main>` no funil (conteúdo do passo e a landing) e no cockpit. O admin já tinha.
+- `meta description` nos três apps.
+- `robots.txt` nos três — e não é o mesmo arquivo: **booking libera** indexação (é o funil
+  público), **account e admin bloqueiam** (`Disallow: /`), porque são área logada e painel de
+  gestão. Antes não existia arquivo nenhum: o dev server devolvia o `index.html` com
+  `content-type: text/html`, e era isso que o Lighthouse lia como "robots.txt inválido".
+
+**Resultado:** SEO **83 → 100**.
+
 ## Como rodar localmente
 
 ```bash

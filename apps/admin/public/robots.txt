@@ -1,0 +1,4 @@
+# Painel de gestão da barbearia: acesso restrito a staff.
+# Nada aqui deve entrar em buscador.
+User-agent: *
+Disallow: /
