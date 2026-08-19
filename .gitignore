@@ -32,6 +32,11 @@ graphify-out/graph.html
 # custo de LLM, só local
 graphify-out/cost.json
 
+# Evidências de QA: os .md dos relatórios FICAM versionados (é o registro de
+# cada go-live, e dá pra comparar entre um deploy e outro). Os prints, não —
+# são ~900 KB por rodada e só fazem sentido junto do relatório recém-rodado.
+docs/qa/*.png
+
 .DS_Store
 coverage/
 .dev-logs/
