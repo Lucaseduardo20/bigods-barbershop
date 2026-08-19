@@ -313,9 +313,14 @@ some 1 crédito.
 libera o antigo; e uma tentativa **fora do prazo** é recusada com mensagem clara — não com erro
 técnico.
 
-### Caso 24 — Reembolso
+### Caso 24 — Reembolso de saldo residual
 
-Solicite reembolso de um crédito não usado.
+⚠️ **Reembolso não é de crédito não usado** — é do **saldo residual**, a sobra em dinheiro que
+fica quando o crédito é usado num serviço mais barato que o valor rateado
+(`UsarSaldoResidual.tsx`). Sem saldo residual, a opção não existe na tela, e isso é o correto.
+
+Para exercitar, primeiro gere saldo residual (use um crédito de Corte num serviço mais barato),
+depois entre em "Usar saldo" → **Pedir reembolso**.
 
 **Passa se:** a solicitação entra como **pendente** e aparece em Financeiro → Reembolsos no
 painel.
