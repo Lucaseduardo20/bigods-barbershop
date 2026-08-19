@@ -81,10 +81,42 @@ export function SlotSkeleton() {
   );
 }
 
-export function Avatar({ nome, size = 44 }: { nome: string; size?: number }) {
+/**
+ * Avatar do barbeiro: foto quando existe, iniciais quando não (2026-08-19).
+ *
+ * O `onError` não é zelo excessivo — é a única defesa contra a imagem quebrada
+ * que o brief proíbe. Se o objeto sumir do bucket (apagado na mão, bucket
+ * trocado), a URL continua no banco e o `<img>` viraria um ícone de foto
+ * partida na tela do cliente. Caindo pras iniciais, ninguém percebe.
+ */
+export function Avatar({
+  nome,
+  fotoUrl,
+  size = 44,
+}: {
+  nome: string;
+  fotoUrl?: string | null;
+  size?: number;
+}) {
+  // Guarda QUAL url falhou, não um booleano: se a foto for trocada depois de um
+  // erro, a nova precisa ter chance de carregar — com flag booleana, o avatar
+  // ficaria preso nas iniciais até a tela remontar.
+  const [urlQuebrada, setUrlQuebrada] = useState<string | null>(null);
+  const mostrarFoto = !!fotoUrl && urlQuebrada !== fotoUrl;
+
   return (
     <div className="avatar" style={{ width: size, height: size, fontSize: size * 0.34 }}>
-      {iniciais(nome)}
+      {mostrarFoto ? (
+        <img
+          src={fotoUrl}
+          alt={nome}
+          loading="lazy"
+          onError={() => setUrlQuebrada(fotoUrl)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+        />
+      ) : (
+        iniciais(nome)
+      )}
     </div>
   );
 }

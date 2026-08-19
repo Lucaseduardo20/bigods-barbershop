@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1087.0",
+    "@aws-sdk/client-s3": "^3.1113.0",
     "@bigods/contracts": "*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
@@ -28,7 +29,8 @@
     "dotenv": "^17.4.2",
     "prisma": "^6.19.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@bigods/config": "*",

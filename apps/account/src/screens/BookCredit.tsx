@@ -8,7 +8,7 @@ import { StatusItemPacote } from '@bigods/contracts';
 import { api, ApiError } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
 import { hojeISO, rotuloDia } from '../lib/format';
-import { Icon, Spinner, useApi } from '../components/ui';
+import { AvatarBarbeiro, Icon, Spinner, useApi } from '../components/ui';
 import { QuandoBloco } from '../components/QuandoBloco';
 
 interface CreditoLivre {
@@ -199,7 +199,11 @@ export function BookCredit({
                     key={b.id}
                     className={`selectable ${b.id === barbeiroId ? 'selected' : ''}`}
                     onClick={() => escolherBarbeiro(b.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12 }}
                   >
+                    {/* Mesma foto do funil (2026-08-19) — é a mesma escolha,
+                        só que gastando crédito de pacote. */}
+                    <AvatarBarbeiro nome={b.nome} fotoUrl={b.fotoUrl} size={48} />
                     <div style={{ fontWeight: 700 }}>{b.nome}</div>
                   </button>
                 ))}

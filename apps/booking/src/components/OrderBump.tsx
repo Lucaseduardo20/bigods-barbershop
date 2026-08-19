@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { ItemDeOrderBumpDTO, OrderBumpDTO } from '@bigods/contracts';
+import { TipoItemDeOrderBump } from '@bigods/contracts';
 import { dinheiro } from '../lib/format';
 import { servicosSugeridosDoBump, type FunnelState } from '../lib/funnel-state';
 
@@ -103,6 +105,9 @@ function CartaoDeBump({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 min-w-0">
+          {/* Produto ganha miniatura (2026-08-19); serviço não tem foto e
+              segue como antes, sem um quadrado vazio ocupando espaço. */}
+          {item.tipo === TipoItemDeOrderBump.PRODUTO && <MiniaturaDoProduto item={item} />}
           <span className="font-bold text-[14px] truncate">{item.nome}</span>
           {temOferta && <span className="bump-selo">−{item.descontoPercentual}%</span>}
         </span>
@@ -132,5 +137,41 @@ function CartaoDeBump({
         </span>
       </div>
     </button>
+  );
+}
+
+/**
+ * Miniatura do produto na vitrine. Sem foto — ou com a foto quebrada — mostra
+ * um placeholder discreto, nunca o ícone de imagem partida do navegador.
+ */
+function MiniaturaDoProduto({ item }: { item: ItemDeOrderBumpDTO }) {
+  // Ver a nota em `Avatar` (components/ui.tsx): guarda a url que falhou, não um
+  // booleano, senão trocar a foto do produto não reflete até remontar.
+  const [urlQuebrada, setUrlQuebrada] = useState<string | null>(null);
+  const temFoto = !!item.fotoUrl && urlQuebrada !== item.fotoUrl;
+
+  return (
+    <span
+      className="flex items-center justify-center flex-shrink-0 overflow-hidden"
+      style={{
+        width: 34,
+        height: 34,
+        borderRadius: 8,
+        background: 'var(--surface-sunken)',
+        fontSize: 15,
+      }}
+    >
+      {temFoto ? (
+        <img
+          src={item.fotoUrl!}
+          alt={item.nome}
+          loading="lazy"
+          onError={() => setUrlQuebrada(item.fotoUrl)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      ) : (
+        <span aria-hidden="true">🧴</span>
+      )}
+    </span>
   );
 }

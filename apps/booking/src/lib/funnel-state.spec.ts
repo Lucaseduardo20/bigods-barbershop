@@ -30,6 +30,7 @@ function bumpServico(
     precoNormalCentavos: normal,
     precoPromocionalCentavos: promocional,
     descontoCentavos: normal - promocional,
+    fotoUrl: null, // serviço não tem foto
     descontoPercentual: normal === 0 ? 0 : Math.round(((normal - promocional) / normal) * 1000) / 10,
     mensagem: null,
     duracaoMinutos: 20,
@@ -70,19 +71,19 @@ describe('sanitizarEstadoCarregado', () => {
 
 describe('barbeiroParaAutoSelecionar', () => {
   it('BUG "loading eterno" (sessão-D): com um único barbeiro na casa, resolve ele mesmo sem nenhuma escolha manual', () => {
-    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel' }];
+    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel', fotoUrl: null }];
     expect(barbeiroParaAutoSelecionar(barbeiros, null)).toEqual({ id: 'bar-gabriel', nome: 'Gabriel' });
   });
 
   it('não repete a resolução se o barbeiro já é o mesmo (evita loop de re-aplicação)', () => {
-    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel' }];
+    const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel', fotoUrl: null }];
     expect(barbeiroParaAutoSelecionar(barbeiros, 'bar-gabriel')).toBeNull();
   });
 
   it('com mais de um barbeiro, não resolve sozinho — precisa de escolha manual', () => {
     const barbeiros = [
-      { id: 'bar-gabriel', nome: 'Gabriel' },
-      { id: 'bar-lucas', nome: 'Lucas' },
+      { id: 'bar-gabriel', nome: 'Gabriel', fotoUrl: null },
+      { id: 'bar-lucas', nome: 'Lucas', fotoUrl: null },
     ];
     expect(barbeiroParaAutoSelecionar(barbeiros, null)).toBeNull();
   });

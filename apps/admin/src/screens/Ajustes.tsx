@@ -1,18 +1,9 @@
-import { useState } from 'react';
-import type { ParametrosDTO, TabelaDeDescontoDTO, UsuarioDTO } from '@bigods/contracts';
+import { useEffect, useState } from 'react';
+import type { BarbeiroDTO, ParametrosDTO, TabelaDeDescontoDTO, UsuarioDTO } from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api, limparSessao } from '../lib/api';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from '../components/ui';
-
-/** Iniciais do nome — o avatar do staff. Não há foto de perfil no domínio ainda. */
-function iniciais(nome: string): string {
-  return nome
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
-    .join('');
-}
+import { Foto, FotoUpload } from '../components/FotoUpload';
 
 /**
  * PARTE 2 (sessão-D): "Ajustes" era um depósito — acumulou serviços, preços,
@@ -24,21 +15,18 @@ function iniciais(nome: string): string {
  */
 export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const ehBarbeiro = usuario.papeis.includes(Papel.BARBEIRO);
+  // A foto não vem na sessão (`UsuarioDTO` é só identidade + papéis), então o
+  // avatar do topo e o bloco de gerenciar compartilham este estado — trocar a
+  // foto lá embaixo atualiza o avatar aqui em cima na hora.
+  const [minhaFoto, setMinhaFoto] = useState<string | null>(null);
   return (
     <div className="px-5">
       <h1 className="m-0 mb-4 text-[26px] font-bold leading-tight">Ajustes</h1>
       <div className="card mb-4 flex items-center gap-3">
-        {/* Avatar: só iniciais por enquanto — não existe foto de perfil no
-            domínio (`Barbeiro` não tem campo de foto e não há storage de
-            upload; ver DECISOES_PENDENTES #4). Quando existir, a imagem entra
-            aqui com as iniciais de fallback. */}
-        <div
-          className="rounded-full flex items-center justify-center font-extrabold flex-shrink-0"
-          style={{ width: 48, height: 48, background: 'var(--brand-gold-100)', color: 'var(--brand-gold-700)', fontSize: 17 }}
-          aria-hidden="true"
-        >
-          {iniciais(usuario.nome)}
-        </div>
+        {/* Foto de perfil com iniciais de fallback (2026-08-19) — era a
+            DECISAO_PENDENTE #4, resolvida nesta sessão. */}
+        <Foto url={minhaFoto} nome={usuario.nome} size={48} />
         <div className="flex-1 min-w-0">
           <div className="font-bold text-[15px] truncate">{usuario.nome}</div>
           <div className="flex gap-1.5 mt-1">
@@ -60,6 +48,10 @@ export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
         </button>
       </div>
 
+      {/* Só quem é BARBEIRO tem onde a foto aparecer (o funil, na escolha de
+          profissional) — admin puro não é escolhido por ninguém. */}
+      {ehBarbeiro && <MinhaFoto usuario={usuario} aoMudar={setMinhaFoto} />}
+
       <MinhaSenha />
 
       {/* "Se ele não tem acesso, ele não pode ver" (2026-08-18): parâmetros da
@@ -71,6 +63,46 @@ export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
           <DescontoProgressivo />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Foto de perfil do próprio usuário (2026-08-19). O barbeiro gerencia a dele
+ * sem depender do admin — mesma regra do backend, que aceita "admin, ou o
+ * próprio". A foto atual vem de `GET /barbeiros` (que todo staff já usa para
+ * agenda/comissão); a sessão guarda só identidade e papéis.
+ */
+function MinhaFoto({
+  usuario,
+  aoMudar,
+}: {
+  usuario: UsuarioDTO;
+  aoMudar: (url: string | null) => void;
+}) {
+  const { dados, recarregar } = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const eu = (dados ?? []).find((b) => b.id === usuario.barbeiroId) ?? null;
+
+  useEffect(() => {
+    if (eu) aoMudar(eu.fotoUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eu?.fotoUrl]);
+
+  return (
+    <div className="card mb-4">
+      <div className="text-[14px] font-bold mb-1">Minha foto</div>
+      <div className="text-[12px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+        É o que o cliente vê no funil, na hora de escolher com quem se atender.
+      </div>
+      <FotoUpload
+        rotaBase={`/barbeiros/${usuario.barbeiroId}`}
+        urlAtual={eu?.fotoUrl ?? null}
+        nome={usuario.nome}
+        aoMudar={(url) => {
+          aoMudar(url);
+          recarregar();
+        }}
+      />
     </div>
   );
 }

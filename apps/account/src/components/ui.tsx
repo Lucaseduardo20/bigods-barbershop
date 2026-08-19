@@ -131,6 +131,61 @@ const PATHS: Record<string, ReactNode> = {
   ),
 };
 
+/**
+ * Avatar do barbeiro: foto quando existe, iniciais quando não (2026-08-19).
+ * O `onError` cobre o caso da foto quebrada (objeto removido do bucket) — o
+ * cliente nunca vê ícone de imagem partida.
+ */
+export function AvatarBarbeiro({
+  nome,
+  fotoUrl,
+  size = 44,
+}: {
+  nome: string;
+  fotoUrl?: string | null;
+  size?: number;
+}) {
+  // Ver a mesma nota no funil: guarda a url que falhou, não um booleano.
+  const [urlQuebrada, setUrlQuebrada] = useState<string | null>(null);
+  const iniciais = nome
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join('');
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        flexShrink: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--brand-gold-100, #f3e6cc)',
+        color: 'var(--brand-gold-700, #8a6a2f)',
+        fontWeight: 800,
+        fontSize: size * 0.34,
+      }}
+    >
+      {fotoUrl && urlQuebrada !== fotoUrl ? (
+        <img
+          src={fotoUrl}
+          alt={nome}
+          loading="lazy"
+          onError={() => setUrlQuebrada(fotoUrl)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      ) : (
+        iniciais
+      )}
+    </div>
+  );
+}
+
 export function Icon({ name, size = 20 }: { name: keyof typeof PATHS | string; size?: number }) {
   return (
     <svg

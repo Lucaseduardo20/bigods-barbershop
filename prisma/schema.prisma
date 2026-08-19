@@ -222,6 +222,9 @@ model Produto {
   nome           String
   precoCentavos  Int
   ativo          Boolean @default(true)
+  // Foto do produto (2026-08-19): URL pública no bucket de uploads. Sem foto,
+  // o funil mostra um placeholder — nunca imagem quebrada.
+  fotoUrl        String?
   // ⚠️ DEPRECADO em 2026-08-17 (Parte 2) — ver a nota igual em Servico:
   // substituído por ItemDeOrderBump, migrado, não lido por ninguém.
   sugeridoNoBump Boolean @default(false)
@@ -289,6 +292,10 @@ model Barbeiro {
   // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"
   // em vez de UUID. Único por empresa, gerado no cadastro, editável pelo admin.
   slug               String
+  // Foto de perfil (2026-08-19, resolve DECISOES_PENDENTES #4): URL pública no
+  // bucket de uploads. Nullable de propósito — quem não tem foto cai no avatar
+  // de iniciais, nunca numa imagem quebrada.
+  fotoUrl            String?
 
   // credenciais da autenticação local (infra — não fazem parte do domínio)
   login     String? @unique

@@ -3,13 +3,18 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   Inject,
   NotFoundException,
   Param,
   Post,
   Put,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -38,6 +43,9 @@ import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { PrismaBarbeiroRepository } from '../infrastructure/prisma-barbeiro.repository';
 import { hashSenha } from '../../identity/infrastructure/local-auth.provider';
+import { GerenciarFotoUseCase } from '../../storage/application/gerenciar-foto.usecase';
+import { PASTAS, TAMANHO_MAXIMO_BYTES } from '../../storage/domain/imagem';
+import { ArquivoEnviado, exigirArquivo } from '../../storage/presentation/arquivo-enviado';
 
 class ExcecaoDto {
   @IsString() servicoId!: string;
@@ -106,6 +114,7 @@ function paraDTO(b: Barbeiro): BarbeiroDTO {
     servicosAtendidos: [...b.servicosAtendidos],
     comissaoProdutos: b.comissaoProdutos.porcentagem,
     precosServicos: [...b.precosServicos].map(([servicoId, preco]) => ({ servicoId, precoCentavos: preco.centavos })),
+    fotoUrl: b.fotoUrl,
     ativo: b.ativo,
   };
 }
@@ -128,6 +137,7 @@ export class BarbeirosController {
   constructor(
     @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
     private readonly prisma: PrismaService,
+    private readonly foto: GerenciarFotoUseCase,
   ) {}
 
   @Get()
@@ -278,6 +288,7 @@ export class BarbeirosController {
       servicosAtendidos: barbeiro.servicosAtendidos,
       comissaoProdutos: Percentual.dePorcentagem(body.comissaoProdutos),
       precosServicos: barbeiro.precosServicos,
+      fotoUrl: barbeiro.fotoUrl,
       ativo: barbeiro.ativo,
     });
     await this.barbeiros.salvar(atualizado);
@@ -334,6 +345,55 @@ export class BarbeirosController {
     for (const s of body.servicoIds) barbeiro.habilitarServico(s);
     await this.barbeiros.salvar(barbeiro);
     return paraDTO(barbeiro);
+  }
+
+  /**
+   * Foto de perfil (2026-08-19, resolve DECISOES_PENDENTES #4).
+   *
+   * ACL: admin mexe em qualquer um; barbeiro não-admin, só na PRÓPRIA foto —
+   * a mesma régua do resto da gestão de usuário ("se ele não tem acesso, ele
+   * não pode ver", 2026-08-18). Por isso não há `@Papeis(ADMIN)` aqui: a
+   * checagem é caso a caso, em `exigirPodeEditar`.
+   *
+   * `limits.fileSize` corta o upload gigante ainda na borda, antes de virar
+   * Buffer na memória; o teto do domínio (`validarImagem`) continua valendo
+   * como a regra de verdade — este é só o para-choque.
+   */
+  @Post(':id/foto')
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: TAMANHO_MAXIMO_BYTES } }))
+  async enviarFoto(
+    @Param('id') id: string,
+    @UploadedFile() arquivo: ArquivoEnviado | undefined,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<BarbeiroDTO> {
+    const barbeiro = await this.buscar(id, usuario);
+    this.exigirPodeEditar(barbeiro, usuario);
+    await this.foto.trocar({
+      dono: barbeiro,
+      conteudo: exigirArquivo(arquivo),
+      pasta: PASTAS.barbeiros,
+      salvar: (b) => this.barbeiros.salvar(b),
+    });
+    return paraDTO(barbeiro);
+  }
+
+  @Delete(':id/foto')
+  async removerFoto(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<BarbeiroDTO> {
+    const barbeiro = await this.buscar(id, usuario);
+    this.exigirPodeEditar(barbeiro, usuario);
+    await this.foto.remover({ dono: barbeiro, salvar: (b) => this.barbeiros.salvar(b) });
+    return paraDTO(barbeiro);
+  }
+
+  /** Admin edita qualquer um; barbeiro edita só a si mesmo. */
+  private exigirPodeEditar(barbeiro: Barbeiro, usuario: UsuarioAutenticado): void {
+    if (usuario.papeis.includes(Papel.ADMIN)) return;
+    if (barbeiro.id !== usuario.barbeiroId) {
+      throw new ForbiddenException('Você só pode alterar a sua própria foto');
+    }
   }
 
   private async buscar(id: string, usuario: UsuarioAutenticado): Promise<Barbeiro> {
