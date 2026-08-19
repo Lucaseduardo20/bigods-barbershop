@@ -404,6 +404,11 @@ export class BookingPublicoController {
    *   pagamento já é a trava contra agenda falsa, e o OTP vira só atrito no
    *   caminho de maior valor. Decisão do dono.
    *
+   * O modo de pagamento manual por WhatsApp (TEMPORÁRIO, 2026-08-18) NÃO mexe
+   * nisso: o que segura a agenda no caminho online nunca foi o PIX em si — foi
+   * a reserva temporária de 10 min, que continua idêntica. Abandonar a ponte do
+   * WhatsApp custa o mesmo que abandonar um QR Code.
+   *
    * De onde vem o telefone, e por que a ordem importa: quando HÁ sessão, ele
    * vem SEMPRE dela, e o do corpo é ignorado — senão um cliente verificado
    * poderia marcar em nome de outro número, reabrindo a agenda falsa por outra
@@ -467,8 +472,11 @@ export class BookingPublicoController {
     });
     return {
       atendimentoId: resultado.atendimentoId,
-      intencaoId: resultado.cobranca?.intencaoId ?? null,
+      // No modo manual não há PIX, mas há intenção — é ela que o admin
+      // confirma depois, e é por ela que o funil consulta o status.
+      intencaoId: resultado.cobranca?.intencaoId ?? resultado.pagamentoManual?.intencaoId ?? null,
       cobranca: resultado.cobranca,
+      pagamentoManual: resultado.pagamentoManual,
       barbeiro: resultado.barbeiro,
       valorTotalCentavos: resultado.valorTotalCentavos,
     };

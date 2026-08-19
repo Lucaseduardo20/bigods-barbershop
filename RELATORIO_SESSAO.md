@@ -3373,6 +3373,134 @@ e sem backfill. O código antigo continua rodando sem enxergá-las, e nenhuma li
 - **Docker:** nada a mudar. O `sharp` é instalado pelo `npm ci` dentro do container
   (`node:20-bookworm-slim`), que baixa o binário `linux-x64` certo, e os `.env` já são lidos por
   `env_file` nos composes. As credenciais vêm da IAM Role, como o resto.
+## Pagamento manual por WhatsApp — ponte TEMPORÁRIA (2026-08-18) ✅
+
+A AbacatePay leva ~7 dias úteis para liberar produção. Até lá o "pagar online" não pode
+simplesmente sumir do funil — mas também não há PIX para gerar. A ponte: o cliente é mandado pro
+WhatsApp da barbearia com o pedido já escrito, o PIX acontece por fora, e o dono confirma no admin.
+
+**Isto é um andaime, não arquitetura.** Ligar e desligar é uma variável de ambiente.
+
+### A flag
+
+```bash
+PAGAMENTO_MANUAL_WHATSAPP="true"              # false/ausente = PIX normal pelo gateway
+PAGAMENTO_MANUAL_WHATSAPP_NUMERO="5511990036469"  # E.164, com DDI — destino da comanda
+```
+
+A API **recusa subir** com a flag ligada e sem número (ou com número curto demais para ter DDI):
+melhor quebrar no boot do que mandar o cliente pra um link de WhatsApp quebrado bem na hora de
+pagar. Voltar ao PIX é `false` + restart — **sem deploy de código**.
+
+### Onde a decisão mora
+
+Num lugar só: `CobrancaOnlineService.gerar()` (`modules/payments/application/`), exatamente onde
+antes havia a chamada direta ao gateway. Nenhum outro ponto do sistema sabe que a flag existe —
+nada de `if` espalhado por caso de uso, controller ou tela.
+
+O que isso comprou de graça: **tudo o que acontece ANTES da cobrança é idêntico nos dois modos**.
+A `IntencaoDePagamento` nasce igual, com o mesmo `expiraEm`; o avulso online nasce `RESERVADO`
+com o mesmo prazo; a expiração por timeout continua valendo, com o mesmo gatilho de polling.
+
+★ **É isso que impede buraco de agenda.** O cliente que clica "pagar", vai pro WhatsApp e some
+não prende o horário — a reserva expira sozinha, exatamente como expiraria com um PIX de verdade.
+Não foi escrito código novo pra isso; foi só não mexer no que já estava certo.
+
+### ON vs OFF — o que muda de fato
+
+| | Flag OFF (normal) | Flag ON (manual) |
+|---|---|---|
+| Resposta da API | `cobranca` (QR + copia-e-cola) | `pagamentoManual` (link `wa.me` + comanda) |
+| Tela do funil | `PixAguardando` | `PagamentoManualAguardando` |
+| Quem confirma | webhook da AbacatePay | admin, no painel |
+| Intenção de pagamento | criada, `AGUARDANDO`, com prazo | **igual** |
+| Reserva do avulso | `RESERVADO`, expira em 10 min | **igual** |
+| OTP | exigido | **igual** |
+| "Pagar na barbearia" | inalterado | **inalterado** |
+
+Só um dos dois campos vem preenchido, e quem decide é o servidor — o front nunca lê a flag para
+escolher fluxo (só para trocar o texto do botão, para não prometer "PIX na hora" e entregar outra
+coisa na tela seguinte).
+
+### Reuso, não reconstrução
+
+Nada aqui inventou um caminho de confirmação:
+
+- **Pacote:** `POST /pacotes/:id/confirmar-pagamento` já existia (bug 8, pagamento no balcão). Só
+  o rótulo do botão mudou — "Confirmar pagamento **recebido**" em vez de "presencial", que agora
+  seria mentira.
+- **Avulso:** `POST /atendimentos/:id/confirmar-pagamento` é novo, mas o corpo dele é uma chamada
+  ao **mesmo `ProcessarWebhookUseCase`** que o gateway usa. Idempotente pelo mesmo motivo de
+  sempre; clicar duas vezes não faz efeito duplo (tem teste).
+- **Expiração:** `ExpirarPagamentoVencidoUseCase`, intocado.
+
+Código novo mesmo, só três arquivos: o construtor de comanda (`comanda-whatsapp.ts`, TypeScript
+puro no domínio), o serviço de decisão, e a tela de espera do funil.
+
+### A comanda
+
+Chega no WhatsApp da barbearia assim:
+
+```
+*Agendamento — Bigod's Barber*
+
+*Cliente:* João da Silva
+*Telefone:* +5511998887777
+*Barbeiro:* Gabriel
+*Quando:* 21/08/2026 às 09:00
+
+*Itens:*
+• Corte — R$ 50,00
+• Barba — R$ 25,00
+
+*Total: R$ 75,00*
+
+Vou fazer o PIX deste valor. Pode confirmar, por favor?
+```
+
+(Está na voz do **cliente** — é ele quem envia. Os `*` viram negrito no WhatsApp.)
+
+No pacote não há barbeiro nem horário, então essas linhas simplesmente não aparecem, e os itens
+saem agrupados (`5× Corte`).
+
+### Testes
+
+- **9 de domínio** (`comanda-whatsapp.spec.ts`): conteúdo da comanda, formatação de dinheiro
+  (vírgula, nunca centavos crus), item sem valor não vira "R$ 0,00", link `wa.me` codificado e
+  decodificável, e falha alta quando não há número configurado.
+- **4 de config** (`config-seguranca.spec.ts`): boot recusa flag ligada sem número e com número
+  sem DDI; aceita com máscara; flag desligada não exige nada.
+- **10 e2e** (`pagamento-manual-whatsapp.e2e.spec.ts`): pacote e avulso não geram PIX e devolvem a
+  ponte; crédito de pacote **não agenda** antes da aprovação (422) e agenda depois; avulso
+  `RESERVADO` → `AGENDADO` na aprovação; dupla aprovação é no-op; ★ **reserva abandonada expira e
+  o horário aceita outro cliente**; presencial continua exigindo OTP, sem ponte e sem cobrança;
+  rota de confirmação não é pública.
+
+A não-regressão do modo OFF é o resto da suíte: todos os outros e2e de pagamento rodam sem a flag
+e continuam verdes.
+
+### Roteiro de smoke test manual
+
+Com `PAGAMENTO_MANUAL_WHATSAPP=true` e o número da barbearia no `.env`, API reiniciada:
+
+1. **Funil → pacote:** a tela de confirmação deve dizer "PIX pelo WhatsApp". Confirme, faça o OTP.
+2. A tela seguinte é a ponte — toque em **"Abrir o WhatsApp"**. A conversa abre com a comanda
+   escrita; confira nome, itens e total. Envie.
+3. **Não pague ainda.** Volte ao funil: continua "aguardando confirmação", girando.
+4. **Admin → Pacotes & Ofertas → Vendidos:** o pacote está `AGUARDANDO`. Clique em **"Confirmar
+   pagamento recebido"**.
+5. O funil avança sozinho em até ~3s, e os créditos aparecem no cockpit do cliente.
+6. **Repita no avulso** escolhendo "Pagar agora": mesma ponte. O atendimento aparece na agenda como
+   "Aguardando pagamento"; abra o detalhe e confirme — vira agendado.
+7. ★ **Teste o abandono:** faça um avulso online, vá pro WhatsApp e **não confirme nada**. Depois de
+   10 minutos o horário tem que voltar a aparecer como livre no funil, e o atendimento sair da
+   agenda firme. É o cenário que mais dói se estiver quebrado.
+8. **Desligue a flag** (`false` + restart) e refaça o passo 1: tem que voltar o QR Code do PIX.
+
+### Quando a AbacatePay liberar
+
+Vire a flag para `false` e reinicie. Só isso. Ver DECISOES_PENDENTES #38 — inclusive a sugestão de
+**manter** o modo manual desligado por um tempo, como plano B se o gateway cair.
 
 ## Como rodar localmente
 

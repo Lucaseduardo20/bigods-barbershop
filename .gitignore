@@ -7,6 +7,7 @@ dist/
 # Qualquer .env local/backup — os únicos versionados são os *.example. Sem esta
 # linha, um `.env.bak-...` esquecido na raiz entra num `git add -A` com
 # AUTH_SECRET e DATABASE_URL de produção dentro.
+# AUTH_SECRET e DATABASE_URL de produção dentro (quase aconteceu, 2026-08-18).
 .env.*
 !.env.example
 !.env.aws.example

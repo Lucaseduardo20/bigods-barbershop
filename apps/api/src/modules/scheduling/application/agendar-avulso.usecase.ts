@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { CobrancaDTO, OrigemAtendimento } from '@bigods/contracts';
+import { CobrancaDTO, OrigemAtendimento, PagamentoManualDTO } from '@bigods/contracts';
 import { Atendimento } from '../domain/atendimento.aggregate';
 import { Servico } from '../../catalog/domain/servico.aggregate';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
@@ -26,11 +26,11 @@ import {
 } from '../domain/atendimento.repository';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
-import { PAYMENT_GATEWAY, PaymentGateway } from '../../payments/domain/payment-gateway';
+import { CobrancaOnlineService } from '../../payments/application/cobranca-online.service';
 import { Telefone } from '../../../shared/domain/telefone';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { DomainEvent } from '../../../shared/events/domain-event';
-import { diaCivilChave } from '../../../shared/domain/calendario';
+import { diaCivilChave, horaLocalHHmm } from '../../../shared/domain/calendario';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
@@ -106,6 +106,8 @@ export interface AgendarAvulsoOutput {
   atendimentoId: string;
   clienteId: string;
   cobranca: CobrancaDTO | null;
+  /** Ponte do WhatsApp quando o modo manual está ligado (no lugar do PIX). */
+  pagamentoManual: PagamentoManualDTO | null;
   /** Quem vai atender — no "sem preferência" é a resposta da atribuição. */
   barbeiro: { id: string; nome: string };
   /** Total cobrado (já com desconto progressivo), em centavos. */
@@ -123,7 +125,7 @@ export class AgendarAvulsoUseCase {
     @Inject(ATENDIMENTO_REPOSITORY) private readonly atendimentos: AtendimentoRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    private readonly cobrancaOnline: CobrancaOnlineService,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
   ) {}
@@ -400,26 +402,47 @@ export class AgendarAvulsoUseCase {
 
     await this.publisher.publicar(eventos);
 
+    // Cobrança online: PIX pelo gateway OU ponte do WhatsApp (modo manual
+    // temporário) — a decisão vive inteira em `CobrancaOnlineService`. Tudo
+    // acima é idêntico nos dois modos, inclusive a reserva `RESERVADO` com
+    // prazo: quem clica "pagar", vai pro WhatsApp e some NÃO prende o horário.
     let cobranca: AgendarAvulsoOutput['cobranca'] = null;
+    let pagamentoManual: AgendarAvulsoOutput['pagamentoManual'] = null;
     if (resultado.intencao) {
-      const pix = await this.gateway.criarCobrancaPix({
-        valor: resultado.intencao.valor,
+      const r = await this.cobrancaOnline.gerar({
+        intencao: resultado.intencao,
         descricao: `Atendimento ${atendimentoId}`,
-        externalId: resultado.intencao.externalId,
         expiraEmSegundos: PRAZO_RESERVA_SEGUNDOS,
+        comanda: {
+          titulo: 'Agendamento',
+          clienteNome: input.cliente.nome,
+          clienteTelefone: telefone.e164,
+          barbeiroNome: barbeiro.nome,
+          // Dia civil + hora de parede no fuso da EMPRESA — nunca o instante
+          // UTC cru, que mostraria outro dia perto da virada.
+          quando: `${diaCivilChave(input.inicio, tz).split('-').reverse().join('/')} às ${horaLocalHHmm(input.inicio, tz)}`,
+          itens: [
+            ...itensComPreco.map((i) => ({
+              descricao: servicos.find((s) => s.id === i.servicoId)?.nome ?? i.servicoId,
+              valorCentavos: i.valorCobrado.centavos,
+            })),
+            ...produtosComPreco.map((p) => ({
+              descricao: `${p.quantidade}× ${produtoPorId.get(p.produtoId)?.nome ?? p.produtoId}`,
+              valorCentavos: p.valorUnitario.centavos * p.quantidade,
+            })),
+          ],
+          totalCentavos: resultado.intencao.valor.centavos,
+        },
       });
-      cobranca = {
-        intencaoId: resultado.intencao.id,
-        qrCode: pix.qrCode,
-        copiaECola: pix.copiaECola,
-        expiraEm: resultado.intencao.expiraEm!.toISOString(),
-      };
+      cobranca = r.cobranca;
+      pagamentoManual = r.pagamentoManual;
     }
 
     return {
       atendimentoId,
       clienteId: resultado.clienteId,
       cobranca,
+      pagamentoManual,
       barbeiro: { id: barbeiro.id, nome: barbeiro.nome },
       // Serviços (com desconto progressivo) + produtos do bump — o "preço de
       // capa" mostrado ao cliente, sem descontar abatimento de saldo residual

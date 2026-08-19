@@ -76,7 +76,9 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
 
   // Bug 8: pacote "pagar na barbearia" fica AGUARDANDO sem nenhuma ação para o
   // admin liberar os créditos quando o cliente paga no balcão — confirma pelo
-  // mesmo caminho idempotente do webhook.
+  // mesmo caminho idempotente do webhook. Desde 2026-08-18 esta MESMA ação
+  // atende o pagamento manual por WhatsApp (o PIX cai por fora do sistema),
+  // por isso o rótulo fala em "recebido" e não em "presencial".
   const confirmarPagamento = async (vendaId: string) => {
     setConfirmando(vendaId);
     try {
@@ -136,7 +138,7 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
                     disabled={confirmando === v.id}
                     onClick={() => confirmarPagamento(v.id)}
                   >
-                    {confirmando === v.id ? 'Confirmando…' : 'Confirmar pagamento presencial'}
+                    {confirmando === v.id ? 'Confirmando…' : 'Confirmar pagamento recebido'}
                   </button>
                 )}
               </div>

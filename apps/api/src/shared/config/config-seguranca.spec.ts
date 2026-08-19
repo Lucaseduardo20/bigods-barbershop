@@ -18,9 +18,26 @@ describe('assertConfiguracaoSegura', () => {
     expect(() => assertConfiguracaoSegura({ NODE_ENV: 'production' })).toThrow(ConfiguracaoInseguraError);
   });
 
-  it('recusa produção com IDENTITY_PROVIDER=cognito — saiu do fluxo, não é mais uma opção válida', () => {
+  it('★ aceita produção com IDENTITY_PROVIDER=cognito (OTP por SMS, 2026-08-18)', () => {
     expect(() =>
       assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito', PAYMENT_GATEWAY: 'fake' }),
+    ).not.toThrow();
+  });
+
+  it('produção com demo continua recusada, mesmo com o cognito liberado', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'demo', PAYMENT_GATEWAY: 'fake' }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
+  it('DEMO_MODE=true segue proibido em produção mesmo com cognito', () => {
+    expect(() =>
+      assertConfiguracaoSegura({
+        NODE_ENV: 'production',
+        IDENTITY_PROVIDER: 'cognito',
+        DEMO_MODE: 'true',
+        PAYMENT_GATEWAY: 'fake',
+      }),
     ).toThrow(ConfiguracaoInseguraError);
   });
 
@@ -91,6 +108,42 @@ describe('assertConfiguracaoSegura', () => {
   it('aceita dev com PAYMENT_GATEWAY=fake sem credenciais de gateway', () => {
     expect(() =>
       assertConfiguracaoSegura({ IDENTITY_PROVIDER: 'demo', DEMO_MODE: 'true', PAYMENT_GATEWAY: 'fake' }),
+    ).not.toThrow();
+  });
+
+  // Pagamento manual por WhatsApp (TEMPORÁRIO, 2026-08-18).
+  const dev = { IDENTITY_PROVIDER: 'demo', DEMO_MODE: 'true', PAYMENT_GATEWAY: 'fake' } as const;
+
+  it('★ recusa PAGAMENTO_MANUAL_WHATSAPP=true sem número (o cliente cairia num link quebrado)', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ ...dev, PAGAMENTO_MANUAL_WHATSAPP: 'true' }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
+  it('recusa número curto demais para ser E.164 com DDI (ex.: esqueceram o 55)', () => {
+    expect(() =>
+      assertConfiguracaoSegura({
+        ...dev,
+        PAGAMENTO_MANUAL_WHATSAPP: 'true',
+        PAGAMENTO_MANUAL_WHATSAPP_NUMERO: '11990036469',
+      }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
+  it('aceita a flag ligada com número completo, mesmo com máscara', () => {
+    expect(() =>
+      assertConfiguracaoSegura({
+        ...dev,
+        PAGAMENTO_MANUAL_WHATSAPP: 'true',
+        PAGAMENTO_MANUAL_WHATSAPP_NUMERO: '+55 (11) 99003-6469',
+      }),
+    ).not.toThrow();
+  });
+
+  it('flag desligada não exige número nenhum (é o estado normal do sistema)', () => {
+    expect(() => assertConfiguracaoSegura({ ...dev })).not.toThrow();
+    expect(() =>
+      assertConfiguracaoSegura({ ...dev, PAGAMENTO_MANUAL_WHATSAPP: 'false' }),
     ).not.toThrow();
   });
 });

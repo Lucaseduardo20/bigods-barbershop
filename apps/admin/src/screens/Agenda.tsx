@@ -28,9 +28,9 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
   const [periodoDe, setPeriodoDe] = useState(() => hojeISO(tz));
   const [periodoAte, setPeriodoAte] = useState(() => somarDias(hojeISO(tz), 6));
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
-  const [filtroStatus, setFiltroStatus] = useState<'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.CONCLUIDO>(
-    'todos',
-  );
+  const [filtroStatus, setFiltroStatus] = useState<
+    'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.RESERVADO | StatusAtendimento.CONCLUIDO
+  >('todos');
   const [novoAberto, setNovoAberto] = useState(false);
   const [vendaAberta, setVendaAberta] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
@@ -148,6 +148,10 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
           tabs={[
             { value: 'todos', label: 'Todos' },
             { value: StatusAtendimento.AGENDADO, label: 'Agendados' },
+            // Pagamento manual por WhatsApp (2026-08-18): o PIX cai por fora e
+            // o dono precisa achar RÁPIDO o atendimento que acabou de chegar
+            // pra confirmar. Sem esta aba, ele caça no meio da semana inteira.
+            { value: StatusAtendimento.RESERVADO, label: 'Aguardando pgto' },
             { value: StatusAtendimento.CONCLUIDO, label: 'Concluídos' },
           ]}
         />
@@ -230,6 +234,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
       />
       <AtendimentoDetalheDialog
         atendimentoId={selecionadoId}
+        ehAdmin={ehAdmin}
         aoFechar={() => setSelecionadoId(null)}
         aoMudar={() => {
           setSelecionadoId(null);

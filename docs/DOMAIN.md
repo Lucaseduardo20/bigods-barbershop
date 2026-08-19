@@ -411,12 +411,51 @@ ser o rate limit da borda, em duas dimensões que resolvem abusos diferentes:
 | Trava | Chave | Freia |
 |---|---|---|
 | `default` nas rotas de login | telefone (normalizado E.164) | martelar UM número — força bruta de código e incomodar um cliente |
-| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam e queima do número de WhatsApp por volume (ban da Meta) |
+| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam, custo de SMS e queima da franquia/chip |
 
 Só o segundo protege contra varredura: cada telefone novo ganha um balde próprio no primeiro, então
 sem o limite por origem o volume é ilimitado na prática. O limite por origem depende de `req.ip`
 ser o cliente real — ver `trust proxy` em `main.ts` e a sobrescrita de `X-Forwarded-For` no
-`Caddyfile`.
+`Caddyfile`. Com SMS o custo virou dinheiro direto (cada envio é um SMS pago pelo chip), o que
+tornou esse limite mais crítico do que era no WhatsApp.
+
+#### Canal do OTP: SMS via Cognito + SMS Gate (2026-08-18)
+
+O canal padrão de produção passou a ser **SMS**, com o **AWS Cognito** como provedor de identidade
+(`IDENTITY_PROVIDER=cognito`). O WhatsApp (`whatsapp`, Baileys) continua funcional como adapter,
+mas deixou de ser o canal de OTP — fica reservado para transacional futuro.
+
+```
+funil → nossa API → Cognito InitiateAuth(CUSTOM_AUTH)
+                       ├─ DefineAuthChallenge          orquestra
+                       ├─ CreateAuthChallenge          gera o código e manda o SMS (SMS Gate)
+                       └─ VerifyAuthChallengeResponse  confere
+```
+
+O frontend **nunca** fala com o Cognito: fala com a nossa API, como sempre. O Cognito entra como um
+adapter da porta `IdentityProvider` que já existia — nenhum caminho paralelo.
+
+**★ Quem é a fonte de verdade do código.** Depende do provider, e isso é deliberado:
+
+| Provider | Gera/guarda/confere o código | Nossa base (`DemoDesafioLogin`) |
+|---|---|---|
+| `cognito` | o **Cognito**, via os triggers | não usada nesse fluxo |
+| `whatsapp` / `demo` | **nós**, via `OtpIdentityProviderBase` | guarda o desafio (hash, TTL, uso único, tentativas) |
+
+Nunca os dois ao mesmo tempo. Dois sistemas de código competindo pelo mesmo login é a receita para
+"o código que chegou não é o que o servidor espera" — por isso `CognitoIdentityProvider` não herda
+de `OtpIdentityProviderBase`: ele delega o desafio inteiro para a AWS e o `desafio` que devolve é a
+`Session` opaca do Cognito.
+
+**Consequência operacional:** com `cognito`, o limite de tentativas por desafio é o do
+`DefineAuthChallenge` (3), não o `MAX_TENTATIVAS_POR_DESAFIO` da nossa base; e errar o código não
+dispara SMS novo — o `CreateAuthChallenge` reaproveita o mesmo código entre as tentativas da mesma
+sessão (cada SMS custa).
+
+O envio em si (Basic Auth, E.164, timeout, erro limpo) mora em `infra/cognito-triggers/sms-gate.js`,
+sem dependências, testado com `fetch` mockado. **Sem criptografia ponta-a-ponta** (decisão do dono):
+o conteúdo é um código de 6 dígitos, curto e de uso único; se um dia trafegar link ou dado pessoal,
+reavaliar.
 
 ---
 
@@ -732,6 +771,31 @@ AbacatePay não emite webhook nenhum para PIX simplesmente não pago.
 leitura de status (`GET /public/pagamentos/:id`, usado tanto pelo polling de pacote quanto de
 avulso) — se `AGUARDANDO` e o prazo já passou, transiciona para `EXPIRADO` ali mesmo, antes de
 responder. Sem cron, sem job separado: o próprio polling do cliente é o gatilho.
+
+**Modo de pagamento manual por WhatsApp — TEMPORÁRIO (2026-08-18, flag):** enquanto a AbacatePay
+não libera produção (~7 dias úteis), `PAGAMENTO_MANUAL_WHATSAPP=true` faz o "pagar online" **não
+gerar PIX**: o funil manda o cliente para o WhatsApp da barbearia (`PAGAMENTO_MANUAL_WHATSAPP_NUMERO`)
+com uma **comanda** pré-escrita (cliente, telefone, itens com valores, barbeiro, quando, total), e
+o PIX acontece por fora do sistema.
+
+A decisão vive num **único ponto** — `CobrancaOnlineService.gerar()`, exatamente onde antes havia
+a chamada ao gateway. Nada mais no fluxo sabe da flag. **Tudo o que vem ANTES é idêntico nos dois
+modos, de propósito:**
+- a `IntencaoDePagamento` nasce igual, em `AGUARDANDO`, com o **mesmo `expiraEm`**;
+- o avulso online continua nascendo `RESERVADO` com `reservaOnlineExpiraEm`;
+- a expiração por timeout local (acima) segue valendo, com o mesmo gatilho de polling.
+
+É isso que impede o **buraco de agenda**: cliente que clica "pagar", vai pro WhatsApp e some não
+prende o horário — a reserva expira sozinha, como no fluxo com PIX de verdade.
+
+A confirmação **não é um caminho novo**: reusa a aprovação manual que já existia
+(`POST /pacotes/:id/confirmar-pagamento`, do bug 8) e a irmã dela para o avulso
+(`POST /atendimentos/:id/confirmar-pagamento`), que chama o **mesmo `ProcessarWebhookUseCase`** do
+gateway — portanto idempotente, admin-only, e `RESERVADO → AGENDADO` pela mesma transição de
+sempre. O OTP continua exigido igual; a opção "pagar na barbearia" do avulso **não muda em nada**.
+
+Desligar a flag devolve o PIX do gateway na hora — o código do gateway nunca sai do lugar
+(DECISOES_PENDENTES.md #38).
 
 **Política do funil (decisão do dono):** na trilha de **pacote**, pagamento online é
 **obrigatório** — não existe mais opção "pagar na barbearia" no funil público, pra garantir caixa

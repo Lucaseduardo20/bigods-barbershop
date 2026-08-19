@@ -41,6 +41,7 @@ export function AtendimentoDetalheDialog({
   aoFechar,
   aoMudar,
   somenteLeitura = false,
+  ehAdmin = false,
 }: {
   atendimentoId: string | null;
   aoFechar: () => void;
@@ -54,6 +55,8 @@ export function AtendimentoDetalheDialog({
    * outro caller (Agenda) só é alcançável por admin.
    */
   somenteLeitura?: boolean;
+  /** Confirmar dinheiro que entrou é caixa — só admin (mesma regra do backend). */
+  ehAdmin?: boolean;
 }) {
   const tz = useTimezone();
   const [forma, setForma] = useState<FormaPagamento>(FormaPagamento.PIX);
@@ -163,6 +166,30 @@ export function AtendimentoDetalheDialog({
             {ehPacote ? <Badge tone="gold">Crédito de pacote</Badge> : <Badge tone="neutral">Avulso</Badge>}
             {a.pagoOnline && <Badge tone="success">Pago online</Badge>}
           </div>
+
+          {/* Pagamento manual por WhatsApp (TEMPORÁRIO, 2026-08-18): o PIX cai
+              por fora e ninguém avisa o sistema. RESERVADO só existe no avulso
+              online, então este é exatamente o atendimento à espera de
+              confirmação. O botão chama o MESMO caminho do webhook — idempotente,
+              clicar duas vezes não faz efeito duplo. */}
+          {a.status === StatusAtendimento.RESERVADO && ehAdmin && (
+            <div className="card" style={{ background: 'var(--surface-brand-tint)' }}>
+              <div className="text-[13px] font-bold">Aguardando pagamento online</div>
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                O horário está reservado e expira sozinho se o pagamento não chegar. Confirme aqui
+                quando o PIX cair — o atendimento vira agendado na hora.
+              </div>
+              <button
+                className="btn btn-sm mt-2"
+                disabled={ocupado}
+                onClick={() =>
+                  acao(() => api(`/atendimentos/${a.id}/confirmar-pagamento`, { method: 'POST' }))
+                }
+              >
+                {ocupado ? 'Confirmando…' : 'Confirmar pagamento recebido'}
+              </button>
+            </div>
+          )}
 
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>
             <div className="text-[14px] font-bold">{a.cliente.nome}</div>

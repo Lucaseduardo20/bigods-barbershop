@@ -2,6 +2,7 @@
  * Validação de configuração que DEVE impedir a aplicação de subir se estiver
  * insegura. Pura (recebe um mapa de env) para ser testável sem processo.
  */
+import { lerConfigPagamentoManual } from './pagamento-manual';
 
 export class ConfiguracaoInseguraError extends Error {
   constructor(message: string) {
@@ -32,11 +33,11 @@ export function assertConfiguracaoSegura(env: NodeJS.ProcessEnv = process.env): 
   // valor desconhecido também não sobe, nunca cai num fallback silencioso.
   // Hoje só 'whatsapp' (Baileys) — o Cognito saiu do fluxo de produção nesta
   // sessão (arquivo/testes continuam existindo, só não é mais uma opção).
-  const PROVIDERS_VALIDOS_EM_PRODUCAO = ['whatsapp'];
+  const PROVIDERS_VALIDOS_EM_PRODUCAO = ['cognito', 'whatsapp'];
   const identityProvider = (env.IDENTITY_PROVIDER ?? 'demo').toLowerCase();
   if (producao && !PROVIDERS_VALIDOS_EM_PRODUCAO.includes(identityProvider)) {
     throw new ConfiguracaoInseguraError(
-      `IDENTITY_PROVIDER=${identityProvider} não é válido em produção (não envia OTP real). Configure IDENTITY_PROVIDER=whatsapp.`,
+      `IDENTITY_PROVIDER=${identityProvider} não é válido em produção (não envia OTP real). Configure IDENTITY_PROVIDER=cognito (SMS) ou whatsapp.`,
     );
   }
 
@@ -56,6 +57,21 @@ export function assertConfiguracaoSegura(env: NodeJS.ProcessEnv = process.env): 
       throw new ConfiguracaoInseguraError(
         'PAYMENT_GATEWAY=abacatepay expõe o webhook e exige ABACATEPAY_WEBHOOK_SECRET para validar a assinatura. ' +
           'Sem ele, qualquer um forjaria confirmação de pagamento. Use PAYMENT_GATEWAY=fake se não quiser expor o webhook.',
+      );
+    }
+  }
+
+  // Modo manual (TEMPORÁRIO, 2026-08-18): sem o número da barbearia, o funil
+  // mandaria o cliente para um link de WhatsApp quebrado bem no momento de
+  // pagar — falha fechada no boot em vez de silenciosamente no checkout.
+  const manual = lerConfigPagamentoManual(env);
+  if (manual.ativo) {
+    // 12 dígitos é o piso de um número brasileiro com DDI (55 + DDD + 8) —
+    // pega o erro clássico de esquecer o 55.
+    if (manual.whatsappNumero.length < 12) {
+      throw new ConfiguracaoInseguraError(
+        'PAGAMENTO_MANUAL_WHATSAPP=true exige PAGAMENTO_MANUAL_WHATSAPP_NUMERO em E.164 ' +
+          '(ex.: 5511990036469) — é o destino da comanda de pagamento.',
       );
     }
   }

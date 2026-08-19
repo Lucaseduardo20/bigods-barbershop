@@ -6,6 +6,11 @@ import { ExpirarPagamentoVencidoUseCase } from './application/expirar-pagamento-
 import { PAYMENT_GATEWAY, PaymentGateway } from './domain/payment-gateway';
 import { FakeAbacatePayGateway } from './infrastructure/fake-abacatepay.gateway';
 import { AbacatePayGateway } from './infrastructure/abacatepay.gateway';
+import { CobrancaOnlineService } from './application/cobranca-online.service';
+import {
+  CONFIG_PAGAMENTO_MANUAL,
+  lerConfigPagamentoManual,
+} from '../../shared/config/pagamento-manual';
 import { PagamentoStatusQueryService } from './infrastructure/pagamento-status-query.service';
 
 const EXPIRA_PADRAO_SEGUNDOS = 3600;
@@ -55,13 +60,19 @@ const controllers = gatewayAtivo() === 'abacatepay' ? [WebhooksController] : [];
     ExpirarPagamentoVencidoUseCase,
     AbacatePayWebhookGuard,
     PagamentoStatusQueryService,
+    CobrancaOnlineService,
     { provide: PAYMENT_GATEWAY, useFactory: criarPaymentGateway },
+    // Modo manual (TEMPORÁRIO): lido uma vez no boot — a flag não muda em
+    // runtime, e assim o ponto de decisão recebe config, não `process.env`.
+    { provide: CONFIG_PAGAMENTO_MANUAL, useFactory: () => lerConfigPagamentoManual() },
   ],
   exports: [
     PAYMENT_GATEWAY,
     PagamentoStatusQueryService,
     ProcessarWebhookUseCase,
     ExpirarPagamentoVencidoUseCase,
+    CobrancaOnlineService,
+    CONFIG_PAGAMENTO_MANUAL,
   ],
 })
 export class PaymentsModule {}

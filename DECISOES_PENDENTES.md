@@ -689,3 +689,26 @@ falharia *depois* de o produto já ter sido criado — dois caminhos de erro em 
 
 **O que falta decidir:** se o clique a mais incomoda na operação real. Se incomodar, o caminho é
 o formulário guardar o arquivo e disparar o upload logo após o POST de criação.
+## 38. Modo de pagamento manual por WhatsApp é TEMPORÁRIO — precisa ser desligado (2026-08-18)
+
+> (O #37 nasceu na branch `feat/otp-sms-cognito` e chega aqui quando ela for mergeada — o número
+> foi pulado de propósito para as duas não colidirem.)
+
+A AbacatePay leva ~7 dias úteis para liberar produção. Até lá, `PAGAMENTO_MANUAL_WHATSAPP=true`
+faz o "pagar online" mandar o cliente pro WhatsApp da barbearia com a comanda pronta, em vez de
+gerar PIX (DOMAIN.md §3.8). A confirmação é manual, pelo admin.
+
+**Isto não é uma decisão de arquitetura — é um andaime.** O código do gateway continua intacto e
+testado; a flag só desvia a chamada num ponto (`CobrancaOnlineService.gerar()`).
+
+**O que falta fazer** — quando a AbacatePay liberar produção:
+1. `PAGAMENTO_MANUAL_WHATSAPP=false` (ou remover a variável) e reiniciar a API. **Só isso**
+   devolve o fluxo de PIX — não precisa de deploy de código nem de sessão de trabalho.
+2. Confira uma compra de pacote e um avulso online de ponta a ponta com o gateway real.
+3. Só então decida se apaga o modo manual. Vale a pena **manter** enquanto o gateway for novo:
+   é o plano B se a AbacatePay cair, e o custo de mantê-lo é uma flag desligada.
+
+**Se for apagar um dia:** `CobrancaOnlineService` volta a ser a chamada direta ao gateway, e saem
+`comanda-whatsapp.ts`, `pagamento-manual.ts`, `PagamentoManualAguardando.tsx` e o ramo
+`pagamentoManual` dos dois casos de uso. Os endpoints de confirmação manual **ficam** — eles são
+do bug 8 (pagamento no balcão), não deste modo.
