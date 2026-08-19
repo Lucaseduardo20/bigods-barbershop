@@ -138,6 +138,7 @@ export class PacotesPublicoController {
       clienteId: resultado.clienteId,
       intencaoId: resultado.intencaoId,
       cobranca: resultado.cobranca,
+      pagamentoManual: resultado.pagamentoManual,
     };
   }
 

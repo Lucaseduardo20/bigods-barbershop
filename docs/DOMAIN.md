@@ -732,6 +732,31 @@ leitura de status (`GET /public/pagamentos/:id`, usado tanto pelo polling de pac
 avulso) — se `AGUARDANDO` e o prazo já passou, transiciona para `EXPIRADO` ali mesmo, antes de
 responder. Sem cron, sem job separado: o próprio polling do cliente é o gatilho.
 
+**Modo de pagamento manual por WhatsApp — TEMPORÁRIO (2026-08-18, flag):** enquanto a AbacatePay
+não libera produção (~7 dias úteis), `PAGAMENTO_MANUAL_WHATSAPP=true` faz o "pagar online" **não
+gerar PIX**: o funil manda o cliente para o WhatsApp da barbearia (`PAGAMENTO_MANUAL_WHATSAPP_NUMERO`)
+com uma **comanda** pré-escrita (cliente, telefone, itens com valores, barbeiro, quando, total), e
+o PIX acontece por fora do sistema.
+
+A decisão vive num **único ponto** — `CobrancaOnlineService.gerar()`, exatamente onde antes havia
+a chamada ao gateway. Nada mais no fluxo sabe da flag. **Tudo o que vem ANTES é idêntico nos dois
+modos, de propósito:**
+- a `IntencaoDePagamento` nasce igual, em `AGUARDANDO`, com o **mesmo `expiraEm`**;
+- o avulso online continua nascendo `RESERVADO` com `reservaOnlineExpiraEm`;
+- a expiração por timeout local (acima) segue valendo, com o mesmo gatilho de polling.
+
+É isso que impede o **buraco de agenda**: cliente que clica "pagar", vai pro WhatsApp e some não
+prende o horário — a reserva expira sozinha, como no fluxo com PIX de verdade.
+
+A confirmação **não é um caminho novo**: reusa a aprovação manual que já existia
+(`POST /pacotes/:id/confirmar-pagamento`, do bug 8) e a irmã dela para o avulso
+(`POST /atendimentos/:id/confirmar-pagamento`), que chama o **mesmo `ProcessarWebhookUseCase`** do
+gateway — portanto idempotente, admin-only, e `RESERVADO → AGENDADO` pela mesma transição de
+sempre. O OTP continua exigido igual; a opção "pagar na barbearia" do avulso **não muda em nada**.
+
+Desligar a flag devolve o PIX do gateway na hora — o código do gateway nunca sai do lugar
+(DECISOES_PENDENTES.md #38).
+
 **Política do funil (decisão do dono):** na trilha de **pacote**, pagamento online é
 **obrigatório** — não existe mais opção "pagar na barbearia" no funil público, pra garantir caixa
 adiantado antes de liberar crédito. Na trilha de **avulso**, o cliente **escolhe** entre pagar

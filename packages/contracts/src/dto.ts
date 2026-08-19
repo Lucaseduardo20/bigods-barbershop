@@ -254,6 +254,23 @@ export interface AdicionarProdutoAtendimentoRequest {
   produtoId: string;
   quantidade?: number; // default 1
 }
+/**
+ * Ponte de pagamento manual por WhatsApp — TEMPORÁRIO (2026-08-18), enquanto o
+ * AbacatePay não libera produção. Presente no lugar de `cobranca` quando
+ * `PAGAMENTO_MANUAL_WHATSAPP=true`: o funil manda o cliente pro WhatsApp com a
+ * comanda pronta e mostra "aguardando confirmação" em vez do QR.
+ */
+export interface PagamentoManualDTO {
+  /** A mesma intenção que o admin vai confirmar depois. */
+  intencaoId: string;
+  /** Link `wa.me` com a comanda já no texto — o funil só abre. */
+  whatsappUrl: string;
+  /** O texto da comanda (para exibir/copiar, se o link falhar). */
+  comanda: string;
+  /** Prazo da reserva/intenção (ISO) — o horário expira igual ao fluxo com PIX. */
+  expiraEm: string | null;
+}
+
 export interface CobrancaDTO {
   intencaoId: string;
   qrCode: string;
@@ -264,6 +281,8 @@ export interface CobrancaDTO {
 export interface AgendarResponse {
   atendimentoId: string;
   cobranca: CobrancaDTO | null;
+  /** Modo manual (§ PagamentoManualDTO): vem no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
 }
 
 // ---------- Pacotes ----------
@@ -460,6 +479,12 @@ export interface EmpresaPublicaDTO {
    * função de cálculo que a API usa para cobrar (`calcularDescontoProgressivo`).
    */
   descontoProgressivo: TabelaDeDescontoDTO;
+  /**
+   * TEMPORÁRIO (2026-08-18): quando true, "pagar agora" leva o cliente ao
+   * WhatsApp da barbearia em vez de gerar PIX. O funil usa só para ajustar o
+   * texto do botão — quem decide de fato é o backend.
+   */
+  pagamentoManualWhatsapp?: boolean;
 }
 export interface BarbeiroPublicoDTO {
   id: string;
@@ -497,6 +522,8 @@ export interface AgendarPublicoRequest {
 }
 export interface AgendarPublicoResponse {
   atendimentoId: string;
+  /** Modo manual (§ PagamentoManualDTO): presente no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
   /** intenção de pagamento quando online (para consultar status); null se presencial. */
   intencaoId: string | null;
   /** cobrança PIX quando online; null se presencial. */
@@ -716,9 +743,15 @@ export interface VenderPacotePublicoRequest {
 export interface VenderPacotePublicoResponse {
   vendaId: string;
   clienteId: string;
+  /** Modo manual (§ PagamentoManualDTO): presente no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
-  /** cobrança PIX — sempre presente (pagamento online é obrigatório no pacote). */
+  /**
+   * Cobrança PIX. Pagamento online é obrigatório no pacote, então vem
+   * preenchida — EXCETO no modo de pagamento manual, onde `pagamentoManual`
+   * toma o lugar dela.
+   */
   cobranca: CobrancaDTO | null;
 }
 

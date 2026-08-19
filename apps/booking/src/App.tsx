@@ -6,6 +6,7 @@ import type {
   ConfirmarLoginClienteResponse,
   OrderBumpDTO,
   PacoteOfertaDTO,
+  PagamentoManualDTO,
   ServicoDTO,
   VenderPacotePublicoResponse,
 } from '@bigods/contracts';
@@ -44,6 +45,7 @@ import {
 } from './lib/funnel-state';
 import { ErroEstado, Loading, useApi } from './components/ui';
 import { PixAguardando } from './components/PixAguardando';
+import { PagamentoManualAguardando } from './components/PagamentoManualAguardando';
 import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
@@ -105,6 +107,10 @@ function Funil() {
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   // Cobrança PIX pendente (online) — enquanto existir, mostramos a tela de espera.
   const [cobranca, setCobranca] = useState<CobrancaDTO | null>(null);
+  // Ponte de WhatsApp (modo de pagamento manual, TEMPORÁRIO — ver
+  // CobrancaOnlineService no backend). Só um dos dois vem preenchido: ou PIX,
+  // ou WhatsApp. Quem decide é o servidor, nunca o front.
+  const [pagamentoManual, setPagamentoManual] = useState<PagamentoManualDTO | null>(null);
   const [intencaoId, setIntencaoId] = useState<string | null>(null);
   // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
   // pausa aqui até o telefone ser verificado.
@@ -305,16 +311,46 @@ function Funil() {
       if (!(e instanceof ApiError)) throw e;
     }
     setCobranca(null);
+    setPagamentoManual(null);
     setIntencaoId(null);
     patch({ valorFinalCentavos: null, step: PASSO.CONFIRMACAO });
   };
 
-  // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO. Usa o
-  // valor que a API já confirmou (`valorFinalCentavos`, setado em
-  // `enviarComSessao` a partir de `r.valorTotalCentavos` — já inclui bumps);
-  // o recompute local é só um fallback antes dessa resposta chegar.
+  // Valor em cobrança: usa o que a API já confirmou (`valorFinalCentavos`,
+  // setado em `enviarComSessao` a partir de `r.valorTotalCentavos` — já inclui
+  // bumps); o recompute local é só um fallback antes dessa resposta chegar.
+  const valorEmCobranca = () =>
+    estado.modo === 'pacote'
+      ? (estado.ofertaPrecoCentavos ?? 0)
+      : (estado.valorFinalCentavos ?? totalAvulsoComDesconto());
+
+  // Pagamento manual pendente → mesma posição no funil que o PIX ocupa, mesmo
+  // polling (§3.8) até PAGO, mesma saída. Só a forma de cobrar muda.
+  if (pagamentoManual) {
+    return (
+      <div className="funnel-shell">
+        <PagamentoManualAguardando
+          pagamento={pagamentoManual}
+          valorCentavos={valorEmCobranca()}
+          ehPacote={estado.modo === 'pacote'}
+          onPago={() => {
+            setPago(true);
+            setPagamentoManual(null);
+            patch({ concluido: true });
+          }}
+          onTentarNovo={() => {
+            setPagamentoManual(null);
+            setIntencaoId(null);
+          }}
+          onAlterarPedido={estado.modo === 'pacote' ? undefined : alterarPedido}
+        />
+      </div>
+    );
+  }
+
+  // Cobrança PIX pendente → tela de espera com polling (§3.8) até PAGO.
   if (cobranca && intencaoId) {
-    const valor = estado.modo === 'pacote' ? (estado.ofertaPrecoCentavos ?? 0) : (estado.valorFinalCentavos ?? totalAvulsoComDesconto());
+    const valor = valorEmCobranca();
     return (
       <div className="funnel-shell">
         <PixAguardando
@@ -544,7 +580,8 @@ function Funil() {
             barbeiroId: estado.barbeiroId,
           },
         });
-        if (online && r.cobranca) {
+        if (online && (r.pagamentoManual || r.cobranca)) {
+          setPagamentoManual(r.pagamentoManual ?? null);
           setCobranca(r.cobranca);
           setIntencaoId(r.intencaoId);
         } else {
@@ -578,8 +615,9 @@ function Funil() {
           barbeiroNome: r.barbeiro.nome,
           valorFinalCentavos: r.valorTotalCentavos,
         };
-        if (online && r.cobranca) {
+        if (online && (r.pagamentoManual || r.cobranca)) {
           patch(atribuido);
+          setPagamentoManual(r.pagamentoManual ?? null);
           setCobranca(r.cobranca);
           setIntencaoId(r.intencaoId);
         } else {

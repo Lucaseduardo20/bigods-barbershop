@@ -38,6 +38,11 @@ import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
+import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
+import {
+  INTENCAO_DE_PAGAMENTO_REPOSITORY,
+  IntencaoDePagamentoRepository,
+} from '../../payments/domain/intencao-de-pagamento.repository';
 import {
   VENDA_DE_PACOTE_REPOSITORY,
   VendaDePacoteRepository,
@@ -47,7 +52,7 @@ import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
 } from '../../packages/domain/parametros-da-empresa.repository';
-import { UsuarioAtual } from '../../identity/presentation/auth.decorators';
+import { Papeis, UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -109,6 +114,8 @@ export class AtendimentosController {
     private readonly agenda: AgendaQueryService,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
+    private readonly processarWebhook: ProcessarWebhookUseCase,
+    @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
   ) {}
 
   @Get()
@@ -177,7 +184,14 @@ export class AtendimentosController {
       // precisa poder encaixar um cliente daqui a três meses se a operação pedir.
       aplicarJanelaDeAgendamento: false,
     });
-    return { atendimentoId: resultado.atendimentoId, cobranca: resultado.cobranca };
+    // `pagamentoManual` vem no lugar de `cobranca` quando o modo manual está
+    // ligado — este caminho quase não é usado (o admin cobra na conclusão),
+    // mas devolver os dois nulos seria um beco sem saída silencioso.
+    return {
+      atendimentoId: resultado.atendimentoId,
+      cobranca: resultado.cobranca,
+      pagamentoManual: resultado.pagamentoManual,
+    };
   }
 
   /**
@@ -241,6 +255,37 @@ export class AtendimentosController {
       usuario,
     });
     return { ok: true };
+  }
+
+  /**
+   * Confirma manualmente o pagamento online de um atendimento — o gêmeo do
+   * `POST /pacotes/:id/confirmar-pagamento`, para o modo de pagamento manual
+   * por WhatsApp (TEMPORÁRIO, 2026-08-18) e para qualquer PIX que caia por
+   * fora do gateway.
+   *
+   * REUSA `ProcessarWebhookUseCase`: mesmo caminho idempotente do gateway
+   * (confirma a intenção e transiciona a reserva RESERVADO→AGENDADO na mesma
+   * transação), só que disparado pelo admin em vez do webhook. É o mesmo
+   * padrão que o `confirmar-demo` do funil já usava — nenhuma regra nova de
+   * pagamento foi escrita.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post(':id/confirmar-pagamento')
+  async confirmarPagamentoOnline(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ processado: boolean }> {
+    const atendimento = await this.agenda.porId(id, usuario.companyId);
+    if (!atendimento) {
+      throw new NotFoundException('Atendimento não encontrado');
+    }
+    const intencao = await this.intencoes.porReferenciaAtendimento(id);
+    if (!intencao) {
+      throw new NotFoundException(
+        'Este atendimento não tem cobrança online pendente (foi marcado para pagar na barbearia).',
+      );
+    }
+    return this.processarWebhook.executar({ externalId: intencao.externalId });
   }
 
   @Post(':id/concluir')

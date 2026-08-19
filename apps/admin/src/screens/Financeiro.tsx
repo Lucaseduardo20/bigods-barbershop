@@ -126,6 +126,7 @@ function Extrato({ usuario }: { usuario: UsuarioDTO }) {
           recarregar();
         }}
         somenteLeitura={!ehAdmin}
+        ehAdmin={ehAdmin}
       />
     </div>
   );
