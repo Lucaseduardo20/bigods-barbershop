@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { dinheiro } from '../lib/format';
 import { CurrencyInput, Dialog, Tabs, useApi } from '../components/ui';
 import { CabecalhoDeCatalogo, EstadoDaLista, ItemDeCatalogo, type AcaoDeItem } from '../components/crud';
+import { Foto, FotoUpload } from '../components/FotoUpload';
 
 type Aba = 'servicos' | 'produtos';
 
@@ -240,12 +241,14 @@ function Produtos() {
             subtitulo={dinheiro(p.precoCentavos)}
             badges={[{ tone: p.ativo ? 'success' : 'neutral', texto: p.ativo ? 'Ativo' : 'Inativo' }]}
             acoes={acoes(p)}
+            inicio={<Foto url={p.fotoUrl} nome={p.nome} size={38} redonda={false} fallback={<span aria-hidden="true">🧴</span>} />}
           />
         ))}
       </div>
       <ProdutoDialog
         aberto={criando || !!editando}
         editando={editando}
+        aoAtualizarLista={recarregar}
         aoFechar={() => {
           setCriando(false);
           setEditando(null);
@@ -265,14 +268,18 @@ function ProdutoDialog({
   editando,
   aoFechar,
   aoSalvar,
+  aoAtualizarLista,
 }: {
   aberto: boolean;
   editando: ProdutoDTO | null;
   aoFechar: () => void;
   aoSalvar: () => void;
+  /** A foto salva na hora (endpoint próprio) — a lista atrás do diálogo precisa saber. */
+  aoAtualizarLista: () => void;
 }) {
   const [nome, setNome] = useState('');
   const [precoCentavos, setPrecoCentavos] = useState(0);
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -281,6 +288,7 @@ function ProdutoDialog({
     setErro(null);
     setNome(editando?.nome ?? '');
     setPrecoCentavos(editando?.precoCentavos ?? 0);
+    setFotoUrl(editando?.fotoUrl ?? null);
   }, [aberto, editando]);
 
   const salvar = async () => {
@@ -304,6 +312,27 @@ function ProdutoDialog({
   return (
     <Dialog open={aberto} onClose={aoFechar} title={editando ? `Editar ${editando.nome}` : 'Novo produto'}>
       <div className="flex flex-col gap-3">
+        {/* A foto só aparece ao EDITAR: o upload precisa de um id, e o produto
+            só ganha id depois de salvo. Criar → salvar → reabrir para a foto é
+            um passo a mais, mas é honesto — melhor que segurar bytes em
+            memória esperando um id que pode nem vir. */}
+        {editando && (
+          <div>
+            <label className="label">Foto</label>
+            <FotoUpload
+              rotaBase={`/produtos/${editando.id}`}
+              urlAtual={fotoUrl}
+              nome={editando.nome}
+              redonda={false}
+              tamanho={64}
+              fallback={<span aria-hidden="true">🧴</span>}
+              aoMudar={(url) => {
+                setFotoUrl(url);
+                aoAtualizarLista();
+              }}
+            />
+          </div>
+        )}
         <div>
           <label className="label">Nome</label>
           <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />

@@ -96,16 +96,20 @@ export function ItemDeCatalogo({
   badges = [],
   acoes = [],
   children,
+  inicio,
 }: {
   titulo: string;
   subtitulo?: ReactNode;
   badges?: BadgeDeItem[];
   acoes?: AcaoDeItem[];
   children?: ReactNode;
+  /** Slot à esquerda do título — hoje a miniatura da foto do produto. */
+  inicio?: ReactNode;
 }) {
   return (
     <div className="card">
       <div className="flex items-start justify-between gap-2">
+        {inicio}
         <div className="min-w-0 flex-1">
           <div className="text-[14px] font-bold">{titulo}</div>
           {subtitulo && (

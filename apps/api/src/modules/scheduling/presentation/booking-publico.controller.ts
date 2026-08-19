@@ -198,6 +198,7 @@ export class BookingPublicoController {
       id: p.id,
       nome: p.nome,
       precoCentavos: p.preco.centavos,
+      fotoUrl: p.fotoUrl,
       ativo: p.ativo,
     };
   }
@@ -248,14 +249,14 @@ export class BookingPublicoController {
         const precoNormal = barbeiro ? precoDeReferencia(servico, barbeiro) : servico.precoAvulso;
         itensDeServico.push({
           ordem: config.ordem,
-          dto: this.paraItemDeBumpDTO(config, servico.id, servico.nome, precoNormal, servico.duracao.minutos),
+          dto: this.paraItemDeBumpDTO(config, servico.id, servico.nome, precoNormal, servico.duracao.minutos, null),
         });
       } else {
         const produto = produtoPorId.get(config.referenciaId);
         if (!produto || !produto.ativo) continue;
         itensDeProduto.push({
           ordem: config.ordem,
-          dto: this.paraItemDeBumpDTO(config, produto.id, produto.nome, produto.preco, null),
+          dto: this.paraItemDeBumpDTO(config, produto.id, produto.nome, produto.preco, null, produto.fotoUrl),
         });
       }
     }
@@ -276,6 +277,8 @@ export class BookingPublicoController {
     nome: string,
     precoNormal: Dinheiro,
     duracaoMinutos: number | null,
+    /** Só produto tem foto; serviço passa `null` (não existe foto de serviço). */
+    fotoUrl: string | null,
   ): ItemDeOrderBumpDTO {
     // A regra de preço mora no agregado (`precoDeVenda`), nunca aqui — é a
     // mesma chamada que o caso de uso faz na hora de cobrar.
@@ -293,6 +296,7 @@ export class BookingPublicoController {
         precoNormal.centavos === 0 ? 0 : Math.round((desconto / precoNormal.centavos) * 1000) / 10,
       mensagem: config.mensagem,
       duracaoMinutos,
+      fotoUrl,
     };
   }
 
@@ -308,7 +312,7 @@ export class BookingPublicoController {
     const barbeiros = await this.barbeiros.listar(id);
     return barbeiros
       .filter((b) => b.ativo && ids.every((servicoId) => b.atende(servicoId)))
-      .map((b) => ({ id: b.id, nome: b.nome }));
+      .map((b) => ({ id: b.id, nome: b.nome, fotoUrl: b.fotoUrl }));
   }
 
   /**
@@ -329,7 +333,7 @@ export class BookingPublicoController {
     if (!barbeiro || !barbeiro.ativo) {
       throw new NotFoundException('Barbeiro não encontrado');
     }
-    return { id: barbeiro.id, nome: barbeiro.nome };
+    return { id: barbeiro.id, nome: barbeiro.nome, fotoUrl: barbeiro.fotoUrl };
   }
 
   @Publico()

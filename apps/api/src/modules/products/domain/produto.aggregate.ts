@@ -8,6 +8,12 @@ export interface ProdutoProps {
   companyId: CompanyId;
   nome: string;
   preco: Dinheiro;
+  /**
+   * Foto do produto (2026-08-19) — URL pública no bucket de uploads, ou `null`
+   * (o funil mostra um placeholder). Mesma regra do `Barbeiro`: trocar devolve
+   * a URL anterior para o chamador apagá-la; o domínio não faz I/O.
+   */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 
@@ -23,7 +29,7 @@ export class Produto extends AggregateRoot {
   }
 
   static criar(
-    props: Omit<ProdutoProps, 'ativo'> & { ativo?: boolean },
+    props: Omit<ProdutoProps, 'ativo' | 'fotoUrl'> & { ativo?: boolean; fotoUrl?: string | null },
   ): Produto {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Produto exige nome');
@@ -34,6 +40,7 @@ export class Produto extends AggregateRoot {
     return new Produto({
       ...props,
       nome: props.nome.trim(),
+      fotoUrl: props.fotoUrl ?? null,
       ativo: props.ativo ?? true,
     });
   }
@@ -56,6 +63,23 @@ export class Produto extends AggregateRoot {
     this.props.nome = nome.trim();
   }
 
+  /** Troca a foto e devolve a anterior, para o chamador apagá-la do bucket. */
+  definirFoto(url: string): string | null {
+    if (!url.trim()) {
+      throw new InvarianteVioladaError('Foto exige URL');
+    }
+    const anterior = this.props.fotoUrl;
+    this.props.fotoUrl = url.trim();
+    return anterior;
+  }
+
+  /** Remove a foto e devolve a que saiu (mesma razão de `definirFoto`). */
+  removerFoto(): string | null {
+    const anterior = this.props.fotoUrl;
+    this.props.fotoUrl = null;
+    return anterior;
+  }
+
   desativar(): void {
     this.props.ativo = false;
   }
@@ -64,11 +88,10 @@ export class Produto extends AggregateRoot {
     this.props.ativo = true;
   }
 
-  /** Admin liga/desliga a sugestão no order-bump do funil — sem regra condicional, só sim/não. */
-
   get id() { return this.props.id; }
   get companyId() { return this.props.companyId; }
   get nome() { return this.props.nome; }
   get preco() { return this.props.preco; }
+  get fotoUrl() { return this.props.fotoUrl; }
   get ativo() { return this.props.ativo; }
 }

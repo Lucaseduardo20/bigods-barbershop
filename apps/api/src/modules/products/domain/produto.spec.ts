@@ -48,4 +48,17 @@ describe('Produto', () => {
     expect(p.nome).toBe('Gel Fixador');
     expect(() => p.atualizarNome('')).toThrow(InvarianteVioladaError);
   });
+
+  // Foto (2026-08-19) — mesma mecânica do Barbeiro, de propósito: uma regra só.
+  it('nasce sem foto (a UI mostra placeholder, nunca imagem quebrada)', () => {
+    expect(criar().fotoUrl).toBeNull();
+  });
+
+  it('★ definirFoto devolve a anterior, removerFoto devolve a que saiu', () => {
+    const p = criar();
+    expect(p.definirFoto('https://cdn/a.webp')).toBeNull();
+    expect(p.definirFoto('https://cdn/b.webp')).toBe('https://cdn/a.webp');
+    expect(p.removerFoto()).toBe('https://cdn/b.webp');
+    expect(p.fotoUrl).toBeNull();
+  });
 });

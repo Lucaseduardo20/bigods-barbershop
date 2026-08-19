@@ -165,4 +165,30 @@ describe('Barbeiro — gestão de usuários (CRUD staff/admin)', () => {
     b.ativar();
     expect(b.ativo).toBe(true);
   });
+
+  // Foto de perfil (2026-08-19) — o domínio não faz I/O: ele DEVOLVE a URL
+  // anterior para quem souber apagar o objeto do bucket.
+  it('nasce sem foto — quem não tem cai no avatar de iniciais', () => {
+    expect(criar().fotoUrl).toBeNull();
+  });
+
+  it('★ definirFoto devolve a anterior (null na primeira vez) para o caller apagar', () => {
+    const b = criar();
+    expect(b.definirFoto('https://cdn/a.webp')).toBeNull();
+    expect(b.fotoUrl).toBe('https://cdn/a.webp');
+    expect(b.definirFoto('https://cdn/b.webp')).toBe('https://cdn/a.webp');
+    expect(b.fotoUrl).toBe('https://cdn/b.webp');
+  });
+
+  it('★ removerFoto devolve a que saiu e zera o campo', () => {
+    const b = criar();
+    b.definirFoto('https://cdn/a.webp');
+    expect(b.removerFoto()).toBe('https://cdn/a.webp');
+    expect(b.fotoUrl).toBeNull();
+    expect(b.removerFoto()).toBeNull(); // idempotente
+  });
+
+  it('definirFoto exige URL — string vazia não é "remover"', () => {
+    expect(() => criar().definirFoto('   ')).toThrow(InvarianteVioladaError);
+  });
 });

@@ -185,6 +185,7 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
 | `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
 | `precosServicos` | Map\<ServicoId, Dinheiro\> | override de PREÇO por serviço (§3.2.2, sessão-B) — ausência = usa `Servico.precoAvulso` |
+| `fotoUrl` | string \| null | foto de perfil (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | |
 
 **Regra de comissão (serviço):**
@@ -824,6 +825,7 @@ desativado, porque histórico de venda/comissão depende dele.
 | `companyId` | CompanyId | |
 | `nome` | string | |
 | `preco` | Dinheiro | |
+| `fotoUrl` | string \| null | foto do produto (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | soft-disable |
 | ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
@@ -1001,6 +1003,60 @@ O que se persiste é sempre o preço final em centavos; o "−30%" mostrado é *
 sessão). A migration copiou todo `sugeridoNoBump = true` para cá; as colunas antigas ficaram no
 banco, deprecadas e sem leitor, só para rollback seguro — remover numa migration futura
 (DECISOES_PENDENTES).
+
+---
+
+### 3.14 Imagens de upload — foto de barbeiro e de produto (2026-08-19)
+
+Resolve a DECISAO_PENDENTE #4 ("o protótipo mostra foto do profissional, mas o agregado não
+modela foto").
+
+**Onde a foto mora:** num bucket S3 **separado** dos três buckets de frontend. Não é preferência
+de organização — o deploy dos frontends roda `aws s3 sync --delete`, que apagaria qualquer foto
+guardada junto. Bucket público para LEITURA (o funil mostra a foto sem autenticar), escrita só
+pela credencial IAM do backend (cadeia padrão do SDK, IAM Role em produção).
+Configuração: `UPLOADS_BUCKET`, `UPLOADS_REGION`, `UPLOADS_BASE_URL` (opcional).
+
+**O que o domínio guarda:** a **URL pública**, nada mais. `Barbeiro` e `Produto` não sabem o que
+é um bucket. Os dois expõem o mesmo par de operações, e a assinatura é a regra:
+
+```
+definirFoto(url) -> URL anterior (ou null)
+removerFoto()    -> URL anterior (ou null)
+```
+
+**Devolver a anterior em vez de apagá-la** é o que mantém o domínio sem I/O: quem chama é que
+apaga o objeto (`GerenciarFotoUseCase`). Sem isso, ou o agregado faria rede, ou cada troca de
+foto deixaria um objeto órfão no bucket — vazamento silencioso que só aparece na fatura.
+
+**Ordem da troca (importa):** sobe a nova → aponta o agregado → **salva** → só então apaga a
+antiga. Se o upload falhar, o dono continua com a foto que tinha; se o banco falhar, a foto
+antiga ainda é a que vale, e apagá-la deixaria o registro apontando para um objeto morto.
+Apagar a antiga **nunca** derruba a operação: falha ali vira log, porque a troca já deu certo.
+
+**Validação — não confie no cliente.** Nome do arquivo, extensão e `Content-Type` vêm todos do
+navegador de quem envia; qualquer um renomeia um script para `.jpg`. O que é checado é o
+**conteúdo**: assinatura de bytes (magic bytes) de JPEG/PNG/WebP, e teto de 8 MB conferido
+**antes** de qualquer decodificação. Recusa vira 422 com mensagem escrita para o usuário final
+("Envie JPG, PNG ou WebP"), nunca 500.
+
+**Otimização (`modules/storage/infrastructure/s3-armazenamento.ts`):** toda imagem sai como
+**WebP, no máximo 512×512 (`fit: cover`, sem ampliar), qualidade 80**, com a orientação do EXIF
+já aplicada. As duas fotos que existem aparecem em avatar redondo e miniatura de card — nenhuma
+passa de ~120 px na tela, e 512 dá folga para retina. Foto de celular de 3–5 MB vira 20–40 KB:
+é o que o cliente baixa no 4G da rua.
+
+**Nome do objeto:** `pasta/uuid.webp` (`barbeiros/`, `produtos/`). UUID, **nunca** o nome que veio
+do usuário — nome de cliente traz acento, espaço, `../`, e sobrescreve o arquivo de outra pessoa
+se colidir. Aleatório também impede varrer o bucket adivinhando nomes. Chave nova a cada troca é
+o que torna seguro marcar `Cache-Control: immutable`.
+
+**Permissão:** foto de barbeiro é editada pelo **admin ou pelo próprio** (mesma régua do resto da
+gestão de usuário); foto de produto é **admin-only**, como todo o catálogo.
+
+**Fallback (invariante de UI):** foto é sempre opcional. Sem foto — **ou com a foto quebrada**, se
+o objeto sumir do bucket — a interface mostra as iniciais (pessoa) ou um placeholder (produto).
+Imagem quebrada na tela do cliente não é estado aceitável em lugar nenhum.
 
 ---
 

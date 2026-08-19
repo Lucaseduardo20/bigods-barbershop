@@ -3204,6 +3204,9 @@ não tem storage de upload configurado — foi exatamente o que travou a Fase 1 
 onde a imagem entra já está marcado no código. Para destravar: bucket dedicado + permissão de
 escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
 
+> ✅ **Destravado em 2026-08-19** — com um bucket de uploads separado, exatamente como previsto
+> aqui. Ver a seção "Upload de imagens" mais abaixo.
+
 ### Roteiro de smoke test manual
 
 1. **Admin → Pacotes & Ofertas → Catálogo:** crie uma oferta. Não deve haver campo de barbeiro, e a
@@ -3224,6 +3227,152 @@ escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
 8. **Troque a senha pelo próprio barbeiro:** errar a senha atual tem que recusar; acertando, a
    senha nova entra e a antiga para de funcionar.
 
+## Upload de imagens — foto de barbeiro e de produto (2026-08-19) ✅
+
+Resolve a **DECISAO_PENDENTE #4**, aberta desde a primeira sessão: o protótipo mostrava foto do
+profissional, o agregado `Barbeiro` não modelava foto, e o que travava era storage — os buckets
+existentes servem o build dos frontends e o `--delete` do deploy apagaria qualquer imagem posta
+ali.
+
+O que destravou foi um **bucket separado** para uploads.
+
+### Variáveis de ambiente
+
+```bash
+UPLOADS_BUCKET="bigods-uploads-..."   # bucket SEPARADO dos 3 de frontend
+UPLOADS_REGION="us-east-1"            # cai em AWS_REGION se ausente
+UPLOADS_BASE_URL=""                   # vazio = URL virtual-hosted do S3
+```
+
+Sem as duas primeiras, o upload responde *"não está configurado"* com mensagem clara e o resto do
+sistema segue normal — foto é opcional em todo lugar. `UPLOADS_BASE_URL` existe para o dia em que
+um CloudFront entrar na frente: as URLs já gravadas continuam respondendo, **sem migração de
+dado**.
+
+Credenciais pela cadeia padrão do SDK (IAM Role em produção) — nenhuma chave no `.env`.
+
+### Otimização — os números escolhidos e por quê
+
+| Parâmetro | Valor | Motivo |
+|---|---|---|
+| Formato de saída | **WebP** | tudo sai igual, independente do que entrou |
+| Dimensão máxima | **512×512**, `fit: cover` | as duas fotos aparecem em avatar redondo e miniatura de card; nenhuma passa de ~120 px na tela, e 512 dá folga para retina 2× |
+| Ampliação | **desligada** (`withoutEnlargement`) | ampliar não cria detalhe, só peso e borrão |
+| Qualidade | **80** | o joelho da curva do WebP — acima disso o arquivo cresce bem mais rápido que a qualidade percebida |
+| Orientação | EXIF aplicado (`.rotate()`) | sem isso, foto tirada de lado no celular chega deitada |
+| Tamanho máximo aceito | **8 MB** | cobre foto de celular moderno; acima é engano ou tentativa de estourar memória |
+
+Resultado típico: foto de celular de 3–5 MB vira **20–40 KB**. É o que o cliente baixa no 4G da
+rua, na tela de escolher barbeiro.
+
+### Segurança do upload — o que é checado
+
+**Não se confia no cliente.** Nome do arquivo, extensão e `Content-Type` vêm todos do navegador de
+quem envia; qualquer um renomeia um script para `.jpg` e manda `image/jpeg` no header. O que é
+verificado é o **conteúdo**: assinatura de bytes (magic bytes) de JPEG/PNG/WebP, e o teto de
+tamanho conferido **antes** de qualquer decodificação — o `sharp` só vê bytes que já passaram
+pelo porteiro. Recusa vira **422 com mensagem escrita para o usuário final**, nunca 500.
+
+O nome do objeto é `pasta/uuid.webp` — **nunca** o nome que veio do usuário (acento, espaço,
+`../`, colisão com o arquivo de outra pessoa). Aleatório também impede varrer o bucket
+adivinhando nomes.
+
+### "Trocar apaga a anterior" — onde a regra mora
+
+Num lugar só: `GerenciarFotoUseCase`. Os agregados (`Barbeiro`, `Produto`) expõem
+`definirFoto(url)` e `removerFoto()`, e **os dois devolvem a URL anterior** — é assim que a regra
+existe sem o domínio fazer I/O.
+
+A ordem é deliberada: sobe a nova → aponta o agregado → **salva** → só então apaga a antiga.
+Se o upload falhar, o dono continua com a foto que tinha; se o banco falhar, a antiga ainda é a
+que vale. E apagar a antiga **nunca** derruba a operação: falha ali vira log, porque a troca já
+deu certo. Objeto órfão custa centavos; erro na cara do usuário custa a foto.
+
+### Fallback — nunca imagem quebrada
+
+Foto é opcional em todo lugar. Sem foto, aparecem as **iniciais** (pessoa) ou um **placeholder**
+(produto). E há um segundo nível: todo `<img>` tem `onError` que cai no mesmo fallback — se o
+objeto sumir do bucket, a URL continua no banco e o navegador mostraria o ícone de imagem
+partida. Ninguém vê.
+
+### Onde a foto aparece
+
+- **Funil, escolha de barbeiro:** avatar de **64 px** (era 44) — a Onda 3 pediu mais visível, e
+  quem escolhe profissional escolhe pela cara dele. O card "não tenho preferência" acompanhou o
+  tamanho para a lista não ficar torta.
+- **Funil, order-bump:** miniatura do produto na vitrine.
+- **Admin → Usuários:** miniatura na lista + bloco de foto no detalhe (só para quem é BARBEIRO —
+  admin puro não é escolhido por ninguém no funil).
+- **Admin → Ajustes:** o barbeiro gerencia **a própria** foto, sem depender do admin (era o
+  pedido de 2026-08-18 que ficou bloqueado pela #4).
+- **Admin → Catálogo → Produtos:** miniatura na lista + upload no diálogo de edição.
+- **Admin → venda avulsa de produto:** prévia da foto ao lado do select (`<option>` nativo não
+  aceita imagem).
+
+### Testes — 44 novos, S3 sempre dublê
+
+- **13 de domínio** (`imagem.spec.ts`): magic bytes de JPEG/PNG/WebP; script, PHP, PDF, GIF, BMP,
+  SVG e `.wav` recusados; teto de tamanho (inclusive exatamente no limite); chave única em 500
+  gerações.
+- **8 de config** (`storage.spec.ts`): ida e volta URL↔chave nos dois formatos (S3 e base
+  própria); URL de outro bucket devolve `null` — nunca sai apagando chave adivinhada.
+- **17 do adapter** (`s3-armazenamento.spec.ts`): redimensiona de 4000 px para 512; sai menos da
+  metade do tamanho e em WebP; não amplia imagem pequena; arquivo hostil **não chega ao bucket**;
+  falha do S3 ao apagar **não propaga**.
+- **17 e2e** (`foto-upload.e2e.spec.ts`): upload real ponta a ponta, troca apaga a anterior,
+  remoção, 403 do barbeiro na foto de outro, 403 do barbeiro em produto, 401 sem sessão, e as
+  fotos chegando no `/public/barbeiros` e na vitrine do `/public/order-bump` (com serviço vindo
+  `fotoUrl: null`, que é o caso do fallback).
+
+★ Em todos, o **cliente S3 é dublê**, mas a validação e a otimização são reais — trocar o
+armazenamento inteiro por mock deixaria um teste que só prova que um mock foi chamado.
+
+⚠️ **O que NÃO tem teste automatizado:** a renderização do fallback (iniciais/placeholder) e o
+`onError` da imagem quebrada. Os três frontends rodam Vitest com `environment: 'node'` e **não
+têm nenhum teste de componente** — cobrir isso exigiria trazer jsdom + testing-library, uma
+decisão de infraestrutura que este brief não pediu. O que está coberto é o lado do dado: sem foto
+o campo chega `null` (e2e + domínio), que é a condição do fallback. O comportamento visual entra
+no roteiro manual (passos 3 e 6).
+
+### Roteiro de smoke test manual
+
+Com `UPLOADS_BUCKET`/`UPLOADS_REGION` no `.env` e a API reiniciada:
+
+1. **Admin → Usuários → um barbeiro → Foto de perfil → Enviar foto.** Mande uma foto grande do
+   celular (3–5 MB). Deve subir em segundos e aparecer redonda ali mesmo.
+2. **Confira no bucket:** o objeto está em `barbeiros/<uuid>.webp`, com **dezenas de KB**, não
+   megabytes. Se o arquivo estiver do tamanho original, a otimização não rodou.
+3. **Funil → "Com quem?":** a foto aparece grande (64 px) no card do barbeiro. Um barbeiro sem
+   foto continua mostrando as iniciais, no mesmo tamanho.
+4. ★ **Trocar:** envie outra foto para o mesmo barbeiro. A nova aparece **e a antiga some do
+   bucket** — confira que sobrou só um objeto em `barbeiros/` para aquele barbeiro. É o teste que
+   mais importa: sem isso, cada troca deixa lixo pago.
+5. **Remover:** o card volta para as iniciais e o objeto sai do bucket.
+6. **Tente subir um arquivo que não é imagem** (renomeie um `.txt` para `.jpg`): tem que recusar
+   com *"Envie JPG, PNG ou WebP"*, e **nada** deve aparecer no bucket.
+7. **Entre como um barbeiro não-admin → Ajustes → Minha foto:** ele troca a própria e vê o avatar
+   do topo atualizar. Em Usuários ele nem entra (aba admin-only), então não há como mexer na de
+   outro.
+8. **Produto:** Catálogo → Produtos → editar um produto → enviar foto. Aparece na lista, no
+   diálogo, na venda avulsa e na vitrine do order-bump (se o produto estiver configurado lá).
+   Trocar apaga a anterior, igual.
+
+### Migration
+
+`20260819021500_foto_barbeiro_e_produto` — **aditiva**: duas colunas novas, nuláveis, sem default
+e sem backfill. O código antigo continua rodando sem enxergá-las, e nenhuma linha existente muda.
+
+### O que conferir no deploy
+
+- **IAM:** a role da EC2 precisa de `s3:PutObject` e `s3:DeleteObject` no bucket de uploads
+  (`arn:aws:s3:::<bucket>/*`). Sem o `DeleteObject`, o upload funciona e a limpeza da foto antiga
+  falha em silêncio — vira log de erro e objeto órfão, nunca erro na tela.
+- **Bucket:** público para leitura (`s3:GetObject` para todos), e o *Block Public Access* precisa
+  permitir isso — senão a foto sobe, a URL responde 403 e o funil cai no fallback de iniciais sem
+  ninguém entender por quê.
+- **Docker:** nada a mudar. O `sharp` é instalado pelo `npm ci` dentro do container
+  (`node:20-bookworm-slim`), que baixa o binário `linux-x64` certo, e os `.env` já são lidos por
+  `env_file` nos composes. As credenciais vêm da IAM Role, como o resto.
 ## Pagamento manual por WhatsApp — ponte TEMPORÁRIA (2026-08-18) ✅
 
 A AbacatePay leva ~7 dias úteis para liberar produção. Até lá o "pagar online" não pode

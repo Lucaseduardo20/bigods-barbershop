@@ -78,6 +78,11 @@ export interface BarbeiroDTO {
   comissaoProdutos: number; // porcentagem
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
   precosServicos: ExcecaoPrecoDTO[];
+  /**
+   * Foto de perfil (2026-08-19) — URL pública, ou `null`. Sem foto, a UI usa
+   * o avatar de iniciais que já existe; nunca uma imagem quebrada.
+   */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 /**
@@ -489,6 +494,8 @@ export interface EmpresaPublicaDTO {
 export interface BarbeiroPublicoDTO {
   id: string;
   nome: string;
+  /** Foto de perfil (2026-08-19) — URL pública, ou `null` (cai no avatar de iniciais). */
+  fotoUrl: string | null;
 }
 export interface HorarioDisponivelDTO {
   horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
@@ -572,6 +579,11 @@ export interface ItemDeOrderBumpDTO {
   mensagem: string | null;
   /** Só serviço — o bump de serviço ocupa tempo na agenda. */
   duracaoMinutos: number | null;
+  /**
+   * Foto do item (2026-08-19) — só produto tem; serviço vem `null`. Sem foto,
+   * a vitrine mostra um placeholder, nunca imagem quebrada.
+   */
+  fotoUrl: string | null;
 }
 
 /**
@@ -786,6 +798,8 @@ export interface ProdutoDTO {
   id: string;
   nome: string;
   precoCentavos: number;
+  /** Foto do produto (2026-08-19) — URL pública, ou `null` (a UI mostra placeholder). */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 export interface CriarProdutoRequest {

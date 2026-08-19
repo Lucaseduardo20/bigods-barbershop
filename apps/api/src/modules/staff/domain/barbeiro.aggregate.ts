@@ -36,6 +36,13 @@ export interface BarbeiroProps {
    * Barbeiro não conhece Servico, só guarda o override).
    */
   precosServicos: Map<ServicoId, Dinheiro>;
+  /**
+   * Foto de perfil (2026-08-19, resolve DECISOES_PENDENTES #4) — URL pública
+   * no bucket de uploads, ou `null`. O domínio guarda a URL e não sabe de S3:
+   * quem sobe/apaga o byte é a camada de armazenamento, e a regra daqui é só
+   * uma — trocar a foto devolve a anterior pra quem souber apagá-la.
+   */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 
@@ -44,12 +51,13 @@ export class Barbeiro extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<BarbeiroProps, 'ativo' | 'excecoesComissao' | 'servicosAtendidos' | 'comissaoProdutos' | 'precosServicos'> & {
+  static criar(props: Omit<BarbeiroProps, 'ativo' | 'excecoesComissao' | 'servicosAtendidos' | 'comissaoProdutos' | 'precosServicos' | 'fotoUrl'> & {
     ativo?: boolean;
     excecoesComissao?: Map<ServicoId, Percentual>;
     servicosAtendidos?: Set<ServicoId>;
     comissaoProdutos?: Percentual;
     precosServicos?: Map<ServicoId, Dinheiro>;
+    fotoUrl?: string | null;
   }): Barbeiro {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Barbeiro exige nome');
@@ -65,6 +73,7 @@ export class Barbeiro extends AggregateRoot {
       servicosAtendidos: props.servicosAtendidos ?? new Set(),
       comissaoProdutos: props.comissaoProdutos ?? Percentual.dePontosBase(0),
       precosServicos: props.precosServicos ?? new Map(),
+      fotoUrl: props.fotoUrl ?? null,
       ativo: props.ativo ?? true,
     });
   }
@@ -162,6 +171,28 @@ export class Barbeiro extends AggregateRoot {
     return this.props.papeis.has(papel);
   }
 
+  /**
+   * Troca a foto e DEVOLVE a URL da anterior, para o chamador apagá-la do
+   * bucket. Devolver em vez de apagar aqui é de propósito: o domínio não faz
+   * I/O. Se ninguém aproveitar o retorno, sobra um objeto órfão — por isso o
+   * caso de uso é curto e óbvio.
+   */
+  definirFoto(url: string): string | null {
+    if (!url.trim()) {
+      throw new InvarianteVioladaError('Foto exige URL');
+    }
+    const anterior = this.props.fotoUrl;
+    this.props.fotoUrl = url.trim();
+    return anterior;
+  }
+
+  /** Remove a foto e devolve a que saiu (mesma razão de `definirFoto`). */
+  removerFoto(): string | null {
+    const anterior = this.props.fotoUrl;
+    this.props.fotoUrl = null;
+    return anterior;
+  }
+
   get id() { return this.props.id; }
   get companyId() { return this.props.companyId; }
   get nome() { return this.props.nome; }
@@ -172,5 +203,6 @@ export class Barbeiro extends AggregateRoot {
   get excecoesComissao() { return new Map(this.props.excecoesComissao); }
   get precosServicos() { return new Map(this.props.precosServicos); }
   get servicosAtendidos() { return new Set(this.props.servicosAtendidos); }
+  get fotoUrl() { return this.props.fotoUrl; }
   get ativo() { return this.props.ativo; }
 }

@@ -13,6 +13,7 @@ import { BOOKING_URL } from '../lib/config';
 import { dinheiro } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
 import { Badge, BotaoAtualizar, CurrencyInput, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
+import { Foto, FotoUpload } from '../components/FotoUpload';
 
 /**
  * Aba "Usuários": listagem → gerenciar (como um app convencional), em vez de
@@ -102,7 +103,8 @@ export function Usuarios({ usuario }: { usuario: UsuarioDTO }) {
       <div className="flex flex-col gap-2">
         {usuarios.map((u) => (
           <div key={u.id} className="card flex items-center justify-between gap-2">
-            <div className="min-w-0">
+            <Foto url={u.fotoUrl} nome={u.nome} size={40} />
+            <div className="min-w-0 flex-1">
               <div className="font-bold text-[14px] truncate">{u.nome}</div>
               <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>
                 login: {u.login ?? '— sem credencial —'}
@@ -282,6 +284,25 @@ function DetalheDeUsuario({
         ))}
         <Badge tone={usuario.ativo ? 'success' : 'neutral'}>{usuario.ativo ? 'Ativo' : 'Inativo'}</Badge>
       </div>
+
+      {/* Foto de perfil (2026-08-19). Fica só para quem é BARBEIRO: a foto
+          aparece no funil, na escolha de profissional — admin puro não é
+          escolhido por ninguém, então não teria onde aparecer. */}
+      {ehBarbeiro && (
+        <div className="card mb-3">
+          <div className="text-[13px] font-bold mb-2">Foto de perfil</div>
+          <FotoUpload
+            rotaBase={`/barbeiros/${usuario.id}`}
+            urlAtual={usuario.fotoUrl}
+            nome={usuario.nome}
+            aoMudar={aoMudar}
+          />
+          <div className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>
+            Aparece no funil, quando o cliente escolhe com quem quer se atender. Sem foto, o cliente
+            vê as iniciais.
+          </div>
+        </div>
+      )}
 
       <DadosBasicosSection usuario={usuario} aoSalvar={aoMudar} />
       <StatusSection usuario={usuario} aoSalvar={aoMudar} />

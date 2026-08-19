@@ -48,11 +48,11 @@ export function Barbeiro({
           <div
             className="flex items-center justify-center flex-shrink-0"
             style={{
-              width: 44,
-              height: 44,
+              width: 64,
+              height: 64,
               borderRadius: '50%',
               background: 'var(--surface-brand-tint)',
-              fontSize: 20,
+              fontSize: 26,
             }}
           >
             ✨
@@ -70,7 +70,11 @@ export function Barbeiro({
         const on = selecionado === b.id;
         return (
           <button key={b.id} className={`selectable ${on ? 'selected' : ''}`} onClick={() => onSelect(b.id, b.nome, false)}>
-            <Avatar nome={b.nome} />
+            {/* Foto em 64px, não nos 44px do avatar padrão (2026-08-19): quem
+                escolhe o profissional escolhe pela cara dele, e a Onda 3 pediu
+                a foto mais visível. Sem foto, as iniciais ocupam o mesmo
+                espaço — a lista não muda de forma quando alguém sobe a sua. */}
+            <Avatar nome={b.nome} fotoUrl={b.fotoUrl} size={64} />
             <div>
               <div className="font-bold text-[15px]">{b.nome}</div>
               <div className="text-[12px]" style={{ color: 'var(--text-muted)' }}>

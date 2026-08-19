@@ -24,11 +24,13 @@ O funil oferece horários de início de 15 em 15 minutos dentro da janela de dis
 
 **A confirmar com o negócio:** passo de 15 min (atual), alinhamento a horários "redondos" (:00/:30), ou passo = duração do serviço. Como é só leitura, mudar depois é trivial e não afeta invariante (a escrita rejeita qualquer conflito).
 
-## 4. Foto do barbeiro no funil
+## 4. Foto do barbeiro no funil — ✅ RESOLVIDO (2026-08-19)
 
-A etapa de seleção de barbeiro no protótipo mostra foto do profissional, mas o agregado `Barbeiro` (DOMAIN.md §3.2) **não modela foto**. Não inventei um campo de domínio.
+A etapa de seleção de barbeiro no protótipo mostra foto do profissional, mas o agregado `Barbeiro` (DOMAIN.md §3.2) **não modelava foto**. Não inventei um campo de domínio.
 
-**Mínimo implementado:** avatar com iniciais do nome (mesmo componente visual do admin). Se o negócio quiser fotos, entra como um campo novo no agregado/perfil do barbeiro numa sessão futura.
+**Resolvido em 2026-08-19:** `Barbeiro.fotoUrl` (e `Produto.fotoUrl`), com camada de storage em S3 — validação por conteúdo, otimização para WebP 512px e "trocar apaga a anterior". Ver DOMAIN.md §3.14. O avatar de iniciais **continua existindo** como fallback: foto é opcional, e imagem quebrada nunca aparece.
+
+O que destravou: um bucket de uploads **separado** dos buckets de frontend. O impedimento antigo era que o deploy dos frontends roda `aws s3 sync --delete` e apagaria as fotos.
 
 ## 5. "1 mês" como período máximo de consulta da agenda
 
@@ -653,6 +655,40 @@ ler o schema pode achar que ainda vale.
 
 ---
 
+## 39. Bucket de uploads é público para leitura — e é público mesmo (2026-08-19)
+
+> (Os números 37 e 38 estão reservados: #37 nasceu na branch `feat/otp-sms-cognito` e #38 na
+> `feat/pagamento-manual-whatsapp`. Pulados de propósito para as três não colidirem no merge.)
+
+
+O bucket de fotos (DOMAIN.md §3.14) é público para LEITURA, como pedido: o funil mostra a foto
+do barbeiro sem autenticar nada, e é a forma mais simples de servir imagem para um site público.
+
+**A consequência, dita em voz alta:** quem tiver a URL vê a imagem, para sempre, mesmo depois de
+"removida" do sistema. Remover a foto apaga o objeto do bucket, então a URL morre — mas se
+alguém já baixou ou compartilhou o arquivo antes, isso está fora do nosso alcance. Nome de objeto
+é UUID aleatório, então ninguém varre o bucket adivinhando, e não há como listar o conteúdo.
+
+Para foto de perfil de barbeiro e foto de produto de vitrine, isso é aceitável — é material que
+existe para ser visto. **Não guarde outra coisa neste bucket** (documento de cliente, comprovante,
+qualquer imagem que não seja para o público) sem antes trocar o modelo de acesso.
+
+**Se um dia precisar fechar:** CloudFront com Origin Access Control na frente e bucket privado —
+o mesmo desenho que os três buckets de frontend já usam. `UPLOADS_BASE_URL` existe exatamente
+para essa troca: as URLs já gravadas no banco continuam válidas, sem migração de dado.
+
+## 40. Foto de produto exige salvar o produto antes (2026-08-19)
+
+No CRUD de produto, o bloco de foto só aparece ao **editar** — criar → salvar → reabrir para pôr
+a foto. Motivo: o upload é um endpoint por id (`POST /produtos/:id/foto`), e um produto que ainda
+não foi salvo não tem id.
+
+**Alternativa não implementada:** segurar os bytes em memória no navegador e subir junto do
+"Salvar". Não fiz porque é estado extra na tela para economizar um clique, e porque o upload
+falharia *depois* de o produto já ter sido criado — dois caminhos de erro em vez de um.
+
+**O que falta decidir:** se o clique a mais incomoda na operação real. Se incomodar, o caminho é
+o formulário guardar o arquivo e disparar o upload logo após o POST de criação.
 ## 38. Modo de pagamento manual por WhatsApp é TEMPORÁRIO — precisa ser desligado (2026-08-18)
 
 > (O #37 nasceu na branch `feat/otp-sms-cognito` e chega aqui quando ela for mergeada — o número

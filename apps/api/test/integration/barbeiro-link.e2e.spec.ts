@@ -116,7 +116,9 @@ afterAll(async () => {
 describe('GET /public/barbeiro-por-slug', () => {
   it('resolve o slug pro barbeiro certo', async () => {
     const res = await http.get(`/public/barbeiro-por-slug?companyId=${companyId}&slug=barbeiro-link`).expect(200);
-    expect(res.body).toEqual({ id: barbeiroId, nome: 'Barbeiro Link' });
+    // `fotoUrl` entrou no DTO público em 2026-08-19 — barbeiro sem foto vem
+    // null, e o funil cai no avatar de iniciais.
+    expect(res.body).toEqual({ id: barbeiroId, nome: 'Barbeiro Link', fotoUrl: null });
   });
 
   it('slug inexistente → 404 (o front cai no funil normal, nunca mostra isso)', async () => {
