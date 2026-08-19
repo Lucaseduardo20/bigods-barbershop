@@ -3362,6 +3362,44 @@ Com `UPLOADS_BUCKET`/`UPLOADS_REGION` no `.env` e a API reiniciada:
 `20260819021500_foto_barbeiro_e_produto` — **aditiva**: duas colunas novas, nuláveis, sem default
 e sem backfill. O código antigo continua rodando sem enxergá-las, e nenhuma linha existente muda.
 
+### Quando o upload falha: como descobrir por quê
+
+O erro do S3 **não vira "Internal server error"**. A resposta diz que a imagem está ok e que o
+problema é do servidor, com o código da AWS entre parênteses, e o log traz uma linha só com o
+conserto:
+
+| Código no log | O que fazer |
+|---|---|
+| `ExpiredToken`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` | credencial ausente ou vencida — em produção é a IAM Role; em dev, renove as credenciais temporárias do shell |
+| `AccessDenied` | a role não tem `s3:PutObject`/`s3:DeleteObject` neste bucket |
+| `NoSuchBucket` | `UPLOADS_BUCKET` não existe (ou não nessa região) |
+| `PermanentRedirect` | o bucket está em OUTRA região — confira `UPLOADS_REGION` |
+
+⚠️ O log é montado campo a campo (código + `requestId`) de propósito: **o objeto de erro do SDK
+carrega a credencial inteira** — o campo `Token-0` é o session token do STS. Despejar o erro cru
+escreve segredo em arquivo de log, que foi exatamente o que aconteceu na primeira vez que isto
+falhou de verdade (2026-08-19), antes deste tratamento existir.
+
+### Rodando com upload em DEV
+
+Em produção não há o que fazer: a IAM Role da EC2 renova sozinha. Em dev, a máquina precisa de
+credencial AWS — e credencial temporária de console **vence em algumas horas**, derrubando o
+upload com `ExpiredToken` sem nada ter mudado no código.
+
+Duas saídas:
+
+```bash
+# A) renovar a temporária (cole as 3 linhas do console) e REINICIAR a API
+export AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… AWS_SESSION_TOKEN=…
+
+# B) durável: um IAM user só pra dev, com permissão apenas neste bucket
+aws configure   # grava em ~/.aws/credentials, sem prazo de validade
+```
+
+A opção B evita o vai-e-vem. As credenciais também podem ir no `.env` da raiz (`AWS_ACCESS_KEY_ID`
+etc.), que o `main.ts` carrega — mas aí são chaves de longo prazo num arquivo, então só com um
+usuário restrito ao bucket de uploads.
+
 ### O que conferir no deploy
 
 - **IAM:** a role da EC2 precisa de `s3:PutObject` e `s3:DeleteObject` no bucket de uploads
