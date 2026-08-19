@@ -732,3 +732,57 @@ banco. Improvável, mas é o tipo de coisa que falha uma vez em vinte.
 **O que fazer se voltar:** rodar `npx vitest run` SEM `| tail` e guardar a saída inteira — o
 nome do teste é o que falta. Com ele, dá para decidir entre estabilizar o teste ou tornar os
 sufixos realmente únicos (`randomUUID()` em vez de fatia de timestamp).
+
+---
+
+## 41. `Barbeiro.comissaoProdutosBp` deprecado no banco (2026-08-19)
+
+**Terceira dívida do mesmo tipo (#35, #36).**
+
+A comissão de produto virou taxa única da empresa (DOMAIN.md §3.9.1), então
+`Barbeiro.comissaoProdutosBp` não é lido por ninguém para calcular. A migration
+`20260819190000_comissao_produto_global` foi **aditiva**: criou `Company.comissaoProdutosBp` e
+não tocou na coluna do barbeiro, para o rollback do código não perder dado.
+
+O endpoint `PUT /barbeiros/:id/comissao` **ainda aceita e grava** o campo (compatibilidade), mas
+nenhuma tela o envia e nenhum cálculo o lê. O DTO está marcado como deprecado.
+
+**O que falta decidir:** quando dropar. Sugestão: junto da limpeza do #35 e #36. Enquanto isso o
+risco é baixo (coluna morta), mas quem ler o schema pode achar que ainda vale.
+
+## 42. A taxa de comissão de produto começa em 0% — alguém precisa definir o número (2026-08-19)
+
+A decisão dos sócios definiu **como** a comissão de produto passa a funcionar (taxa única da
+empresa, sobre o preço de venda), mas **não disse qual é o percentual**. Não inventei um número:
+a migration cria a coluna com **default 0**, e o sistema não paga comissão de produto até alguém
+configurar em Ajustes → Parâmetros.
+
+**Consequência prática, dita em voz alta:** antes desta mudança, o Gabriel tinha 10% de comissão
+de produto configurado no perfil dele (os outros dois barbeiros tinham 0%). Com a taxa global em
+0, ele deixa de receber sobre produto até o admin definir a taxa da casa. **Nenhum lançamento
+existente foi afetado** — não havia nenhum lançamento de comissão de produto no banco no momento
+da mudança (conferido).
+
+**O que falta decidir:** o percentual. É uma decisão de negócio dos sócios, não de implementação.
+
+## 43. Testes liam o `.env` da máquina de quem rodava (2026-08-19) — ✅ RESOLVIDO
+
+Achado ao rodar a suíte depois da mudança de comissão: 25 testes de PIX falhavam sem que o código
+testado tivesse mudado.
+
+**Causa:** o `@prisma/client` carrega o `.env` da raiz **sozinho**, quando é importado. Como todo
+e2e importa o `AppModule`, que puxa o Prisma, toda configuração local vazava para os testes — em
+particular `PAGAMENTO_MANUAL_WHATSAPP=true`, que é o estado normal da máquina de quem está tocando
+essa feature.
+
+**Por que ninguém tinha visto:** o arquivo `pagamento-manual-whatsapp.e2e.spec.ts` *deleta* essa
+variável no `afterAll`, e os arquivos rodam no mesmo processo (`fileParallelism: false`). Quem
+rodava **depois** dele herdava a limpeza e passava. A suíte estava verde por acidente de ordem —
+bastou um arquivo novo mudar a ordenação para 25 testes quebrarem.
+
+**Corrigido:** `apps/api/test/setup-env.ts`, registrado em `setupFiles`, fixa as variáveis que
+mudam comportamento de negócio antes de cada arquivo. Quem quer o comportamento ligado liga no
+próprio teste.
+
+**O que fica de lição:** qualquer env nova que mude comportamento de negócio precisa de valor
+explícito nesse arquivo. Senão a suíte volta a depender da máquina de quem executa.

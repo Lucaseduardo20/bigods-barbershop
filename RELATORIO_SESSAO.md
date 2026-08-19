@@ -3731,6 +3731,115 @@ ao lado do agendamento que **acabou de confirmar**, mesmo dia e hora, e se assus
 
 **Resultado:** SEO **83 → 100**.
 
+## Comissão de produto — taxa única da empresa (2026-08-19) ✅
+
+Decisão dos sócios: produto é **revenda**, não mão de obra. Pagar sobre o preço de venda a mesma
+régua do serviço pode custar mais que a margem do produto.
+
+### ⚠️ Antes de tudo: a premissa do pedido estava incorreta
+
+O pedido dizia *"hoje a comissão de PRODUTO usa a mesma taxa da de SERVIÇO"*. **Não usava.** O
+código já lia `barbeiro.comissaoProdutos`, um campo separado, nos dois únicos pontos que lançam
+comissão de produto. O que estava errado era outra coisa:
+
+| barbeiro | taxa de serviço | taxa de produto (antes) |
+|---|---|---|
+| Gabriel | 45% | 10% |
+| Erick Yan | 35% | **0%** |
+| Igor Molinho | 40% | **0%** |
+
+A taxa era **por barbeiro** e estava inconsistente — dois profissionais sem comissão nenhuma sobre
+produto, sem que ninguém tivesse decidido isso. A mudança pedida (taxa **global** da empresa)
+resolve exatamente esse problema, então foi implementada como decidido.
+
+### Onde a comissão de produto era calculada — e o que mudou
+
+Dois pontos, ambos no módulo de payroll:
+
+| Arquivo | Cobre |
+|---|---|
+| `on-venda-de-produto-registrada.handler.ts` | venda avulsa ("entrou só pra comprar") |
+| `on-atendimento-concluido.handler.ts` | produto anexado ao atendimento — **inclui o que entrou pelo order-bump do funil** |
+
+Os dois trocaram `barbeiro.comissaoProdutos` por `parametros.comissaoProdutos(companyId)`. O
+order-bump não precisou de mudança própria: o produto do bump vira `ItemProdutoAtendido` e cai no
+mesmo handler de conclusão — confirmado por teste.
+
+A comissão de **serviço** não foi tocada: continua vindo da matriz barbeiro×serviço, com o preço
+por barbeiro e o rateio de pacote intactos.
+
+### A prova do snapshot
+
+O teste `comissao-produto-global.e2e.spec.ts` faz exatamente o percurso que preocupa:
+
+1. vende um produto de R$ 35,00 com a taxa em **10%** → lançamento de **R$ 3,50**;
+2. o admin **triplica** a taxa para 30%, pela mesma tela que usaria de verdade (`PATCH /parametros`);
+3. ★ relê o lançamento antigo: **continua R$ 3,50 e 10%** — não virou R$ 10,50;
+4. vende de novo → o lançamento **novo** sai a 30%.
+
+É o que garante que o extrato de um barbeiro não é reescrito por uma decisão tomada depois.
+
+### Confirmação de que serviço não regrediu
+
+Dois testes, sendo o segundo o que mais importa:
+
+- atendimento de serviço → comissão **45% de R$ 40,00 = R$ 18,00** (a taxa do barbeiro, como
+  sempre foi);
+- ★ no **mesmo atendimento**, serviço e produto saem com taxas **diferentes** (45% e 10%) — que é
+  o ponto inteiro da mudança.
+
+E há uma armadilha proposital nas fixtures: a taxa deprecada do barbeiro fica em **60%**, muito
+longe dos 10% da empresa. Se algum caminho voltar a ler do barbeiro, a conta erra por uma margem
+impossível de confundir com arredondamento.
+
+### ⚠️ A taxa começa em ZERO — alguém precisa definir o número
+
+A decisão dos sócios definiu **como** a comissão funciona, não **quanto**. Não inventei um
+percentual: a coluna nasce com `0`, e produto não paga comissão até o admin configurar em
+**Ajustes → Parâmetros → Comissão sobre produtos (%)**.
+
+Consequência: o Gabriel, que tinha 10% no perfil dele, deixa de receber sobre produto até a taxa
+da casa ser definida. **Nenhum lançamento existente mudou** — não havia nenhuma comissão de
+produto lançada no banco (conferido antes da mudança). Ver DECISOES_PENDENTES #42.
+
+### ★ Um bug de teste que isto revelou (e que não era meu)
+
+Ao rodar a suíte, 25 testes de PIX quebraram sem que o código deles tivesse mudado. A causa não
+era a comissão:
+
+**O `@prisma/client` carrega o `.env` da raiz sozinho, ao ser importado.** Como todo e2e importa o
+`AppModule`, que puxa o Prisma, o `.env` da máquina de quem roda vazava para dentro dos testes —
+inclusive `PAGAMENTO_MANUAL_WHATSAPP=true`, que é o estado normal de quem está mexendo nessa
+feature.
+
+A suíte estava verde **por acidente de ordem**: o arquivo `pagamento-manual-whatsapp.e2e.spec.ts`
+deleta essa variável no `afterAll`, e os arquivos rodam no mesmo processo. Quem rodava depois dele
+herdava a limpeza. Bastou meu arquivo novo mudar a ordenação para o acidente parar de acontecer.
+
+**Corrigido na raiz:** `apps/api/test/setup-env.ts` (registrado em `setupFiles`) fixa as variáveis
+que mudam comportamento de negócio antes de cada arquivo. Ver DECISOES_PENDENTES #43.
+
+### Migration
+
+`20260819190000_comissao_produto_global` — **aditiva**: cria `Company.comissaoProdutosBp` com
+default 0. `Barbeiro.comissaoProdutosBp` fica no banco, deprecada e sem leitor, para rollback
+(DECISOES_PENDENTES #41).
+
+### Roteiro de smoke test manual
+
+1. **Ajustes → Parâmetros:** o campo **"Comissão sobre produtos (%)"** existe e mostra `0`.
+   Coloque **10** e salve.
+2. **Agenda → "+ Venda de produto":** venda a Pomada (R$ 34,99) para um barbeiro qualquer.
+3. **Financeiro → comissões do barbeiro:** deve aparecer **R$ 3,50** (10% de 34,99 = 3,499,
+   arredondado). Confira que **não** é 45% nem a taxa antiga do perfil dele.
+4. ★ **Volte em Ajustes e mude a taxa para 30%.** Volte ao Financeiro: **a comissão da venda do
+   passo 2 continua R$ 3,50**. Se mudou, a regra do snapshot quebrou — pare o deploy.
+5. **Venda outro produto igual:** o lançamento novo sai **R$ 10,50** (30%).
+6. **Conclua um atendimento com serviço + produto:** no extrato, os dois lançamentos aparecem com
+   percentuais diferentes — serviço pela taxa do barbeiro, produto pela taxa da casa.
+7. **Order-bump:** faça um agendamento pelo funil adicionando o produto na vitrine, conclua no
+   admin, e confira que a comissão do produto saiu pela taxa da casa.
+
 ## Como rodar localmente
 
 ```bash

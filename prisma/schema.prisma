@@ -94,6 +94,14 @@ model Company {
   // desconto acumulado, por mais serviços que o cliente some. null = sem teto.
   // Os degraus por posição ficam em DegrauDeDesconto.
   descontoTetoCentavos   Int?
+  // Comissão de PRODUTO (2026-08-19, decisão dos sócios): taxa ÚNICA da empresa,
+  // em pontos-base, aplicada a todo produto vendido por qualquer barbeiro.
+  // Substitui a taxa por barbeiro (`Barbeiro.comissaoProdutosBp`, agora
+  // DEPRECADA). Produto é REVENDA: a margem não comporta a taxa de serviço, que
+  // remunera habilidade e tempo. Incide sobre o PREÇO DE VENDA — o sistema não
+  // cadastra custo de produto, então não há como calcular sobre margem.
+  // Default 0: nenhuma comissão até o admin configurar (nunca paga sozinho).
+  comissaoProdutosBp     Int @default(0)
 
   servicos      Servico[]
   produtos      Produto[]
@@ -284,9 +292,10 @@ model Barbeiro {
   nome               String
   papeis             Papel[]
   comissaoPadraoBp   Int
-  // Percentual ÚNICO para TODOS os produtos (sem matriz por produto — produto
-  // é revenda, não tem a variação de margem de mão de obra que justifica a
-  // matriz de serviços). Default 0%.
+  // ⚠️ DEPRECADO em 2026-08-19 (decisão dos sócios): a comissão de produto virou
+  // uma taxa ÚNICA DA EMPRESA (`Company.comissaoProdutosBp`), não mais por
+  // barbeiro. Ninguém lê esta coluna para calcular comissão. Mantida por
+  // migration aditiva, para rollback — ver DECISOES_PENDENTES.
   comissaoProdutosBp Int     @default(0)
   ativo              Boolean @default(true)
   // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"

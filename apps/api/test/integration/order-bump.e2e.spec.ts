@@ -63,7 +63,8 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   http = request(app.getHttpServer());
 
-  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Bump' } });
+  // Taxa de comissão de PRODUTO na EMPRESA (2026-08-19) — mesmos 15% de antes.
+  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Bump', comissaoProdutosBp: 1500 } });
   await prisma.servico.createMany({
     data: [
       { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 5000, duracaoMinutos: 30 },

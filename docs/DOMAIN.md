@@ -183,7 +183,7 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `comissaoPadrao` | Percentual | ex: 45% |
 | `excecoesComissao` | Map\<ServicoId, Percentual\> | override por serviço |
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
-| `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
+| ~~`comissaoProdutos`~~ | Percentual | **DEPRECADO** (2026-08-19) — a comissão de produto virou taxa ÚNICA DA EMPRESA (§3.9.1). Coluna mantida no banco, sem leitor |
 | `precosServicos` | Map\<ServicoId, Dinheiro\> | override de PREÇO por serviço (§3.2.2, sessão-B) — ausência = usa `Servico.precoAvulso` |
 | `fotoUrl` | string \| null | foto de perfil (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | |
@@ -194,12 +194,9 @@ percentualPara(servicoId) =
   excecoesComissao.get(servicoId) ?? comissaoPadrao
 ```
 
-**Regra de comissão (produto, §3.9 — sessão 2026-07-16):** `comissaoProdutos` é um
-percentual ÚNICO aplicado a TODO produto vendido por este barbeiro — não existe matriz
-por produto. **Por quê:** a matriz por serviço existe porque serviços têm margens de
-mão de obra distintas (cortar cabelo e fazer a barba não custam o mesmo tempo/esforço);
-produto é revenda — o barbeiro só está passando o produto adiante, sem essa variação.
-Adicionar matriz por produto seria complexidade sem justificativa de negócio observada.
+**Regra de comissão (produto) — mudou em 2026-08-19:** a taxa NÃO é mais do barbeiro.
+Virou uma **taxa única da EMPRESA** (§3.9.1). O campo `comissaoProdutos` do barbeiro está
+deprecado e ninguém o lê para calcular.
 
 **Invariantes:**
 - `comissaoPadrao` entre 0% e 100%.
@@ -827,6 +824,7 @@ desativado, porque histórico de venda/comissão depende dele.
 | `preco` | Dinheiro | |
 | `fotoUrl` | string \| null | foto do produto (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | soft-disable |
+| — | — | a **comissão** sobre este produto usa a taxa única da empresa (§3.9.1), não um campo do produto |
 | ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** nome não-vazio; `preco` positivo.
@@ -834,6 +832,43 @@ desativado, porque histórico de venda/comissão depende dele.
 Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` — na conclusão
 (§3.5, `ItemProdutoAtendido`) ou já na criação, via order-bump (§8.13) — ou numa `VendaDeProduto`
 avulsa (§3.10).
+
+---
+
+#### 3.9.1 Comissão de produto — taxa ÚNICA da empresa (2026-08-19, decisão dos sócios)
+
+**A regra:** todo produto vendido, por qualquer barbeiro, em qualquer caminho, paga comissão
+pela **mesma taxa**, guardada em `Company.comissaoProdutosBp` (pontos-base, inteiro — nunca
+float). Não é por produto, não é por barbeiro. Configurável pelo admin em Ajustes → Parâmetros.
+
+**Por quê separar da comissão de serviço:** serviço é quase toda margem — o que se paga ali é
+habilidade e tempo. Produto é **revenda**: a empresa compra e revende, e a margem é uma fração
+do preço. Pagar a taxa de serviço sobre o preço de venda de um produto pode custar mais do que a
+margem daquele produto — o negócio perderia dinheiro a cada venda.
+
+**Incide sobre o PREÇO DE VENDA**, não sobre a margem. Não é preferência: o sistema **não cadastra
+custo de produto** (§3.9 — catálogo mínimo, sem estoque, sem fornecedor), então não existe o dado
+para calcular margem. Um modelo de margem exigiria primeiro modelar custo, o que está fora de
+escopo (§11).
+
+**Por que global e não por barbeiro:** produto é o mesmo produto na mão de qualquer profissional —
+não há a variação de esforço que justifica a matriz por serviço. A taxa por barbeiro que existia
+antes acabava inconsistente na prática (um barbeiro com 10%, dois com 0%, sem ninguém ter
+decidido isso).
+
+**Onde incide** — todos os caminhos usam a mesma taxa:
+- venda avulsa de produto (`VendaDeProduto`, §3.10);
+- produto anexado ao atendimento na conclusão (walk-in add-on, §3.5);
+- produto que entra pelo **order-bump** do funil (§8.13) — vira `ItemProdutoAtendido` e cai no
+  mesmo handler de conclusão.
+
+**★ Snapshot — o histórico é congelado.** O `LancamentoComissao` guarda `valorBase`,
+`percentualAplicado` e `valorComissao` **do momento da venda** (§3.7). Mudar a taxa **não
+recalcula nada** que já foi lançado: é dinheiro que o barbeiro já viu no extrato dele, e o extrato
+não pode mudar por uma decisão tomada depois. A taxa nova vale para vendas **daqui pra frente**.
+
+**Default 0.** Empresa sem taxa configurada não gera comissão de produto. O sistema nunca paga um
+percentual que ninguém decidiu.
 
 ---
 

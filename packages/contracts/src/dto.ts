@@ -71,9 +71,10 @@ export interface BarbeiroDTO {
   excecoesComissao: ExcecaoComissaoDTO[];
   servicosAtendidos: string[];
   /**
-   * Percentual ÚNICO de comissão sobre produto, para TODOS os produtos —
-   * sem matriz por produto (decisão consciente: a matriz por serviço existe
-   * por margens de mão de obra distintas; produto é revenda). Default 0%.
+   * ⚠️ DEPRECADO em 2026-08-19 (decisão dos sócios): a comissão de produto virou
+   * uma taxa ÚNICA DA EMPRESA — `ParametrosDTO.comissaoProdutos`. Ninguém lê
+   * este campo para calcular comissão; ele continua no DTO só para não quebrar
+   * cliente antigo. Não construa tela em cima dele.
    */
   comissaoProdutos: number; // porcentagem
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
@@ -460,6 +461,13 @@ export interface ParametrosDTO {
   /** Fuso IANA da empresa (ex: "America/Sao_Paulo"). Frontend deve SEMPRE renderizar
    * datas/horas neste fuso — nunca no fuso do navegador/dispositivo do usuário. */
   timezone: string;
+  /**
+   * Comissão de PRODUTO em porcentagem (2026-08-19, decisão dos sócios): taxa
+   * ÚNICA da empresa, para todo produto e todo barbeiro. Não é por barbeiro nem
+   * por produto — produto é revenda, e a margem não comporta a taxa de serviço.
+   * Incide sobre o preço de VENDA (o sistema não cadastra custo de produto).
+   */
+  comissaoProdutos: number;
 }
 
 // ---------- Funil público de agendamento (booking) ----------
