@@ -410,12 +410,51 @@ ser o rate limit da borda, em duas dimensões que resolvem abusos diferentes:
 | Trava | Chave | Freia |
 |---|---|---|
 | `default` nas rotas de login | telefone (normalizado E.164) | martelar UM número — força bruta de código e incomodar um cliente |
-| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam e queima do número de WhatsApp por volume (ban da Meta) |
+| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam, custo de SMS e queima da franquia/chip |
 
 Só o segundo protege contra varredura: cada telefone novo ganha um balde próprio no primeiro, então
 sem o limite por origem o volume é ilimitado na prática. O limite por origem depende de `req.ip`
 ser o cliente real — ver `trust proxy` em `main.ts` e a sobrescrita de `X-Forwarded-For` no
-`Caddyfile`.
+`Caddyfile`. Com SMS o custo virou dinheiro direto (cada envio é um SMS pago pelo chip), o que
+tornou esse limite mais crítico do que era no WhatsApp.
+
+#### Canal do OTP: SMS via Cognito + SMS Gate (2026-08-18)
+
+O canal padrão de produção passou a ser **SMS**, com o **AWS Cognito** como provedor de identidade
+(`IDENTITY_PROVIDER=cognito`). O WhatsApp (`whatsapp`, Baileys) continua funcional como adapter,
+mas deixou de ser o canal de OTP — fica reservado para transacional futuro.
+
+```
+funil → nossa API → Cognito InitiateAuth(CUSTOM_AUTH)
+                       ├─ DefineAuthChallenge          orquestra
+                       ├─ CreateAuthChallenge          gera o código e manda o SMS (SMS Gate)
+                       └─ VerifyAuthChallengeResponse  confere
+```
+
+O frontend **nunca** fala com o Cognito: fala com a nossa API, como sempre. O Cognito entra como um
+adapter da porta `IdentityProvider` que já existia — nenhum caminho paralelo.
+
+**★ Quem é a fonte de verdade do código.** Depende do provider, e isso é deliberado:
+
+| Provider | Gera/guarda/confere o código | Nossa base (`DemoDesafioLogin`) |
+|---|---|---|
+| `cognito` | o **Cognito**, via os triggers | não usada nesse fluxo |
+| `whatsapp` / `demo` | **nós**, via `OtpIdentityProviderBase` | guarda o desafio (hash, TTL, uso único, tentativas) |
+
+Nunca os dois ao mesmo tempo. Dois sistemas de código competindo pelo mesmo login é a receita para
+"o código que chegou não é o que o servidor espera" — por isso `CognitoIdentityProvider` não herda
+de `OtpIdentityProviderBase`: ele delega o desafio inteiro para a AWS e o `desafio` que devolve é a
+`Session` opaca do Cognito.
+
+**Consequência operacional:** com `cognito`, o limite de tentativas por desafio é o do
+`DefineAuthChallenge` (3), não o `MAX_TENTATIVAS_POR_DESAFIO` da nossa base; e errar o código não
+dispara SMS novo — o `CreateAuthChallenge` reaproveita o mesmo código entre as tentativas da mesma
+sessão (cada SMS custa).
+
+O envio em si (Basic Auth, E.164, timeout, erro limpo) mora em `infra/cognito-triggers/sms-gate.js`,
+sem dependências, testado com `fetch` mockado. **Sem criptografia ponta-a-ponta** (decisão do dono):
+o conteúdo é um código de 6 dígitos, curto e de uso único; se um dia trafegar link ou dado pessoal,
+reavaliar.
 
 ---
 
