@@ -18,9 +18,26 @@ describe('assertConfiguracaoSegura', () => {
     expect(() => assertConfiguracaoSegura({ NODE_ENV: 'production' })).toThrow(ConfiguracaoInseguraError);
   });
 
-  it('recusa produção com IDENTITY_PROVIDER=cognito — saiu do fluxo, não é mais uma opção válida', () => {
+  it('★ aceita produção com IDENTITY_PROVIDER=cognito (OTP por SMS, 2026-08-18)', () => {
     expect(() =>
       assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'cognito', PAYMENT_GATEWAY: 'fake' }),
+    ).not.toThrow();
+  });
+
+  it('produção com demo continua recusada, mesmo com o cognito liberado', () => {
+    expect(() =>
+      assertConfiguracaoSegura({ NODE_ENV: 'production', IDENTITY_PROVIDER: 'demo', PAYMENT_GATEWAY: 'fake' }),
+    ).toThrow(ConfiguracaoInseguraError);
+  });
+
+  it('DEMO_MODE=true segue proibido em produção mesmo com cognito', () => {
+    expect(() =>
+      assertConfiguracaoSegura({
+        NODE_ENV: 'production',
+        IDENTITY_PROVIDER: 'cognito',
+        DEMO_MODE: 'true',
+        PAYMENT_GATEWAY: 'fake',
+      }),
     ).toThrow(ConfiguracaoInseguraError);
   });
 
