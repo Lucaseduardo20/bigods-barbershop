@@ -248,7 +248,23 @@ export interface AgendarAvulsoRequest {
 }
 export interface AgendarComCreditoRequest {
   vendaId: string;
-  itemId: string;
+  /**
+   * Créditos consumidos NESTA visita (2026-08-21). Vários créditos do MESMO
+   * pacote formam UM atendimento, com o mesmo barbeiro, no mesmo horário — o
+   * bloco na agenda é a SOMA das durações. Um pacote "2 cortes + 2 barbas"
+   * atende corte+barba numa visita só, em vez de exigir dois agendamentos.
+   *
+   * Cada crédito continua individual por baixo: seu `valorRateado` congelado,
+   * seu lançamento de comissão, seu serviço. Agendar junto é experiência, não
+   * um "item combo".
+   */
+  itemIds: string[];
+  /**
+   * ⚠️ DEPRECADO em 2026-08-21 — use `itemIds`. Continua aceito porque a API
+   * sobe antes dos frontends: durante a janela de deploy, o app publicado ainda
+   * manda este campo. Ignorado quando `itemIds` vem preenchido.
+   */
+  itemId?: string;
   barbeiroId: string;
   data: string; // YYYY-MM-DD, dia civil local
   horaInicio: string; // "HH:mm", horário de parede LOCAL
@@ -307,6 +323,12 @@ export interface ItemDoPacoteDTO {
   id: string;
   servicoId: string;
   servicoNome: string;
+  /**
+   * Duração do serviço deste crédito (2026-08-21). A conta do cliente precisa
+   * disto pra somar o bloco da visita quando ele junta vários créditos — é a
+   * MESMA soma que o domínio faz ao agendar, mostrada antes de confirmar.
+   */
+  servicoDuracaoMinutos: number;
   valorRateadoCentavos: number;
   status: StatusItemPacote;
   faltasComputadas: number;

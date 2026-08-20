@@ -87,6 +87,7 @@ export class PacotesQueryService {
           id: i.id,
           servicoId: i.servicoId,
           servicoNome: servicoPorId.get(i.servicoId)?.nome ?? '?',
+          servicoDuracaoMinutos: servicoPorId.get(i.servicoId)?.duracaoMinutos ?? 0,
           valorRateadoCentavos: i.valorRateadoCentavos,
           status: StatusItemPacote[i.status],
           faltasComputadas: i.faltasComputadas,

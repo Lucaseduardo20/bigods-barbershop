@@ -851,3 +851,37 @@ campos são limpos — só o log da aplicação.
 **Por que ficou assim:** o pedido não move dinheiro, então não há nada a auditar no ledger; e
 notificação (WhatsApp) é Fase 2, fora de escopo (DOMAIN.md §11). Se a recusa virar rotina, isso
 muda de peso.
+
+## 48. Cancelar só UM crédito de uma visita múltipla (2026-08-21)
+
+A visita de vários créditos (corte + barba numa ida) é cancelada e reagendada **inteira**. Não
+existe "tirar só a barba desta visita".
+
+O mínimo sensato foi tratar os créditos como um bloco: cancelar devolve todos conforme a regra de
+falta/segunda-chance que já existia, reagendar move todos para o novo horário. É o que corresponde
+ao que o cliente fez — ele marcou uma visita, não dois compromissos.
+
+**O que falta decidir:** se o cliente (ou o admin) precisa remover um serviço de uma visita já
+marcada. Hoje o caminho é cancelar a visita e montar de novo, o que é aceitável enquanto o
+cancelamento for antecipado (nenhum crédito é perdido). Se for tardio, cancelar cobra falta nos
+DOIS créditos — e aí "queria tirar só a barba" custa caro. Se isso aparecer na operação, o desenho
+natural é remover o item do atendimento (existe `adicionarItem`; falta o inverso) devolvendo o
+crédito correspondente, sem passar pelo cancelamento.
+
+## 49. Dois créditos do MESMO serviço numa visita são recusados (2026-08-21)
+
+Um pacote de 5 cortes não permite marcar dois cortes na mesma visita. O erro é explícito
+("agende um por vez"), não um silêncio.
+
+Duas razões, e a segunda é técnica: (a) ninguém corta o cabelo duas vezes numa sentada; (b) a
+projeção pública de horários (`horarios-disponiveis-query.service.ts`) calcula a duração sobre os
+serviços **distintos** do carrinho — ela busca os serviços por `id IN (...)` e soma o resultado.
+Com `[corte, corte]` ela somaria 30 min, ofereceria um vão de 30 min, e o domínio criaria um bloco
+de 60 min: a projeção diria "livre" para um horário que o banco recusa.
+
+**O que falta decidir:** se dois créditos do mesmo serviço na mesma visita têm caso de uso real
+(dois filhos atendidos em sequência com um pacote só?). Se tiver, a projeção precisa somar **por
+item** antes de a trava sair — nesta ordem, não na inversa.
+
+**Nota:** o mesmo buraco existe hoje, latente, para o avulso: `/public/horarios?servicoIds=a,a`
+devolveria a duração de um único serviço. Nenhuma UI manda duplicata, então nunca apareceu.

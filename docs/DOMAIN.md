@@ -1532,15 +1532,44 @@ Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou,
 ```
 1. Autenticar (Cognito)
 2. Carregar VendaDePacote do cliente
-3. Selecionar ItemDoPacote (status DISPONIVEL ou SEGUNDA_CHANCE)
+3. Selecionar UM OU MAIS ItemDoPacote (status DISPONIVEL ou SEGUNDA_CHANCE),
+   todos do MESMO pacote  ← "monte sua visita" (2026-08-21)
 4. Validar disponibilidade e conflito de horário
+   → contra o intervalo TOTAL: soma das durações dos serviços escolhidos
    → mesma regra de dia civil local do §8.1 (§2.6)
 5. TRANSAÇÃO:
-   a. VendaDePacote.consumirItem(itemId, atendimentoId)  → item vira AGENDADO
-   b. Criar Atendimento (origem=CREDITO_PACOTE,
-      valorCobrado = item.valorRateado ← NÃO o preço avulso)
+   a. Para CADA crédito: VendaDePacote.agendarItem(itemId, atendimentoId)
+      → todos viram AGENDADO, apontando para o MESMO atendimento
+   b. Criar Atendimento (origem=CREDITO_PACOTE) com UM ItemAtendido POR CRÉDITO,
+      cada um com valorCobrado = item.valorRateado ← NÃO o preço avulso,
+      NÃO um total combinado
 6. Sem pagamento. Confirmar explicitamente ao cliente que nada será cobrado.
 ```
+
+**Vários créditos numa visita (2026-08-21).** Um pacote "2 cortes + 2 barbas" tem quatro créditos
+individuais. Fazer corte+barba numa ida exigia DOIS agendamentos — para o cliente foi UMA visita.
+Agora um agendamento consome vários créditos: um atendimento, mesmo barbeiro, mesmo horário.
+
+A solução ficou no AGENDAMENTO, não no catálogo: criar um serviço "corte+barba" reviveria os combos
+removidos na Onda 1, proliferaria catálogo e destruiria a granularidade de rateio e comissão.
+
+- **Só créditos do MESMO pacote** numa visita (decisão do dono). Misturar pacotes evolui depois, se
+  surgir necessidade.
+- **★ A duração é a SOMA.** Corte (30) + barba (20) = bloco de 50 min. Quem calcula é
+  `Atendimento.agendar()`, que já somava as durações dos itens — a invariante de sobreposição e a
+  constraint `EXCLUDE` do Postgres validam contra o intervalo TOTAL, então uma visita de 50 min não
+  cabe num vão de 30 min nem atropela o próximo cliente. A projeção pública de horários (§2.1) só
+  oferece o horário onde o bloco inteiro cabe.
+- **★ Rateio e comissão continuam INDIVIDUAIS.** Um `ItemAtendido` por crédito, com o `valorRateado`
+  congelado daquele item; a conclusão gera um `LancamentoComissao` por crédito, cada um pelo seu
+  valor rateado. **Nunca existe "item combo"** — agendar junto é experiência, o ledger não muda.
+- **Um crédito por serviço na visita.** Dois créditos do mesmo serviço são recusados: além de não
+  fazer sentido operacional, a projeção de horários calcula a duração sobre os serviços DISTINTOS,
+  e aceitar produziria silenciosamente um bloco maior que o oferecido. Ver DECISOES_PENDENTES.
+- **Os créditos da visita andam JUNTOS.** Cancelar devolve todos (a regra de falta/segunda-chance do
+  §4.2 é a mesma, aplicada a cada crédito — os eventos `AtendimentoCancelado`/`ClienteFaltou` já
+  carregam a lista de itens). Reagendar move a visita inteira. Cancelar só um crédito da visita não
+  existe — ver DECISOES_PENDENTES.
 
 ### 8.3 Concluir atendimento (painel)
 

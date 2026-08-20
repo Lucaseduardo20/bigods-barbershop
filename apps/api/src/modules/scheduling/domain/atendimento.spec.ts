@@ -8,6 +8,7 @@ import { Duracao } from '../../../shared/domain/duracao';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
 import { Percentual } from '../../../shared/domain/percentual';
 import {
+  ConflitoDeHorarioError,
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
@@ -510,5 +511,67 @@ describe('Atendimento — conclusão antecipada (trava, 2026-08-20)', () => {
     pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
     a.aprovarConclusaoAntecipada();
     expect(() => agendarLimpo({ id: 'at-2', atendimentosAtivos: [a] })).not.toThrow();
+  });
+});
+
+describe('Atendimento — visita com vários itens ocupa a SOMA das durações (2026-08-21)', () => {
+  const itemBarba = (): ItemAtendido => ({
+    servicoId: 'svc-barba',
+    valorCobrado: Dinheiro.deCentavos(3000),
+    duracao: Duracao.deMinutos(20),
+    itemDoPacoteId: null,
+  });
+
+  /** Corte (30) + barba (20) = bloco de 50min. */
+  const visita = (sobrescrever: Parameters<typeof agendar>[0] = {}) =>
+    agendar({ itens: [itemCorte(), itemBarba()], ...sobrescrever });
+
+  it('★ a visita de 50min CONFLITA com um atendimento que começa 40min depois', () => {
+    // O de 30min terminaria 10:30 e não encostaria no das 10:40. É a SOMA que
+    // cria o conflito — exatamente o caso "atropelar o próximo cliente".
+    const proximo = agendar({ id: 'at-prox', inicio: t(10, 40) });
+
+    expect(() => agendar({ id: 'at-1', atendimentosAtivos: [proximo] })).not.toThrow();
+    expect(() => visita({ id: 'at-2', atendimentosAtivos: [proximo] })).toThrow(ConflitoDeHorarioError);
+  });
+
+  it('★ a visita de 50min NÃO cabe numa disponibilidade de 30min; um item só cabe', () => {
+    const janelaCurta = DisponibilidadeBarbeiro.criar(
+      { id: 'd-curta', barbeiroId: 'bar-1', data: '2026-07-15', janela: IntervaloDeTempo.de(t(10), t(10, 30)) },
+      [],
+    );
+    expect(() => agendar({ disponibilidades: [janelaCurta] })).not.toThrow();
+    expect(() => visita({ disponibilidades: [janelaCurta] })).toThrow(InvarianteVioladaError);
+  });
+
+  it('a ordem dos itens não muda o bloco — soma é soma', () => {
+    const a = visita({ id: 'at-a' });
+    const b = agendar({ id: 'at-b', itens: [itemBarba(), itemCorte()] });
+    expect(a.intervalo.fim.getTime() - a.intervalo.inicio.getTime()).toBe(50 * 60_000);
+    expect(b.intervalo.fim.getTime() - b.intervalo.inicio.getTime()).toBe(50 * 60_000);
+  });
+
+  it('crédito de pacote com vários itens exige itemDoPacoteId em TODOS', () => {
+    const doPacote = (servicoId: string, min: number, itemDoPacoteId: string | null): ItemAtendido => ({
+      servicoId,
+      valorCobrado: Dinheiro.deCentavos(2000),
+      duracao: Duracao.deMinutos(min),
+      itemDoPacoteId,
+    });
+    // Os dois amarrados a créditos: ok.
+    expect(() =>
+      agendar({
+        origem: OrigemAtendimento.CREDITO_PACOTE,
+        itens: [doPacote('svc-corte', 30, 'ip-1'), doPacote('svc-barba', 20, 'ip-2')],
+      }),
+    ).not.toThrow();
+    // Um deles solto: recusa — senão entraria valor avulso não cobrado numa
+    // visita que se apresenta como paga pelo pacote.
+    expect(() =>
+      agendar({
+        origem: OrigemAtendimento.CREDITO_PACOTE,
+        itens: [doPacote('svc-corte', 30, 'ip-1'), doPacote('svc-barba', 20, null)],
+      }),
+    ).toThrow(InvarianteVioladaError);
   });
 });

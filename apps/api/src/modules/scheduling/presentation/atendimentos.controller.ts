@@ -34,6 +34,7 @@ import {
 import { AgendarAvulsoUseCase } from '../application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from '../application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from '../application/concluir-atendimento.usecase';
+import { creditosDaRequisicao } from '../application/agendar-com-credito.usecase';
 import {
   AprovarConclusaoAntecipadaUseCase,
   RecusarConclusaoAntecipadaUseCase,
@@ -83,7 +84,10 @@ class AgendarAvulsoDto {
 
 class AgendarComCreditoDto {
   @IsString() vendaId!: string;
-  @IsString() itemId!: string;
+  /** Vários créditos do mesmo pacote = uma visita só (2026-08-21). */
+  @IsOptional() @IsArray() @ArrayNotEmpty() @IsString({ each: true }) itemIds?: string[];
+  /** DEPRECADO — compatibilidade com o app publicado durante o deploy. */
+  @IsOptional() @IsString() itemId?: string;
   @IsString() barbeiroId!: string;
   @Matches(DATA_ISO) data!: string;
   @Matches(HORA_HHMM) horaInicio!: string;
@@ -232,7 +236,7 @@ export class AtendimentosController {
     const resultado = await this.agendarComCredito.executar({
       companyId: usuario.companyId,
       vendaId: body.vendaId,
-      itemId: body.itemId,
+      itemIds: creditosDaRequisicao(body),
       barbeiroId: body.barbeiroId,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
     });
