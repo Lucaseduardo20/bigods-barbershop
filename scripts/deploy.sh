@@ -158,10 +158,34 @@ checar_var() {
   [[ -n "$valor" ]] || erro "$nome está vazio em $ENV_FILE — preencha antes de continuar (produção: rode scripts/fetch-secrets-ssm.sh)."
 }
 checar_var AUTH_SECRET
-checar_var WHATSAPP_OTP_INTERNAL_TOKEN
 checar_var DATABASE_URL
 [[ "${AUTH_SECRET}" != "dev-secret-change-me" ]] || erro "AUTH_SECRET ainda é o valor de exemplo de dev — troque por um valor real (openssl rand -hex 32) em $ENV_FILE."
-[[ "${IDENTITY_PROVIDER:-}" == "whatsapp" ]] || erro "IDENTITY_PROVIDER precisa ser \"whatsapp\" em $AMBIENTE (hoje: '${IDENTITY_PROVIDER:-vazio}') — a API recusaria subir de qualquer forma."
+# Espelha a lista de config-seguranca.ts (PROVIDERS_VALIDOS_EM_PRODUCAO) — a
+# FONTE DA VERDADE é lá; aqui é só pra falhar antes de subir container, com
+# mensagem melhor. Se divergir, o certo é corrigir este script, nunca o
+# contrário (2026-08-20: este check dizia que só "whatsapp" servia e que "a API
+# recusaria subir de qualquer forma" — era falso, e travava um deploy legítimo
+# com cognito).
+case "${IDENTITY_PROVIDER:-}" in
+  whatsapp)
+    # A API conversa com o serviço whatsapp-otp por este token.
+    checar_var WHATSAPP_OTP_INTERNAL_TOKEN
+    ;;
+  cognito)
+    # Sem estas três a API nem inicializa (identity.module.ts usa exigir()).
+    # Checar aqui evita descobrir no primeiro login de cliente.
+    checar_var COGNITO_USER_POOL_ID
+    checar_var COGNITO_CLIENT_ID
+    checar_var AWS_REGION
+    echo "⚠ IDENTITY_PROVIDER=cognito: o OTP sai por SMS, pelas Lambdas de infra/cognito-triggers"
+    echo "  (SMS_GATE_USER/SMS_GATE_PASSWORD são variáveis DELAS, não deste .env)."
+    echo "  Confirme que os 3 triggers estão publicados e ligados ao user pool ANTES de seguir —"
+    echo "  a API sobe normalmente, mas nenhum cliente consegue entrar se o SMS não sair."
+    ;;
+  *)
+    erro "IDENTITY_PROVIDER='${IDENTITY_PROVIDER:-vazio}' não envia OTP real — em $AMBIENTE use \"whatsapp\" (celular pareado) ou \"cognito\" (SMS). Mesma lista de config-seguranca.ts."
+    ;;
+esac
 
 if [[ "$AMBIENTE" == "staging" ]]; then
   [[ "${DATABASE_URL:-}" == *"@postgres:"* ]] || erro "DATABASE_URL não aponta pro serviço \"postgres\" do docker-compose (valor atual: ${DATABASE_URL:-vazio}). Dentro do Docker, \"localhost\" é o PRÓPRIO container — use @postgres: como host."
