@@ -53,7 +53,11 @@ export class HomeQueryService {
 
     const [proximos, saldo, comissoes, pagamentos] = await Promise.all([
       this.prisma.atendimento.findMany({
-        where: { barbeiroId, status: 'AGENDADO', inicio: { gte: agora } },
+        where: {
+          barbeiroId,
+          status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
+          inicio: { gte: agora },
+        },
         orderBy: { inicio: 'asc' },
         take: 2,
         include: { itens: true, produtos: true },
@@ -179,12 +183,16 @@ export class HomeQueryService {
   }
 
   /**
-   * O que espera decisão do admin: pacote comprado e ainda não confirmado, e
-   * atendimento com pagamento online pendente (RESERVADO). São exatamente as
-   * duas coisas que têm botão "confirmar pagamento recebido" no painel.
+   * O que espera decisão do admin: pacote comprado e ainda não confirmado,
+   * atendimento com pagamento online pendente (RESERVADO) e conclusão
+   * antecipada aguardando aprovação (2026-08-20).
+   *
+   * A conclusão antecipada entra aqui porque, se o admin não a vê, a trava não
+   * protege nada — só trava: o barbeiro fica sem a comissão e ninguém sabe que
+   * há algo pra decidir.
    */
   private async pendencias(companyId: string): Promise<HomePendenciaDTO[]> {
-    const [pacotes, atendimentos] = await Promise.all([
+    const [pacotes, atendimentos, conclusoes] = await Promise.all([
       this.prisma.vendaDePacote.findMany({
         where: { companyId, statusPagamento: 'AGUARDANDO' },
         orderBy: { compradoEm: 'desc' },
@@ -196,11 +204,30 @@ export class HomeQueryService {
         include: { itens: true, produtos: true },
         take: 5,
       }),
+      this.prisma.atendimento.findMany({
+        where: { companyId, status: 'CONCLUSAO_PENDENTE' },
+        orderBy: { conclusaoSolicitadaEm: 'asc' },
+        include: { itens: true, produtos: true },
+        take: 5,
+      }),
     ]);
 
-    const clienteIds = [...new Set([...pacotes.map((p) => p.clienteId), ...atendimentos.map((a) => a.clienteId)])];
-    const clientes = await this.prisma.cliente.findMany({ where: { id: { in: clienteIds } } });
+    const clienteIds = [
+      ...new Set([
+        ...pacotes.map((p) => p.clienteId),
+        ...atendimentos.map((a) => a.clienteId),
+        ...conclusoes.map((a) => a.clienteId),
+      ]),
+    ];
+    const [clientes, barbeiros] = await Promise.all([
+      this.prisma.cliente.findMany({ where: { id: { in: clienteIds } } }),
+      this.prisma.barbeiro.findMany({
+        where: { id: { in: [...new Set(conclusoes.map((a) => a.barbeiroId))] } },
+        select: { id: true, nome: true },
+      }),
+    ]);
     const nome = new Map(clientes.map((c) => [c.id, c.nome]));
+    const nomeBarbeiro = new Map(barbeiros.map((b) => [b.id, b.nome]));
 
     return [
       ...pacotes.map(
@@ -219,6 +246,19 @@ export class HomeQueryService {
           clienteNome: nome.get(a.clienteId) ?? '—',
           valorCentavos: this.valorDoAtendimento(a),
           desde: a.inicio.toISOString(),
+        }),
+      ),
+      ...conclusoes.map(
+        (a): HomePendenciaDTO => ({
+          tipo: 'CONCLUSAO_ANTECIPADA',
+          id: a.id,
+          clienteNome: nome.get(a.clienteId) ?? '—',
+          valorCentavos: this.valorDoAtendimento(a),
+          // `desde` = quando o barbeiro pediu, não o horário do atendimento:
+          // o que envelhece aqui é a decisão pendente do admin.
+          desde: (a.conclusaoSolicitadaEm ?? a.inicio).toISOString(),
+          barbeiroNome: nomeBarbeiro.get(a.barbeiroId) ?? '—',
+          motivo: a.conclusaoAntecipadaMotivo ?? '',
         }),
       ),
     ];

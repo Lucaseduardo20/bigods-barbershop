@@ -75,6 +75,10 @@ export class HorariosDisponiveisQueryService {
           fim: { gt: diaInicio },
           OR: [
             { status: 'AGENDADO' },
+            // Conclusão antecipada pendente de aprovação ainda OCUPA o horário
+            // (2026-08-20): a recusa devolve o atendimento pra AGENDADO, então
+            // o horário não pode ter sido vendido pra outro cliente no meio.
+            { status: 'CONCLUSAO_PENDENTE' },
             // RESERVADO ocupa o horário igual a AGENDADO (mesmo critério do
             // domínio/EXCLUDE) — MAS uma reserva cujo prazo já passou não
             // pode aparecer como ocupada aqui, mesmo que ainda não tenha
@@ -169,6 +173,7 @@ export class HorariosDisponiveisQueryService {
           fim: { gt: periodoInicio },
           OR: [
             { status: 'AGENDADO' },
+            { status: 'CONCLUSAO_PENDENTE' },
             // Mesmo critério de `disponiveis`: reserva vencida não ocupa nada.
             { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
           ],
@@ -272,6 +277,7 @@ export class HorariosDisponiveisQueryService {
           fim: { gt: diaInicio },
           OR: [
             { status: 'AGENDADO' },
+            { status: 'CONCLUSAO_PENDENTE' },
             { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
           ],
         },
@@ -339,6 +345,7 @@ export class HorariosDisponiveisQueryService {
           fim: { gt: periodoInicio },
           OR: [
             { status: 'AGENDADO' },
+            { status: 'CONCLUSAO_PENDENTE' },
             { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
           ],
         },
@@ -404,6 +411,7 @@ export class HorariosDisponiveisQueryService {
           fim: { gt: params.inicio },
           OR: [
             { status: 'AGENDADO' },
+            { status: 'CONCLUSAO_PENDENTE' },
             { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
           ],
         },

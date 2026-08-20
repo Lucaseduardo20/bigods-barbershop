@@ -209,7 +209,12 @@ function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
     month: '2-digit',
     timeZone: tz,
   });
-  const rotulo = p.tipo === 'PACOTE_AGUARDANDO' ? 'Pacote aguardando pagamento' : 'Atendimento aguardando pagamento';
+  const rotulo =
+    p.tipo === 'PACOTE_AGUARDANDO'
+      ? 'Pacote aguardando pagamento'
+      : p.tipo === 'CONCLUSAO_ANTECIPADA'
+        ? `Conclusão antes do horário · ${p.barbeiroNome ?? '—'}`
+        : 'Atendimento aguardando pagamento';
   return (
     <div className="flex items-center justify-between gap-2 py-1.5">
       <div className="min-w-0">
@@ -217,6 +222,11 @@ function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
         <div className="text-[11.5px] truncate" style={{ color: 'var(--text-muted)' }}>
           {rotulo} · {dia}
         </div>
+        {p.motivo && (
+          <div className="text-[11.5px] truncate" style={{ color: 'var(--text-secondary)' }}>
+            “{p.motivo}”
+          </div>
+        )}
       </div>
       <div className="text-[13px] font-bold flex-shrink-0">{dinheiro(p.valorCentavos)}</div>
     </div>

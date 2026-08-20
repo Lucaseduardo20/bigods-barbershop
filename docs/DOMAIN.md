@@ -41,7 +41,8 @@ Dois consumidores da mesma regra:
 - **Escrita** (criar agendamento): a invariante "não existem dois atendimentos sobrepostos
   para o mesmo barbeiro" é garantida no domínio **e** por uma constraint de exclusão no
   Postgres (`EXCLUDE USING gist` sobre um range temporal). O banco recusa fisicamente a
-  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO)` — a reserva
+  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO,
+  CONCLUSAO_PENDENTE)` — a reserva
   TEMPORÁRIA de um avulso online (§3.5, §3.8) ocupa o horário igual a um agendamento firme,
   senão duas reservas concorrentes pro mesmo slot poderiam ambas nascer (sessão de OTP+reserva,
   Problema 2).
@@ -498,7 +499,8 @@ ontem continua valendo R$40. Sem snapshot, o histórico e o extrato de comissão
 retroativamente — inaceitável num sistema que precisa ser auditável.
 
 **Invariantes:**
-- Não existem dois `Atendimento` com status ativo (`AGENDADO` **ou** `RESERVADO`, §4.1) sobrepostos
+- Não existem dois `Atendimento` com status ativo (`AGENDADO`, `RESERVADO` **ou**
+  `CONCLUSAO_PENDENTE`, §4.1) sobrepostos
   no tempo para o mesmo `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no
   Postgres. `IntervaloDeTempo` é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se
   tocam (o fim de um é igual ao início do outro) não conflitam.
@@ -711,8 +713,8 @@ centavos com sinal, calculado na borda de leitura.
 perguntasse "por que recebi X?", o sistema não sabia responder. Isso destrói confiança —
 especialmente entre sócios. Aqui, o extrato é a fonte da verdade e o saldo é derivado.
 
-**Projeção de comissão futura:** calculada como soma sobre atendimentos `AGENDADO` (ainda não
-concluídos). **É uma query de leitura, não um lançamento.** Nunca somar projeção com saldo real —
+**Projeção de comissão futura:** calculada como soma sobre atendimentos `AGENDADO` e
+`CONCLUSAO_PENDENTE` (ainda não concluídos — no segundo caso, esperando aprovação do admin). **É uma query de leitura, não um lançamento.** Nunca somar projeção com saldo real —
 na UI e na API, são números separados e rotulados. Agendamento futuro pode ser cancelado. Vale
 e pagamento são sempre fatos **consumados** — nunca entram na projeção, só no saldo real.
 
@@ -1166,6 +1168,18 @@ tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
                         (final)      (final)          (final)
 ```
 
+Trava de conclusão antecipada (2026-08-20): o caminho `AGENDADO → CONCLUIDO` acima é o do
+barbeiro concluindo na hora (ou depois). Concluir **antes** do horário marcado passa por um
+desvio, e é o admin que fecha:
+
+```
+   ┌─────────────┐  conclui antes do horário   ┌────────────────────┐  aprova   ┌────────────┐
+   │  AGENDADO   │ ───(motivo obrigatório)───▶ │ CONCLUSAO_PENDENTE │ ────────▶ │ CONCLUIDO  │
+   └─────────────┘                             └────────────────────┘  (admin)  └────────────┘
+          ▲                                               │                        (final)
+          └──────────────── recusa (admin) ───────────────┘        ↑ só aqui nasce a comissão
+```
+
 - `RESERVADO → AGENDADO` (`confirmarReserva`): pagamento online confirmado (webhook
   `transparent.completed` ou `confirmar-demo`, §3.8). Só agora emite `AtendimentoAgendado` — não
   na criação da reserva, pra nunca notificar "você está agendado" antes de existir pagamento
@@ -1175,6 +1189,26 @@ tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
   que a `IntencaoDePagamento` vinculada expira (`ExpirarPagamentoVencidoUseCase`), nunca isolado —
   senão intenção e reserva podem divergir (uma expirada, a outra não).
 - `AGENDADO → CONCLUIDO`: emite `AtendimentoConcluido`. Exige `formaPagamento` se `AVULSO`.
+- `AGENDADO → CONCLUSAO_PENDENTE` (`solicitarConclusaoAntecipada`, 2026-08-20): o barbeiro
+  concluiu um atendimento cujo **horário ainda não chegou** e justificou (motivo obrigatório,
+  não-vazio). **Não emite evento nenhum** — nenhuma comissão nasce, nenhum crédito de pacote é
+  consumido. Era exatamente isso que a trava existe pra impedir: concluir a agenda da semana em
+  série e inflar a comissão. A `formaPagamento` é validada e **guardada** no pedido
+  (`conclusaoFormaPagamento`), não aplicada: quem sabe como o cliente pagou é o barbeiro, e
+  descobrir que falta só na hora da aprovação deixaria o pedido travado sem quem resolvesse.
+  Ocupa o horário exatamente como `AGENDADO` (invariante + `EXCLUDE`), porque a recusa devolve
+  o atendimento pra lá e o horário precisa estar esperando.
+  **Quem** precisa justificar é política de aplicação, não invariante: admin conclui direto — é
+  ele quem aprovaria, e justificar pra si mesmo não protege ninguém.
+- `CONCLUSAO_PENDENTE → CONCLUIDO` (`aprovarConclusaoAntecipada`, admin): **é aqui que o dinheiro
+  nasce.** Só neste ponto sai o `AtendimentoConcluido` (comissão) e o crédito de pacote vira
+  `CONSUMIDO`, na mesma transação. Usa a `formaPagamento` guardada no pedido.
+  O **motivo, o autor e o instante do pedido permanecem** no atendimento concluído — é o rastro
+  auditável de que aquela conclusão não aconteceu na hora marcada, e por quê. Apagar seria
+  perder justamente o fato que a trava existe pra vigiar.
+- `CONCLUSAO_PENDENTE → AGENDADO` (`recusarConclusaoAntecipada`, admin): volta como se o pedido
+  não tivesse existido; os quatro campos do pedido são limpos. Não é estado final — o
+  atendimento pode ser concluído normalmente quando a hora chegar.
 - `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado` com `antecipado: boolean`
   (`true` se cancelado antes do horário marcado) — usado pelo handler de Pacote para decidir se o
   item associado conta falta (§3.5, §4.2).

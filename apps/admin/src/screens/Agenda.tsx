@@ -40,7 +40,11 @@ export function Agenda({
   const [periodoAte, setPeriodoAte] = useState(() => somarDias(hojeISO(tz), 6));
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
   const [filtroStatus, setFiltroStatus] = useState<
-    'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.RESERVADO | StatusAtendimento.CONCLUIDO
+    | 'todos'
+    | StatusAtendimento.AGENDADO
+    | StatusAtendimento.RESERVADO
+    | StatusAtendimento.CONCLUSAO_PENDENTE
+    | StatusAtendimento.CONCLUIDO
   >('todos');
   const [novoAberto, setNovoAberto] = useState(abrirNovoAoEntrar);
   const [vendaAberta, setVendaAberta] = useState(false);
@@ -163,6 +167,7 @@ export function Agenda({
             // o dono precisa achar RÁPIDO o atendimento que acabou de chegar
             // pra confirmar. Sem esta aba, ele caça no meio da semana inteira.
             { value: StatusAtendimento.RESERVADO, label: 'Aguardando pgto' },
+            { value: StatusAtendimento.CONCLUSAO_PENDENTE, label: 'A aprovar' },
             { value: StatusAtendimento.CONCLUIDO, label: 'Concluídos' },
           ]}
         />

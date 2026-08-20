@@ -15,6 +15,10 @@ enum Papel {
 enum StatusAtendimento {
   RESERVADO
   AGENDADO
+  // Conclusão ANTECIPADA aguardando aprovação do admin (2026-08-20). Ocupa o
+  // horário como AGENDADO — está na constraint EXCLUDE e na invariante do
+  // domínio, porque a recusa devolve o atendimento pra AGENDADO.
+  CONCLUSAO_PENDENTE
   CONCLUIDO
   CANCELADO
   NAO_COMPARECEU
@@ -442,6 +446,14 @@ model Atendimento {
   // (usado pela cota de presenciais pra excluir corretamente atendimentos
   // online da contagem). Null em qualquer atendimento presencial.
   reservaOnlineExpiraEm DateTime? @db.Timestamptz(3)
+  // Conclusão antecipada (2026-08-20): o barbeiro concluiu antes do horário e
+  // justificou. Guardamos o motivo, quem pediu, quando, e a forma de pagamento
+  // que ele informou — a forma precisa sobreviver até a aprovação, senão o
+  // admin teria que adivinhar como o cliente pagou.
+  conclusaoAntecipadaMotivo String?
+  conclusaoSolicitadaPorId  String?
+  conclusaoSolicitadaEm     DateTime? @db.Timestamptz(3)
+  conclusaoFormaPagamento   FormaPagamento?
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]

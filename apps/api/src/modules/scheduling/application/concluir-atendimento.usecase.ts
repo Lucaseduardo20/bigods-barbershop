@@ -1,5 +1,17 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { FormaPagamento, OrigemAtendimento, Papel, StatusPagamento } from '@bigods/contracts';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  FormaPagamento,
+  OrigemAtendimento,
+  Papel,
+  StatusAtendimento,
+  StatusPagamento,
+} from '@bigods/contracts';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
@@ -8,11 +20,34 @@ import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
   IntencaoDePagamentoRepository,
 } from '../../payments/domain/intencao-de-pagamento.repository';
+import { Atendimento } from '../domain/atendimento.aggregate';
+import { RepositoriosTransacionais } from '../../../shared/application/unit-of-work';
+
+/**
+ * Código de erro que o front usa pra abrir o modal de justificativa. Vai no
+ * corpo do 409 porque a mensagem é texto pra humano, não contrato.
+ */
+export const CONCLUSAO_ANTECIPADA_EXIGE_MOTIVO = 'CONCLUSAO_ANTECIPADA_EXIGE_MOTIVO';
 
 export interface ConcluirAtendimentoInput {
   atendimentoId: string;
   formaPagamento?: FormaPagamento;
   usuario: UsuarioAutenticado;
+  /**
+   * Justificativa para concluir ANTES do horário marcado (2026-08-20). Só é
+   * lida nesse caso; num atendimento cujo horário já passou, é ignorada.
+   */
+  motivoConclusaoAntecipada?: string;
+  /** Injetável para teste; em produção é sempre o relógio do processo. */
+  agora?: Date;
+}
+
+export interface ConcluirAtendimentoResultado {
+  /**
+   * `false` quando a conclusão foi antecipada e ficou pendente de aprovação —
+   * nada de dinheiro aconteceu ainda.
+   */
+  concluido: boolean;
 }
 
 @Injectable()
@@ -23,15 +58,24 @@ export class ConcluirAtendimentoUseCase {
     @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
   ) {}
 
-  async executar(input: ConcluirAtendimentoInput): Promise<void> {
+  async executar(input: ConcluirAtendimentoInput): Promise<ConcluirAtendimentoResultado> {
     const eventos: DomainEvent[] = [];
+    const agora = input.agora ?? new Date();
 
-    await this.uow.transacao(async (repos) => {
+    const concluido = await this.uow.transacao(async (repos) => {
       const atendimento = await repos.atendimentos.porId(input.atendimentoId);
       if (!atendimento || atendimento.companyId !== input.usuario.companyId) {
         throw new NotFoundException('Atendimento não encontrado');
       }
       autorizarDonoOuAdmin(atendimento.barbeiroId, input.usuario);
+
+      // Já pedido e esperando decisão: a mensagem certa é essa, não "informe o
+      // motivo" (ele já informou) nem um erro de transição de estado cru.
+      if (atendimento.status === StatusAtendimento.CONCLUSAO_PENDENTE) {
+        throw new ConflictException(
+          'Este atendimento já está aguardando aprovação do administrador para ser concluído',
+        );
+      }
 
       // Item 2 da sessão 2026-07-16: se há IntencaoDePagamento PAGA vinculada,
       // a parte já paga não exige forma de pagamento — a aplicação (não o
@@ -51,27 +95,53 @@ export class ConcluirAtendimentoUseCase {
       const semAdicional = valorCoberto > 0 && valorTotal <= valorCoberto;
       const formaPagamentoCoberta = valorPagoOnline > 0 ? FormaPagamento.PIX_ONLINE : FormaPagamento.SALDO_RESIDUAL;
 
-      atendimento.concluir(semAdicional ? formaPagamentoCoberta : input.formaPagamento);
+      const forma = semAdicional ? formaPagamentoCoberta : input.formaPagamento;
+
+      // TRAVA DE CONCLUSÃO ANTECIPADA (2026-08-20): o barbeiro não conclui
+      // sozinho um atendimento cujo horário ainda não chegou. Precisa
+      // justificar, e o admin aprova. Sem isso, bastava concluir a agenda da
+      // semana inteira pra inflar a comissão.
+      //
+      // Admin conclui direto: é ele quem aprovaria, e pedir que ele
+      // justifique pra si mesmo não protege ninguém. Política de aplicação
+      // (quem pode), não invariante de domínio (o que é válido).
+      if (this.exigeAprovacao(atendimento, input.usuario, agora)) {
+        if (!input.motivoConclusaoAntecipada?.trim()) {
+          throw new ConflictException({
+            codigo: CONCLUSAO_ANTECIPADA_EXIGE_MOTIVO,
+            message:
+              'Este atendimento ainda não começou. Informe o motivo para concluir antes do horário.',
+            inicio: atendimento.intervalo.inicio.toISOString(),
+          });
+        }
+        atendimento.solicitarConclusaoAntecipada({
+          motivo: input.motivoConclusaoAntecipada,
+          solicitadaPorId: input.usuario.barbeiroId ?? atendimento.barbeiroId,
+          agora,
+          formaPagamento: forma,
+        });
+        await repos.atendimentos.salvar(atendimento);
+        // Nenhum evento, nenhum crédito consumido: a conclusão não aconteceu.
+        return false;
+      }
+
+      atendimento.concluir(forma);
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
-
-      // §8.3 passo 5: crédito de pacote vira CONSUMIDO na mesma transação
-      if (atendimento.origem === OrigemAtendimento.CREDITO_PACOTE) {
-        for (const item of atendimento.itens) {
-          if (!item.itemDoPacoteId) continue;
-          const venda = await repos.vendasDePacote.porItemId(item.itemDoPacoteId);
-          if (!venda) {
-            throw new NotFoundException(`Pacote do item ${item.itemDoPacoteId} não encontrado`);
-          }
-          venda.consumirItem(item.itemDoPacoteId);
-          await repos.vendasDePacote.salvar(venda);
-          eventos.push(...venda.puxarEventos());
-        }
-      }
+      eventos.push(...(await consumirCreditosDePacote(atendimento, repos)));
+      return true;
     });
 
     // Comissão reage ao evento (§2.3) — handler do Payroll
     await this.publisher.publicar(eventos);
+    return { concluido };
+  }
+
+  private exigeAprovacao(atendimento: Atendimento, usuario: UsuarioAutenticado, agora: Date): boolean {
+    if (usuario.papeis.includes(Papel.ADMIN)) return false;
+    // DECISAO_PENDENTE: tolerância para concluir minutos antes do horário
+    // (cliente que chegou adiantado). Hoje a comparação é estrita.
+    return agora.getTime() < atendimento.intervalo.inicio.getTime();
   }
 
   private async intencaoPagaDoAtendimento(atendimentoId: string) {
@@ -85,4 +155,28 @@ export function autorizarDonoOuAdmin(barbeiroId: string, usuario: UsuarioAutenti
   if (!ehAdmin && usuario.barbeiroId !== barbeiroId) {
     throw new ForbiddenException('Apenas o barbeiro dono do atendimento ou um admin');
   }
+}
+
+/**
+ * §8.3 passo 5: crédito de pacote vira CONSUMIDO na mesma transação da
+ * conclusão. Compartilhado com a aprovação de conclusão antecipada — é o mesmo
+ * fato ("este atendimento concluiu"), e duas cópias divergiriam.
+ */
+export async function consumirCreditosDePacote(
+  atendimento: Atendimento,
+  repos: RepositoriosTransacionais,
+): Promise<DomainEvent[]> {
+  if (atendimento.origem !== OrigemAtendimento.CREDITO_PACOTE) return [];
+  const eventos: DomainEvent[] = [];
+  for (const item of atendimento.itens) {
+    if (!item.itemDoPacoteId) continue;
+    const venda = await repos.vendasDePacote.porItemId(item.itemDoPacoteId);
+    if (!venda) {
+      throw new NotFoundException(`Pacote do item ${item.itemDoPacoteId} não encontrado`);
+    }
+    venda.consumirItem(item.itemDoPacoteId);
+    await repos.vendasDePacote.salvar(venda);
+    eventos.push(...venda.puxarEventos());
+  }
+  return eventos;
 }

@@ -818,3 +818,36 @@ pagamento. Com mais que isso, a home mostra os mais recentes e o "ver tudo" leva
 Não há contagem total ao lado (ex.: "5 de 12"), porque exigiria duas queries a mais numa tela que
 carrega a cada login. **O que falta decidir:** se o dono precisa do total exato na home. Se
 precisar, é um `count` por tipo — barato, mas hoje não pedido.
+
+## 46. Conclusão antecipada não tem tolerância de minutos (2026-08-20)
+
+A trava dispara com comparação **estrita**: se `agora < inicio`, o barbeiro precisa justificar.
+Sem margem nenhuma.
+
+Isso significa que concluir às 08:58 um atendimento marcado para 09:00 — cliente que chegou
+adiantado, situação corriqueira numa barbearia — abre o modal de justificativa. Funciona, mas é
+atrito num caso legítimo e frequente.
+
+**O que falta decidir:** se existe uma tolerância, e de quanto. Candidatos naturais: 15 min
+(cabe "chegou adiantado" sem abrir espaço pra concluir a agenda da tarde), ou a duração do
+próprio atendimento. Marcado no código como `// DECISAO_PENDENTE` em
+`concluir-atendimento.usecase.ts` (`exigeAprovacao`) — é uma constante e um comentário, não uma
+refatoração.
+
+**Por que não inventei um número:** tolerância grande demais reabre exatamente o buraco que a
+trava fechou (concluir atendimentos que não aconteceram para inflar comissão), e o tamanho certo
+depende de como a casa opera. É decisão de negócio.
+
+## 47. Recusa de conclusão antecipada não avisa o barbeiro (2026-08-20)
+
+Quando o admin recusa, o atendimento volta para `AGENDADO` e o barbeiro descobre olhando a
+agenda. Não há notificação, e a recusa não registra motivo — o admin só clica "Recusar".
+
+**O que falta decidir:** se a recusa deve exigir justificativa do admin (simétrico ao motivo que
+o barbeiro é obrigado a dar) e se o barbeiro deve ser avisado. Hoje o ledger de comissão não
+registra nada nesse fluxo, então não há rastro de que houve um pedido recusado depois que os
+campos são limpos — só o log da aplicação.
+
+**Por que ficou assim:** o pedido não move dinheiro, então não há nada a auditar no ledger; e
+notificação (WhatsApp) é Fase 2, fora de escopo (DOMAIN.md §11). Se a recusa virar rotina, isso
+muda de peso.

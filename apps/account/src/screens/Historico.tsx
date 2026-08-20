@@ -9,6 +9,10 @@ import { AtendimentoDetalhe } from './AtendimentoDetalhe';
 const rotuloStatus: Record<StatusAtendimento, string> = {
   [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
+  // Conclusão antecipada aguardando o admin (2026-08-20): para o CLIENTE isso
+  // é um agendamento normal — a aprovação é assunto interno da barbearia, e um
+  // rótulo próprio aqui só geraria dúvida sobre algo que ele não controla.
+  [StatusAtendimento.CONCLUSAO_PENDENTE]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Não compareceu',

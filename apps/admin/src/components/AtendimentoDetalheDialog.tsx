@@ -13,6 +13,9 @@ export const toneStatus: Record<StatusAtendimento, string> = {
   // depois de RESERVA_EXPIRADA.
   [StatusAtendimento.RESERVADO]: 'warning',
   [StatusAtendimento.AGENDADO]: 'info',
+  // Conclusão antecipada esperando o admin (2026-08-20): nem agendado nem
+  // concluído — e não conta comissão nenhuma até ser aprovada.
+  [StatusAtendimento.CONCLUSAO_PENDENTE]: 'warning',
   [StatusAtendimento.CONCLUIDO]: 'success',
   [StatusAtendimento.CANCELADO]: 'danger',
   [StatusAtendimento.NAO_COMPARECEU]: 'warning',
@@ -21,6 +24,7 @@ export const toneStatus: Record<StatusAtendimento, string> = {
 export const labelStatus: Record<StatusAtendimento, string> = {
   [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
+  [StatusAtendimento.CONCLUSAO_PENDENTE]: 'Aguardando aprovação',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Faltou',
@@ -68,6 +72,12 @@ export function AtendimentoDetalheDialog({
   const [qtdProduto, setQtdProduto] = useState('1');
   const [marcando, setMarcando] = useState(false);
   const [erroDaCasa, setErroDaCasa] = useState<string | null>(null);
+  // Conclusão antecipada (2026-08-20): o modal de justificativa e o que ele
+  // colhe. `enviado` existe pra dizer ao barbeiro o que aconteceu de fato —
+  // fechar tudo em silêncio deixaria ele achando que concluiu.
+  const [modalAntecipada, setModalAntecipada] = useState(false);
+  const [motivoAntecipada, setMotivoAntecipada] = useState('');
+  const [enviadoParaAprovacao, setEnviadoParaAprovacao] = useState(false);
 
   const {
     dados: atendimento,
@@ -86,6 +96,14 @@ export function AtendimentoDetalheDialog({
   const a = atendimento;
   const ehPacote = a?.origem === OrigemAtendimento.CREDITO_PACOTE;
   const agendado = a?.status === StatusAtendimento.AGENDADO;
+  const aguardandoAprovacao = a?.status === StatusAtendimento.CONCLUSAO_PENDENTE;
+  /**
+   * O horário ainda não chegou. Mesma comparação do backend (que é quem manda:
+   * aqui é só pra abrir o modal antes de tomar 409 e ter que explicar depois).
+   */
+  const antesDoHorario = !!a && Date.now() < new Date(a.inicio).getTime();
+  /** Admin conclui direto — é ele quem aprovaria. Mesma política do backend. */
+  const precisaJustificar = antesDoHorario && !ehAdmin;
 
   // Mesma regra de `Atendimento.concluir()` (domínio): exige forma de
   // pagamento se há item avulso ou produto — a menos que o pagamento online já
@@ -102,6 +120,15 @@ export function AtendimentoDetalheDialog({
   const precisaFormaPagamento =
     !!a && !semAdicionalPagoOnline && (a.itens.some((i) => i.itemDoPacoteId === null) || a.produtos.length > 0);
   const valorAdicional = a ? valorACobrarNaConclusao(a) : 0;
+
+  const concluir = (motivoConclusaoAntecipada?: string) =>
+    api(`/atendimentos/${a!.id}/concluir`, {
+      method: 'POST',
+      body: {
+        ...(precisaFormaPagamento ? { formaPagamento: forma } : {}),
+        ...(motivoConclusaoAntecipada ? { motivoConclusaoAntecipada } : {}),
+      },
+    });
 
   const acao = async (fn: () => Promise<unknown>) => {
     setOcupado(true);
@@ -155,6 +182,76 @@ export function AtendimentoDetalheDialog({
     }
   };
 
+  const modalDeJustificativa = a && (
+    <Dialog
+      open
+      onClose={() => {
+        setModalAntecipada(false);
+        setMotivoAntecipada('');
+      }}
+      title={enviadoParaAprovacao ? 'Enviado para aprovação' : 'Concluir antes do horário'}
+    >
+      {enviadoParaAprovacao ? (
+        <div className="flex flex-col gap-3">
+          <div className="text-[13px]">
+            O atendimento de <strong>{a.cliente.nome}</strong> ficou aguardando aprovação do
+            administrador. Ele <strong>ainda não está concluído</strong>, e a comissão só entra no
+            seu extrato depois da aprovação.
+          </div>
+          <button className="btn" onClick={aoMudar}>
+            Entendi
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="text-[13px]">
+            Este atendimento está marcado para <strong>{dataCurta(a.inicio, tz)}</strong> às{' '}
+            <strong>{hora(a.inicio, tz)}</strong> — ainda não chegou a hora. Para concluir agora,
+            explique o motivo: o administrador precisa aprovar antes de a comissão ser lançada.
+          </div>
+          <div>
+            <label className="label" htmlFor="motivo-antecipada">
+              Motivo
+            </label>
+            <textarea
+              id="motivo-antecipada"
+              className="input"
+              rows={3}
+              placeholder="Ex: cliente chegou adiantado e pediu para adiantar o corte"
+              value={motivoAntecipada}
+              onChange={(e) => setMotivoAntecipada(e.target.value)}
+            />
+          </div>
+          {erroAcao && (
+            <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
+              {erroAcao}
+            </div>
+          )}
+          <button
+            className="btn"
+            disabled={ocupado || motivoAntecipada.trim().length < 3}
+            onClick={async () => {
+              setOcupado(true);
+              setErroAcao(null);
+              try {
+                await concluir(motivoAntecipada.trim());
+                setEnviadoParaAprovacao(true);
+              } catch (e) {
+                setErroAcao(String((e as Error).message));
+              } finally {
+                setOcupado(false);
+              }
+            }}
+          >
+            {ocupado ? 'Enviando…' : 'Enviar para aprovação'}
+          </button>
+        </div>
+      )}
+    </Dialog>
+  );
+
+  if (modalAntecipada && a) return modalDeJustificativa;
+
   return (
     <Dialog open onClose={aoFechar} title={a?.cliente.nome ?? 'Atendimento'}>
       {carregando && <Loading texto="Carregando atendimento…" />}
@@ -188,6 +285,63 @@ export function AtendimentoDetalheDialog({
               >
                 {ocupado ? 'Confirmando…' : 'Confirmar pagamento recebido'}
               </button>
+            </div>
+          )}
+
+          {/* Conclusão antecipada aguardando decisão (2026-08-20). Aparece
+              para os dois lados: o admin decide, o barbeiro entende por que a
+              comissão ainda não apareceu. */}
+          {aguardandoAprovacao && a.conclusaoAntecipada && (
+            <div className="card" style={{ background: 'var(--surface-brand-tint)' }}>
+              <div className="text-[13px] font-bold">Conclusão antes do horário</div>
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                {a.conclusaoAntecipada.solicitadaPorNome} concluiu este atendimento antes do horário
+                marcado e pediu aprovação em {dataCurta(a.conclusaoAntecipada.solicitadaEm, tz)} às{' '}
+                {hora(a.conclusaoAntecipada.solicitadaEm, tz)}.
+              </div>
+              <div
+                className="text-[13px] mt-2 p-2"
+                style={{
+                  background: 'var(--surface-card)',
+                  borderRadius: 8,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                “{a.conclusaoAntecipada.motivo}”
+              </div>
+              {ehAdmin && !somenteLeitura ? (
+                <>
+                  <div className="text-[12px] mt-2" style={{ color: 'var(--text-secondary)' }}>
+                    A comissão só é lançada se você aprovar. Recusar devolve o atendimento para
+                    agendado, sem apagar nada.
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      className="btn btn-sm flex-1"
+                      disabled={ocupado}
+                      onClick={() =>
+                        acao(() => api(`/atendimentos/${a.id}/aprovar-conclusao`, { method: 'POST' }))
+                      }
+                    >
+                      Aprovar conclusão
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm flex-1"
+                      disabled={ocupado}
+                      onClick={() =>
+                        acao(() => api(`/atendimentos/${a.id}/recusar-conclusao`, { method: 'POST' }))
+                      }
+                    >
+                      Recusar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-[12px] mt-2" style={{ color: 'var(--text-secondary)' }}>
+                  Aguardando aprovação do administrador. A comissão entra no seu extrato quando for
+                  aprovada.
+                </div>
+              )}
             </div>
           )}
 
@@ -250,6 +404,15 @@ export function AtendimentoDetalheDialog({
               {hora(a.inicio, tz)}–{hora(a.fim, tz)} · {a.barbeiro.nome}
             </div>
             {a.motivoCancelamento && <div>Motivo do cancelamento: {a.motivoCancelamento}</div>}
+            {/* Já concluído, mas fora de hora: o motivo continua registrado
+                (2026-08-20). É o rastro que responde, um mês depois, por que
+                esta conclusão saiu antes do horário. */}
+            {!aguardandoAprovacao && a.conclusaoAntecipada && (
+              <div>
+                Concluído antes do horário, aprovado. Motivo de{' '}
+                {a.conclusaoAntecipada.solicitadaPorNome}: “{a.conclusaoAntecipada.motivo}”
+              </div>
+            )}
             <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
               {a.origemLinkBarbeiroNome ? <>via link de {a.origemLinkBarbeiroNome}</> : 'sem link de origem'}
             </div>
@@ -380,19 +543,15 @@ export function AtendimentoDetalheDialog({
                   </select>
                 </div>
               )}
+              {/* Antes do horário, concluir não é um clique só: abre o modal
+                  de justificativa (2026-08-20). O texto do botão avisa disso
+                  antes do clique, pra ninguém ser surpreendido pelo modal. */}
               <button
                 className="btn"
                 disabled={ocupado}
-                onClick={() =>
-                  acao(() =>
-                    api(`/atendimentos/${a.id}/concluir`, {
-                      method: 'POST',
-                      body: precisaFormaPagamento ? { formaPagamento: forma } : {},
-                    }),
-                  )
-                }
+                onClick={() => (precisaJustificar ? setModalAntecipada(true) : acao(() => concluir()))}
               >
-                Concluir atendimento
+                {precisaJustificar ? 'Concluir antes do horário…' : 'Concluir atendimento'}
               </button>
               <input
                 className="input"

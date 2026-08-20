@@ -87,6 +87,24 @@ export interface AtendimentoProps {
    *     IntencaoDePagamento.
    */
   reservaOnlineExpiraEm: Date | null;
+  /**
+   * Conclusão ANTECIPADA (2026-08-20). Preenchidos juntos na transição
+   * AGENDADO→CONCLUSAO_PENDENTE — os quatro são um único fato, não quatro
+   * fatos soltos.
+   *
+   * A **recusa** limpa os quatro (o pedido não vingou; AGENDADO volta limpo). A
+   * **aprovação** limpa só `conclusaoFormaPagamento` — motivo, autor e instante
+   * ficam no atendimento concluído como rastro auditável de que aquela
+   * conclusão saiu fora de hora.
+   *
+   * `conclusaoFormaPagamento` guarda a forma que o barbeiro informou: ela
+   * precisa sobreviver até a aprovação, senão o admin teria que adivinhar como
+   * o cliente pagou. Depois de aplicada em `formaPagamento`, sai.
+   */
+  conclusaoAntecipadaMotivo: string | null;
+  conclusaoSolicitadaPorId: BarbeiroId | null;
+  conclusaoSolicitadaEm: Date | null;
+  conclusaoFormaPagamento: FormaPagamento | null;
 }
 
 export interface AgendarParams {
@@ -165,7 +183,11 @@ export class Atendimento extends AggregateRoot {
     const conflito = params.atendimentosAtivos.find(
       (a) =>
         a.props.barbeiroId === barbeiro.id &&
-        (a.props.status === StatusAtendimento.AGENDADO || a.props.status === StatusAtendimento.RESERVADO) &&
+        // CONCLUSAO_PENDENTE ocupa o horário como AGENDADO: a recusa devolve o
+        // atendimento pra lá, e o horário precisa estar esperando (2026-08-20).
+        (a.props.status === StatusAtendimento.AGENDADO ||
+          a.props.status === StatusAtendimento.RESERVADO ||
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
         a.props.intervalo.sobrepoe(intervalo),
     );
     if (conflito) {
@@ -200,6 +222,10 @@ export class Atendimento extends AggregateRoot {
       valorAbatidoSaldo: params.valorAbatidoSaldo ?? Dinheiro.zero(),
       vendaAbatidaId: params.vendaAbatidaId ?? null,
       reservaOnlineExpiraEm,
+      conclusaoAntecipadaMotivo: null,
+      conclusaoSolicitadaPorId: null,
+      conclusaoSolicitadaEm: null,
+      conclusaoFormaPagamento: null,
     });
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
@@ -241,8 +267,106 @@ export class Atendimento extends AggregateRoot {
    */
   concluir(formaPagamento?: FormaPagamento): void {
     this.exigirAgendado('concluir');
-    const exigeFormaPagamento =
-      this.props.itens.some((i) => i.itemDoPacoteId === null) || this.props.produtos.length > 0;
+    this.marcarConcluido(formaPagamento);
+  }
+
+  /**
+   * Conclusão ANTECIPADA (2026-08-20): o barbeiro está concluindo um
+   * atendimento cujo horário ainda não chegou. Não conclui nada — registra o
+   * pedido, com motivo, e espera o admin.
+   *
+   * **Nada de dinheiro acontece aqui**: nenhum evento `AtendimentoConcluido` é
+   * emitido, então não nasce comissão, e o crédito de pacote não é consumido.
+   * Era exatamente isso que a trava existe para impedir — concluir atendimentos
+   * futuros em série e inflar a comissão.
+   *
+   * O motivo é obrigatório e não pode ser vazio: uma justificativa em branco não
+   * é justificativa, e o admin decidiria no escuro.
+   */
+  solicitarConclusaoAntecipada(params: {
+    motivo: string;
+    solicitadaPorId: BarbeiroId;
+    agora: Date;
+    formaPagamento?: FormaPagamento;
+  }): void {
+    this.exigirAgendado('solicitar conclusão antecipada');
+    if (params.agora.getTime() >= this.props.intervalo.inicio.getTime()) {
+      throw new InvarianteVioladaError(
+        'O horário deste atendimento já começou — conclua normalmente, sem justificativa',
+      );
+    }
+    if (!params.motivo.trim()) {
+      throw new InvarianteVioladaError('Conclusão antecipada exige motivo');
+    }
+    // A forma de pagamento é validada AGORA, não na aprovação: o barbeiro é
+    // quem sabe como o cliente pagou, e descobrir que falta só no momento em
+    // que o admin aprova deixaria o pedido travado sem quem o resolvesse.
+    if (this.exigeFormaPagamento() && !params.formaPagamento) {
+      throw new InvarianteVioladaError(
+        'Conclusão exige forma de pagamento para os itens/produtos não cobertos por crédito de pacote',
+      );
+    }
+    this.props.status = StatusAtendimento.CONCLUSAO_PENDENTE;
+    this.props.conclusaoAntecipadaMotivo = params.motivo.trim();
+    this.props.conclusaoSolicitadaPorId = params.solicitadaPorId;
+    this.props.conclusaoSolicitadaEm = params.agora;
+    this.props.conclusaoFormaPagamento = params.formaPagamento ?? null;
+  }
+
+  /**
+   * Admin aprova a conclusão antecipada: AGORA sim o atendimento conclui, com a
+   * forma de pagamento que o barbeiro informou no pedido, e o evento sai —
+   * gerando comissão e consumindo crédito de pacote.
+   */
+  aprovarConclusaoAntecipada(): void {
+    this.exigirConclusaoPendente('aprovar');
+    const forma = this.props.conclusaoFormaPagamento ?? undefined;
+    // O motivo, o autor e o instante do pedido FICAM no atendimento aprovado —
+    // é o rastro de que esta conclusão não aconteceu na hora marcada, e por
+    // quê. Apagar seria perder exatamente o fato que a trava existe pra
+    // vigiar: um mês depois, "por que o Erick concluiu 12 atendimentos antes
+    // do horário?" tem que ter resposta.
+    //
+    // Só `conclusaoFormaPagamento` é limpa: ela virou `formaPagamento` agora, e
+    // manter as duas seria a mesma informação em dois lugares.
+    this.props.conclusaoFormaPagamento = null;
+    this.marcarConcluido(forma);
+  }
+
+  /**
+   * Admin recusa: volta pra AGENDADO como se o pedido não tivesse existido. O
+   * horário continua ocupado — nunca foi liberado, justamente pra poder voltar.
+   */
+  recusarConclusaoAntecipada(): void {
+    this.exigirConclusaoPendente('recusar');
+    this.limparPedidoDeConclusao();
+    this.props.status = StatusAtendimento.AGENDADO;
+  }
+
+  /** Só na recusa: `AGENDADO` tem que voltar sem resíduo de um pedido que não vingou. */
+  private limparPedidoDeConclusao(): void {
+    this.props.conclusaoAntecipadaMotivo = null;
+    this.props.conclusaoSolicitadaPorId = null;
+    this.props.conclusaoSolicitadaEm = null;
+    this.props.conclusaoFormaPagamento = null;
+  }
+
+  private exigirConclusaoPendente(acao: string): void {
+    if (this.props.status !== StatusAtendimento.CONCLUSAO_PENDENTE) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível ${acao} conclusão: atendimento está em ${this.props.status}, não em CONCLUSAO_PENDENTE`,
+      );
+    }
+  }
+
+  /** Itens/produtos não cobertos por crédito de pacote exigem forma de pagamento. */
+  private exigeFormaPagamento(): boolean {
+    return this.props.itens.some((i) => i.itemDoPacoteId === null) || this.props.produtos.length > 0;
+  }
+
+  /** O ato de concluir em si — compartilhado pelo caminho normal e pela aprovação. */
+  private marcarConcluido(formaPagamento?: FormaPagamento): void {
+    const exigeFormaPagamento = this.exigeFormaPagamento();
     if (exigeFormaPagamento && !formaPagamento) {
       throw new InvarianteVioladaError(
         'Conclusão exige forma de pagamento para os itens/produtos não cobertos por crédito de pacote',
@@ -426,4 +550,8 @@ export class Atendimento extends AggregateRoot {
   get valorAbatidoSaldo() { return this.props.valorAbatidoSaldo; }
   get vendaAbatidaId() { return this.props.vendaAbatidaId; }
   get reservaOnlineExpiraEm() { return this.props.reservaOnlineExpiraEm; }
+  get conclusaoAntecipadaMotivo() { return this.props.conclusaoAntecipadaMotivo; }
+  get conclusaoSolicitadaPorId() { return this.props.conclusaoSolicitadaPorId; }
+  get conclusaoSolicitadaEm() { return this.props.conclusaoSolicitadaEm; }
+  get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
 }

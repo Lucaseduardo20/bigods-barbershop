@@ -167,6 +167,18 @@ export class AgendaQueryService {
       origemLinkBarbeiroId: a.origemLinkBarbeiroId,
       origemLinkBarbeiroNome: a.origemLinkBarbeiroId ? (barbeiroPorId.get(a.origemLinkBarbeiroId)?.nome ?? null) : null,
       valorAbatidoSaldoCentavos: a.valorAbatidoSaldoCentavos,
+      // Os quatro campos do pedido de conclusão antecipada viram um objeto ou
+      // `null` — nunca meio preenchido: ou existe pedido pendente, ou não.
+      conclusaoAntecipada:
+        a.conclusaoAntecipadaMotivo && a.conclusaoSolicitadaEm
+          ? {
+              motivo: a.conclusaoAntecipadaMotivo,
+              solicitadaPorNome: a.conclusaoSolicitadaPorId
+                ? (barbeiroPorId.get(a.conclusaoSolicitadaPorId)?.nome ?? '?')
+                : '?',
+              solicitadaEm: a.conclusaoSolicitadaEm.toISOString(),
+            }
+          : null,
     };
   }
 }

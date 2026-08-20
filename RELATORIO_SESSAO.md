@@ -3977,6 +3977,98 @@ Usuários → um barbeiro → **Comissão de serviço**. Mude o padrão ou a exc
 e confira: (a) a linha do serviço passa a dizer o novo percentual; (b) no Financeiro, **nenhum
 lançamento antigo mudou**; (c) o próximo atendimento concluído sai com o percentual novo.
 
+## Trava de conclusão antecipada (2026-08-20) ✅
+
+Origem, na voz do dono: *"precisamos incluir uma trava quando o barbeiro vai concluir um
+atendimento que teoricamente ainda não aconteceu (...) para que ele não saia concluindo
+atendimentos e poluindo a comissão."*
+
+O buraco era real: `POST /atendimentos/:id/concluir` não olhava o relógio. Um barbeiro podia
+abrir a agenda de sexta na terça, concluir tudo, e a comissão nascia — porque a comissão reage ao
+evento `AtendimentoConcluido`, e o evento saía na hora.
+
+### A regra
+
+Estado novo: **`CONCLUSAO_PENDENTE`** (DOMAIN.md §4.1).
+
+| Quem | Quando | O que acontece |
+|---|---|---|
+| barbeiro (não-admin) | `agora < inicio` | 409 pedindo motivo → com motivo, vira `CONCLUSAO_PENDENTE` |
+| barbeiro (não-admin) | horário já começou | conclui direto, como sempre |
+| admin | qualquer horário | conclui direto — é ele quem aprovaria |
+| admin | sobre um pendente | **aprova** (→ `CONCLUIDO`) ou **recusa** (→ `AGENDADO`) |
+
+**O pedido não move dinheiro nenhum.** Nenhum evento é emitido na solicitação: a comissão nasce
+na aprovação, e o crédito de pacote é consumido lá também. Sem isso, a trava seria decorativa —
+bastaria pedir e a comissão viria igual.
+
+### Três decisões que não são óbvias
+
+**O pendente OCUPA o horário.** Entra na invariante do agregado, na constraint `EXCLUDE` e nas
+cinco queries de `horarios-disponiveis`. Motivo: a recusa devolve o atendimento pra `AGENDADO`, e
+o horário precisa estar esperando — se tivesse sido vendido pra outro cliente no meio, a recusa
+criaria uma sobreposição que o banco recusaria.
+
+**A forma de pagamento é exigida no PEDIDO, não na aprovação.** Quem sabe como o cliente pagou é
+o barbeiro. Descobrir que falta só no momento em que o admin aprova deixaria o pedido travado sem
+quem o resolvesse.
+
+**★ O motivo SOBREVIVE à aprovação.** Só a recusa limpa os campos. Um mês depois, *"por que o
+Erick concluiu 12 atendimentos antes do horário?"* precisa ter resposta — apagar o motivo ao
+aprovar perderia exatamente o fato que a trava existe pra vigiar. Aparece no detalhe do
+atendimento concluído: *"Concluído antes do horário, aprovado. Motivo de …"*.
+
+### Onde isso aparece
+
+- **Modal no admin** (o que o dono pediu): clicar em concluir antes da hora abre a tela de
+  justificativa, e depois de enviar diz, com essas palavras, que o atendimento **ainda não está
+  concluído** e que a comissão entra depois da aprovação.
+- **Home de gestão → "Esperando você"**: cada pendência lista barbeiro e motivo. Sem isso a trava
+  não protegeria nada — só travaria: o barbeiro ficaria sem comissão e ninguém saberia que havia
+  algo a decidir.
+- **Agenda → aba "A aprovar"**, e badge "Aguardando aprovação" no card.
+- **Projeção de comissão** continua contando o pendente (é valor previsto, não real) — o barbeiro
+  não vê o número despencar ao pedir.
+- **Cliente (app account)**: nada muda. O agendamento continua em "próximos" com o rótulo
+  `Agendado` — a aprovação é assunto interno da barbearia, e o atendimento de fato não aconteceu.
+
+### Migrations (duas, aditivas)
+
+`20260820010000_conclusao_pendente_enum` e `20260820010100_conclusao_pendente_campos`.
+Separadas porque o Postgres **não permite usar** um valor de enum na mesma transação em que ele é
+adicionado — a segunda migration recria a constraint `atendimento_sem_sobreposicao` incluindo o
+estado novo no predicado.
+
+### Testes
+
+**25 novos** (12 de domínio, 13 de integração/e2e), suíte em **777 verdes** nos 3 fusos. O que eles protegem,
+em ordem de importância:
+
+1. ★ pedido pendente **não gera lançamento de comissão**; a aprovação gera, com o valor certo;
+2. ★ crédito de pacote **não é consumido** no pedido — só na aprovação; a recusa deixa o item
+   intacto;
+3. o barbeiro **não aprova o próprio pedido** (403), e pedir de novo sobre um pendente devolve
+   409 dizendo que já está aguardando aprovação (não "informe o motivo", que ele já informou);
+4. o horário pendente **não é oferecido** na projeção pública de horários, e a constraint
+   `EXCLUDE` do banco rejeita sobreposição com ele (teste que verifica a *migration*, não o
+   domínio — era o predicado mais fácil de esquecer);
+5. atendimento cujo horário já começou conclui sem modal (a trava não pega o caso normal);
+6. o motivo continua no atendimento depois de aprovado (auditoria).
+
+### Decisões deixadas em aberto
+
+`DECISOES_PENDENTES.md` #46 (tolerância de minutos — hoje a comparação é estrita, então concluir
+08:58 um atendimento de 09:00 pede justificativa) e #47 (a recusa não avisa o barbeiro nem exige
+motivo do admin).
+
+### Smoke test manual
+
+Logado como **barbeiro não-admin**: Agenda → um atendimento de amanhã → o botão diz *"Concluir
+antes do horário…"* → clique → escreva o motivo → enviar. Confira no Financeiro que **nenhuma
+comissão** apareceu. Logado como **admin**: Home → "Esperando você" mostra a pendência com o
+motivo; Agenda → aba "A aprovar" → abra e **aprove** → agora a comissão aparece no extrato do
+barbeiro, e o detalhe do atendimento mostra o motivo registrado.
+
 ## Como rodar localmente
 
 ```bash

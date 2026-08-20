@@ -226,6 +226,17 @@ export interface AtendimentoDTO {
   origemLinkBarbeiroNome: string | null;
   /** FASE 4a (sessão-E, §8.7) — quanto deste atendimento foi abatido com saldo residual de pacote (0 = nenhum). */
   valorAbatidoSaldoCentavos: number;
+  /**
+   * Registro de que este atendimento foi concluído ANTES do horário marcado
+   * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e
+   * depois de aprovado** — é o rastro auditável de por que a conclusão saiu
+   * fora de hora. Só a recusa limpa (o pedido não vingou).
+   */
+  conclusaoAntecipada: {
+    motivo: string;
+    solicitadaPorNome: string;
+    solicitadaEm: string;
+  } | null;
 }
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
@@ -500,10 +511,13 @@ export interface HomePessoalDTO {
 
 /** Uma pendência esperando decisão do admin. */
 export interface HomePendenciaDTO {
-  tipo: 'PACOTE_AGUARDANDO' | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO';
+  tipo: 'PACOTE_AGUARDANDO' | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO' | 'CONCLUSAO_ANTECIPADA';
   id: string;
   clienteNome: string;
   valorCentavos: number;
+  /** Só em CONCLUSAO_ANTECIPADA: quem pediu, e por quê. */
+  barbeiroNome?: string;
+  motivo?: string;
   /** Instante UTC (ISO) do fato que gerou a pendência. */
   desde: string;
 }
