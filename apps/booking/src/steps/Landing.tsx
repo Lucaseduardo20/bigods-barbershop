@@ -17,7 +17,7 @@ export function Landing({
   onAgendar: () => void;
 }) {
   return (
-    <div className="hero">
+    <main className="hero">
       <img
         src="/brand/logo-full-light.png"
         alt={nomeEmpresa}
@@ -71,6 +71,6 @@ export function Landing({
       >
         {BARBEARIA.endereco}
       </a>
-    </div>
+    </main>
   );
 }

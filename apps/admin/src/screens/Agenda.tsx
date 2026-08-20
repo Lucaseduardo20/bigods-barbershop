@@ -20,7 +20,18 @@ const PERIODO_MAXIMO_DIAS = 31;
 
 type ModoVisao = 'semana' | 'periodo';
 
-export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
+export function Agenda({
+  usuario,
+  abrirNovoAoEntrar = false,
+}: {
+  usuario: UsuarioDTO;
+  /**
+   * Abre o diálogo de walk-in assim que a tela monta. É como o botão
+   * "Registrar atendimento" da Home reusa ESTE fluxo em vez de criar outro:
+   * a Home navega pra cá e pede que o mesmo diálogo já venha aberto.
+   */
+  abrirNovoAoEntrar?: boolean;
+}) {
   const tz = useTimezone();
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [modo, setModo] = useState<ModoVisao>('semana');
@@ -29,9 +40,13 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
   const [periodoAte, setPeriodoAte] = useState(() => somarDias(hojeISO(tz), 6));
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
   const [filtroStatus, setFiltroStatus] = useState<
-    'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.RESERVADO | StatusAtendimento.CONCLUIDO
+    | 'todos'
+    | StatusAtendimento.AGENDADO
+    | StatusAtendimento.RESERVADO
+    | StatusAtendimento.CONCLUSAO_PENDENTE
+    | StatusAtendimento.CONCLUIDO
   >('todos');
-  const [novoAberto, setNovoAberto] = useState(false);
+  const [novoAberto, setNovoAberto] = useState(abrirNovoAoEntrar);
   const [vendaAberta, setVendaAberta] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
 
@@ -152,6 +167,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
             // o dono precisa achar RÁPIDO o atendimento que acabou de chegar
             // pra confirmar. Sem esta aba, ele caça no meio da semana inteira.
             { value: StatusAtendimento.RESERVADO, label: 'Aguardando pgto' },
+            { value: StatusAtendimento.CONCLUSAO_PENDENTE, label: 'A aprovar' },
             { value: StatusAtendimento.CONCLUIDO, label: 'Concluídos' },
           ]}
         />

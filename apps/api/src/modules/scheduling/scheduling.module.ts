@@ -5,6 +5,10 @@ import { AgendarAvulsoUseCase } from './application/agendar-avulso.usecase';
 import { CancelarReservaOnlineUseCase } from './application/cancelar-reserva-online.usecase';
 import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
+import {
+  AprovarConclusaoAntecipadaUseCase,
+  RecusarConclusaoAntecipadaUseCase,
+} from './application/resolver-conclusao-antecipada.usecase';
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
 import { CancelarAtendimentoClienteUseCase } from './application/cancelar-atendimento-cliente.usecase';
 import { ReagendarAtendimentoClienteUseCase } from './application/reagendar-atendimento-cliente.usecase';
@@ -25,6 +29,8 @@ import { PaymentsModule } from '../payments/payments.module';
     CancelarReservaOnlineUseCase,
     AgendarComCreditoUseCase,
     ConcluirAtendimentoUseCase,
+    AprovarConclusaoAntecipadaUseCase,
+    RecusarConclusaoAntecipadaUseCase,
     CancelarAtendimentoUseCase,
     CancelarAtendimentoClienteUseCase,
     ReagendarAtendimentoClienteUseCase,

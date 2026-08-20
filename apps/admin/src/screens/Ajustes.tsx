@@ -213,6 +213,7 @@ function Parametros() {
   const [prazo, setPrazo] = useState<string | null>(null);
   const [janelaCancelamento, setJanelaCancelamento] = useState<string | null>(null);
   const [janelaReagendamento, setJanelaReagendamento] = useState<string | null>(null);
+  const [comissaoProdutos, setComissaoProdutos] = useState<string | null>(null);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
 
   const salvar = async () => {
@@ -224,11 +225,13 @@ function Parametros() {
           prazoReagendamentoDias: parseInt(prazo ?? String(dados!.prazoReagendamentoDias), 10),
           janelaCancelamentoHoras: parseInt(janelaCancelamento ?? String(dados!.janelaCancelamentoHoras), 10),
           janelaReagendamentoHoras: parseInt(janelaReagendamento ?? String(dados!.janelaReagendamentoHoras), 10),
+          comissaoProdutos: parseInt(comissaoProdutos ?? String(dados!.comissaoProdutos), 10),
         },
       });
       setPrazo(null);
       setJanelaCancelamento(null);
       setJanelaReagendamento(null);
+      setComissaoProdutos(null);
       recarregar();
     } catch (e) {
       setErroSalvar(String((e as Error).message));
@@ -280,9 +283,37 @@ function Parametros() {
               agendamento no app.
             </div>
           </div>
+          {/* Comissão de PRODUTO (2026-08-19, decisão dos sócios): taxa única da
+              empresa. Fica aqui, e não na tela de cada barbeiro, porque é
+              configuração da casa — produto é revenda, e a taxa não varia por
+              profissional. */}
+          <div>
+            <div className="text-[14px] font-semibold mb-1.5">Comissão sobre produtos (%)</div>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              value={comissaoProdutos ?? String(dados.comissaoProdutos)}
+              onChange={(e) => setComissaoProdutos(e.target.value)}
+            />
+            <div className="text-[11px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
+              Taxa única para <strong>todos os produtos e todos os barbeiros</strong>, sobre o
+              preço de venda. É separada da comissão de serviço — produto é revenda, serviço é
+              mão de obra. Zero significa que produto não paga comissão.
+              <br />
+              Vale para vendas <strong>daqui pra frente</strong>: comissões já lançadas ficam
+              com a taxa do dia em que a venda aconteceu.
+            </div>
+          </div>
           <button
             className="btn btn-sm"
-            disabled={prazo === null && janelaCancelamento === null && janelaReagendamento === null}
+            disabled={
+              prazo === null &&
+              janelaCancelamento === null &&
+              janelaReagendamento === null &&
+              comissaoProdutos === null
+            }
             onClick={salvar}
           >
             Salvar

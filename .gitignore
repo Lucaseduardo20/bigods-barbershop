@@ -13,6 +13,30 @@ dist/
 !.env.aws.example
 !.env.docker.example
 !.env.frontends.example
+# Grafo do graphify. O `graphify-out/` É versionado de propósito: assim quem
+# clona já consegue rodar `graphify query` sem gerar nada antes — é o que faz o
+# mapa valer como referência do time, e não como arquivo local de cada um.
+#
+# Duas exceções, pelo peso: o grafo é regerado de graça e em ~1 min
+# (`graphify extract . --code-only`, AST local, zero chamada de API), então não
+# vale versionar 3,7 MB que ninguém lê programaticamente.
+#
+# (comentário SEMPRE em linha própria: `.gitignore` não corta comentário no fim
+# da linha — ele entraria no padrão e o arquivo não seria ignorado.)
+#
+# Visualização interativa (grafo de forças), 3,7 MB — pesada demais pra
+# versionar. Regere com `graphify cluster-only .` quando quiser olhar.
+# A árvore navegável (GRAPH_TREE.html, ~170 KB) FICA versionada: é leve e
+# qualquer pessoa do time abre no navegador sem instalar nada.
+graphify-out/graph.html
+# custo de LLM, só local
+graphify-out/cost.json
+
+# Evidências de QA: os .md dos relatórios FICAM versionados (é o registro de
+# cada go-live, e dá pra comparar entre um deploy e outro). Os prints, não —
+# são ~900 KB por rodada e só fazem sentido junto do relatório recém-rodado.
+docs/qa/*.png
+
 .DS_Store
 coverage/
 .dev-logs/

@@ -4,6 +4,7 @@ import { TabelaDeDescontoDTO } from '@bigods/contracts';
 import { ParametrosDaEmpresaRepository } from '../domain/parametros-da-empresa.repository';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { CompanyId } from '../../../shared/domain/ids';
+import { Percentual } from '../../../shared/domain/percentual';
 import { Timezone } from '../../../shared/domain/timezone';
 
 @Injectable()
@@ -82,6 +83,18 @@ export class PrismaParametrosRepository implements ParametrosDaEmpresaRepository
         data: { descontoTetoCentavos: tabela.tetoCentavos },
       }),
     ]);
+  }
+
+  /** Comissão de produto — taxa única da empresa (ver a porta do domínio). */
+  async comissaoProdutos(companyId: CompanyId): Promise<Percentual> {
+    return Percentual.dePontosBase((await this.buscarOuFalhar(companyId)).comissaoProdutosBp);
+  }
+
+  async definirComissaoProdutos(companyId: CompanyId, percentual: Percentual): Promise<void> {
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: { comissaoProdutosBp: percentual.pontosBase },
+    });
   }
 
   private async buscarOuFalhar(companyId: CompanyId) {

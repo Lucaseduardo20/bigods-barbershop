@@ -21,6 +21,7 @@ import {
   IsPositive,
   IsString,
   Matches,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -33,6 +34,10 @@ import {
 import { AgendarAvulsoUseCase } from '../application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from '../application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from '../application/concluir-atendimento.usecase';
+import {
+  AprovarConclusaoAntecipadaUseCase,
+  RecusarConclusaoAntecipadaUseCase,
+} from '../application/resolver-conclusao-antecipada.usecase';
 import { CancelarAtendimentoUseCase } from '../application/cancelar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-comparecimento.usecase';
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
@@ -86,6 +91,8 @@ class AgendarComCreditoDto {
 
 class ConcluirDto {
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
+  /** Obrigatório apenas quando o horário do atendimento ainda não começou. */
+  @IsOptional() @IsString() @MinLength(3) @MaxLength(500) motivoConclusaoAntecipada?: string;
 }
 
 class CancelarDto {
@@ -107,6 +114,8 @@ export class AtendimentosController {
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
     private readonly concluir: ConcluirAtendimentoUseCase,
+    private readonly aprovarConclusao: AprovarConclusaoAntecipadaUseCase,
+    private readonly recusarConclusao: RecusarConclusaoAntecipadaUseCase,
     private readonly cancelar: CancelarAtendimentoUseCase,
     private readonly registrarFalta: RegistrarNaoComparecimentoUseCase,
     private readonly adicionarItem: AdicionarItemAtendimentoUseCase,
@@ -293,12 +302,36 @@ export class AtendimentosController {
     @Param('id') id: string,
     @Body() body: ConcluirDto,
     @UsuarioAtual() usuario: UsuarioAutenticado,
-  ): Promise<{ ok: true }> {
-    await this.concluir.executar({
+  ): Promise<{ ok: true; concluido: boolean }> {
+    // `concluido: false` = ficou pendente de aprovação do admin (conclusão
+    // antecipada). O front usa isso pra dizer o que aconteceu de verdade em
+    // vez de anunciar "atendimento concluído" sobre algo que não concluiu.
+    const { concluido } = await this.concluir.executar({
       atendimentoId: id,
       formaPagamento: body.formaPagamento,
+      motivoConclusaoAntecipada: body.motivoConclusaoAntecipada,
       usuario,
     });
+    return { ok: true, concluido };
+  }
+
+  @Post(':id/aprovar-conclusao')
+  @Papeis(Papel.ADMIN)
+  async aprovarConclusaoAntecipada(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.aprovarConclusao.executar({ atendimentoId: id, usuario });
+    return { ok: true };
+  }
+
+  @Post(':id/recusar-conclusao')
+  @Papeis(Papel.ADMIN)
+  async recusarConclusaoAntecipada(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.recusarConclusao.executar({ atendimentoId: id, usuario });
     return { ok: true };
   }
 

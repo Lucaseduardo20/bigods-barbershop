@@ -712,3 +712,142 @@ testado; a flag só desvia a chamada num ponto (`CobrancaOnlineService.gerar()`)
 `comanda-whatsapp.ts`, `pagamento-manual.ts`, `PagamentoManualAguardando.tsx` e o ramo
 `pagamentoManual` dos dois casos de uso. Os endpoints de confirmação manual **ficam** — eles são
 do bug 8 (pagamento no balcão), não deste modo.
+
+---
+
+## 41. Um teste falhou uma vez e não reproduziu (2026-08-19)
+
+Numa corrida da suíte às 15:53, **1 de 727** falhou. Nas **5 corridas seguintes**, 727/727.
+Não sei qual era: o comando estava com `| tail -5`, que cortou justamente o nome do teste.
+
+**O que se sabe:** foi durante a sessão em que o graphify foi instalado, com o assistente
+disparando comandos em paralelo — os hooks novos sobem um processo Python (~208 ms) a cada
+`Bash`/`Grep`/`Read`/`Glob`. A hipótese mais provável é disputa de CPU com os 8 workers do
+vitest afetando algum e2e sensível a tempo, mas é hipótese, não diagnóstico.
+
+**Segunda hipótese:** os e2e derivam telefone/login de `String(Date.now()).slice(-6)`, que
+repete a cada ~16,7 min. Duas corridas separadas por um múltiplo exato disso colidiriam no
+banco. Improvável, mas é o tipo de coisa que falha uma vez em vinte.
+
+**O que fazer se voltar:** rodar `npx vitest run` SEM `| tail` e guardar a saída inteira — o
+nome do teste é o que falta. Com ele, dá para decidir entre estabilizar o teste ou tornar os
+sufixos realmente únicos (`randomUUID()` em vez de fatia de timestamp).
+
+---
+
+## 41. `Barbeiro.comissaoProdutosBp` deprecado no banco (2026-08-19)
+
+**Terceira dívida do mesmo tipo (#35, #36).**
+
+A comissão de produto virou taxa única da empresa (DOMAIN.md §3.9.1), então
+`Barbeiro.comissaoProdutosBp` não é lido por ninguém para calcular. A migration
+`20260819190000_comissao_produto_global` foi **aditiva**: criou `Company.comissaoProdutosBp` e
+não tocou na coluna do barbeiro, para o rollback do código não perder dado.
+
+O endpoint `PUT /barbeiros/:id/comissao` **ainda aceita e grava** o campo (compatibilidade), mas
+nenhuma tela o envia e nenhum cálculo o lê. O DTO está marcado como deprecado.
+
+**O que falta decidir:** quando dropar. Sugestão: junto da limpeza do #35 e #36. Enquanto isso o
+risco é baixo (coluna morta), mas quem ler o schema pode achar que ainda vale.
+
+## 42. A taxa de comissão de produto começa em 0% — alguém precisa definir o número (2026-08-19)
+
+A decisão dos sócios definiu **como** a comissão de produto passa a funcionar (taxa única da
+empresa, sobre o preço de venda), mas **não disse qual é o percentual**. Não inventei um número:
+a migration cria a coluna com **default 0**, e o sistema não paga comissão de produto até alguém
+configurar em Ajustes → Parâmetros.
+
+**Consequência prática, dita em voz alta:** antes desta mudança, o Gabriel tinha 10% de comissão
+de produto configurado no perfil dele (os outros dois barbeiros tinham 0%). Com a taxa global em
+0, ele deixa de receber sobre produto até o admin definir a taxa da casa. **Nenhum lançamento
+existente foi afetado** — não havia nenhum lançamento de comissão de produto no banco no momento
+da mudança (conferido).
+
+**O que falta decidir:** o percentual. É uma decisão de negócio dos sócios, não de implementação.
+
+## 43. Testes liam o `.env` da máquina de quem rodava (2026-08-19) — ✅ RESOLVIDO
+
+Achado ao rodar a suíte depois da mudança de comissão: 25 testes de PIX falhavam sem que o código
+testado tivesse mudado.
+
+**Causa:** o `@prisma/client` carrega o `.env` da raiz **sozinho**, quando é importado. Como todo
+e2e importa o `AppModule`, que puxa o Prisma, toda configuração local vazava para os testes — em
+particular `PAGAMENTO_MANUAL_WHATSAPP=true`, que é o estado normal da máquina de quem está tocando
+essa feature.
+
+**Por que ninguém tinha visto:** o arquivo `pagamento-manual-whatsapp.e2e.spec.ts` *deleta* essa
+variável no `afterAll`, e os arquivos rodam no mesmo processo (`fileParallelism: false`). Quem
+rodava **depois** dele herdava a limpeza e passava. A suíte estava verde por acidente de ordem —
+bastou um arquivo novo mudar a ordenação para 25 testes quebrarem.
+
+**Corrigido:** `apps/api/test/setup-env.ts`, registrado em `setupFiles`, fixa as variáveis que
+mudam comportamento de negócio antes de cada arquivo. Quem quer o comportamento ligado liga no
+próprio teste.
+
+**O que fica de lição:** qualquer env nova que mude comportamento de negócio precisa de valor
+explícito nesse arquivo. Senão a suíte volta a depender da máquina de quem executa.
+
+---
+
+## 44. Faturamento da home NÃO inclui venda de pacote (2026-08-19)
+
+A home de gestão mostra "quanto entrou hoje" e o ticket médio. Os dois usam a MESMA definição de
+faturamento (DOMAIN.md §3.15):
+
+    atendimentos CONCLUÍDOS no período (serviços + produtos, pelo valor congelado)
+  + vendas avulsas de produto no período
+
+**Venda de pacote não entra.** O dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento — contar também na venda somaria o mesmo dinheiro duas vezes, e o ticket médio (que
+é por VISITA) ficaria distorcido por uma venda que não é visita.
+
+**A consequência, dita em voz alta:** o dia em que a barbearia vende muito pacote mostra
+faturamento baixo na home, e os dias seguintes mostram alto conforme os créditos são usados. Para
+quem olha o número como "quanto entrou no caixa hoje", isso pode parecer errado.
+
+**O que falta decidir:** se o dono prefere ver o caixa do dia (dinheiro que entrou de fato, com a
+venda de pacote no dia da compra) em vez do faturamento por visita. São duas perguntas diferentes
+e ambas legítimas — a segunda exigiria um card separado, porque não dá pra usar o mesmo número
+para as duas coisas sem mentir numa delas.
+
+## 45. "Pendências" da home lista até 5 de cada tipo (2026-08-19)
+
+O card "Esperando você" busca no máximo 5 pacotes aguardando + 5 atendimentos aguardando
+pagamento. Com mais que isso, a home mostra os mais recentes e o "ver tudo" leva pra seção.
+
+Não há contagem total ao lado (ex.: "5 de 12"), porque exigiria duas queries a mais numa tela que
+carrega a cada login. **O que falta decidir:** se o dono precisa do total exato na home. Se
+precisar, é um `count` por tipo — barato, mas hoje não pedido.
+
+## 46. Conclusão antecipada não tem tolerância de minutos (2026-08-20)
+
+A trava dispara com comparação **estrita**: se `agora < inicio`, o barbeiro precisa justificar.
+Sem margem nenhuma.
+
+Isso significa que concluir às 08:58 um atendimento marcado para 09:00 — cliente que chegou
+adiantado, situação corriqueira numa barbearia — abre o modal de justificativa. Funciona, mas é
+atrito num caso legítimo e frequente.
+
+**O que falta decidir:** se existe uma tolerância, e de quanto. Candidatos naturais: 15 min
+(cabe "chegou adiantado" sem abrir espaço pra concluir a agenda da tarde), ou a duração do
+próprio atendimento. Marcado no código como `// DECISAO_PENDENTE` em
+`concluir-atendimento.usecase.ts` (`exigeAprovacao`) — é uma constante e um comentário, não uma
+refatoração.
+
+**Por que não inventei um número:** tolerância grande demais reabre exatamente o buraco que a
+trava fechou (concluir atendimentos que não aconteceram para inflar comissão), e o tamanho certo
+depende de como a casa opera. É decisão de negócio.
+
+## 47. Recusa de conclusão antecipada não avisa o barbeiro (2026-08-20)
+
+Quando o admin recusa, o atendimento volta para `AGENDADO` e o barbeiro descobre olhando a
+agenda. Não há notificação, e a recusa não registra motivo — o admin só clica "Recusar".
+
+**O que falta decidir:** se a recusa deve exigir justificativa do admin (simétrico ao motivo que
+o barbeiro é obrigado a dar) e se o barbeiro deve ser avisado. Hoje o ledger de comissão não
+registra nada nesse fluxo, então não há rastro de que houve um pedido recusado depois que os
+campos são limpos — só o log da aplicação.
+
+**Por que ficou assim:** o pedido não move dinheiro, então não há nada a auditar no ledger; e
+notificação (WhatsApp) é Fase 2, fora de escopo (DOMAIN.md §11). Se a recusa virar rotina, isso
+muda de peso.

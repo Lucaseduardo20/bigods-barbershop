@@ -80,6 +80,19 @@ describe('constraint EXCLUDE — sobreposição sob concorrência', () => {
     );
   });
 
+  it('★ rejeita sobreposição com CONCLUSAO_PENDENTE — o predicado da constraint cobre o estado novo', async () => {
+    // Verifica a MIGRATION, não o domínio (2026-08-20): se o predicado da
+    // constraint tivesse ficado sem `CONCLUSAO_PENDENTE`, o horário de um
+    // atendimento com conclusão pendente poderia ser vendido de novo, e a
+    // recusa não teria pra onde voltar.
+    await prisma.atendimento.create({
+      data: novoAtendimento(t(DIA, 14), t(DIA, 14, 30), 'CONCLUSAO_PENDENTE'),
+    });
+    await expect(
+      prisma.atendimento.create({ data: novoAtendimento(t(DIA, 14, 15), t(DIA, 14, 45)) }),
+    ).rejects.toThrow(/atendimento_sem_sobreposicao|exclusion/i);
+  });
+
   it('permite sobreposição se o existente não está AGENDADO (constraint parcial)', async () => {
     await prisma.atendimento.create({
       data: novoAtendimento(t(DIA, 11), t(DIA, 11, 30), 'CANCELADO'),

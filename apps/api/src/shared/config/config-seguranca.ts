@@ -31,8 +31,10 @@ export function assertConfiguracaoSegura(env: NodeJS.ProcessEnv = process.env): 
   // Em produção, só um provider que envia o código de verdade é aceito —
   // lista explícita (fail closed) em vez de só recusar 'demo': qualquer
   // valor desconhecido também não sobe, nunca cai num fallback silencioso.
-  // Hoje só 'whatsapp' (Baileys) — o Cognito saiu do fluxo de produção nesta
-  // sessão (arquivo/testes continuam existindo, só não é mais uma opção).
+  // Dois canais reais, ambos válidos em produção: 'whatsapp' (Baileys, celular
+  // pareado) e 'cognito' (SMS via Cognito Custom Auth + SMS Gate, ver
+  // infra/cognito-triggers). Esta lista é a FONTE DA VERDADE — scripts/deploy.sh
+  // só a espelha pra falhar antes de subir container.
   const PROVIDERS_VALIDOS_EM_PRODUCAO = ['cognito', 'whatsapp'];
   const identityProvider = (env.IDENTITY_PROVIDER ?? 'demo').toLowerCase();
   if (producao && !PROVIDERS_VALIDOS_EM_PRODUCAO.includes(identityProvider)) {

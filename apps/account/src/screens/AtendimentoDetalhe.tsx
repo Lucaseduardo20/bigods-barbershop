@@ -11,6 +11,10 @@ const rotuloStatus: Record<StatusAtendimento, string> = {
   // confirmar; se não pagar a tempo, vira RESERVA_EXPIRADA (nunca revive).
   [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
+  // Conclusão antecipada aguardando o admin (2026-08-20): para o CLIENTE isso
+  // é um agendamento normal — a aprovação é assunto interno da barbearia, e um
+  // rótulo próprio aqui só geraria dúvida sobre algo que ele não controla.
+  [StatusAtendimento.CONCLUSAO_PENDENTE]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Não compareceu',
@@ -19,6 +23,7 @@ const rotuloStatus: Record<StatusAtendimento, string> = {
 const corStatus: Record<StatusAtendimento, string> = {
   [StatusAtendimento.RESERVADO]: 'var(--state-warning)',
   [StatusAtendimento.AGENDADO]: 'var(--accent-primary)',
+[StatusAtendimento.CONCLUSAO_PENDENTE]: 'var(--accent-primary)',
   [StatusAtendimento.CONCLUIDO]: 'var(--state-success, #2e7d32)',
   [StatusAtendimento.CANCELADO]: 'var(--state-danger)',
   [StatusAtendimento.NAO_COMPARECEU]: 'var(--state-warning)',

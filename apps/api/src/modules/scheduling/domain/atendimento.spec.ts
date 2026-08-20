@@ -393,3 +393,122 @@ describe('Atendimento — adicionar produto na conclusão (item 4a, sessão 2026
     expect(evento.produtos).toEqual([{ produtoId: 'prod-gel', quantidade: 2, valorUnitarioCentavos: 1500 }]);
   });
 });
+
+describe('Atendimento — conclusão antecipada (trava, 2026-08-20)', () => {
+  /** Agenda e já descarta o `AtendimentoAgendado` — aqui o que importa é o que vem depois. */
+  const agendarLimpo = (sobrescrever: Parameters<typeof agendar>[0] = {}) => {
+    const a = agendar(sobrescrever);
+    a.puxarEventos();
+    return a;
+  };
+
+  const pedir = (a: Atendimento, sobrescrever: Record<string, unknown> = {}) =>
+    a.solicitarConclusaoAntecipada({
+      motivo: 'cliente chegou mais cedo e pediu pra adiantar',
+      solicitadaPorId: 'bar-1',
+      agora: t(8),
+      formaPagamento: FormaPagamento.DINHEIRO,
+      ...sobrescrever,
+    });
+
+  it('AGENDADO → CONCLUSAO_PENDENTE guardando motivo, autor e instante', () => {
+    const a = agendarLimpo();
+    pedir(a);
+    expect(a.status).toBe(StatusAtendimento.CONCLUSAO_PENDENTE);
+    expect(a.conclusaoAntecipadaMotivo).toBe('cliente chegou mais cedo e pediu pra adiantar');
+    expect(a.conclusaoSolicitadaPorId).toBe('bar-1');
+    expect(a.conclusaoSolicitadaEm).toEqual(t(8));
+  });
+
+  it('NÃO emite AtendimentoConcluido — nenhuma comissão nasce do pedido', () => {
+    const a = agendarLimpo();
+    pedir(a);
+    expect(a.puxarEventos()).toHaveLength(0);
+  });
+
+  it('recusa pedido sem motivo (só espaços não é justificativa)', () => {
+    const a = agendarLimpo();
+    expect(() => pedir(a, { motivo: '   ' })).toThrow(InvarianteVioladaError);
+    expect(a.status).toBe(StatusAtendimento.AGENDADO);
+  });
+
+  it('recusa pedido quando o horário já começou — aí conclui normal', () => {
+    const a = agendarLimpo();
+    expect(() => pedir(a, { agora: t(10) })).toThrow(InvarianteVioladaError);
+    expect(() => pedir(a, { agora: t(11) })).toThrow(InvarianteVioladaError);
+  });
+
+  it('exige forma de pagamento no PEDIDO, não na aprovação', () => {
+    const a = agendarLimpo();
+    expect(() => pedir(a, { formaPagamento: undefined })).toThrow(InvarianteVioladaError);
+    pedir(a);
+    expect(a.status).toBe(StatusAtendimento.CONCLUSAO_PENDENTE);
+  });
+
+  it('aprovação conclui com a forma de pagamento do pedido e emite o evento', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.CARTAO_DEBITO });
+
+    a.aprovarConclusaoAntecipada();
+
+    expect(a.status).toBe(StatusAtendimento.CONCLUIDO);
+    expect(a.formaPagamento).toBe(FormaPagamento.CARTAO_DEBITO);
+    expect(a.puxarEventos()).toHaveLength(1);
+    // O rastro do pedido SOBREVIVE à aprovação: é a auditoria de que esta
+    // conclusão não aconteceu na hora marcada, e por quê.
+    expect(a.conclusaoAntecipadaMotivo).toBe('cliente chegou mais cedo e pediu pra adiantar');
+    expect(a.conclusaoSolicitadaPorId).toBe('bar-1');
+    expect(a.conclusaoSolicitadaEm).toEqual(t(8));
+    // Só a forma de pagamento do pedido sai — ela virou `formaPagamento`.
+    expect(a.conclusaoFormaPagamento).toBeNull();
+  });
+
+  it('recusa devolve pra AGENDADO, sem evento e sem resíduo do pedido', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
+
+    a.recusarConclusaoAntecipada();
+
+    expect(a.status).toBe(StatusAtendimento.AGENDADO);
+    expect(a.puxarEventos()).toHaveLength(0);
+    expect(a.conclusaoAntecipadaMotivo).toBeNull();
+    expect(a.conclusaoFormaPagamento).toBeNull();
+  });
+
+  it('depois da recusa o atendimento volta a poder ser concluído normalmente', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
+    a.recusarConclusaoAntecipada();
+    a.concluir(FormaPagamento.DINHEIRO);
+    expect(a.status).toBe(StatusAtendimento.CONCLUIDO);
+  });
+
+  it('não aprova nem recusa o que não está pendente', () => {
+    const a = agendarLimpo();
+    expect(() => a.aprovarConclusaoAntecipada()).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => a.recusarConclusaoAntecipada()).toThrow(TransicaoDeEstadoInvalidaError);
+  });
+
+  it('pendente não aceita segunda solicitação, conclusão direta, nem falta', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
+    expect(() => pedir(a, { formaPagamento: FormaPagamento.DINHEIRO })).toThrow(
+      TransicaoDeEstadoInvalidaError,
+    );
+    expect(() => a.concluir(FormaPagamento.DINHEIRO)).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => a.registrarNaoComparecimento()).toThrow(TransicaoDeEstadoInvalidaError);
+  });
+
+  it('ocupa o horário como AGENDADO — outro agendamento no mesmo slot é barrado', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
+    expect(() => agendarLimpo({ id: 'at-2', atendimentosAtivos: [a] })).toThrow(InvarianteVioladaError);
+  });
+
+  it('aprovado (CONCLUIDO) já não ocupa o horário', () => {
+    const a = agendarLimpo();
+    pedir(a, { formaPagamento: FormaPagamento.DINHEIRO });
+    a.aprovarConclusaoAntecipada();
+    expect(() => agendarLimpo({ id: 'at-2', atendimentosAtivos: [a] })).not.toThrow();
+  });
+});

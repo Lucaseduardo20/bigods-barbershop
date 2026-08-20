@@ -13,9 +13,14 @@ import { ConfigStorage, lerConfigStorage } from '../../../shared/config/storage'
 class S3Espiao {
   readonly comandos: unknown[] = [];
   falharNoDelete = false;
+  /** Erro que o S3 devolve no próximo `send` de PutObject (null = sucesso). */
+  erroNoPut: unknown = null;
 
   async send(comando: unknown): Promise<void> {
     this.comandos.push(comando);
+    if (this.erroNoPut && comando instanceof PutObjectCommand) {
+      throw this.erroNoPut;
+    }
     if (this.falharNoDelete && comando instanceof DeleteObjectCommand) {
       throw new Error('AccessDenied');
     }
@@ -127,6 +132,55 @@ describe('salvarImagem', () => {
       /não está configurado/i,
     );
     expect(s3.comandos).toHaveLength(0);
+  });
+});
+
+describe('quando o S3 recusa o upload', () => {
+  /** Como o erro do SDK realmente chega: com a credencial dentro. */
+  function erroDoSdk(Code: string) {
+    return Object.assign(new Error('The provided token has expired.'), {
+      name: Code,
+      Code,
+      $metadata: { httpStatusCode: 400, requestId: 'B9X6QSEEG38K0APR' },
+      // ⚠️ O SDK põe o session token INTEIRO no objeto de erro. É por isso que
+      // o log tem que ser montado à mão, campo a campo.
+      'Token-0': 'IQoJb3JpZ2luX2VjSEGREDOSEGREDOSEGREDO',
+    });
+  }
+
+  it('★ não vira 500 opaco: diz que a imagem está ok e que o problema é do servidor', async () => {
+    s3.erroNoPut = erroDoSdk('ExpiredToken');
+    await expect(
+      storage.salvarImagem({ conteudo: await imagem(300), pasta: PASTAS.barbeiros }),
+    ).rejects.toThrow(/armazenamento recusou o envio \(ExpiredToken\)/);
+  });
+
+  it('★ a mensagem que chega ao usuário NÃO carrega a credencial', async () => {
+    s3.erroNoPut = erroDoSdk('ExpiredToken');
+    const erro = await storage
+      .salvarImagem({ conteudo: await imagem(300), pasta: PASTAS.barbeiros })
+      .catch((e: Error) => e);
+    expect((erro as Error).message).not.toContain('SEGREDO');
+    expect(JSON.stringify(erro)).not.toContain('SEGREDO');
+  });
+
+  it('cada código conhecido aponta o conserto certo no log', async () => {
+    const logs: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (storage as any).logger = { error: (m: string) => logs.push(m), warn: () => {}, log: () => {} };
+
+    for (const codigo of ['ExpiredToken', 'AccessDenied', 'NoSuchBucket', 'PermanentRedirect']) {
+      s3.erroNoPut = erroDoSdk(codigo);
+      await storage.salvarImagem({ conteudo: await imagem(300), pasta: PASTAS.barbeiros }).catch(() => {});
+    }
+
+    expect(logs[0]).toMatch(/credencial AWS ausente ou expirada/);
+    expect(logs[1]).toMatch(/s3:PutObject/);
+    expect(logs[2]).toMatch(/não existe/);
+    expect(logs[3]).toMatch(/OUTRA região/);
+    // O requestId entra (dá pra rastrear na AWS); a credencial, não.
+    expect(logs[0]).toContain('B9X6QSEEG38K0APR');
+    expect(logs.join(' ')).not.toContain('SEGREDO');
   });
 });
 

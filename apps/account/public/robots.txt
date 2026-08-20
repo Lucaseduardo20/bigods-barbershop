@@ -1,0 +1,4 @@
+# Área do cliente: exige login por OTP e só mostra dado pessoal.
+# Nada aqui deve entrar em buscador.
+User-agent: *
+Disallow: /

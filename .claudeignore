@@ -1,0 +1,6 @@
+# Saída do graphify (2026-08-19). Cada `graphify extract` reescreve estes
+# arquivos, e escrita no workspace invalida o cache de prompt do Claude Code —
+# o turno seguinte reenviaria o repositório inteiro a preço de cache-write.
+# O grafo é consultado por `graphify query`, não lido como arquivo.
+graph.json
+graphify-out/

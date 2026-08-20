@@ -71,9 +71,10 @@ export interface BarbeiroDTO {
   excecoesComissao: ExcecaoComissaoDTO[];
   servicosAtendidos: string[];
   /**
-   * Percentual ÚNICO de comissão sobre produto, para TODOS os produtos —
-   * sem matriz por produto (decisão consciente: a matriz por serviço existe
-   * por margens de mão de obra distintas; produto é revenda). Default 0%.
+   * ⚠️ DEPRECADO em 2026-08-19 (decisão dos sócios): a comissão de produto virou
+   * uma taxa ÚNICA DA EMPRESA — `ParametrosDTO.comissaoProdutos`. Ninguém lê
+   * este campo para calcular comissão; ele continua no DTO só para não quebrar
+   * cliente antigo. Não construa tela em cima dele.
    */
   comissaoProdutos: number; // porcentagem
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
@@ -225,6 +226,17 @@ export interface AtendimentoDTO {
   origemLinkBarbeiroNome: string | null;
   /** FASE 4a (sessão-E, §8.7) — quanto deste atendimento foi abatido com saldo residual de pacote (0 = nenhum). */
   valorAbatidoSaldoCentavos: number;
+  /**
+   * Registro de que este atendimento foi concluído ANTES do horário marcado
+   * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e
+   * depois de aprovado** — é o rastro auditável de por que a conclusão saiu
+   * fora de hora. Só a recusa limpa (o pedido não vingou).
+   */
+  conclusaoAntecipada: {
+    motivo: string;
+    solicitadaPorNome: string;
+    solicitadaEm: string;
+  } | null;
 }
 export interface AgendarAvulsoRequest {
   barbeiroId: string;
@@ -450,6 +462,89 @@ export interface FechamentoDTO {
   barbeiros: FechamentoBarbeiroDTO[];
 }
 
+// ---------- Home (primeira tela do admin) ----------
+// Projeção de LEITURA: cada número vem da mesma fonte que a seção detalhada
+// correspondente. Um número da home que diverge da seção é bug, não
+// arredondamento — por isso nada aqui recalcula dinheiro, com a única exceção
+// do ticket médio (agregação documentada em `ticket-medio.ts`).
+
+/** Uma linha de agendamento na home — o mínimo pra reconhecer o compromisso. */
+export interface HomeAgendamentoDTO {
+  atendimentoId: string;
+  /** Instante UTC (ISO) — renderizar no fuso da empresa. */
+  inicio: string;
+  clienteNome: string;
+  barbeiroNome: string;
+  servicos: string;
+  valorTotalCentavos: number;
+  status: StatusAtendimento;
+}
+
+/** Uma linha do extrato financeiro na home (comissão ou pagamento recebido). */
+export interface HomeLancamentoDTO {
+  id: string;
+  tipo: TipoLancamento;
+  /** Instante UTC (ISO). */
+  ocorridoEm: string;
+  valorCentavos: number;
+  /** O que originou: nome do serviço/produto, ou quem registrou o pagamento. */
+  descricao: string;
+}
+
+/** Home do BARBEIRO não-admin: só o que é dele. */
+export interface HomePessoalDTO {
+  barbeiroId: string;
+  nome: string;
+  fotoUrl: string | null;
+  /** Próximos 2 agendamentos DELE (AGENDADO, do agora em diante). */
+  proximosAgendamentos: HomeAgendamentoDTO[];
+  /**
+   * O MESMO número de `ExtratoComissaoDTO.saldoRealCentavos` — lido do mesmo
+   * serviço, nunca recalculado aqui. Pode ser negativo (deve à casa).
+   */
+  saldoRealCentavos: number;
+  /** Últimos 2 lançamentos de COMISSÃO dele. */
+  ultimasComissoes: HomeLancamentoDTO[];
+  /** Últimos 2 PAGAMENTOS que ele recebeu. */
+  ultimosPagamentos: HomeLancamentoDTO[];
+}
+
+/** Uma pendência esperando decisão do admin. */
+export interface HomePendenciaDTO {
+  tipo: 'PACOTE_AGUARDANDO' | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO' | 'CONCLUSAO_ANTECIPADA';
+  id: string;
+  clienteNome: string;
+  valorCentavos: number;
+  /** Só em CONCLUSAO_ANTECIPADA: quem pediu, e por quê. */
+  barbeiroNome?: string;
+  motivo?: string;
+  /** Instante UTC (ISO) do fato que gerou a pendência. */
+  desde: string;
+}
+
+/** Home do ADMIN: gestão da casa, todos os barbeiros. */
+export interface HomeGestaoDTO {
+  nome: string;
+  fotoUrl: string | null;
+  /** Dia civil local a que "hoje" se refere (YYYY-MM-DD), no fuso da empresa. */
+  hoje: string;
+  agendamentosDeHoje: HomeAgendamentoDTO[];
+  totalAgendamentosDeHoje: number;
+  /**
+   * Faturamento do dia: atendimentos CONCLUÍDOS hoje (serviços + produtos, pelo
+   * valor cobrado congelado) + vendas avulsas de produto de hoje.
+   * NÃO inclui venda de pacote — o pacote entra no faturamento quando o crédito
+   * é consumido, para não contar o mesmo dinheiro duas vezes.
+   */
+  faturamentoDeHojeCentavos: number;
+  concluidosHoje: number;
+  pendencias: HomePendenciaDTO[];
+  /** Mesma regra do faturamento, no mês corrente ÷ concluídos do mês. `null` = sem movimento. */
+  ticketMedioCentavos: number | null;
+  /** Mês civil local a que o ticket se refere (YYYY-MM). */
+  mesDoTicket: string;
+}
+
 // ---------- Parâmetros ----------
 export interface ParametrosDTO {
   prazoReagendamentoDias: number;
@@ -460,6 +555,13 @@ export interface ParametrosDTO {
   /** Fuso IANA da empresa (ex: "America/Sao_Paulo"). Frontend deve SEMPRE renderizar
    * datas/horas neste fuso — nunca no fuso do navegador/dispositivo do usuário. */
   timezone: string;
+  /**
+   * Comissão de PRODUTO em porcentagem (2026-08-19, decisão dos sócios): taxa
+   * ÚNICA da empresa, para todo produto e todo barbeiro. Não é por barbeiro nem
+   * por produto — produto é revenda, e a margem não comporta a taxa de serviço.
+   * Incide sobre o preço de VENDA (o sistema não cadastra custo de produto).
+   */
+  comissaoProdutos: number;
 }
 
 // ---------- Funil público de agendamento (booking) ----------

@@ -1,0 +1,11 @@
+-- Comissão de PRODUTO passa a ser uma taxa ÚNICA da empresa (decisão dos sócios,
+-- 2026-08-19), em vez de uma taxa por barbeiro.
+--
+-- ADITIVA: coluna nova com default 0. Nenhuma linha existente muda, e
+-- `Barbeiro.comissaoProdutosBp` continua no banco (deprecada, sem leitor) para
+-- permitir rollback do código sem perder dado.
+--
+-- Default 0 de propósito: enquanto o admin não configurar a taxa, nenhuma
+-- comissão de produto é lançada. O sistema nunca paga um valor que ninguém
+-- decidiu.
+ALTER TABLE "Company" ADD COLUMN "comissaoProdutosBp" INTEGER NOT NULL DEFAULT 0;

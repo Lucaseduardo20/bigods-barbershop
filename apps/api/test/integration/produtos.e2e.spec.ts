@@ -40,7 +40,8 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   http = request(app.getHttpServer());
 
-  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Produtos' } });
+  // A taxa de comissão de PRODUTO é da EMPRESA (2026-08-19), não do barbeiro.
+  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Produtos', comissaoProdutosBp: 1500 } });
   await prisma.servico.create({ data: { id: servicoId, companyId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30 } });
   await prisma.barbeiro.create({
     data: {
@@ -50,7 +51,9 @@ beforeAll(async () => {
       slug: 'barbeiro-produtos',
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
-      comissaoProdutosBp: 1500, // 15%
+      // DEPRECADO desde 2026-08-19 e deliberadamente DIFERENTE da taxa da empresa:
+      // se algum caminho voltar a ler daqui, a conta sai 60% e o teste acusa.
+      comissaoProdutosBp: 6000,
       login: adminLogin,
       senhaHash: hashSenha(SENHA),
     },
@@ -118,7 +121,7 @@ describe('Venda avulsa de produto (item 4b) — comissão distinta no extrato', 
     expect(lancamentos).toHaveLength(1);
     expect(lancamentos[0]!.origem).toBe('PRODUTO');
     expect(lancamentos[0]!.valorBaseCentavos).toBe(6000); // 3 × R$20
-    expect(lancamentos[0]!.valorComissaoCentavos).toBe(900); // 15% de 6000
+    expect(lancamentos[0]!.valorComissaoCentavos).toBe(900); // 15% (taxa da EMPRESA) de 6000
     expect(lancamentos[0]!.atendimentoId).toBeNull();
 
     // idempotência: reprocessar o mesmo evento (ex: retry) não duplica

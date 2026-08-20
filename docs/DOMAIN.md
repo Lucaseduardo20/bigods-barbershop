@@ -41,7 +41,8 @@ Dois consumidores da mesma regra:
 - **Escrita** (criar agendamento): a invariante "não existem dois atendimentos sobrepostos
   para o mesmo barbeiro" é garantida no domínio **e** por uma constraint de exclusão no
   Postgres (`EXCLUDE USING gist` sobre um range temporal). O banco recusa fisicamente a
-  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO)` — a reserva
+  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO,
+  CONCLUSAO_PENDENTE)` — a reserva
   TEMPORÁRIA de um avulso online (§3.5, §3.8) ocupa o horário igual a um agendamento firme,
   senão duas reservas concorrentes pro mesmo slot poderiam ambas nascer (sessão de OTP+reserva,
   Problema 2).
@@ -183,7 +184,7 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `comissaoPadrao` | Percentual | ex: 45% |
 | `excecoesComissao` | Map\<ServicoId, Percentual\> | override por serviço |
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
-| `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
+| ~~`comissaoProdutos`~~ | Percentual | **DEPRECADO** (2026-08-19) — a comissão de produto virou taxa ÚNICA DA EMPRESA (§3.9.1). Coluna mantida no banco, sem leitor |
 | `precosServicos` | Map\<ServicoId, Dinheiro\> | override de PREÇO por serviço (§3.2.2, sessão-B) — ausência = usa `Servico.precoAvulso` |
 | `fotoUrl` | string \| null | foto de perfil (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | |
@@ -194,12 +195,9 @@ percentualPara(servicoId) =
   excecoesComissao.get(servicoId) ?? comissaoPadrao
 ```
 
-**Regra de comissão (produto, §3.9 — sessão 2026-07-16):** `comissaoProdutos` é um
-percentual ÚNICO aplicado a TODO produto vendido por este barbeiro — não existe matriz
-por produto. **Por quê:** a matriz por serviço existe porque serviços têm margens de
-mão de obra distintas (cortar cabelo e fazer a barba não custam o mesmo tempo/esforço);
-produto é revenda — o barbeiro só está passando o produto adiante, sem essa variação.
-Adicionar matriz por produto seria complexidade sem justificativa de negócio observada.
+**Regra de comissão (produto) — mudou em 2026-08-19:** a taxa NÃO é mais do barbeiro.
+Virou uma **taxa única da EMPRESA** (§3.9.1). O campo `comissaoProdutos` do barbeiro está
+deprecado e ninguém o lê para calcular.
 
 **Invariantes:**
 - `comissaoPadrao` entre 0% e 100%.
@@ -501,7 +499,8 @@ ontem continua valendo R$40. Sem snapshot, o histórico e o extrato de comissão
 retroativamente — inaceitável num sistema que precisa ser auditável.
 
 **Invariantes:**
-- Não existem dois `Atendimento` com status ativo (`AGENDADO` **ou** `RESERVADO`, §4.1) sobrepostos
+- Não existem dois `Atendimento` com status ativo (`AGENDADO`, `RESERVADO` **ou**
+  `CONCLUSAO_PENDENTE`, §4.1) sobrepostos
   no tempo para o mesmo `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no
   Postgres. `IntervaloDeTempo` é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se
   tocam (o fim de um é igual ao início do outro) não conflitam.
@@ -714,8 +713,8 @@ centavos com sinal, calculado na borda de leitura.
 perguntasse "por que recebi X?", o sistema não sabia responder. Isso destrói confiança —
 especialmente entre sócios. Aqui, o extrato é a fonte da verdade e o saldo é derivado.
 
-**Projeção de comissão futura:** calculada como soma sobre atendimentos `AGENDADO` (ainda não
-concluídos). **É uma query de leitura, não um lançamento.** Nunca somar projeção com saldo real —
+**Projeção de comissão futura:** calculada como soma sobre atendimentos `AGENDADO` e
+`CONCLUSAO_PENDENTE` (ainda não concluídos — no segundo caso, esperando aprovação do admin). **É uma query de leitura, não um lançamento.** Nunca somar projeção com saldo real —
 na UI e na API, são números separados e rotulados. Agendamento futuro pode ser cancelado. Vale
 e pagamento são sempre fatos **consumados** — nunca entram na projeção, só no saldo real.
 
@@ -827,6 +826,7 @@ desativado, porque histórico de venda/comissão depende dele.
 | `preco` | Dinheiro | |
 | `fotoUrl` | string \| null | foto do produto (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | soft-disable |
+| — | — | a **comissão** sobre este produto usa a taxa única da empresa (§3.9.1), não um campo do produto |
 | ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** nome não-vazio; `preco` positivo.
@@ -834,6 +834,43 @@ desativado, porque histórico de venda/comissão depende dele.
 Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` — na conclusão
 (§3.5, `ItemProdutoAtendido`) ou já na criação, via order-bump (§8.13) — ou numa `VendaDeProduto`
 avulsa (§3.10).
+
+---
+
+#### 3.9.1 Comissão de produto — taxa ÚNICA da empresa (2026-08-19, decisão dos sócios)
+
+**A regra:** todo produto vendido, por qualquer barbeiro, em qualquer caminho, paga comissão
+pela **mesma taxa**, guardada em `Company.comissaoProdutosBp` (pontos-base, inteiro — nunca
+float). Não é por produto, não é por barbeiro. Configurável pelo admin em Ajustes → Parâmetros.
+
+**Por quê separar da comissão de serviço:** serviço é quase toda margem — o que se paga ali é
+habilidade e tempo. Produto é **revenda**: a empresa compra e revende, e a margem é uma fração
+do preço. Pagar a taxa de serviço sobre o preço de venda de um produto pode custar mais do que a
+margem daquele produto — o negócio perderia dinheiro a cada venda.
+
+**Incide sobre o PREÇO DE VENDA**, não sobre a margem. Não é preferência: o sistema **não cadastra
+custo de produto** (§3.9 — catálogo mínimo, sem estoque, sem fornecedor), então não existe o dado
+para calcular margem. Um modelo de margem exigiria primeiro modelar custo, o que está fora de
+escopo (§11).
+
+**Por que global e não por barbeiro:** produto é o mesmo produto na mão de qualquer profissional —
+não há a variação de esforço que justifica a matriz por serviço. A taxa por barbeiro que existia
+antes acabava inconsistente na prática (um barbeiro com 10%, dois com 0%, sem ninguém ter
+decidido isso).
+
+**Onde incide** — todos os caminhos usam a mesma taxa:
+- venda avulsa de produto (`VendaDeProduto`, §3.10);
+- produto anexado ao atendimento na conclusão (walk-in add-on, §3.5);
+- produto que entra pelo **order-bump** do funil (§8.13) — vira `ItemProdutoAtendido` e cai no
+  mesmo handler de conclusão.
+
+**★ Snapshot — o histórico é congelado.** O `LancamentoComissao` guarda `valorBase`,
+`percentualAplicado` e `valorComissao` **do momento da venda** (§3.7). Mudar a taxa **não
+recalcula nada** que já foi lançado: é dinheiro que o barbeiro já viu no extrato dele, e o extrato
+não pode mudar por uma decisão tomada depois. A taxa nova vale para vendas **daqui pra frente**.
+
+**Default 0.** Empresa sem taxa configurada não gera comissão de produto. O sistema nunca paga um
+percentual que ninguém decidiu.
 
 ---
 
@@ -1060,6 +1097,52 @@ Imagem quebrada na tela do cliente não é estado aceitável em lugar nenhum.
 
 ---
 
+### 3.15 Home do painel — projeção de leitura (2026-08-19)
+
+Primeira tela depois do login. **Não é um agregado nem uma fonte de verdade**: é uma projeção de
+leitura sobre o que já existe, com uma única métrica calculada (o ticket médio).
+
+**Duas variantes, por papel — nunca uma mistura.** ADMIN vê a home de GESTÃO; BARBEIRO não-admin
+vê a PESSOAL. Quem acumula os dois papéis vê a de gestão (a visão pessoal continua nas seções).
+São dois endpoints separados, e o de gestão é `@Papeis(ADMIN)`: um barbeiro comum não alcança dado
+de gestão nem adivinhando a rota. Na home pessoal o `barbeiroId` vem do TOKEN, não da URL — não
+existe "home pessoal de outro barbeiro" para pedir.
+
+**A regra que rege a tela:** nenhum número da home pode divergir da seção detalhada
+correspondente. Por isso o saldo do barbeiro é lido do **mesmo** `ComissaoQueryService` que o
+Financeiro usa, e não de uma soma nova. Duas somas do mesmo dinheiro em dois lugares é como elas
+começam a divergir.
+
+#### Faturamento — de quais registros soma
+
+    atendimentos CONCLUÍDOS no período (Σ ItemAtendido.valorCobrado + Σ ItemProdutoAtendido)
+  + vendas avulsas de produto no período (Σ item.valorUnitario × quantidade)
+
+Valores **congelados** no atendimento (§3.5) — nunca relidos do catálogo de hoje.
+
+**Venda de PACOTE não entra**: o dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento. Contar também na venda somaria o mesmo dinheiro duas vezes (DECISOES_PENDENTES #44).
+
+#### Ticket médio — a única métrica calculada
+
+    ticket = faturamento do MÊS CORRENTE ÷ atendimentos CONCLUÍDOS no mês corrente
+
+Mesmo faturamento definido acima — "faturamento da visita" é serviço(s) + produto(s). Centavos
+inteiros, arredondado ao centavo mais próximo (a média de inteiros raramente é inteira). **Sem
+atendimento concluído no mês, o resultado é `null`**, que a tela mostra como "—": dividir por zero
+daria `Infinity`, e a barbearia veria um número sem sentido em vez de "ainda não houve movimento".
+
+É número de **exibição**: não vira lançamento, não é somado a nada, não é base de pagamento a
+ninguém. Se um dia virar base de pagamento, a regra de arredondamento passa a ser decisão do
+negócio, não do `Math.round` (está escrito assim em `ticket-medio.ts`).
+
+#### Pendências
+
+O que espera decisão do admin: `VendaDePacote` em `AGUARDANDO` e `Atendimento` em `RESERVADO` —
+exatamente as duas coisas que têm botão "confirmar pagamento recebido" no painel.
+
+---
+
 ## 4. Máquinas de estado
 
 Estados são **explícitos**. Nunca representar estado com combinação de flags booleanas ou
@@ -1085,6 +1168,18 @@ tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
                         (final)      (final)          (final)
 ```
 
+Trava de conclusão antecipada (2026-08-20): o caminho `AGENDADO → CONCLUIDO` acima é o do
+barbeiro concluindo na hora (ou depois). Concluir **antes** do horário marcado passa por um
+desvio, e é o admin que fecha:
+
+```
+   ┌─────────────┐  conclui antes do horário   ┌────────────────────┐  aprova   ┌────────────┐
+   │  AGENDADO   │ ───(motivo obrigatório)───▶ │ CONCLUSAO_PENDENTE │ ────────▶ │ CONCLUIDO  │
+   └─────────────┘                             └────────────────────┘  (admin)  └────────────┘
+          ▲                                               │                        (final)
+          └──────────────── recusa (admin) ───────────────┘        ↑ só aqui nasce a comissão
+```
+
 - `RESERVADO → AGENDADO` (`confirmarReserva`): pagamento online confirmado (webhook
   `transparent.completed` ou `confirmar-demo`, §3.8). Só agora emite `AtendimentoAgendado` — não
   na criação da reserva, pra nunca notificar "você está agendado" antes de existir pagamento
@@ -1094,6 +1189,26 @@ tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
   que a `IntencaoDePagamento` vinculada expira (`ExpirarPagamentoVencidoUseCase`), nunca isolado —
   senão intenção e reserva podem divergir (uma expirada, a outra não).
 - `AGENDADO → CONCLUIDO`: emite `AtendimentoConcluido`. Exige `formaPagamento` se `AVULSO`.
+- `AGENDADO → CONCLUSAO_PENDENTE` (`solicitarConclusaoAntecipada`, 2026-08-20): o barbeiro
+  concluiu um atendimento cujo **horário ainda não chegou** e justificou (motivo obrigatório,
+  não-vazio). **Não emite evento nenhum** — nenhuma comissão nasce, nenhum crédito de pacote é
+  consumido. Era exatamente isso que a trava existe pra impedir: concluir a agenda da semana em
+  série e inflar a comissão. A `formaPagamento` é validada e **guardada** no pedido
+  (`conclusaoFormaPagamento`), não aplicada: quem sabe como o cliente pagou é o barbeiro, e
+  descobrir que falta só na hora da aprovação deixaria o pedido travado sem quem resolvesse.
+  Ocupa o horário exatamente como `AGENDADO` (invariante + `EXCLUDE`), porque a recusa devolve
+  o atendimento pra lá e o horário precisa estar esperando.
+  **Quem** precisa justificar é política de aplicação, não invariante: admin conclui direto — é
+  ele quem aprovaria, e justificar pra si mesmo não protege ninguém.
+- `CONCLUSAO_PENDENTE → CONCLUIDO` (`aprovarConclusaoAntecipada`, admin): **é aqui que o dinheiro
+  nasce.** Só neste ponto sai o `AtendimentoConcluido` (comissão) e o crédito de pacote vira
+  `CONSUMIDO`, na mesma transação. Usa a `formaPagamento` guardada no pedido.
+  O **motivo, o autor e o instante do pedido permanecem** no atendimento concluído — é o rastro
+  auditável de que aquela conclusão não aconteceu na hora marcada, e por quê. Apagar seria
+  perder justamente o fato que a trava existe pra vigiar.
+- `CONCLUSAO_PENDENTE → AGENDADO` (`recusarConclusaoAntecipada`, admin): volta como se o pedido
+  não tivesse existido; os quatro campos do pedido são limpos. Não é estado final — o
+  atendimento pode ser concluído normalmente quando a hora chegar.
 - `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado` com `antecipado: boolean`
   (`true` se cancelado antes do horário marcado) — usado pelo handler de Pacote para decidir se o
   item associado conta falta (§3.5, §4.2).

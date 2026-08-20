@@ -12,7 +12,8 @@ export interface AtendimentoRepository {
   listarPorCliente(clienteId: ClienteId): Promise<Atendimento[]>;
   /**
    * Cota de presenciais futuros ativos (Problema 3, sessão de OTP+reserva):
-   * conta AGENDADO com início no futuro e `reservaOnlineExpiraEm` null (nunca
+   * conta AGENDADO (e CONCLUSAO_PENDENTE, que ainda pode voltar pra AGENDADO
+   * por recusa) com início no futuro e `reservaOnlineExpiraEm` null (nunca
    * passou pelo canal online) — RESERVADO/RESERVA_EXPIRADA/CANCELADO/
    * CONCLUIDO/NAO_COMPARECEU nunca contam.
    */

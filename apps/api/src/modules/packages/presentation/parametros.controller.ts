@@ -15,6 +15,7 @@ import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
 } from '../domain/parametros-da-empresa.repository';
+import { Percentual } from '../../../shared/domain/percentual';
 import { Papeis, UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 
@@ -22,6 +23,12 @@ class AtualizarParametrosDto {
   @IsInt() @IsPositive() prazoReagendamentoDias!: number;
   @IsInt() @IsPositive() janelaCancelamentoHoras!: number;
   @IsInt() @IsPositive() janelaReagendamentoHoras!: number;
+  /**
+   * Comissão de produto em PORCENTAGEM inteira (0–100). Zero é válido e
+   * significa "não paga comissão sobre produto" — por isso `@Min(0)` e não
+   * `@IsPositive`. Vira pontos-base no domínio; nunca float.
+   */
+  @IsInt() @Min(0) @Max(100) comissaoProdutos!: number;
 }
 
 /**
@@ -55,13 +62,21 @@ export class ParametrosController {
 
   @Get()
   async obter(@UsuarioAtual() usuario: UsuarioAutenticado): Promise<ParametrosDTO> {
-    const [prazoReagendamentoDias, janelaCancelamentoHoras, janelaReagendamentoHoras, tz] = await Promise.all([
-      this.parametros.prazoReagendamentoDias(usuario.companyId),
-      this.parametros.janelaCancelamentoHoras(usuario.companyId),
-      this.parametros.janelaReagendamentoHoras(usuario.companyId),
-      this.parametros.timezone(usuario.companyId),
-    ]);
-    return { prazoReagendamentoDias, janelaCancelamentoHoras, janelaReagendamentoHoras, timezone: tz.iana };
+    const [prazoReagendamentoDias, janelaCancelamentoHoras, janelaReagendamentoHoras, tz, comissaoProdutos] =
+      await Promise.all([
+        this.parametros.prazoReagendamentoDias(usuario.companyId),
+        this.parametros.janelaCancelamentoHoras(usuario.companyId),
+        this.parametros.janelaReagendamentoHoras(usuario.companyId),
+        this.parametros.timezone(usuario.companyId),
+        this.parametros.comissaoProdutos(usuario.companyId),
+      ]);
+    return {
+      prazoReagendamentoDias,
+      janelaCancelamentoHoras,
+      janelaReagendamentoHoras,
+      timezone: tz.iana,
+      comissaoProdutos: comissaoProdutos.porcentagem,
+    };
   }
 
   @Papeis(Papel.ADMIN)
@@ -74,6 +89,7 @@ export class ParametrosController {
       this.parametros.definirPrazoReagendamentoDias(usuario.companyId, body.prazoReagendamentoDias),
       this.parametros.definirJanelaCancelamentoHoras(usuario.companyId, body.janelaCancelamentoHoras),
       this.parametros.definirJanelaReagendamentoHoras(usuario.companyId, body.janelaReagendamentoHoras),
+      this.parametros.definirComissaoProdutos(usuario.companyId, Percentual.dePorcentagem(body.comissaoProdutos)),
     ]);
     const tz = await this.parametros.timezone(usuario.companyId);
     return {
@@ -81,6 +97,7 @@ export class ParametrosController {
       janelaCancelamentoHoras: body.janelaCancelamentoHoras,
       janelaReagendamentoHoras: body.janelaReagendamentoHoras,
       timezone: tz.iana,
+      comissaoProdutos: body.comissaoProdutos,
     };
   }
 

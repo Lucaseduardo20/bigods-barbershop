@@ -51,7 +51,9 @@ export class ComissaoQueryService {
     const excecoes = new Map(barbeiro.excecoesComissao.map((e) => [e.servicoId, e.percentualBp]));
 
     const itens = await this.prisma.itemAtendido.findMany({
-      where: { atendimento: { barbeiroId, status: 'AGENDADO' } },
+      // CONCLUSAO_PENDENTE continua na projeção (2026-08-20): a comissão só
+      // nasce na aprovação, então até lá o valor ainda é previsto, não real.
+      where: { atendimento: { barbeiroId, status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] } } },
     });
     return itens.reduce((acc, item) => {
       const bp = excecoes.get(item.servicoId) ?? barbeiro.comissaoPadraoBp;

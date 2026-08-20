@@ -13,7 +13,15 @@ export class AgendamentosClienteQueryService {
 
   async proximos(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
     const atendimentos = await this.prisma.atendimento.findMany({
-      where: { companyId, clienteId, status: 'AGENDADO', inicio: { gte: new Date() } },
+      // CONCLUSAO_PENDENTE conta como próximo (2026-08-20): para o cliente o
+      // atendimento não aconteceu — a aprovação do admin é assunto interno, e
+      // sumir da lista antes da hora deixaria o cliente sem seu agendamento.
+      where: {
+        companyId,
+        clienteId,
+        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
+        inicio: { gte: new Date() },
+      },
       include: { itens: true },
       orderBy: { inicio: 'asc' },
     });
@@ -28,7 +36,7 @@ export class AgendamentosClienteQueryService {
    */
   async historico(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
     const atendimentos = await this.prisma.atendimento.findMany({
-      where: { companyId, clienteId, status: { not: 'AGENDADO' } },
+      where: { companyId, clienteId, status: { notIn: ['AGENDADO', 'CONCLUSAO_PENDENTE'] } },
       include: { itens: true },
       orderBy: { inicio: 'desc' },
     });

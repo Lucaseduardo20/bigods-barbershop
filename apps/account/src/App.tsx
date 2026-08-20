@@ -122,6 +122,9 @@ function Conta() {
         telefone={sessao.cliente.telefone}
         onSair={sair}
       />
+      {/* Landmark principal: leitor de tela pula direto pro conteúdo, sem
+          reler o cabeçalho a cada navegação (Lighthouse a11y/SEO). */}
+      <main>
       <CockpitOuBook
         sessao={sessao}
         empresaTz={empresa.timezone}
@@ -139,6 +142,7 @@ function Conta() {
         }}
         aoDeslogar={sair}
       />
+      </main>
     </div>
   );
 }

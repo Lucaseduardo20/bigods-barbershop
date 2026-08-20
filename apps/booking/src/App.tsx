@@ -790,7 +790,9 @@ function Funil() {
   return (
     <div className="funnel-shell">
       <StepHeader step={estado.step} modo={estado.modo} onBack={voltar} />
-      <div className="flex-1 px-5 py-4">
+      {/* `espaco-para-barra`: a barra de resumo é sticky e cobre o fim da lista
+          enquanto o cliente não rolou até embaixo — ver a nota no index.css. */}
+      <main className="flex-1 px-5 py-4 espaco-para-barra">
         {mostrarBannerBarbeiro && (
           <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
             <span>
@@ -828,7 +830,7 @@ function Funil() {
           </div>
         )}
         {corpo}
-      </div>
+      </main>
       {cta && (
         <SummaryBar
           resumo={resumo}

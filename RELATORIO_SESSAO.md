@@ -3362,6 +3362,44 @@ Com `UPLOADS_BUCKET`/`UPLOADS_REGION` no `.env` e a API reiniciada:
 `20260819021500_foto_barbeiro_e_produto` — **aditiva**: duas colunas novas, nuláveis, sem default
 e sem backfill. O código antigo continua rodando sem enxergá-las, e nenhuma linha existente muda.
 
+### Quando o upload falha: como descobrir por quê
+
+O erro do S3 **não vira "Internal server error"**. A resposta diz que a imagem está ok e que o
+problema é do servidor, com o código da AWS entre parênteses, e o log traz uma linha só com o
+conserto:
+
+| Código no log | O que fazer |
+|---|---|
+| `ExpiredToken`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` | credencial ausente ou vencida — em produção é a IAM Role; em dev, renove as credenciais temporárias do shell |
+| `AccessDenied` | a role não tem `s3:PutObject`/`s3:DeleteObject` neste bucket |
+| `NoSuchBucket` | `UPLOADS_BUCKET` não existe (ou não nessa região) |
+| `PermanentRedirect` | o bucket está em OUTRA região — confira `UPLOADS_REGION` |
+
+⚠️ O log é montado campo a campo (código + `requestId`) de propósito: **o objeto de erro do SDK
+carrega a credencial inteira** — o campo `Token-0` é o session token do STS. Despejar o erro cru
+escreve segredo em arquivo de log, que foi exatamente o que aconteceu na primeira vez que isto
+falhou de verdade (2026-08-19), antes deste tratamento existir.
+
+### Rodando com upload em DEV
+
+Em produção não há o que fazer: a IAM Role da EC2 renova sozinha. Em dev, a máquina precisa de
+credencial AWS — e credencial temporária de console **vence em algumas horas**, derrubando o
+upload com `ExpiredToken` sem nada ter mudado no código.
+
+Duas saídas:
+
+```bash
+# A) renovar a temporária (cole as 3 linhas do console) e REINICIAR a API
+export AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… AWS_SESSION_TOKEN=…
+
+# B) durável: um IAM user só pra dev, com permissão apenas neste bucket
+aws configure   # grava em ~/.aws/credentials, sem prazo de validade
+```
+
+A opção B evita o vai-e-vem. As credenciais também podem ir no `.env` da raiz (`AWS_ACCESS_KEY_ID`
+etc.), que o `main.ts` carrega — mas aí são chaves de longo prazo num arquivo, então só com um
+usuário restrito ao bucket de uploads.
+
 ### O que conferir no deploy
 
 - **IAM:** a role da EC2 precisa de `s3:PutObject` e `s3:DeleteObject` no bucket de uploads
@@ -3501,6 +3539,535 @@ Com `PAGAMENTO_MANUAL_WHATSAPP=true` e o número da barbearia no `.env`, API rei
 
 Vire a flag para `false` e reinicie. Só isso. Ver DECISOES_PENDENTES #38 — inclusive a sugestão de
 **manter** o modo manual desligado por um tempo, como plano B se o gateway cair.
+
+## Grafo de conhecimento (graphify) — 2026-08-19 ✅
+
+Mapa consultável do código: quem chama o quê, o que depende de quê, que caminho liga A a B.
+Substitui o `grep` às cegas quando a pergunta é "onde isso acontece?".
+
+### O que foi instalado
+
+| O quê | Onde |
+|---|---|
+| `uv` 0.12.5 (gerenciador do pacote) | `~/.local/bin/` — binário oficial da Astral, checksum SHA-256 conferido |
+| `graphifyy` 0.9.47 (CLI `graphify`) | env isolado do `uv tool` |
+| Skill do assistente | `.claude/skills/graphify/` (escopo de PROJETO — versionado, o time recebe junto) |
+| Hooks `PreToolUse` | `.claude/settings.json` |
+| Grafo | `graphify-out/` |
+
+O pacote no PyPI é **`graphifyy`** (dois "y") — o nome `graphify` não existe lá. Não é typosquat:
+o próprio README avisa disso, e o `graphifyy` aponta de volta para o repo nos `project_urls`.
+
+### Decisões deste setup
+
+**Hooks portáteis.** O `graphify install` escreveu o caminho absoluto da máquina de quem instalou
+(`/home/<user>/.local/bin/graphify`) nos hooks. Como `.claude/settings.json` é versionado, na
+máquina de qualquer outro dev isso sai com exit 127 a cada `Grep`/`Read`. Trocado por
+`command -v graphify >/dev/null && graphify hook-guard … || true`: acha pelo PATH e vira no-op
+silencioso quando não está instalado.
+
+**Custo dos hooks: ~208 ms por chamada.** Cada `Bash`/`Grep`/`Read`/`Glob` do assistente passa
+pelo `graphify hook-guard`, que sobe um processo Python. Medido nesta máquina: ~208 ms por
+invocação. É o preço de o agente ser lembrado do grafo antes de sair grepando. Se incomodar,
+reduza o `matcher` em `.claude/settings.json` (por exemplo, só `Grep`) ou remova os hooks — o
+resto do setup continua funcionando, só deixa de haver o empurrão automático.
+
+**Extração `--code-only`.** Código é lido com tree-sitter, 100% local, zero chamada de API,
+**nada sai da máquina**. A passagem de *documentos* manda o conteúdo para um LLM — não foi
+rodada (ver "O que falta decidir" abaixo).
+
+**`.graphifyignore` com os segredos.** O `.gitignore` já é respeitado automaticamente, mas há
+arquivo **versionado** com segredo real dentro: `AWS_SETUP.md` (senha do RDS, `AUTH_SECRET`,
+token do WhatsApp) e os `.env*.example` (chave da AbacatePay, webhook secret). Todos excluídos.
+Conferido depois da extração: nenhum desses valores aparece em `graph.json` nem no relatório.
+Quando o `AWS_SETUP.md` for limpo, tire-o do `.graphifyignore` — o runbook é justamente um dos
+documentos que faz sentido no grafo.
+
+**`graph.html` fora do git.** O `graphify-out/` é versionado de propósito (quem clona já
+consulta, é o que faz o mapa ser do time e não de cada um), menos os 3,7 MB da visualização
+interativa: ela é regerada de graça em ~1 min e nenhuma ferramenta a lê. Sobram ~5,3 MB.
+
+**O grafo não substitui o DOMAIN.md.** Anotado no `CLAUDE.md`, fora da seção que o
+`graphify install` gerencia. O grafo sabe como o código **é**; o DOMAIN.md diz como ele
+**deveria ser**. Em conflito, DOMAIN.md vence — a regra não mudou.
+
+### Uso
+
+```bash
+graphify query "onde o desconto progressivo é calculado"   # navegar
+graphify explain "IntencaoDePagamento"                     # um conceito e suas 34 conexões
+graphify path "AgendarAvulsoUseCase" "IntencaoDePagamento"  # como A chega em B
+graphify update .                                          # depois de mexer no código (local, grátis)
+graphify extract . --code-only                             # reconstruir do zero (~1 min)
+```
+
+O `/graphify .` dentro do assistente faz a mesma coisa pela skill.
+
+O `path` é **dirigido** por padrão. Sem caminho, ele avisa e sugere `--undirected` — mas cuidado
+com o resultado não-dirigido: dois agregados quaisquer "se ligam" em 2 saltos por herdarem de
+`AggregateRoot`, o que é verdade e não significa nada. O caminho dirigido é o que responde
+"quem, de fato, chega em quem".
+
+### Estado do grafo
+
+3091 nós · 7840 arestas · 173 comunidades · 98% `EXTRACTED` / 2% `INFERRED` · 391 arquivos de
+código. Os hubs que ele elegeu sozinho são exatamente o domínio: `Atendimento`,
+`VendaDePacote`, `IntencaoDePagamento`, `PacoteOferta`, `Dinheiro`, `Telefone`, `Barbeiro`.
+
+### O que falta decidir
+
+**A passagem de documentos.** 29 documentos ficaram fora — incluindo o `DOMAIN.md`, que é a
+especificação de verdade. Indexá-los ligaria a spec ao código no mesmo grafo (o maior ganho
+possível para "bíblia do ecossistema"), mas:
+
+- o conteúdo dos `.md` é **enviado a um LLM** (pela skill, usando o modelo da sessão, ou headless
+  com `--backend claude` / uma API key);
+- consome token — 29 documentos, dos quais alguns são grandes (`RELATORIO_SESSAO.md` tem 3,4 mil
+  linhas);
+- e as comunidades também só ganham nome semântico ("Pagamentos e webhooks") com LLM. Hoje elas
+  levam o nome do hub, o que já é legível.
+
+Não rodei porque tem custo e manda conteúdo de vocês para fora. Para fazer depois:
+`/graphify .` no assistente, ou `graphify extract . --backend claude`.
+
+## Polimento pré-go-live (2026-08-19) ✅
+
+Seis correções pontuais achadas no QA do dia. Nenhuma toca regra de negócio.
+
+### 0. Número do WhatsApp da comanda — o caminho do dinheiro
+
+`PAGAMENTO_MANUAL_WHATSAPP_NUMERO` agora é **`5513991878125`** (55 = Brasil, 13 = DDD). Sem o
+DDI o `wa.me` abre conversa vazia.
+
+**Não há default no código:** `lerConfigPagamentoManual` lê só da env e devolve string vazia se
+ela sumir — e o boot recusa subir com a flag ligada e menos de 12 dígitos. Verificado: nenhum
+número hardcoded em `apps/` ou `packages/`.
+
+O `.env.example` agora explica o formato dígito a dígito e avisa que **este é o número que RECEBE
+os pedidos** — tem que ser um aparelho que alguém olha, e não é necessariamente o número de
+contato do rodapé do funil (esse fica em `apps/booking/src/lib/barbearia.ts`).
+
+**Como validar:** funil → "Pagar agora" → a tela da ponte. O `href` do botão tem que começar com
+`https://wa.me/5513991878125?text=`.
+
+### 1. A barra de resumo cobria o fim da lista de serviços
+
+`.espaco-para-barra` (176 px de `padding-bottom`) no conteúdo do passo, em
+`apps/booking/src/index.css` + `App.tsx`.
+
+**O mecanismo, com precisão:** a `.summary-bar` é `position: sticky` e **opaca**. Enquanto o
+cliente não rolou até o fim, ela fica por cima dos itens logo abaixo. Antes da correção, mesmo
+rolando até o fim, o último serviço parava a **6 px** da barra — encostado. Um toque perto dessa
+borda cai no `"Continuar →"` que mora dentro da barra, e o funil avança com um serviço a menos.
+
+**Medido depois (mobile 390×844):** folga de **176 px** entre o último serviço e a barra, e os
+5 serviços alcançáveis (`elementFromPoint` confirma que o toque cai no botão certo, não na barra).
+
+**Como validar visualmente:** funil → escolha um barbeiro → selecione **um** serviço (é quando a
+barra cresce, mostrando "adicione mais um serviço e ganhe R$ X") → role até o fim. O último
+serviço tem que ficar bem acima da barra, com folga confortável, não colado.
+
+### 2. Contraste do texto secundário
+
+`--text-muted` deixou de apontar para `--neutral-400` (`#ab9a7c`) e virou **`#70634c`**, nos três
+apps.
+
+| Fundo | Antes | Depois |
+|---|---|---|
+| `--surface-card` #ffffff | 2,75 | **5,87** |
+| `--surface-app` #faf7f2 | 2,57 | **5,49** |
+| `--surface-sunken` #f3ede2 | 2,36 | **5,04** |
+| `--surface-brand-tint` #f3e2c2 | 2,08 | **4,60** |
+
+★ **O pior caso não é o branco** — é o creme `#f3e2c2` dos cards de pacote e do banner do
+barbeiro. Na primeira tentativa eu escolhi `#74664f` testando só contra três superfícies e ficou
+**4,38** ali: 0,12 abaixo do mínimo. O Lighthouse pegou. O tom final cobre as quatro.
+
+O `--neutral-400` continua na paleta intacto — ele só alimentava este token, e paleta não precisa
+passar em contraste; texto precisa.
+
+**Resultado:** Lighthouse mobile do funil, acessibilidade **92 → 94**, e os 9 elementos que
+reprovavam viraram **0**.
+
+**Como validar visualmente:** o texto cinza-claro do funil ("Progresso salvo automaticamente",
+"PIX pelo WhatsApp", "SERVIÇOS REALIZADOS", "· 20 min") tem que estar visivelmente mais escuro e
+legível, sem virar preto — ele continua mais claro que o texto secundário.
+
+⚠️ **Sobraram 3 elementos reprovando, de OUTRO par de cores** (não mexi, não estava no escopo):
+a etiqueta "economize R$ X" dos cards de pacote usa `#ffecb9` sobre `#8f6c30` = **4,12**, faltando
+0,38. Corrigir exige escurecer o dourado da etiqueta (para ~`#835f28`) ou trocar o texto para o
+marrom da marca — é decisão de identidade visual, não de polimento. Diga se quer.
+
+### 3. "5 de 5 disponíveis" contava o item já agendado
+
+`apps/account/src/screens/Home.tsx` — o texto virou **"5 de 5 serviços no pacote"**. O número não
+muda (é quanto o cliente ainda tem: disponíveis + agendados); a palavra é que prometia errado.
+Escolhi trocar o texto, e não a contagem, porque o total do pacote é informação útil e "3 de 5
+disponíveis" esconderia que ele ainda tem 5 serviços pagos.
+
+**Como validar:** compre um pacote, libere no admin, agende um crédito. O cartão do pacote deve
+dizer "5 de 5 serviços no pacote" e listar o agendado com o horário ao lado.
+
+### 4. Reserva expirada sumiu do histórico do cliente
+
+`apps/account/src/screens/Historico.tsx` filtra `RESERVA_EXPIRADA` da lista. **O registro continua
+no banco** e o admin continua vendo tudo na agenda — some só da leitura do cliente.
+
+Motivo: essa reserva nasce quando alguém abre o pagamento online e não conclui — inclusive quando
+o próprio cliente clica "alterar meu pedido" e refaz no mesmo horário. O cliente via "Expirado"
+ao lado do agendamento que **acabou de confirmar**, mesmo dia e hora, e se assustava.
+
+**Como validar:** confirmado no QA — o histórico do cliente de teste passou a mostrar só o
+"Cancelado", sem o "Expirado" do mesmo horário.
+
+### 5. SEO e landmarks
+
+- `<main>` no funil (conteúdo do passo e a landing) e no cockpit. O admin já tinha.
+- `meta description` nos três apps.
+- `robots.txt` nos três — e não é o mesmo arquivo: **booking libera** indexação (é o funil
+  público), **account e admin bloqueiam** (`Disallow: /`), porque são área logada e painel de
+  gestão. Antes não existia arquivo nenhum: o dev server devolvia o `index.html` com
+  `content-type: text/html`, e era isso que o Lighthouse lia como "robots.txt inválido".
+
+**Resultado:** SEO **83 → 100**.
+
+## Comissão de produto — taxa única da empresa (2026-08-19) ✅
+
+Decisão dos sócios: produto é **revenda**, não mão de obra. Pagar sobre o preço de venda a mesma
+régua do serviço pode custar mais que a margem do produto.
+
+### ⚠️ Antes de tudo: a premissa do pedido estava incorreta
+
+O pedido dizia *"hoje a comissão de PRODUTO usa a mesma taxa da de SERVIÇO"*. **Não usava.** O
+código já lia `barbeiro.comissaoProdutos`, um campo separado, nos dois únicos pontos que lançam
+comissão de produto. O que estava errado era outra coisa:
+
+| barbeiro | taxa de serviço | taxa de produto (antes) |
+|---|---|---|
+| Gabriel | 45% | 10% |
+| Erick Yan | 35% | **0%** |
+| Igor Molinho | 40% | **0%** |
+
+A taxa era **por barbeiro** e estava inconsistente — dois profissionais sem comissão nenhuma sobre
+produto, sem que ninguém tivesse decidido isso. A mudança pedida (taxa **global** da empresa)
+resolve exatamente esse problema, então foi implementada como decidido.
+
+### Onde a comissão de produto era calculada — e o que mudou
+
+Dois pontos, ambos no módulo de payroll:
+
+| Arquivo | Cobre |
+|---|---|
+| `on-venda-de-produto-registrada.handler.ts` | venda avulsa ("entrou só pra comprar") |
+| `on-atendimento-concluido.handler.ts` | produto anexado ao atendimento — **inclui o que entrou pelo order-bump do funil** |
+
+Os dois trocaram `barbeiro.comissaoProdutos` por `parametros.comissaoProdutos(companyId)`. O
+order-bump não precisou de mudança própria: o produto do bump vira `ItemProdutoAtendido` e cai no
+mesmo handler de conclusão — confirmado por teste.
+
+A comissão de **serviço** não foi tocada: continua vindo da matriz barbeiro×serviço, com o preço
+por barbeiro e o rateio de pacote intactos.
+
+### A prova do snapshot
+
+O teste `comissao-produto-global.e2e.spec.ts` faz exatamente o percurso que preocupa:
+
+1. vende um produto de R$ 35,00 com a taxa em **10%** → lançamento de **R$ 3,50**;
+2. o admin **triplica** a taxa para 30%, pela mesma tela que usaria de verdade (`PATCH /parametros`);
+3. ★ relê o lançamento antigo: **continua R$ 3,50 e 10%** — não virou R$ 10,50;
+4. vende de novo → o lançamento **novo** sai a 30%.
+
+É o que garante que o extrato de um barbeiro não é reescrito por uma decisão tomada depois.
+
+### Confirmação de que serviço não regrediu
+
+Dois testes, sendo o segundo o que mais importa:
+
+- atendimento de serviço → comissão **45% de R$ 40,00 = R$ 18,00** (a taxa do barbeiro, como
+  sempre foi);
+- ★ no **mesmo atendimento**, serviço e produto saem com taxas **diferentes** (45% e 10%) — que é
+  o ponto inteiro da mudança.
+
+E há uma armadilha proposital nas fixtures: a taxa deprecada do barbeiro fica em **60%**, muito
+longe dos 10% da empresa. Se algum caminho voltar a ler do barbeiro, a conta erra por uma margem
+impossível de confundir com arredondamento.
+
+### ⚠️ A taxa começa em ZERO — alguém precisa definir o número
+
+A decisão dos sócios definiu **como** a comissão funciona, não **quanto**. Não inventei um
+percentual: a coluna nasce com `0`, e produto não paga comissão até o admin configurar em
+**Ajustes → Parâmetros → Comissão sobre produtos (%)**.
+
+Consequência: o Gabriel, que tinha 10% no perfil dele, deixa de receber sobre produto até a taxa
+da casa ser definida. **Nenhum lançamento existente mudou** — não havia nenhuma comissão de
+produto lançada no banco (conferido antes da mudança). Ver DECISOES_PENDENTES #42.
+
+### ★ Um bug de teste que isto revelou (e que não era meu)
+
+Ao rodar a suíte, 25 testes de PIX quebraram sem que o código deles tivesse mudado. A causa não
+era a comissão:
+
+**O `@prisma/client` carrega o `.env` da raiz sozinho, ao ser importado.** Como todo e2e importa o
+`AppModule`, que puxa o Prisma, o `.env` da máquina de quem roda vazava para dentro dos testes —
+inclusive `PAGAMENTO_MANUAL_WHATSAPP=true`, que é o estado normal de quem está mexendo nessa
+feature.
+
+A suíte estava verde **por acidente de ordem**: o arquivo `pagamento-manual-whatsapp.e2e.spec.ts`
+deleta essa variável no `afterAll`, e os arquivos rodam no mesmo processo. Quem rodava depois dele
+herdava a limpeza. Bastou meu arquivo novo mudar a ordenação para o acidente parar de acontecer.
+
+**Corrigido na raiz:** `apps/api/test/setup-env.ts` (registrado em `setupFiles`) fixa as variáveis
+que mudam comportamento de negócio antes de cada arquivo. Ver DECISOES_PENDENTES #43.
+
+### Migration
+
+`20260819190000_comissao_produto_global` — **aditiva**: cria `Company.comissaoProdutosBp` com
+default 0. `Barbeiro.comissaoProdutosBp` fica no banco, deprecada e sem leitor, para rollback
+(DECISOES_PENDENTES #41).
+
+### Roteiro de smoke test manual
+
+1. **Ajustes → Parâmetros:** o campo **"Comissão sobre produtos (%)"** existe e mostra `0`.
+   Coloque **10** e salve.
+2. **Agenda → "+ Venda de produto":** venda a Pomada (R$ 34,99) para um barbeiro qualquer.
+3. **Financeiro → comissões do barbeiro:** deve aparecer **R$ 3,50** (10% de 34,99 = 3,499,
+   arredondado). Confira que **não** é 45% nem a taxa antiga do perfil dele.
+4. ★ **Volte em Ajustes e mude a taxa para 30%.** Volte ao Financeiro: **a comissão da venda do
+   passo 2 continua R$ 3,50**. Se mudou, a regra do snapshot quebrou — pare o deploy.
+5. **Venda outro produto igual:** o lançamento novo sai **R$ 10,50** (30%).
+6. **Conclua um atendimento com serviço + produto:** no extrato, os dois lançamentos aparecem com
+   percentuais diferentes — serviço pela taxa do barbeiro, produto pela taxa da casa.
+7. **Order-bump:** faça um agendamento pelo funil adicionando o produto na vitrine, conclua no
+   admin, e confira que a comissão do produto saiu pela taxa da casa.
+
+## Home do painel — primeira tela depois do login (2026-08-19) ✅
+
+Duas variantes por papel, cada card com "ver tudo" pra seção completa. É tela de **leitura**: a
+única coisa calculada é o ticket médio.
+
+### O que cada card lê — e de qual fonte
+
+**Home PESSOAL** (barbeiro não-admin):
+
+| Card | Fonte |
+|---|---|
+| Próximos 2 atendimentos | `Atendimento` do barbeiro, `AGENDADO`, do agora em diante |
+| Meu saldo na casa | ★ **`ComissaoQueryService.saldo()`** — a MESMA função que o Financeiro usa |
+| Últimas 2 comissões | `LancamentoComissao` tipo `COMISSAO` dele |
+| Últimos 2 pagamentos | `LancamentoComissao` tipo `PAGAMENTO` dele |
+
+**Home de GESTÃO** (admin):
+
+| Card | Fonte |
+|---|---|
+| Agenda de hoje | `Atendimento` da empresa no dia civil local (todos os barbeiros) |
+| Entrou hoje | faturamento do dia — definição abaixo |
+| Concluídos hoje | `count` de `Atendimento` `CONCLUIDO` no dia |
+| Esperando você | `VendaDePacote` `AGUARDANDO` + `Atendimento` `RESERVADO` |
+| Ticket médio | faturamento do mês ÷ concluídos do mês |
+
+★ **O saldo não é recalculado na home.** Tem teste que compara o número da home com o do extrato
+e falha se divergirem — porque um número diferente entre duas telas do mesmo dinheiro é bug, não
+arredondamento.
+
+### Faturamento — de quais registros soma
+
+```
+  atendimentos CONCLUÍDOS no período (serviços + produtos, valor CONGELADO no atendimento)
++ vendas avulsas de produto no período
+```
+
+**Venda de pacote NÃO entra.** O dinheiro do pacote aparece quando o crédito é consumido, no
+atendimento — contar também na venda somaria o mesmo dinheiro duas vezes, e o ticket médio (que é
+por VISITA) ficaria distorcido por algo que não é visita. A consequência está registrada em
+DECISOES_PENDENTES #44: o dia de muita venda de pacote mostra faturamento baixo, e os seguintes
+mostram alto conforme os créditos são usados.
+
+### Ticket médio — a regra
+
+Faturamento do **mês corrente** ÷ atendimentos **concluídos** no mês corrente. Centavos inteiros,
+arredondado ao centavo mais próximo. **Sem atendimento no mês → `null`, que a tela mostra como
+"—"** — nunca `Infinity`, nunca zero disfarçado de número real.
+
+A conta mora em `payroll/domain/ticket-medio.ts`, TypeScript puro, com 7 testes. O caso conferido
+à mão: três visitas de R$ 40,00 / R$ 70,00 / R$ 75,00 (a última com produto) = R$ 185,00 ÷ 3 =
+**R$ 61,67**.
+
+### O que NÃO foi criado de novo
+
+- **Walk-in:** o botão "Registrar atendimento" navega pra Agenda com o diálogo que já existe lá
+  já aberto (`abrirNovoAoEntrar`). Nenhum fluxo novo de criação.
+- **Roteamento:** as seções continuam onde estavam; só mudou por onde se começa. Nenhum link
+  quebrou — a home é uma aba a mais, a primeira.
+- **Foto no header:** reusa o `<Foto>` do `FotoUpload`, com iniciais de fallback.
+
+### ACL
+
+Dois endpoints, não um que muda de forma: `/home/gestao` é `@Papeis(ADMIN)` e `/home/pessoal`
+resolve o barbeiro **pelo token**. Testes provam os três casos: barbeiro comum recebe 403 na
+gestão; sem sessão as duas dão 401; e passar `?barbeiroId=` de outro na home pessoal **não muda
+nada** — continua vindo a dele.
+
+### Smoke test manual
+
+1. **Logar como `gabriel` (admin+barbeiro):** cai na home de **GESTÃO** ("Como a casa está hoje"),
+   com faturamento, concluídos, agenda do dia, pendências e ticket médio. **Não** deve aparecer
+   "Meu saldo na casa".
+2. **Clicar "+ Registrar atendimento":** vai pra Agenda com o diálogo "Novo atendimento avulso"
+   **já aberto**.
+3. **Cada "ver tudo"** leva pra seção certa (Agenda, Financeiro, Pacotes).
+4. **Sair e logar como `igormolinho` (barbeiro puro):** cai na home **PESSOAL** ("Seu dia e seu
+   dinheiro"), com os 4 cards dele. As abas Usuários/Catálogo/Funil **não existem**, e nenhum
+   número de gestão aparece.
+5. ★ **Conferir o saldo:** o valor em "Meu saldo na casa" tem que ser **idêntico** ao que o
+   Financeiro mostra pra ele. Se divergir, é bug — não arredondamento.
+6. **Foto no topo:** quem tem foto vê a foto; quem não tem, as iniciais.
+
+## Tela de comissão do barbeiro (2026-08-20) ✅
+
+Origem: a pergunta "por que o Erick ganhou 60% na barba e 35% nos outros serviços do mesmo
+atendimento?". A resposta era a matriz barbeiro×serviço (`percentualPara(servico) =
+excecoesComissao.get(servico) ?? comissaoPadrao`, DOMAIN.md §3.2) — mas **não havia tela para ver
+nem mexer nisso**.
+
+### O que existia e o que faltava
+
+| | Antes |
+|---|---|
+| `PUT /barbeiros/:id/comissao` (padrão + exceções) | existia e era testado |
+| Campo "Comissão padrão" na CRIAÇÃO do usuário | existia |
+| Qualquer tela para EDITAR comissão depois | **não existia** |
+
+Consequência observada em produção: as exceções foram gravadas fora da interface, e os
+percentuais ficaram inconsistentes entre os barbeiros (Erick 35% com exceção de 60% na barba,
+Gabriel 45%, Igor 40%) sem ninguém ter decidido isso numa tela.
+
+### O que a tela faz
+
+Seção **"Comissão de serviço"** no detalhe do usuário (Usuários → barbeiro), ao lado de "Preços",
+que serviu de molde — mesma estrutura e o mesmo endpoint de substituição total.
+
+Duas escolhas que não são cosméticas:
+
+**Mostra o EFETIVO de cada serviço, não só "padrão + exceções".** Cada linha diz `vale 60%
+(exceção)` ou `vale 35% (padrão)`. Foi exatamente a diferença entre dois percentuais no mesmo
+atendimento que gerou a dúvida — ver a matriz inteira é o que evita a surpresa no extrato.
+
+**Avisa do snapshot na própria tela:** *"Mudar aqui não altera comissão já lançada"*. Sem isso,
+alguém baixa o percentual e vai conferir o extrato esperando o número antigo mudar.
+
+Serviço que o barbeiro **não atende** aparece marcado como tal — configurar comissão de algo que
+ele não faz é inofensivo, mas saber disso evita confusão.
+
+Comissão de **produto** não está aqui de propósito: desde 2026-08-19 é taxa única da empresa, em
+Ajustes → Parâmetros (§3.9.1). O endpoint ainda exige o campo (deprecado), então a tela devolve o
+valor atual sem alterá-lo.
+
+### Verificado na tela, com o dado real
+
+1. Abri Usuários → Erick Yan: a seção mostrou **Barba `vale 60% (exceção)`** e Cavanhaque, Corte,
+   Progressiva e Sobrancelha em **`vale 35% (padrão)`** — a matriz que responde a pergunta.
+2. Mudei a Barba para 50% e salvei → exceção no banco virou `5000`.
+3. ★ Conferi o lançamento antigo: **continua 60% e R$ 16,13**. O snapshot vale.
+4. Voltei para 60% e conferi que o estado do Erick ficou **idêntico ao de antes do teste**.
+
+### Smoke test manual
+
+Usuários → um barbeiro → **Comissão de serviço**. Mude o padrão ou a exceção de um serviço, salve,
+e confira: (a) a linha do serviço passa a dizer o novo percentual; (b) no Financeiro, **nenhum
+lançamento antigo mudou**; (c) o próximo atendimento concluído sai com o percentual novo.
+
+## Trava de conclusão antecipada (2026-08-20) ✅
+
+Origem, na voz do dono: *"precisamos incluir uma trava quando o barbeiro vai concluir um
+atendimento que teoricamente ainda não aconteceu (...) para que ele não saia concluindo
+atendimentos e poluindo a comissão."*
+
+O buraco era real: `POST /atendimentos/:id/concluir` não olhava o relógio. Um barbeiro podia
+abrir a agenda de sexta na terça, concluir tudo, e a comissão nascia — porque a comissão reage ao
+evento `AtendimentoConcluido`, e o evento saía na hora.
+
+### A regra
+
+Estado novo: **`CONCLUSAO_PENDENTE`** (DOMAIN.md §4.1).
+
+| Quem | Quando | O que acontece |
+|---|---|---|
+| barbeiro (não-admin) | `agora < inicio` | 409 pedindo motivo → com motivo, vira `CONCLUSAO_PENDENTE` |
+| barbeiro (não-admin) | horário já começou | conclui direto, como sempre |
+| admin | qualquer horário | conclui direto — é ele quem aprovaria |
+| admin | sobre um pendente | **aprova** (→ `CONCLUIDO`) ou **recusa** (→ `AGENDADO`) |
+
+**O pedido não move dinheiro nenhum.** Nenhum evento é emitido na solicitação: a comissão nasce
+na aprovação, e o crédito de pacote é consumido lá também. Sem isso, a trava seria decorativa —
+bastaria pedir e a comissão viria igual.
+
+### Três decisões que não são óbvias
+
+**O pendente OCUPA o horário.** Entra na invariante do agregado, na constraint `EXCLUDE` e nas
+cinco queries de `horarios-disponiveis`. Motivo: a recusa devolve o atendimento pra `AGENDADO`, e
+o horário precisa estar esperando — se tivesse sido vendido pra outro cliente no meio, a recusa
+criaria uma sobreposição que o banco recusaria.
+
+**A forma de pagamento é exigida no PEDIDO, não na aprovação.** Quem sabe como o cliente pagou é
+o barbeiro. Descobrir que falta só no momento em que o admin aprova deixaria o pedido travado sem
+quem o resolvesse.
+
+**★ O motivo SOBREVIVE à aprovação.** Só a recusa limpa os campos. Um mês depois, *"por que o
+Erick concluiu 12 atendimentos antes do horário?"* precisa ter resposta — apagar o motivo ao
+aprovar perderia exatamente o fato que a trava existe pra vigiar. Aparece no detalhe do
+atendimento concluído: *"Concluído antes do horário, aprovado. Motivo de …"*.
+
+### Onde isso aparece
+
+- **Modal no admin** (o que o dono pediu): clicar em concluir antes da hora abre a tela de
+  justificativa, e depois de enviar diz, com essas palavras, que o atendimento **ainda não está
+  concluído** e que a comissão entra depois da aprovação.
+- **Home de gestão → "Esperando você"**: cada pendência lista barbeiro e motivo. Sem isso a trava
+  não protegeria nada — só travaria: o barbeiro ficaria sem comissão e ninguém saberia que havia
+  algo a decidir.
+- **Agenda → aba "A aprovar"**, e badge "Aguardando aprovação" no card.
+- **Projeção de comissão** continua contando o pendente (é valor previsto, não real) — o barbeiro
+  não vê o número despencar ao pedir.
+- **Cliente (app account)**: nada muda. O agendamento continua em "próximos" com o rótulo
+  `Agendado` — a aprovação é assunto interno da barbearia, e o atendimento de fato não aconteceu.
+
+### Migrations (duas, aditivas)
+
+`20260820010000_conclusao_pendente_enum` e `20260820010100_conclusao_pendente_campos`.
+Separadas porque o Postgres **não permite usar** um valor de enum na mesma transação em que ele é
+adicionado — a segunda migration recria a constraint `atendimento_sem_sobreposicao` incluindo o
+estado novo no predicado.
+
+### Testes
+
+**25 novos** (12 de domínio, 13 de integração/e2e), suíte em **777 verdes** nos 3 fusos. O que eles protegem,
+em ordem de importância:
+
+1. ★ pedido pendente **não gera lançamento de comissão**; a aprovação gera, com o valor certo;
+2. ★ crédito de pacote **não é consumido** no pedido — só na aprovação; a recusa deixa o item
+   intacto;
+3. o barbeiro **não aprova o próprio pedido** (403), e pedir de novo sobre um pendente devolve
+   409 dizendo que já está aguardando aprovação (não "informe o motivo", que ele já informou);
+4. o horário pendente **não é oferecido** na projeção pública de horários, e a constraint
+   `EXCLUDE` do banco rejeita sobreposição com ele (teste que verifica a *migration*, não o
+   domínio — era o predicado mais fácil de esquecer);
+5. atendimento cujo horário já começou conclui sem modal (a trava não pega o caso normal);
+6. o motivo continua no atendimento depois de aprovado (auditoria).
+
+### Decisões deixadas em aberto
+
+`DECISOES_PENDENTES.md` #46 (tolerância de minutos — hoje a comparação é estrita, então concluir
+08:58 um atendimento de 09:00 pede justificativa) e #47 (a recusa não avisa o barbeiro nem exige
+motivo do admin).
+
+### Smoke test manual
+
+Logado como **barbeiro não-admin**: Agenda → um atendimento de amanhã → o botão diz *"Concluir
+antes do horário…"* → clique → escreva o motivo → enviar. Confira no Financeiro que **nenhuma
+comissão** apareceu. Logado como **admin**: Home → "Esperando você" mostra a pendência com o
+motivo; Agenda → aba "A aprovar" → abra e **aprove** → agora a comissão aparece no extrato do
+barbeiro, e o detalhe do atendimento mostra o motivo registrado.
 
 ## Como rodar localmente
 

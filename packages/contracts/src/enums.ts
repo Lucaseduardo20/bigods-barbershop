@@ -13,6 +13,17 @@ export enum StatusAtendimento {
    */
   RESERVADO = 'RESERVADO',
   AGENDADO = 'AGENDADO',
+  /**
+   * O barbeiro concluiu ANTES do horário marcado e justificou; espera aprovação
+   * do admin (2026-08-20). Nada de dinheiro acontece aqui: a comissão só nasce
+   * na aprovação, e o crédito de pacote só é consumido lá — senão bastaria
+   * concluir atendimentos futuros para inflar comissão.
+   *
+   * Ocupa o horário exatamente como AGENDADO (invariante do domínio + constraint
+   * EXCLUDE): a recusa devolve o atendimento pra AGENDADO, e o horário precisa
+   * estar lá esperando.
+   */
+  CONCLUSAO_PENDENTE = 'CONCLUSAO_PENDENTE',
   CONCLUIDO = 'CONCLUIDO',
   CANCELADO = 'CANCELADO',
   NAO_COMPARECEU = 'NAO_COMPARECEU',

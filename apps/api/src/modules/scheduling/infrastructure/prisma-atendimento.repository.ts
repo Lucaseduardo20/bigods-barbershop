@@ -45,6 +45,12 @@ function paraDominio(row: Row): Atendimento {
     valorAbatidoSaldo: Dinheiro.deCentavos(row.valorAbatidoSaldoCentavos),
     vendaAbatidaId: row.vendaAbatidaId,
     reservaOnlineExpiraEm: row.reservaOnlineExpiraEm,
+    conclusaoAntecipadaMotivo: row.conclusaoAntecipadaMotivo,
+    conclusaoSolicitadaPorId: row.conclusaoSolicitadaPorId,
+    conclusaoSolicitadaEm: row.conclusaoSolicitadaEm,
+    conclusaoFormaPagamento: row.conclusaoFormaPagamento
+      ? FormaPagamento[row.conclusaoFormaPagamento]
+      : null,
   });
 }
 
@@ -64,7 +70,10 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
     const rows = await this.db.atendimento.findMany({
       where: {
         barbeiroId,
-        status: { in: ['AGENDADO', 'RESERVADO'] },
+        // CONCLUSAO_PENDENTE ocupa o horário como AGENDADO (2026-08-20) — sem
+        // isto, o domínio não veria o conflito e só a constraint EXCLUDE
+        // barraria, com erro de banco em vez de mensagem de negócio.
+        status: { in: ['AGENDADO', 'RESERVADO', 'CONCLUSAO_PENDENTE'] },
         inicio: { lt: fim },
         fim: { gt: inicio },
       },
@@ -77,7 +86,10 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
     return this.db.atendimento.count({
       where: {
         clienteId,
-        status: 'AGENDADO',
+        // CONCLUSAO_PENDENTE conta na cota (2026-08-20) pela mesma razão que
+        // ocupa o horário: se a recusa devolve o atendimento pra AGENDADO, ele
+        // nunca deixou de ser um presencial futuro segurado pelo cliente.
+        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
         reservaOnlineExpiraEm: null,
         inicio: { gt: agora },
       },
@@ -117,6 +129,10 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       valorAbatidoSaldoCentavos: atendimento.valorAbatidoSaldo.centavos,
       vendaAbatidaId: atendimento.vendaAbatidaId,
       reservaOnlineExpiraEm: atendimento.reservaOnlineExpiraEm,
+      conclusaoAntecipadaMotivo: atendimento.conclusaoAntecipadaMotivo,
+      conclusaoSolicitadaPorId: atendimento.conclusaoSolicitadaPorId,
+      conclusaoSolicitadaEm: atendimento.conclusaoSolicitadaEm,
+      conclusaoFormaPagamento: atendimento.conclusaoFormaPagamento,
     };
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {

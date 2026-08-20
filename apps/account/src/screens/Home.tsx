@@ -200,6 +200,13 @@ function PacoteCard({
   tz: string;
   onAgendar: (servicoId: string | null) => void;
 }) {
+  /**
+   * "Abertos" = tudo que o cliente ainda não perdeu: DISPONIVEL e AGENDADO.
+   * O número está certo como "quanto ainda tenho no pacote" — a palavra é que
+   * prometia errado (QA 2026-08-19): dizer "disponíveis" com um item já
+   * agendado faz o cliente achar que pode marcar aquele de novo. O texto abaixo
+   * fala em "serviços no pacote", que é o que este número realmente é.
+   */
   const abertos = pacote.itens.filter((i) => i.status !== StatusItemPacote.CONSUMIDO && i.status !== StatusItemPacote.EXPIRADO).length;
   const podeAgendar = temCreditoLivre(pacote);
   const compradoEm = new Date(pacote.compradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: tz });
@@ -216,7 +223,7 @@ function PacoteCard({
         </div>
       ) : (
         <div style={{ fontSize: 13, color: abertos ? 'var(--text-secondary)' : 'var(--text-muted)', marginBottom: 12 }}>
-          {abertos ? `${abertos} de ${pacote.itens.length} serviços disponíveis` : 'Todos os serviços usados — obrigado!'}
+          {abertos ? `${abertos} de ${pacote.itens.length} serviços no pacote` : 'Todos os serviços usados — obrigado!'}
         </div>
       )}
 

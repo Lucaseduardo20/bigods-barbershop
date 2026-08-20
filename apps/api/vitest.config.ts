@@ -5,6 +5,9 @@ export default defineConfig({
   test: {
     include: ['src/**/*.spec.ts', 'test/**/*.spec.ts'],
     environment: 'node',
+    // Neutraliza o `.env` da máquina antes de cada arquivo — o Prisma Client
+    // carrega o .env sozinho ao ser importado. Ver o comentário do arquivo.
+    setupFiles: ['./test/setup-env.ts'],
     // e2e sobe o AppModule real (Prisma, guard global) — sem paralelismo entre
     // arquivos para não competir por conexões/estado no mesmo Postgres.
     fileParallelism: false,

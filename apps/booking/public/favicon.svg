@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Bigod's Barber">
+  <title>Bigod's Barber</title>
+  <rect width="32" height="32" rx="7" fill="#342414"></rect>
+  <g transform="translate(16 16.6) scale(.86) translate(-16 -16)">
+  <g fill="#b88e42">
+    <path d="M16 10.6c-1.4 2.6-3.6 4.4-6.4 5.4-2.6.9-5.6.6-8-2.4.4 5.8 4 9.6 8.4 9.6 3 0 5.2-1.6 6-3.6z"></path>
+    <path d="M16 10.6c-1.4 2.6-3.6 4.4-6.4 5.4-2.6.9-5.6.6-8-2.4.4 5.8 4 9.6 8.4 9.6 3 0 5.2-1.6 6-3.6z" transform="matrix(-1 0 0 1 32 0)"></path>
+  </g>
+  <g fill="#ffecb9" opacity=".5">
+    <path d="M12.6 17.4c-2.2 1.8-5 2.6-7.6 2.2 2.8 1.1 6 .4 7.6-2.2z"></path>
+    <path d="M12.6 17.4c-2.2 1.8-5 2.6-7.6 2.2 2.8 1.1 6 .4 7.6-2.2z" transform="matrix(-1 0 0 1 32 0)"></path>
+  </g>
+  </g>
+</svg>

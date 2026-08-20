@@ -33,7 +33,15 @@
   --border-default: var(--neutral-300);
   --text-primary: var(--neutral-900);
   --text-secondary: var(--neutral-600);
-  --text-muted: var(--neutral-400);
+  /* Não é o --neutral-400 (#ab9a7c): aquele tom dava 2,4–2,7 de contraste sobre
+     nossas superfícies claras, abaixo do mínimo 4,5:1 do WCAG AA, e o texto
+     "muted" carrega coisa funcional (a forma de pagamento, os rótulos do
+     resumo) — não é só decoração.
+     O pior caso NÃO é o branco: é o --surface-brand-tint (#f3e2c2), o fundo
+     creme dos cards de pacote e do banner do barbeiro. Este tom fica em 4,60
+     lá e 5,0–5,9 nas demais superfícies, e continua mais claro que o
+     --text-secondary, preservando a hierarquia. */
+  --text-muted: #70634c;
   --text-on-gold: var(--brand-ink-900);
   --accent-primary: var(--brand-gold);
   --accent-primary-hover: var(--brand-gold-700);
