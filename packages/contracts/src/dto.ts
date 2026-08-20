@@ -781,7 +781,12 @@ export interface PerfilClienteDTO {
   cliente: ClienteSessaoDTO;
   /** Pacotes do cliente (reusa o read model de pacotes). */
   pacotes: VendaDePacoteDTO[];
-  /** Próximos atendimentos AGENDADOS do cliente, do mais próximo ao mais distante. */
+  /**
+   * O que ainda vai acontecer, do mais próximo ao mais distante: AGENDADO,
+   * CONCLUSAO_PENDENTE e RESERVADO (reserva de avulso online cujo prazo de
+   * pagamento não venceu — o front usa `status` pra dizer "aguardando
+   * confirmação"). Nada daqui aparece no histórico, e vice-versa.
+   */
   proximosAgendamentos: AgendamentoClienteDTO[];
 }
 

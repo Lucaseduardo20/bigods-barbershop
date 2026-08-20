@@ -30,7 +30,7 @@ export function Landing({
         Agende em menos de um minuto. Sem conta, sem complicação.
       </div>
       <button className="btn btn-lg btn-block" style={{ maxWidth: 360 }} onClick={onAgendar}>
-        Agendar horário →
+        Agendar atendimento →
       </button>
       <div className="text-[12.5px] mt-3" style={{ color: 'var(--brand-beige)', maxWidth: 320 }}>
         Pacotes do Bigod's Club aparecem junto dos serviços, no próximo passo.

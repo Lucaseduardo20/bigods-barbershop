@@ -456,7 +456,7 @@
       "file_type": "code",
       "norm_label": "concluiratendimentoresultado",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L39"
+      "source_location": "L45"
     },
     {
       "id": "apps_api_src_modules_scheduling_domain_atendimento_repository_atendimentorepository",
@@ -1366,7 +1366,7 @@
       "file_type": "code",
       "norm_label": "concluiratendimentoinput",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L26"
+      "source_location": "L32"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_resolver_conclusao_antecipada_usecase_resolverconclusaoantecipadainput",
@@ -2198,7 +2198,7 @@
       "file_type": "code",
       "norm_label": "concluiratendimentousecase",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L48"
+      "source_location": "L54"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_registrar_nao_comparecimento_usecase_registrarnaocomparecimentousecase",
@@ -6462,6 +6462,18 @@
       "source_location": "L8"
     },
     {
+      "id": "apps_account_src_components_ui_useapi",
+      "label": "useApi()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "AtendimentoDetalhe.tsx",
+      "file_type": "code",
+      "norm_label": "useapi()",
+      "source_file": "apps/account/src/components/ui.tsx",
+      "source_location": "L36"
+    },
+    {
       "id": "apps_account_src_lib_format_datacurtalocal",
       "label": "dataCurtaLocal()",
       "_callable": true,
@@ -6592,6 +6604,18 @@
       "norm_label": "atendimentodetalhe()",
       "source_file": "apps/account/src/screens/AtendimentoDetalhe.tsx",
       "source_location": "L42"
+    },
+    {
+      "id": "apps_account_src_screens_bookcredit_bookcredit",
+      "label": "BookCredit()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 0,
+      "community_name": "AtendimentoDetalhe.tsx",
+      "file_type": "code",
+      "norm_label": "bookcredit()",
+      "source_file": "apps/account/src/screens/BookCredit.tsx",
+      "source_location": "L29"
     },
     {
       "id": "apps_account_src_screens_historico_historico",
@@ -7698,52 +7722,52 @@
       "source_location": "L20"
     },
     {
-      "id": "apps_api_src_modules_staff_domain_disponibilidade_aggregate_disponibilidadebarbeiro_criar",
-      "label": ".criar()",
+      "id": "apps_account_src_lib_telefone_mascarartelefone",
+      "label": "mascararTelefone()",
       "_callable": true,
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": ".criar()",
-      "source_file": "apps/api/src/modules/staff/domain/disponibilidade.aggregate.ts",
-      "source_location": "L27"
+      "norm_label": "mascarartelefone()",
+      "source_file": "apps/account/src/lib/telefone.ts",
+      "source_location": "L2"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_autorizarproprioouadmin",
-      "label": "autorizarProprioOuAdmin()",
+      "id": "apps_account_src_lib_telefone_telefonevalido",
+      "label": "telefoneValido()",
       "_callable": true,
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": "autorizarproprioouadmin()",
-      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
-      "source_location": "L51"
+      "norm_label": "telefonevalido()",
+      "source_file": "apps/account/src/lib/telefone.ts",
+      "source_location": "L12"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_disponibilidadescontroller_criar",
-      "label": ".criar()",
+      "id": "apps_account_src_screens_auth_login",
+      "label": "Login()",
       "_callable": true,
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": ".criar()",
-      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
-      "source_location": "L78"
+      "norm_label": "login()",
+      "source_file": "apps/account/src/screens/Auth.tsx",
+      "source_location": "L8"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_disponibilidadescontroller_remover",
-      "label": ".remover()",
+      "id": "apps_account_src_screens_auth_otp",
+      "label": "Otp()",
       "_callable": true,
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": ".remover()",
-      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
-      "source_location": "L103"
+      "norm_label": "otp()",
+      "source_file": "apps/account/src/screens/Auth.tsx",
+      "source_location": "L80"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_autorizardonoouadmin",
@@ -7755,7 +7779,7 @@
       "file_type": "code",
       "norm_label": "autorizardonoouadmin()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L139"
+      "source_location": "L153"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_constructor",
@@ -7767,7 +7791,7 @@
       "file_type": "code",
       "norm_label": ".constructor()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L49"
+      "source_location": "L55"
     },
     {
       "id": "apps_api_src_modules_scheduling_domain_atendimento_repository_atendimentorepository_contarpresenciaisfuturosativosdocliente",
@@ -8370,16 +8394,16 @@
       "source_location": "L151"
     },
     {
-      "id": "apps_account_src_components_ui_useapi",
-      "label": "useApi()",
+      "id": "apps_account_src_components_ui_erroestado",
+      "label": "ErroEstado()",
       "_callable": true,
       "_origin": "ast",
       "community": 122,
       "community_name": "api",
       "file_type": "code",
-      "norm_label": "useapi()",
+      "norm_label": "erroestado()",
       "source_file": "apps/account/src/components/ui.tsx",
-      "source_location": "L36"
+      "source_location": "L17"
     },
     {
       "id": "apps_account_src_lib_api_api",
@@ -8428,18 +8452,6 @@
       "norm_label": "empresaprovider()",
       "source_file": "apps/account/src/lib/empresa-context.tsx",
       "source_location": "L16"
-    },
-    {
-      "id": "apps_account_src_screens_bookcredit_bookcredit",
-      "label": "BookCredit()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 122,
-      "community_name": "api",
-      "file_type": "code",
-      "norm_label": "bookcredit()",
-      "source_file": "apps/account/src/screens/BookCredit.tsx",
-      "source_location": "L29"
     },
     {
       "id": "apps_api_test_integration_conta_cliente_e2e_spec_fone",
@@ -10494,42 +10506,6 @@
       "source_location": "L32"
     },
     {
-      "id": "apps_booking_src_lib_telefone_mascarare164",
-      "label": "mascararE164()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "booking/src/App.tsx",
-      "file_type": "code",
-      "norm_label": "mascarare164()",
-      "source_file": "apps/booking/src/lib/telefone.ts",
-      "source_location": "L22"
-    },
-    {
-      "id": "apps_booking_src_lib_telefone_mascarartelefone",
-      "label": "mascararTelefone()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "booking/src/App.tsx",
-      "file_type": "code",
-      "norm_label": "mascarartelefone()",
-      "source_file": "apps/booking/src/lib/telefone.ts",
-      "source_location": "L2"
-    },
-    {
-      "id": "apps_booking_src_lib_telefone_telefonevalido",
-      "label": "telefoneValido()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "booking/src/App.tsx",
-      "file_type": "code",
-      "norm_label": "telefonevalido()",
-      "source_file": "apps/booking/src/lib/telefone.ts",
-      "source_location": "L12"
-    },
-    {
       "id": "apps_api_src_modules_identity_domain_identity_provider_identityprovider_confirmarlogin",
       "label": ".confirmarLogin()",
       "_callable": true,
@@ -10851,7 +10827,7 @@
       "file_type": "code",
       "norm_label": "agendarcomcredito()",
       "source_file": "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts",
-      "source_location": "L297"
+      "source_location": "L314"
     },
     {
       "id": "apps_api_test_integration_conclusao_antecipada_e2e_spec_comissoesde",
@@ -10875,7 +10851,7 @@
       "file_type": "code",
       "norm_label": "pacotecomumcorte()",
       "source_file": "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts",
-      "source_location": "L281"
+      "source_location": "L298"
     },
     {
       "id": "apps_api_test_integration_conclusao_antecipada_e2e_spec_proximohorario",
@@ -11188,6 +11164,54 @@
       "norm_label": ".recusarconclusaoantecipada()",
       "source_file": "apps/api/src/modules/scheduling/presentation/atendimentos.controller.ts",
       "source_location": "L330"
+    },
+    {
+      "id": "apps_api_src_modules_staff_domain_disponibilidade_aggregate_disponibilidadebarbeiro_criar",
+      "label": ".criar()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": ".criar()",
+      "source_file": "apps/api/src/modules/staff/domain/disponibilidade.aggregate.ts",
+      "source_location": "L27"
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_autorizarproprioouadmin",
+      "label": "autorizarProprioOuAdmin()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": "autorizarproprioouadmin()",
+      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
+      "source_location": "L51"
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_disponibilidadescontroller_criar",
+      "label": ".criar()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": ".criar()",
+      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
+      "source_location": "L78"
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_disponibilidadescontroller_remover",
+      "label": ".remover()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": ".remover()",
+      "source_file": "apps/api/src/modules/staff/presentation/disponibilidades.controller.ts",
+      "source_location": "L103"
     },
     {
       "id": "apps_api_src_modules_packages_domain_pacote_oferta_repository_pacoteofertarepository_listarporempresa",
@@ -11514,6 +11538,18 @@
       "source_location": "L27"
     },
     {
+      "id": "apps_booking_src_components_onboarding_onboarding",
+      "label": "Onboarding()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "booking/src/components/ui.tsx",
+      "file_type": "code",
+      "norm_label": "onboarding()",
+      "source_file": "apps/booking/src/components/Onboarding.tsx",
+      "source_location": "L20"
+    },
+    {
       "id": "apps_booking_src_components_otpverificacao_otpverificacao",
       "label": "OtpVerificacao()",
       "_callable": true,
@@ -11694,6 +11730,18 @@
       "source_location": "L96"
     },
     {
+      "id": "apps_booking_src_lib_handoff_linkdecontacomsessao",
+      "label": "linkDeContaComSessao()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "booking/src/components/ui.tsx",
+      "file_type": "code",
+      "norm_label": "linkdecontacomsessao()",
+      "source_file": "apps/booking/src/lib/handoff.ts",
+      "source_location": "L10"
+    },
+    {
       "id": "apps_booking_src_steps_barbeiro_barbeiro",
       "label": "Barbeiro()",
       "_callable": true,
@@ -11718,28 +11766,40 @@
       "source_location": "L20"
     },
     {
-      "id": "apps_booking_src_components_onboarding_onboarding",
-      "label": "Onboarding()",
+      "id": "apps_booking_src_lib_telefone_mascarare164",
+      "label": "mascararE164()",
       "_callable": true,
       "_origin": "ast",
       "community": 207,
-      "community_name": "Onboarding.tsx",
+      "community_name": "booking/src/lib/telefone.ts",
       "file_type": "code",
-      "norm_label": "onboarding()",
-      "source_file": "apps/booking/src/components/Onboarding.tsx",
-      "source_location": "L20"
+      "norm_label": "mascarare164()",
+      "source_file": "apps/booking/src/lib/telefone.ts",
+      "source_location": "L22"
     },
     {
-      "id": "apps_booking_src_lib_handoff_linkdecontacomsessao",
-      "label": "linkDeContaComSessao()",
+      "id": "apps_booking_src_lib_telefone_mascarartelefone",
+      "label": "mascararTelefone()",
       "_callable": true,
       "_origin": "ast",
       "community": 207,
-      "community_name": "Onboarding.tsx",
+      "community_name": "booking/src/lib/telefone.ts",
       "file_type": "code",
-      "norm_label": "linkdecontacomsessao()",
-      "source_file": "apps/booking/src/lib/handoff.ts",
-      "source_location": "L10"
+      "norm_label": "mascarartelefone()",
+      "source_file": "apps/booking/src/lib/telefone.ts",
+      "source_location": "L2"
+    },
+    {
+      "id": "apps_booking_src_lib_telefone_telefonevalido",
+      "label": "telefoneValido()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 207,
+      "community_name": "booking/src/lib/telefone.ts",
+      "file_type": "code",
+      "norm_label": "telefonevalido()",
+      "source_file": "apps/booking/src/lib/telefone.ts",
+      "source_location": "L12"
     },
     {
       "id": "apps_api_src_modules_funnel_presentation_order_bump_config_controller_orderbumpconfigcontroller_constructor",
@@ -13575,7 +13635,7 @@
       "file_type": "code",
       "norm_label": ".executar()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L55"
+      "source_location": "L61"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_exigeaprovacao",
@@ -13587,7 +13647,7 @@
       "file_type": "code",
       "norm_label": ".exigeaprovacao()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L126"
+      "source_location": "L140"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_intencaopagadoatendimento",
@@ -13599,7 +13659,7 @@
       "file_type": "code",
       "norm_label": ".intencaopagadoatendimento()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L133"
+      "source_location": "L147"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_consumircreditosdepacote",
@@ -13611,7 +13671,7 @@
       "file_type": "code",
       "norm_label": "consumircreditosdepacote()",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L151"
+      "source_location": "L165"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_registrar_nao_comparecimento_usecase_registrarnaocomparecimentousecase_constructor",
@@ -17178,18 +17238,6 @@
       "source_location": "L139"
     },
     {
-      "id": "apps_account_src_components_ui_erroestado",
-      "label": "ErroEstado()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "erroestado()",
-      "source_file": "apps/account/src/components/ui.tsx",
-      "source_location": "L17"
-    },
-    {
       "id": "apps_account_src_components_ui_icon",
       "label": "Icon()",
       "_callable": true,
@@ -17224,54 +17272,6 @@
       "norm_label": ".constructor()",
       "source_file": "apps/account/src/lib/api.ts",
       "source_location": "L8"
-    },
-    {
-      "id": "apps_account_src_lib_telefone_mascarartelefone",
-      "label": "mascararTelefone()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "mascarartelefone()",
-      "source_file": "apps/account/src/lib/telefone.ts",
-      "source_location": "L2"
-    },
-    {
-      "id": "apps_account_src_lib_telefone_telefonevalido",
-      "label": "telefoneValido()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "telefonevalido()",
-      "source_file": "apps/account/src/lib/telefone.ts",
-      "source_location": "L12"
-    },
-    {
-      "id": "apps_account_src_screens_auth_login",
-      "label": "Login()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "login()",
-      "source_file": "apps/account/src/screens/Auth.tsx",
-      "source_location": "L8"
-    },
-    {
-      "id": "apps_account_src_screens_auth_otp",
-      "label": "Otp()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "otp()",
-      "source_file": "apps/account/src/screens/Auth.tsx",
-      "source_location": "L80"
     },
     {
       "id": "apps_account_src_screens_bookcredit_linha",
@@ -23684,48 +23684,48 @@
       "source_location": ""
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_body",
-      "label": "Body",
+      "id": "apps_account_src_lib_config",
+      "label": "account/src/lib/config.ts",
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": "body",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "account/src/lib/config.ts",
+      "source_file": "apps/account/src/lib/config.ts",
+      "source_location": "L1"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_delete",
-      "label": "Delete",
+      "id": "apps_account_src_lib_config_booking_url",
+      "label": "BOOKING_URL",
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": "delete",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "booking_url",
+      "source_file": "apps/account/src/lib/config.ts",
+      "source_location": "L8"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_param",
-      "label": "Param",
+      "id": "apps_account_src_lib_telefone",
+      "label": "account/src/lib/telefone.ts",
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": "param",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "account/src/lib/telefone.ts",
+      "source_file": "apps/account/src/lib/telefone.ts",
+      "source_location": "L1"
     },
     {
-      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_post",
-      "label": "Post",
+      "id": "apps_account_src_screens_auth",
+      "label": "Auth.tsx",
       "_origin": "ast",
       "community": 109,
-      "community_name": ".criar",
+      "community_name": "Auth.tsx",
       "file_type": "code",
-      "norm_label": "post",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "auth.tsx",
+      "source_file": "apps/account/src/screens/Auth.tsx",
+      "source_location": "L1"
     },
     {
       "id": "apps_api_src_modules_packages_application_confirmar_pagamento_presencial_usecase",
@@ -23945,7 +23945,7 @@
       "file_type": "code",
       "norm_label": "conclusao_antecipada_exige_motivo",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L24"
+      "source_location": "L30"
     },
     {
       "id": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_ts_inject",
@@ -25149,6 +25149,17 @@
       "norm_label": "account/src/lib/api.spec.ts",
       "source_file": "apps/account/src/lib/api.spec.ts",
       "source_location": "L1"
+    },
+    {
+      "id": "apps_account_src_lib_config_company_id",
+      "label": "COMPANY_ID",
+      "_origin": "ast",
+      "community": 122,
+      "community_name": "api",
+      "file_type": "code",
+      "norm_label": "company_id",
+      "source_file": "apps/account/src/lib/config.ts",
+      "source_location": "L5"
     },
     {
       "id": "apps_account_src_lib_empresa_context",
@@ -28374,28 +28385,6 @@
       "source_location": "L1"
     },
     {
-      "id": "apps_booking_src_lib_telefone",
-      "label": "booking/src/lib/telefone.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "booking/src/App.tsx",
-      "file_type": "code",
-      "norm_label": "booking/src/lib/telefone.ts",
-      "source_file": "apps/booking/src/lib/telefone.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_booking_src_lib_telefone_spec",
-      "label": "telefone.spec.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "booking/src/App.tsx",
-      "file_type": "code",
-      "norm_label": "telefone.spec.ts",
-      "source_file": "apps/booking/src/lib/telefone.spec.ts",
-      "source_location": "L1"
-    },
-    {
       "id": "apps_booking_src_main",
       "label": "booking/src/main.tsx",
       "_origin": "ast",
@@ -29506,7 +29495,7 @@
       "node_kind": "heading",
       "norm_label": "decisoes deixadas em aberto",
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4055"
+      "source_location": "L4056"
     },
     {
       "id": "relatorio_sessao_migrations_duas_aditivas",
@@ -29533,7 +29522,7 @@
       "source_location": "L4021"
     },
     {
-      "id": "relatorio_sessao_smoke_test_manual_4061",
+      "id": "relatorio_sessao_smoke_test_manual_4062",
       "label": "Smoke test manual",
       "_origin": "ast",
       "community": 181,
@@ -29542,7 +29531,7 @@
       "node_kind": "heading",
       "norm_label": "smoke test manual",
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4061"
+      "source_location": "L4062"
     },
     {
       "id": "relatorio_sessao_testes_4042",
@@ -30313,6 +30302,50 @@
       "community_name": "UsuarioAutenticado",
       "file_type": "code",
       "norm_label": "query",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_body",
+      "label": "Body",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": "body",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_delete",
+      "label": "Delete",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": "delete",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_param",
+      "label": "Param",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": "param",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "apps_api_src_modules_staff_presentation_disponibilidades_controller_ts_post",
+      "label": "Post",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "UsuarioAutenticado",
+      "file_type": "code",
+      "norm_label": "post",
       "source_file": "",
       "source_location": ""
     },
@@ -31141,6 +31174,17 @@
       "source_location": "L1"
     },
     {
+      "id": "apps_booking_src_components_onboarding",
+      "label": "Onboarding.tsx",
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "booking/src/components/ui.tsx",
+      "file_type": "code",
+      "norm_label": "onboarding.tsx",
+      "source_file": "apps/booking/src/components/Onboarding.tsx",
+      "source_location": "L1"
+    },
+    {
       "id": "apps_booking_src_components_otpverificacao",
       "label": "OtpVerificacao.tsx",
       "_origin": "ast",
@@ -31238,6 +31282,28 @@
       "norm_label": "empresacontext",
       "source_file": "apps/booking/src/lib/empresa-context.tsx",
       "source_location": "L7"
+    },
+    {
+      "id": "apps_booking_src_lib_handoff",
+      "label": "handoff.ts",
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "booking/src/components/ui.tsx",
+      "file_type": "code",
+      "norm_label": "handoff.ts",
+      "source_file": "apps/booking/src/lib/handoff.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_booking_src_lib_handoff_spec",
+      "label": "handoff.spec.ts",
+      "_origin": "ast",
+      "community": 20,
+      "community_name": "booking/src/components/ui.tsx",
+      "file_type": "code",
+      "norm_label": "handoff.spec.ts",
+      "source_file": "apps/booking/src/lib/handoff.spec.ts",
+      "source_location": "L1"
     },
     {
       "id": "apps_booking_src_steps_barbeiro",
@@ -31766,36 +31832,25 @@
       "source_location": "L3594"
     },
     {
-      "id": "apps_booking_src_components_onboarding",
-      "label": "Onboarding.tsx",
+      "id": "apps_booking_src_lib_telefone",
+      "label": "booking/src/lib/telefone.ts",
       "_origin": "ast",
       "community": 207,
-      "community_name": "Onboarding.tsx",
+      "community_name": "booking/src/lib/telefone.ts",
       "file_type": "code",
-      "norm_label": "onboarding.tsx",
-      "source_file": "apps/booking/src/components/Onboarding.tsx",
+      "norm_label": "booking/src/lib/telefone.ts",
+      "source_file": "apps/booking/src/lib/telefone.ts",
       "source_location": "L1"
     },
     {
-      "id": "apps_booking_src_lib_handoff",
-      "label": "handoff.ts",
+      "id": "apps_booking_src_lib_telefone_spec",
+      "label": "telefone.spec.ts",
       "_origin": "ast",
       "community": 207,
-      "community_name": "Onboarding.tsx",
+      "community_name": "booking/src/lib/telefone.ts",
       "file_type": "code",
-      "norm_label": "handoff.ts",
-      "source_file": "apps/booking/src/lib/handoff.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_booking_src_lib_handoff_spec",
-      "label": "handoff.spec.ts",
-      "_origin": "ast",
-      "community": 207,
-      "community_name": "Onboarding.tsx",
-      "file_type": "code",
-      "norm_label": "handoff.spec.ts",
-      "source_file": "apps/booking/src/lib/handoff.spec.ts",
+      "norm_label": "telefone.spec.ts",
+      "source_file": "apps/booking/src/lib/telefone.spec.ts",
       "source_location": "L1"
     },
     {
@@ -33165,26 +33220,26 @@
       "source_location": "L5"
     },
     {
-      "id": "apps_api_package_dependencies_aws_sdk_client_s3",
-      "label": "@aws-sdk/client-s3",
+      "id": "apps_api_package_dependencies_prisma_client",
+      "label": "@prisma/client",
       "_origin": "ast",
       "community": 228,
-      "community_name": "@aws-sdk/client-s3",
+      "community_name": "@prisma/client",
       "file_type": "code",
-      "norm_label": "@aws-sdk/client-s3",
+      "norm_label": "@prisma/client",
       "source_file": "apps/api/package.json",
-      "source_location": "L18"
+      "source_location": "L26"
     },
     {
-      "id": "aws_sdk_client_s3",
-      "label": "@aws-sdk/client-s3",
+      "id": "apps_api_package_json_prisma_client",
+      "label": "@prisma/client",
       "_origin": "ast",
       "community": 228,
-      "community_name": "@aws-sdk/client-s3",
+      "community_name": "@prisma/client",
       "file_type": "concept",
-      "norm_label": "@aws-sdk/client-s3",
+      "norm_label": "@prisma/client",
       "source_file": "apps/api/package.json",
-      "source_location": "L18"
+      "source_location": "L26"
     },
     {
       "id": "apps_api_package_dependencies_class_validator",
@@ -34897,6 +34952,17 @@
       "source_location": "L17"
     },
     {
+      "id": "apps_api_package_dependencies_aws_sdk_client_s3",
+      "label": "@aws-sdk/client-s3",
+      "_origin": "ast",
+      "community": 34,
+      "community_name": "dependencies",
+      "file_type": "code",
+      "norm_label": "@aws-sdk/client-s3",
+      "source_file": "apps/api/package.json",
+      "source_location": "L18"
+    },
+    {
       "id": "apps_api_package_dependencies_bigods_contracts",
       "label": "@bigods/contracts",
       "_origin": "ast",
@@ -34963,17 +35029,6 @@
       "source_location": "L25"
     },
     {
-      "id": "apps_api_package_dependencies_prisma_client",
-      "label": "@prisma/client",
-      "_origin": "ast",
-      "community": 34,
-      "community_name": "dependencies",
-      "file_type": "code",
-      "norm_label": "@prisma/client",
-      "source_file": "apps/api/package.json",
-      "source_location": "L26"
-    },
-    {
       "id": "apps_api_package_dependencies_rxjs",
       "label": "rxjs",
       "_origin": "ast",
@@ -35007,17 +35062,6 @@
       "source_location": "L19"
     },
     {
-      "id": "apps_api_package_json_prisma_client",
-      "label": "@prisma/client",
-      "_origin": "ast",
-      "community": 34,
-      "community_name": "dependencies",
-      "file_type": "concept",
-      "norm_label": "@prisma/client",
-      "source_file": "apps/api/package.json",
-      "source_location": "L26"
-    },
-    {
       "id": "aws_sdk_client_cognito_identity_provider",
       "label": "@aws-sdk/client-cognito-identity-provider",
       "_origin": "ast",
@@ -35027,6 +35071,17 @@
       "norm_label": "@aws-sdk/client-cognito-identity-provider",
       "source_file": "apps/api/package.json",
       "source_location": "L17"
+    },
+    {
+      "id": "aws_sdk_client_s3",
+      "label": "@aws-sdk/client-s3",
+      "_origin": "ast",
+      "community": 34,
+      "community_name": "dependencies",
+      "file_type": "concept",
+      "norm_label": "@aws-sdk/client-s3",
+      "source_file": "apps/api/package.json",
+      "source_location": "L18"
     },
     {
       "id": "class_transformer",
@@ -37743,7 +37798,7 @@
       "node_kind": "heading",
       "norm_label": "como rodar localmente",
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4069"
+      "source_location": "L4070"
     },
     {
       "id": "relatorio_sessao_corre\u00e7\u00e3o_de_fuso_hor\u00e1rio_sess\u00e3o_2026_07_14_continua\u00e7\u00e3o",
@@ -38458,61 +38513,6 @@
       "norm_label": "paths",
       "source_file": "apps/account/src/components/ui.tsx",
       "source_location": "L63"
-    },
-    {
-      "id": "apps_account_src_lib_config",
-      "label": "account/src/lib/config.ts",
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "account/src/lib/config.ts",
-      "source_file": "apps/account/src/lib/config.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_account_src_lib_config_booking_url",
-      "label": "BOOKING_URL",
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "booking_url",
-      "source_file": "apps/account/src/lib/config.ts",
-      "source_location": "L8"
-    },
-    {
-      "id": "apps_account_src_lib_config_company_id",
-      "label": "COMPANY_ID",
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "company_id",
-      "source_file": "apps/account/src/lib/config.ts",
-      "source_location": "L5"
-    },
-    {
-      "id": "apps_account_src_lib_telefone",
-      "label": "account/src/lib/telefone.ts",
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "account/src/lib/telefone.ts",
-      "source_file": "apps/account/src/lib/telefone.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_account_src_screens_auth",
-      "label": "Auth.tsx",
-      "_origin": "ast",
-      "community": 50,
-      "community_name": "BookCredit.tsx",
-      "file_type": "code",
-      "norm_label": "auth.tsx",
-      "source_file": "apps/account/src/screens/Auth.tsx",
-      "source_location": "L1"
     },
     {
       "id": "apps_account_src_screens_bookcredit",
@@ -51349,6 +51349,18 @@
     },
     {
       "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_executar",
+      "target": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_exigeaprovacao",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L108",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_executar",
       "target": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_consumircreditosdepacote",
       "relation": "calls",
       "_origin": "ast",
@@ -51356,7 +51368,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L117",
+      "source_location": "L131",
       "weight": 1.0
     },
     {
@@ -51368,7 +51380,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L64",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -51380,19 +51392,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L76",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_executar",
-      "target": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase_concluiratendimentousecase_exigeaprovacao",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L94",
+      "source_location": "L90",
       "weight": 1.0
     },
     {
@@ -53612,7 +53612,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts",
-      "source_location": "L298",
+      "source_location": "L315",
       "weight": 1.0
     },
     {
@@ -60584,7 +60584,7 @@
       "confidence_score": 1.0,
       "context": "decorator",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L47",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -60596,7 +60596,7 @@
       "confidence_score": 1.0,
       "context": "decorator",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L52",
+      "source_location": "L58",
       "weight": 1.0
     },
     {
@@ -64700,7 +64700,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L29",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -81241,102 +81241,6 @@
     },
     {
       "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_shared_events_event_publisher_event_publisher",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L10",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_shared_events_event_publisher_eventpublisher",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L10",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_shared_events_domain_event_domainevent",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L11",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_modules_identity_domain_auth_provider_usuarioautenticado",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L12",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_modules_payments_domain_intencao_de_pagamento_repository_intencao_de_pagamento_repository",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L13",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_modules_payments_domain_intencao_de_pagamento_repository_intencaodepagamentorepository",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L13",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_modules_scheduling_domain_atendimento_aggregate_atendimento",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L17",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
-      "target": "apps_api_src_shared_application_unit_of_work_repositoriostransacionais",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L18",
-      "weight": 1.0
-    },
-    {
-      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
       "target": "apps_api_src_shared_application_unit_of_work_unit_of_work",
       "relation": "imports",
       "_origin": "ast",
@@ -81344,7 +81248,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L9",
+      "source_location": "L15",
       "weight": 1.0
     },
     {
@@ -81356,7 +81260,103 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L9",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_shared_events_event_publisher_event_publisher",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_shared_events_event_publisher_eventpublisher",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_shared_events_domain_event_domainevent",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_modules_identity_domain_auth_provider_usuarioautenticado",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_modules_payments_domain_intencao_de_pagamento_repository_intencao_de_pagamento_repository",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_modules_payments_domain_intencao_de_pagamento_repository_intencaodepagamentorepository",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_modules_scheduling_domain_atendimento_aggregate_atendimento",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_api_src_modules_scheduling_application_concluir_atendimento_usecase",
+      "target": "apps_api_src_shared_application_unit_of_work_repositoriostransacionais",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -98924,7 +98924,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L10",
+      "source_location": "L16",
       "weight": 1.0
     },
     {
@@ -98936,7 +98936,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L11",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -98948,7 +98948,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L12",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -98960,7 +98960,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L13",
+      "source_location": "L19",
       "weight": 1.0
     },
     {
@@ -98972,7 +98972,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L17",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -98984,7 +98984,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L18",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -110768,7 +110768,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -110780,7 +110780,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -110792,7 +110792,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -110804,7 +110804,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L126",
+      "source_location": "L140",
       "weight": 1.0
     },
     {
@@ -110816,7 +110816,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L126",
+      "source_location": "L140",
       "weight": 1.0
     },
     {
@@ -121326,7 +121326,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L139",
+      "source_location": "L153",
       "weight": 1.0
     },
     {
@@ -121337,7 +121337,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L151",
+      "source_location": "L165",
       "weight": 1.0
     },
     {
@@ -121348,7 +121348,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L24",
+      "source_location": "L30",
       "weight": 1.0
     },
     {
@@ -121359,7 +121359,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L26",
+      "source_location": "L32",
       "weight": 1.0
     },
     {
@@ -121370,7 +121370,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L39",
+      "source_location": "L45",
       "weight": 1.0
     },
     {
@@ -121381,7 +121381,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L48",
+      "source_location": "L54",
       "weight": 1.0
     },
     {
@@ -124208,7 +124208,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts",
-      "source_location": "L281",
+      "source_location": "L298",
       "weight": 1.0
     },
     {
@@ -124219,7 +124219,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts",
-      "source_location": "L297",
+      "source_location": "L314",
       "weight": 1.0
     },
     {
@@ -135769,7 +135769,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4069",
+      "source_location": "L4070",
       "weight": 1.0
     },
     {
@@ -136143,18 +136143,18 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4055",
+      "source_location": "L4056",
       "weight": 1.0
     },
     {
       "source": "relatorio_sessao_trava_de_conclus\u00e3o_antecipada_2026_08_20",
-      "target": "relatorio_sessao_smoke_test_manual_4061",
+      "target": "relatorio_sessao_smoke_test_manual_4062",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "RELATORIO_SESSAO.md",
-      "source_location": "L4061",
+      "source_location": "L4062",
       "weight": 1.0
     },
     {
@@ -143052,7 +143052,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L126",
+      "source_location": "L140",
       "weight": 1.0
     },
     {
@@ -143063,7 +143063,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L133",
+      "source_location": "L147",
       "weight": 1.0
     },
     {
@@ -143074,7 +143074,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L49",
+      "source_location": "L55",
       "weight": 1.0
     },
     {
@@ -143085,7 +143085,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L55",
+      "source_location": "L61",
       "weight": 1.0
     },
     {
@@ -146933,7 +146933,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L103",
+      "source_location": "L117",
       "weight": 1.0
     },
     {
@@ -146945,7 +146945,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L114",
+      "source_location": "L128",
       "weight": 1.0
     },
     {
@@ -146957,7 +146957,7 @@
       "confidence_score": 0.8,
       "context": "call",
       "source_file": "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts",
-      "source_location": "L77",
+      "source_location": "L91",
       "weight": 1.0
     },
     {

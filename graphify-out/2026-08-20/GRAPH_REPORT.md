@@ -1,7 +1,7 @@
 # Graph Report - bigods-barber-v2  (2026-08-20)
 
 ## Corpus Check
-- 426 files · ~471,467 words
+- 426 files · ~471,602 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -124,7 +124,7 @@
 - AtualizarServicoDto
 - ConfigurarDto
 - AuthProvider
-- .criar
+- Auth.tsx
 - DiaDeExpedienteDto
 - otp-sem-conta.e2e.spec.ts
 - config/package.json
@@ -206,7 +206,7 @@
 - Ajustes no funil público (2026-08-14) ✅
 - Barbeiro e aprovação — Fases 2 e 3 (2026-08-14) ✅ / Fases 1 e 4 bloqueadas ⛔
 - Grafo de conhecimento (graphify) — 2026-08-19 ✅
-- Onboarding.tsx
+- booking/src/lib/telefone.ts
 - bateria-testes-2.md
 - 3.2 `Barbeiro` (raiz)
 - 4. Máquinas de estado
@@ -227,7 +227,7 @@
 - Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅
 - graphify reference: GitHub clone and cross-repo merge
 - graphify reference: transcribe video and audio
-- @aws-sdk/client-s3
+- @prisma/client
 - class-validator
 - dotenv
 - @nestjs/event-emitter
@@ -267,7 +267,7 @@
 
 ### Community 0 - "AtendimentoDetalhe.tsx"
 Cohesion: 0.21
-Nodes (17): QuandoBloco(), Loading(), dataCurtaLocal(), dataLongaLocal(), diasDaSemana(), dinheiro(), hojeISO(), horaLocal() (+9 more)
+Nodes (19): QuandoBloco(), Loading(), useApi(), dataCurtaLocal(), dataLongaLocal(), diasDaSemana(), dinheiro(), hojeISO() (+11 more)
 
 ### Community 1 - "dinheiro.ts"
 Cohesion: 0.07
@@ -330,20 +330,20 @@ Cohesion: 0.06
 Nodes (3): Atendimento, paraDominio(), PrismaAtendimentoRepository
 
 ### Community 17 - "booking/src/App.tsx"
-Cohesion: 0.12
-Nodes (33): App(), Funil(), limparParametroDeLinkNaUrl(), ROTULOS_PASSO, slugDoLinkNaUrl(), alternarProdutoNoBump(), alternarServicoNoBump(), aplicarBarbeiroDoLink() (+25 more)
+Cohesion: 0.14
+Nodes (31): App(), Funil(), limparParametroDeLinkNaUrl(), ROTULOS_PASSO, slugDoLinkNaUrl(), alternarProdutoNoBump(), alternarServicoNoBump(), aplicarBarbeiroDoLink() (+23 more)
 
 ### Community 18 - "IdentityProvider"
 Cohesion: 0.12
 Nodes (11): ConfirmarLoginInput, DesafioLogin, IdentityProvider, IniciarLoginInput, ProvisionarUsuarioInput, ResultadoConfirmacao, CognitoConfig, CognitoIdentityProvider (+3 more)
 
 ### Community 19 - "UsuarioAutenticado"
-Cohesion: 0.09
-Nodes (26): UsuarioAutenticado, Get, Put, UsuarioAtual, Body, Get, Param, Post (+18 more)
+Cohesion: 0.07
+Nodes (31): UsuarioAutenticado, Get, Put, UsuarioAtual, Body, Get, Param, Post (+23 more)
 
 ### Community 20 - "booking/src/components/ui.tsx"
-Cohesion: 0.14
-Nodes (19): BigodsClub(), OtpVerificacao(), AlertaErro(), Avatar(), ErroEstado(), Loading(), SlotSkeleton(), useApi() (+11 more)
+Cohesion: 0.12
+Nodes (21): BigodsClub(), Onboarding(), OtpVerificacao(), AlertaErro(), Avatar(), ErroEstado(), Loading(), SlotSkeleton() (+13 more)
 
 ### Community 21 - "agendar-avulso.usecase.ts"
 Cohesion: 0.07
@@ -399,7 +399,7 @@ Nodes (13): paraDTO(), ProdutosController, Body, Controller, Delete, Get, Param,
 
 ### Community 34 - "dependencies"
 Cohesion: 0.10
-Nodes (21): dependencies, @aws-sdk/client-cognito-identity-provider, @bigods/contracts, class-transformer, @nestjs/common, @nestjs/core, @nestjs/schedule, @nestjs/throttler (+13 more)
+Nodes (21): dependencies, @aws-sdk/client-cognito-identity-provider, @aws-sdk/client-s3, @bigods/contracts, class-transformer, @nestjs/common, @nestjs/core, @nestjs/schedule (+13 more)
 
 ### Community 35 - "ParametrosDaEmpresaRepository"
 Cohesion: 0.06
@@ -462,8 +462,8 @@ Cohesion: 0.06
 Nodes (32): ClienteAutenticado, Body, Post, Publico(), ClienteAtual, ContaCliente(), ContaClienteController, Body (+24 more)
 
 ### Community 50 - "BookCredit.tsx"
-Cohesion: 0.13
-Nodes (15): AvatarBarbeiro(), ErroEstado(), Icon(), PATHS, Spinner(), ApiError, BOOKING_URL, COMPANY_ID (+7 more)
+Cohesion: 0.19
+Nodes (8): AvatarBarbeiro(), Icon(), PATHS, Spinner(), ApiError, CreditoLivre, Header(), primeiroNome()
 
 ### Community 51 - "Timezone"
 Cohesion: 0.12
@@ -693,9 +693,9 @@ Nodes (8): ConfigurarDto, IsBoolean, IsInt, IsOptional, IsPositive, IsString, Ma
 Cohesion: 0.12
 Nodes (8): AuthProvider, LocalAuthProvider, Injectable, verificaSenha(), Inject, RolesGuard, Inject, Injectable
 
-### Community 109 - ".criar"
-Cohesion: 0.25
-Nodes (5): autorizarProprioOuAdmin(), Body, Delete, Param, Post
+### Community 109 - "Auth.tsx"
+Cohesion: 0.43
+Nodes (5): BOOKING_URL, mascararTelefone(), telefoneValido(), Login(), Otp()
 
 ### Community 110 - "DiaDeExpedienteDto"
 Cohesion: 0.32
@@ -746,8 +746,8 @@ Cohesion: 0.33
 Nodes (3): IconeWhatsapp(), Props, PagamentoManualAguardando()
 
 ### Community 122 - "api"
-Cohesion: 0.33
-Nodes (8): CockpitOuBook(), useApi(), api(), mensagemDeLimite(), segundosParaTentarDeNovo(), EmpresaContext, EmpresaProvider(), BookCredit()
+Cohesion: 0.27
+Nodes (8): CockpitOuBook(), ErroEstado(), api(), mensagemDeLimite(), segundosParaTentarDeNovo(), COMPANY_ID, EmpresaContext, EmpresaProvider()
 
 ### Community 123 - "conta-cliente.e2e.spec.ts"
 Cohesion: 0.18
@@ -1077,7 +1077,7 @@ Nodes (4): Gate de envio de OTP removido + rate limit por origem (2026-08-14) �
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `UsuarioAutenticado` connect `UsuarioAutenticado` to `scheduling.module.ts`, `PrismaService`, `CompanyId`, `shared.module.ts`, `agendar-avulso.usecase.ts`, `auth-provider.ts`, `Papeis`, `ParametrosController`, `produtos.controller.ts`, `ParametrosDaEmpresaRepository`, `barbeiros.controller.ts`, `packages.module.ts`, `ids.ts`, `vendas-produto.controller.ts`, `PacoteOfertasController`, `servicos.controller.ts`, `ValesController`, `ClientesController`, `BarbeiroId`, `ItemDeOrderBump`, `identity.module.ts`, `AuthProvider`, `.criar`, `expediente.controller.ts`?**
+- **Why does `UsuarioAutenticado` connect `UsuarioAutenticado` to `scheduling.module.ts`, `PrismaService`, `CompanyId`, `shared.module.ts`, `agendar-avulso.usecase.ts`, `auth-provider.ts`, `Papeis`, `ParametrosController`, `produtos.controller.ts`, `ParametrosDaEmpresaRepository`, `barbeiros.controller.ts`, `packages.module.ts`, `ids.ts`, `vendas-produto.controller.ts`, `PacoteOfertasController`, `servicos.controller.ts`, `ValesController`, `ClientesController`, `BarbeiroId`, `ItemDeOrderBump`, `identity.module.ts`, `AuthProvider`, `expediente.controller.ts`?**
   _High betweenness centrality (0.046) - this node is a cross-community bridge._
 - **Why does `Cliente` connect `Cliente` to `conta-cliente.controller.ts`, `dinheiro.ts`, `Telefone`, `agendar-avulso.usecase.ts`, `ids.ts`?**
   _High betweenness centrality (0.041) - this node is a cross-community bridge._

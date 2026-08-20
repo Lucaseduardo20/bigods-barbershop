@@ -1212,9 +1212,9 @@
     "semantic_hash": "737f8902653989e7dbcdd67dba1a435a"
   },
   "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts": {
-    "mtime": 1787198358.7501738,
-    "seen": 1787199839.3329315,
-    "ast_hash": "de6f6f798d20523ef64bab535f13ca98",
+    "mtime": 1787199922.1011348,
+    "seen": 1787200049.3398228,
+    "ast_hash": "67a20cb7b89824c2b0f8579fc8396333",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/reagendar-atendimento-cliente.usecase.ts": {
@@ -2370,9 +2370,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts": {
-    "mtime": 1787199330.8887255,
-    "seen": 1787199839.3491747,
-    "ast_hash": "9ffc4239d84d67dae2c2f6d39939bfb7",
+    "mtime": 1787199947.6973228,
+    "seen": 1787200049.349187,
+    "ast_hash": "ba64907c0d2720407865d4a00bb17d0d",
     "semantic_hash": ""
   },
   "apps/api/test/integration/home.e2e.spec.ts": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787199722.3316615,
-    "seen": 1787199839.3579364,
-    "ast_hash": "14afafcb871f9f548014dcf109ebdf87",
+    "mtime": 1787200010.8377857,
+    "seen": 1787200049.3600743,
+    "ast_hash": "33e8600c2a8aeedd0344900005f3b163",
     "semantic_hash": ""
   },
   "apps/account/index.html": {

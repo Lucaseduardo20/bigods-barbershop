@@ -6,6 +6,8 @@ import type {
 import { api, ApiError } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
 import { AlertaErro } from './ui';
+import { BARBEARIA } from '../lib/barbearia';
+import { IconeDeMarca } from './IconesDeMarca';
 
 const N = 6;
 
@@ -124,8 +126,8 @@ export function OtpVerificacao({
         </div>
 
         <div className="text-[13.5px] mb-5" style={{ color: 'var(--text-secondary)' }}>
-          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> no WhatsApp. Ele
-          prova que o horário é seu — ninguém mais consegue reservar ou pagar em seu nome.
+          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> via SMS. Ele
+          prova que o horário é seu, com isso ninguém mais consegue reservar ou pagar em seu nome.
         </div>
 
         {fase === 'enviando-codigo' && !erro && (
@@ -212,6 +214,28 @@ export function OtpVerificacao({
             </button>
           </>
         )}
+
+        {/* Saída para gente presa aqui (go-live 2026-08-20). Fica FORA dos
+            blocos por fase de propósito: SMS que não chega é justamente o caso
+            em que o cliente não avança de fase nenhuma, e é aí que ele mais
+            precisa de um humano. Mesmo padrão de link do rodapé da Landing e do
+            Sucesso — `BARBEARIA.whatsapp` + `IconeDeMarca`. */}
+        <div
+          className="text-[12.5px] mt-5 pt-4 text-center"
+          style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)' }}
+        >
+          Em caso de qualquer problema, entre em contato conosco pelo{' '}
+          <a
+            href={`https://wa.me/${BARBEARIA.whatsapp}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-bold"
+            style={{ color: 'var(--text-link)', display: 'inline-flex', alignItems: 'center', gap: 4, verticalAlign: 'middle' }}
+          >
+            <IconeDeMarca chave="whatsapp" tamanho={14} />
+            WhatsApp
+          </a>
+        </div>
       </div>
     </div>
   );
