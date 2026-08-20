@@ -3923,6 +3923,60 @@ nada** — continua vindo a dele.
    Financeiro mostra pra ele. Se divergir, é bug — não arredondamento.
 6. **Foto no topo:** quem tem foto vê a foto; quem não tem, as iniciais.
 
+## Tela de comissão do barbeiro (2026-08-20) ✅
+
+Origem: a pergunta "por que o Erick ganhou 60% na barba e 35% nos outros serviços do mesmo
+atendimento?". A resposta era a matriz barbeiro×serviço (`percentualPara(servico) =
+excecoesComissao.get(servico) ?? comissaoPadrao`, DOMAIN.md §3.2) — mas **não havia tela para ver
+nem mexer nisso**.
+
+### O que existia e o que faltava
+
+| | Antes |
+|---|---|
+| `PUT /barbeiros/:id/comissao` (padrão + exceções) | existia e era testado |
+| Campo "Comissão padrão" na CRIAÇÃO do usuário | existia |
+| Qualquer tela para EDITAR comissão depois | **não existia** |
+
+Consequência observada em produção: as exceções foram gravadas fora da interface, e os
+percentuais ficaram inconsistentes entre os barbeiros (Erick 35% com exceção de 60% na barba,
+Gabriel 45%, Igor 40%) sem ninguém ter decidido isso numa tela.
+
+### O que a tela faz
+
+Seção **"Comissão de serviço"** no detalhe do usuário (Usuários → barbeiro), ao lado de "Preços",
+que serviu de molde — mesma estrutura e o mesmo endpoint de substituição total.
+
+Duas escolhas que não são cosméticas:
+
+**Mostra o EFETIVO de cada serviço, não só "padrão + exceções".** Cada linha diz `vale 60%
+(exceção)` ou `vale 35% (padrão)`. Foi exatamente a diferença entre dois percentuais no mesmo
+atendimento que gerou a dúvida — ver a matriz inteira é o que evita a surpresa no extrato.
+
+**Avisa do snapshot na própria tela:** *"Mudar aqui não altera comissão já lançada"*. Sem isso,
+alguém baixa o percentual e vai conferir o extrato esperando o número antigo mudar.
+
+Serviço que o barbeiro **não atende** aparece marcado como tal — configurar comissão de algo que
+ele não faz é inofensivo, mas saber disso evita confusão.
+
+Comissão de **produto** não está aqui de propósito: desde 2026-08-19 é taxa única da empresa, em
+Ajustes → Parâmetros (§3.9.1). O endpoint ainda exige o campo (deprecado), então a tela devolve o
+valor atual sem alterá-lo.
+
+### Verificado na tela, com o dado real
+
+1. Abri Usuários → Erick Yan: a seção mostrou **Barba `vale 60% (exceção)`** e Cavanhaque, Corte,
+   Progressiva e Sobrancelha em **`vale 35% (padrão)`** — a matriz que responde a pergunta.
+2. Mudei a Barba para 50% e salvei → exceção no banco virou `5000`.
+3. ★ Conferi o lançamento antigo: **continua 60% e R$ 16,13**. O snapshot vale.
+4. Voltei para 60% e conferi que o estado do Erick ficou **idêntico ao de antes do teste**.
+
+### Smoke test manual
+
+Usuários → um barbeiro → **Comissão de serviço**. Mude o padrão ou a exceção de um serviço, salve,
+e confira: (a) a linha do serviço passa a dizer o novo percentual; (b) no Financeiro, **nenhum
+lançamento antigo mudou**; (c) o próximo atendimento concluído sai com o percentual novo.
+
 ## Como rodar localmente
 
 ```bash

@@ -313,6 +313,7 @@ function DetalheDeUsuario({
           <div className="h-px my-5" style={{ background: 'var(--border-subtle)' }} />
           <h2 className="text-[16px] font-bold mb-3">Configuração de barbeiro</h2>
           <LinkPessoal barbeiro={usuario} aoSalvar={aoMudar} />
+          <ComissaoDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
           <PrecosDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
           <ServicosDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
           <ExpedienteDoBarbeiro barbeiroId={usuario.id} />
@@ -555,6 +556,169 @@ function LinkPessoal({ barbeiro, aoSalvar }: { barbeiro: BarbeiroDTO; aoSalvar: 
         </div>
       </div>
       {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+    </div>
+  );
+}
+
+/**
+ * Comissão de SERVIÇO do barbeiro (2026-08-20): percentual padrão + exceções por
+ * serviço. O endpoint `PUT /barbeiros/:id/comissao` já existia e era testado,
+ * mas nenhuma tela chamava ele — as exceções que existem em produção foram
+ * gravadas fora da interface, o que produziu percentuais inconsistentes entre
+ * os barbeiros sem ninguém ter decidido isso numa tela.
+ *
+ * Mostra o EFETIVO de cada serviço, não só "padrão + exceções": foi justamente
+ * a diferença entre 35% e 60% no mesmo atendimento que gerou a dúvida. Ver a
+ * matriz inteira é o que evita a surpresa no extrato.
+ *
+ * Comissão de PRODUTO não está aqui de propósito — desde 2026-08-19 é uma taxa
+ * única da empresa, em Ajustes → Parâmetros (DOMAIN.md §3.9.1).
+ */
+function ComissaoDoBarbeiro({
+  barbeiro,
+  servicos,
+  carregandoServicos,
+  aoSalvar,
+}: {
+  barbeiro: BarbeiroDTO;
+  servicos: ServicoDTO[];
+  carregandoServicos: boolean;
+  aoSalvar: () => void;
+}) {
+  const [padrao, setPadrao] = useState('');
+  /** servicoId → percentual em texto. Vazio = sem exceção, usa o padrão. */
+  const [excecoes, setExcecoes] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPadrao(String(barbeiro.comissaoPadrao));
+    const mapa: Record<string, string> = {};
+    for (const e of barbeiro.excecoesComissao) mapa[e.servicoId] = String(e.percentual);
+    setExcecoes(mapa);
+    setSalvo(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeiro.id]);
+
+  const padraoNum = Number(padrao);
+  const padraoValido = Number.isFinite(padraoNum) && padraoNum >= 0 && padraoNum <= 100;
+  /** O que vale de fato para um serviço: exceção se houver, senão o padrão. */
+  const efetivo = (servicoId: string): number | null => {
+    const bruto = excecoes[servicoId];
+    if (bruto === undefined || bruto.trim() === '') return padraoValido ? padraoNum : null;
+    const n = Number(bruto);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  };
+  const algumInvalido = !padraoValido || servicos.some((s) => efetivo(s.id) === null);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    setSalvo(false);
+    try {
+      const lista = Object.entries(excecoes)
+        .filter(([, v]) => v.trim() !== '')
+        .map(([servicoId, v]) => ({ servicoId, percentual: Number(v) }));
+      await api(`/barbeiros/${barbeiro.id}/comissao`, {
+        method: 'PUT',
+        body: {
+          comissaoPadrao: padraoNum,
+          excecoes: lista,
+          // Campo DEPRECADO (a comissão de produto virou taxa da empresa em
+          // 2026-08-19). O endpoint ainda o exige, então mandamos o valor atual
+          // de volta, sem alterar nada.
+          comissaoProdutos: barbeiro.comissaoProdutos,
+        },
+      });
+      setSalvo(true);
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="label mb-2">Comissão de serviço</div>
+      <div className="text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>
+        O padrão vale para todo serviço que ele atende. Preencher um serviço abaixo cria uma
+        exceção só dele; deixar em branco volta ao padrão.
+      </div>
+      <div className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
+        ⚠️ Mudar aqui <strong>não altera comissão já lançada</strong>. O extrato guarda o
+        percentual do dia do atendimento — a mudança vale para os próximos.
+      </div>
+
+      <div className="mb-3">
+        <label className="label">Comissão padrão (%)</label>
+        <input
+          className="input"
+          type="number"
+          min={0}
+          max={100}
+          style={{ width: 110 }}
+          value={padrao}
+          onChange={(e) => setPadrao(e.target.value)}
+        />
+      </div>
+
+      {carregandoServicos && <Loading />}
+      {!carregandoServicos && servicos.length === 0 && (
+        <div className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+          Nenhum serviço no catálogo para configurar.
+        </div>
+      )}
+      <div className="flex flex-col gap-2">
+        {servicos.map((s) => {
+          const temExcecao = (excecoes[s.id] ?? '').trim() !== '';
+          const vale = efetivo(s.id);
+          const atende = barbeiro.servicosAtendidos.includes(s.id);
+          return (
+            <div key={s.id} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold truncate">{s.nome}</div>
+                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                  {/* O efetivo é o número que vai sair no extrato — é ele que
+                      responde "quanto ele ganha neste serviço?". */}
+                  vale {vale === null ? '—' : `${vale}%`}
+                  {temExcecao ? ' (exceção)' : ' (padrão)'}
+                  {!atende ? ' · ele não atende este serviço' : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {temExcecao && <Badge tone="gold">exceção</Badge>}
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  style={{ width: 90 }}
+                  placeholder={padraoValido ? String(padraoNum) : ''}
+                  value={excecoes[s.id] ?? ''}
+                  onChange={(e) => setExcecoes((x) => ({ ...x, [s.id]: e.target.value }))}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+      {salvo && (
+        <div className="text-[13px] mt-2" style={{ color: 'var(--status-success)' }}>
+          Comissão salva — vale para os próximos atendimentos.
+        </div>
+      )}
+      <button className="btn btn-sm mt-3" disabled={salvando || algumInvalido} onClick={salvar}>
+        {salvando ? 'Salvando…' : 'Salvar comissão'}
+      </button>
+      {algumInvalido && (
+        <div className="text-[11px] mt-1.5" style={{ color: 'var(--status-danger)' }}>
+          Percentual precisa ser um número de 0 a 100.
+        </div>
+      )}
     </div>
   );
 }
