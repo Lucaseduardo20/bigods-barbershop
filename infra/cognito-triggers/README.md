@@ -50,9 +50,42 @@ Para cada uma das três, no console **Lambda → Create function**:
   - `bigods-cognito-verify-auth`
 
 Depois de criar, em **Code source**, cole o conteúdo do arquivo correspondente
-em `index.mjs`… **atenção**: o código usa `require`/`exports` (CommonJS), então
-renomeie o arquivo do editor para **`index.js`** (não `.mjs`) ou cole em
-`index.js` mesmo. Em **Runtime settings → Handler**, ajuste para:
+em `index.js`. Dois detalhes que fazem o login inteiro falhar se passarem batidos:
+
+> ### ★ APAGUE o `index.mjs` que o console criou
+>
+> O template "Author from scratch" já vem com um `index.mjs` que devolve
+> `{"statusCode": 200, "body": "Hello from Lambda!"}`. Nosso código é CommonJS
+> (`require`/`exports`), então vai num `index.js` — e com os DOIS arquivos
+> presentes o runtime Node resolve o **`.mjs` primeiro**. A Lambda responde 200
+> com o hello-world, o Cognito não entende o payload, e o erro que chega na API é
+> `InvalidLambdaResponseException: Unrecognizable lambda output` — que não diz
+> nada sobre arquivo nenhum. Aconteceu em produção em 2026-08-20.
+>
+> ### ★ Clique em **Deploy** depois de colar
+>
+> No editor do console, salvar não publica: sem o Deploy a função continua
+> servindo o código anterior, com o mesmo sintoma acima.
+>
+> Como conferir que deu certo, sem gastar SMS: aba **Test** da Lambda do
+> *define*, com este evento —
+>
+> ```json
+> {
+>   "version": "1",
+>   "triggerSource": "DefineAuthChallenge_Authentication",
+>   "userPoolId": "SEU_POOL_ID",
+>   "userName": "teste",
+>   "request": { "userAttributes": { "phone_number": "+5511999998888" }, "session": [] },
+>   "response": {}
+> }
+> ```
+>
+> O retorno tem que trazer `response.challengeName: "CUSTOM_CHALLENGE"`,
+> `issueTokens: false` e `failAuthentication: false`. Não rode este teste na
+> `create-auth` com telefone real: ela envia SMS de verdade e gasta franquia.
+
+Em **Runtime settings → Handler**, ajuste para:
 
 | Função | Handler |
 |---|---|
@@ -65,7 +98,9 @@ renomeie o arquivo do editor para **`index.js`** (não `.mjs`) ou cole em
 > `infra/cognito-triggers/sms-gate.js`. Depois troque, no topo do `index.js`, o
 > `require('./sms-gate')` — já está assim, não precisa mexer. Clique **Deploy**.
 
-Alternativa (mais fácil de repetir): zipar e subir.
+Alternativa (mais fácil de repetir, e **imune às duas armadilhas acima** — o
+zip substitui o conteúdo inteiro da função, então não sobra `index.mjs` nem
+existe "esqueci o Deploy"): zipar e subir.
 
 ```bash
 cd infra/cognito-triggers
