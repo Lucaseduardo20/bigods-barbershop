@@ -75,7 +75,7 @@ Não perseguir cobertura em controllers/mapeamento. O valor está no domínio.
 
 ## Fora de escopo (não implementar mesmo que pareça óbvio — DOMAIN.md §11)
 
-Estoque/produtos · vale/saque/débito de barbeiro · isolamento multi-tenant dinâmico · aplicação automática de saldo residual · desconto progressivo de carrinho · app nativo · divisão de lucro entre sócios · notificação WhatsApp (Fase 2 — mas o evento `AtendimentoAgendado` já existe para ela plugar depois).
+Estoque/produtos · vale/saque/débito de barbeiro · isolamento multi-tenant dinâmico · aplicação automática de saldo residual · app nativo · divisão de lucro entre sócios · notificação WhatsApp (Fase 2 — mas o evento `AtendimentoAgendado` já existe para ela plugar depois).
 
 ## Quando a spec não cobrir algo
 

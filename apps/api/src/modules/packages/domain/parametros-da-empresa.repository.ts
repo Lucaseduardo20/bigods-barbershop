@@ -1,3 +1,4 @@
+import { TabelaDeDescontoDTO } from '@bigods/contracts';
 import { CompanyId } from '../../../shared/domain/ids';
 import { Timezone } from '../../../shared/domain/timezone';
 
@@ -13,6 +14,13 @@ export interface ParametrosDaEmpresaRepository {
   definirJanelaReagendamentoHoras(companyId: CompanyId, horas: number): Promise<void>;
   /** Fuso IANA da empresa — toda fronteira converte a partir dele; domínio nunca o presume. */
   timezone(companyId: CompanyId): Promise<Timezone>;
+  /**
+   * Tabela de desconto progressivo dos avulsos (degraus por posição + teto).
+   * Empresa sem configuração devolve tabela VAZIA — nenhum desconto, que é o
+   * comportamento de antes desta regra existir.
+   */
+  tabelaDeDesconto(companyId: CompanyId): Promise<TabelaDeDescontoDTO>;
+  definirTabelaDeDesconto(companyId: CompanyId, tabela: TabelaDeDescontoDTO): Promise<void>;
 }
 
 export const PARAMETROS_DA_EMPRESA_REPOSITORY = Symbol('ParametrosDaEmpresaRepository');

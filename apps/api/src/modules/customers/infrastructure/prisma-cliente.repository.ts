@@ -12,6 +12,8 @@ function paraDominio(row: ClientePrisma): Cliente {
     nome: row.nome,
     telefone: Telefone.de(row.telefone),
     cognitoSub: row.cognitoSub,
+    email: row.email,
+    sobreVoce: row.sobreVoce,
   });
 }
 
@@ -41,6 +43,8 @@ export class PrismaClienteRepository implements ClienteRepository {
       nome: cliente.nome,
       telefone: cliente.telefone.e164,
       cognitoSub: cliente.cognitoSub,
+      email: cliente.email,
+      sobreVoce: cliente.sobreVoce,
     };
     await this.db.cliente.upsert({
       where: { id: cliente.id },

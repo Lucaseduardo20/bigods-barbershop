@@ -53,11 +53,35 @@ const logger = pino({ level: LOG_LEVEL });
 let sock = null;
 let conectado = false;
 
-/** WhatsApp (Baileys) exige dígitos puros (com código de país) + "@s.whatsapp.net". */
-function normalizarParaJid(telefone) {
+/**
+ * Descobre o JID REAL do número, perguntando ao WhatsApp — nunca montando
+ * `${digitos}@s.whatsapp.net` por conta própria.
+ *
+ * Por que isso importa (e por que era um bug silencioso): número de celular
+ * brasileiro tem o problema do nono dígito. O E.164 que guardamos é
+ * +55 11 9XXXX-XXXX, mas o JID real de contas mais antigas costuma ser sem o 9
+ * (55 11 XXXX-XXXX). Mandar para um JID que não existe **não dá erro**: o
+ * Baileys aceita, responde OK, e a mensagem simplesmente não chega em lugar
+ * nenhum. Do nosso lado tudo "funcionava" — inclusive o desafio era gravado no
+ * banco — e o cliente ficava esperando um código que nunca vinha.
+ *
+ * `onWhatsApp` devolve o JID canônico e se o número existe. Número que não
+ * existe no WhatsApp passa a ser um erro explícito, em vez de um buraco negro.
+ */
+async function resolverJid(telefone) {
   const digitos = String(telefone || '').replace(/\D/g, '');
   if (!digitos) throw new Error('telefone vazio ou inválido');
-  return `${digitos}@s.whatsapp.net`;
+
+  const [achado] = (await sock.onWhatsApp(digitos)) || [];
+  if (!achado || !achado.exists) return null;
+
+  const ingenuo = `${digitos}@s.whatsapp.net`;
+  if (achado.jid !== ingenuo) {
+    // Vale log: é exatamente o caso do nono dígito, e sem isso a diferença
+    // entre "número certo" e "número que não recebe nada" fica invisível.
+    console.log(`[whatsapp-otp] JID canônico difere do número informado: ${ingenuo} -> ${achado.jid}`);
+  }
+  return achado.jid;
 }
 
 async function iniciarClienteWhatsApp() {
@@ -133,7 +157,14 @@ app.post('/enviar', async (req, res) => {
     return res.status(400).json({ erro: 'telefone e mensagem são obrigatórios' });
   }
   try {
-    const jid = normalizarParaJid(telefone);
+    const jid = await resolverJid(telefone);
+    if (!jid) {
+      // 422, não 502: não adianta "tentar de novo em instantes" — esse número
+      // não vai receber nunca. A API traduz isso para o cliente conferir o
+      // número digitado.
+      console.warn(`[whatsapp-otp] número sem WhatsApp, nada enviado: ${telefone}`);
+      return res.status(422).json({ erro: 'numero-sem-whatsapp' });
+    }
     await sock.sendMessage(jid, { text: mensagem });
     res.json({ ok: true });
   } catch (e) {

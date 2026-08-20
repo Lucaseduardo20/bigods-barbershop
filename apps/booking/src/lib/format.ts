@@ -38,6 +38,32 @@ export function diasDaSemana(tz: string, semanaOffset: number): string[] {
   );
 }
 
+/**
+ * Soma dias a um dia civil (YYYY-MM-DD). Aritmética em UTC sobre uma data já
+ * resolvida — datas civis são agnósticas de fuso, e isso evita drift de
+ * horário de verão.
+ */
+export function somarDias(diaISO: string, dias: number): string {
+  const [ano, mes, dia] = diaISO.split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia + dias)).toISOString().slice(0, 10);
+}
+
+/**
+ * Instante absoluto a partir de dia civil + hora de parede NO FUSO DA EMPRESA.
+ *
+ * O navegador do cliente pode estar em qualquer fuso (viajando, relógio
+ * errado), então `new Date("2026-08-15T09:00")` — que interpreta no fuso do
+ * navegador — daria o instante errado. Aqui o deslocamento é medido para o
+ * próprio instante em questão, o que também acerta a virada de horário de
+ * verão. Espelha `instanteDeDataHoraLocal` do backend.
+ */
+export function instanteDeDataHoraLocal(data: string, hora: string, tz: string): Date {
+  const palpite = new Date(`${data}T${hora}:00Z`);
+  const naEmpresa = new Date(palpite.toLocaleString('en-US', { timeZone: tz }));
+  const emUtc = new Date(palpite.toLocaleString('en-US', { timeZone: 'UTC' }));
+  return new Date(palpite.getTime() + (emUtc.getTime() - naEmpresa.getTime()));
+}
+
 /** Rótulo do intervalo de uma semana de dias (ex.: "12 – 18 jul"). */
 export function rotuloSemana(dias: string[]): string {
   if (dias.length === 0) return '';

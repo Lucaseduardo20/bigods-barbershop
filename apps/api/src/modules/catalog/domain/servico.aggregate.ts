@@ -18,14 +18,20 @@ export class Servico extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<ServicoProps, 'ativo'> & { ativo?: boolean }): Servico {
+  static criar(
+    props: Omit<ServicoProps, 'ativo'> & { ativo?: boolean },
+  ): Servico {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Serviço exige nome');
     }
     if (!props.precoAvulso.ehPositivo()) {
       throw new InvarianteVioladaError('Preço do serviço deve ser maior que zero');
     }
-    return new Servico({ ...props, nome: props.nome.trim(), ativo: props.ativo ?? true });
+    return new Servico({
+      ...props,
+      nome: props.nome.trim(),
+      ativo: props.ativo ?? true,
+    });
   }
 
   static reconstituir(props: ServicoProps): Servico {
@@ -46,6 +52,30 @@ export class Servico extends AggregateRoot {
       throw new InvarianteVioladaError('Preço do serviço deve ser maior que zero');
     }
     this.props.precoAvulso = novoPreco;
+  }
+
+  /**
+   * CRUD completo (sessão 2026-08-17, Parte 1): o controller já ACEITAVA `nome`
+   * no PATCH mas descartava em silêncio — não existia este método. Renomear é
+   * seguro para o histórico: `ItemAtendido` guarda `valorCobrado`/`duracao` como
+   * snapshot (§3.5) e referencia o serviço por id, então o nome novo aparece
+   * retroativamente nas telas (é a mesma entidade, corrigida), sem mexer em
+   * dinheiro nenhum.
+   */
+  atualizarNome(novoNome: string): void {
+    if (!novoNome.trim()) {
+      throw new InvarianteVioladaError('Serviço exige nome');
+    }
+    this.props.nome = novoNome.trim();
+  }
+
+  /**
+   * Duração só vale para agendamentos FUTUROS — `ItemAtendido.duracaoMinutos`
+   * é snapshot do que foi combinado, então atendimento já marcado mantém o
+   * bloco de agenda que reservou.
+   */
+  atualizarDuracao(novaDuracao: Duracao): void {
+    this.props.duracao = novaDuracao;
   }
 
   get id() { return this.props.id; }

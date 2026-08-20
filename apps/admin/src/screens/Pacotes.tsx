@@ -5,7 +5,6 @@ import type {
   ItemDoPacoteDTO,
   PacoteOfertaDTO,
   ServicoDTO,
-  SolicitacaoDeReembolsoDTO,
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
@@ -15,6 +14,7 @@ import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, BotaoAtualizar, CurrencyInput, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
+import { CabecalhoDeCatalogo, EstadoDaLista, ItemDeCatalogo, type AcaoDeItem } from '../components/crud';
 import { idEfetivo } from '../lib/selecao';
 
 const toneItem: Record<StatusItemPacote, string> = {
@@ -43,82 +43,24 @@ type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
 export function Pacotes({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [aba, setAba] = useState<Aba>('vendidos');
-  // Reembolso é decisão de admin (backend: @Papeis(ADMIN) em /pacotes/reembolsos/*)
-  // — sem a aba, nunca mostra um botão que ia dar 403.
+  // "Se ele não tem acesso, ele não pode ver" (2026-08-18): o catálogo de
+  // ofertas é admin-only no backend, então a aba nem aparece pro barbeiro —
+  // antes ela aparecia e o clique caía num erro de papel insuficiente.
+  // Reembolsos saiu daqui na Parte 1 (2026-08-17) — é assunto do Financeiro.
   const tabs = [
     { value: 'vendidos' as const, label: 'Vendidos' },
-    { value: 'catalogo' as const, label: 'Catálogo de ofertas' },
-    ...(ehAdmin ? [{ value: 'reembolsos' as const, label: 'Reembolsos' }] : []),
+    ...(ehAdmin ? [{ value: 'catalogo' as const, label: 'Catálogo de ofertas' }] : []),
   ];
 
   return (
     <div className="px-5">
-      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">Pacotes & Ofertas</h1>
-      <Tabs value={aba} onChange={setAba} tabs={tabs} />
+      <h1 className="m-0 mb-3 text-[26px] font-bold leading-tight">
+        {ehAdmin ? 'Pacotes & Ofertas' : 'Pacotes dos meus clientes'}
+      </h1>
+      {ehAdmin && <Tabs value={aba} onChange={setAba} tabs={tabs} />}
       <div className="mt-3">
         {aba === 'vendidos' && <PacotesVendidos usuario={usuario} />}
-        {aba === 'catalogo' && <CatalogoDeOfertas usuario={usuario} />}
-        {aba === 'reembolsos' && ehAdmin && <ReembolsosPendentes />}
-      </div>
-    </div>
-  );
-}
-
-/**
- * FASE 4b (sessão-E, §8.7): fila de pedidos de reembolso manual — o dinheiro
- * já saiu do saldo residual do cliente na hora do pedido (reservado); aqui o
- * admin só confirma que devolveu por fora (PIX). Sem gateway, sem estorno
- * automático.
- */
-function ReembolsosPendentes() {
-  const tz = useTimezone();
-  const [confirmando, setConfirmando] = useState<string | null>(null);
-  const { dados, erro, carregando, recarregar } = useApi(
-    () => api<SolicitacaoDeReembolsoDTO[]>('/pacotes/reembolsos/pendentes'),
-    [],
-  );
-
-  const confirmar = async (id: string) => {
-    setConfirmando(id);
-    try {
-      await api(`/pacotes/reembolsos/${id}/confirmar`, { method: 'POST' });
-      recarregar();
-    } finally {
-      setConfirmando(null);
-    }
-  };
-
-  return (
-    <div>
-      <div className="flex justify-end mb-2">
-        <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-      </div>
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && (dados ?? []).length === 0 && <Vazio texto="Nenhum reembolso pendente." />}
-      <div className="flex flex-col gap-2.5">
-        {(dados ?? []).map((s) => (
-          <div key={s.id} className="card">
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="font-bold text-[14px]">{s.cliente.nome}</div>
-                <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  pedido em {dataCurta(s.criadaEm, tz)} · prazo era até {dataCurta(s.prazoLimiteEm, tz)}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="font-bold text-[16px]">{dinheiro(s.valorCentavos)}</div>
-              </div>
-            </div>
-            <button
-              className="btn btn-sm mt-2"
-              disabled={confirmando === s.id}
-              onClick={() => confirmar(s.id)}
-            >
-              {confirmando === s.id ? 'Confirmando…' : 'Marcar como reembolsado (PIX enviado)'}
-            </button>
-          </div>
-        ))}
+        {aba === 'catalogo' && ehAdmin && <CatalogoDeOfertas usuario={usuario} />}
       </div>
     </div>
   );
@@ -126,6 +68,7 @@ function ReembolsosPendentes() {
 
 function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
   const tz = useTimezone();
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [venderAberto, setVenderAberto] = useState(false);
   const [agendarItem, setAgendarItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
   const [confirmando, setConfirmando] = useState<string | null>(null);
@@ -133,7 +76,9 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
 
   // Bug 8: pacote "pagar na barbearia" fica AGUARDANDO sem nenhuma ação para o
   // admin liberar os créditos quando o cliente paga no balcão — confirma pelo
-  // mesmo caminho idempotente do webhook.
+  // mesmo caminho idempotente do webhook. Desde 2026-08-18 esta MESMA ação
+  // atende o pagamento manual por WhatsApp (o PIX cai por fora do sistema),
+  // por isso o rótulo fala em "recebido" e não em "presencial".
   const confirmarPagamento = async (vendaId: string) => {
     setConfirmando(vendaId);
     try {
@@ -148,14 +93,19 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
     <div>
       <div className="flex items-end justify-between mb-3">
         <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-        <button className="btn btn-sm" onClick={() => setVenderAberto(true)}>
-          + Vender
-        </button>
+        {/* Vender pacote é ação de caixa — admin-only no backend, escondido aqui. */}
+        {ehAdmin && (
+          <button className="btn btn-sm" onClick={() => setVenderAberto(true)}>
+            + Vender
+          </button>
+        )}
       </div>
       {carregando && <Loading />}
       {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
       {!carregando && !erro && (dados ?? []).length === 0 && (
-        <Vazio texto="Nenhum pacote vendido ainda." />
+        <Vazio
+          texto={ehAdmin ? 'Nenhum pacote vendido ainda.' : 'Nenhum cliente comprou pacote com você ainda.'}
+        />
       )}
       <div className="flex flex-col gap-2.5">
         {(dados ?? []).map((v) => (
@@ -164,7 +114,8 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
               <div>
                 <div className="font-bold text-[14px]">{v.cliente.nome}</div>
                 <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                  {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)} · {v.barbeiroNome}
+                  {dataCurta(v.compradoEm, tz)} · {dinheiro(v.valorPagoCentavos)} ·{' '}
+                  {v.barbeiroNome ?? 'qualquer barbeiro'}
                   {v.saldoResidualCentavos > 0 && (
                     <> · saldo residual {dinheiro(v.saldoResidualCentavos)}</>
                   )}
@@ -181,13 +132,13 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone={tonePagamento[v.statusPagamento]}>{v.statusPagamento}</Badge>
-                {v.statusPagamento === StatusPagamento.AGUARDANDO && (
+                {ehAdmin && v.statusPagamento === StatusPagamento.AGUARDANDO && (
                   <button
                     className="btn btn-sm"
                     disabled={confirmando === v.id}
                     onClick={() => confirmarPagamento(v.id)}
                   >
-                    {confirmando === v.id ? 'Confirmando…' : 'Confirmar pagamento presencial'}
+                    {confirmando === v.id ? 'Confirmando…' : 'Confirmar pagamento recebido'}
                   </button>
                 )}
               </div>
@@ -226,7 +177,7 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
       </div>
 
       <VenderDialog
-        aberto={venderAberto}
+        aberto={venderAberto && ehAdmin}
         aoFechar={() => setVenderAberto(false)}
         aoSalvar={() => {
           setVenderAberto(false);
@@ -268,7 +219,9 @@ function VenderDialog({
   const servicos = useApi(() => api<ServicoDTO[]>('/servicos'), []);
   const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO));
-  const barbeiroIdEfetivo = idEfetivo(barbeiroId, barbeirosQueAtendem);
+  // Sem `idEfetivo` aqui de propósito: "" é uma escolha VÁLIDA (qualquer
+  // barbeiro), não um estado a corrigir para o primeiro da lista.
+  const barbeiroIdEfetivo = barbeiroId || null;
   const mudarQtd = (id: string, delta: number) =>
     setQuantidades((q) => ({ ...q, [id]: Math.max(0, (q[id] ?? 0) + delta) }));
 
@@ -281,7 +234,8 @@ function VenderDialog({
       const res = await api<{ cobranca: { copiaECola: string } | null }>('/pacotes', {
         method: 'POST',
         body: {
-          barbeiroId: barbeiroIdEfetivo,
+          // Opcional (2026-08-18): sem barbeiro, o crédito vale com qualquer um.
+          ...(barbeiroIdEfetivo ? { barbeiroId: barbeiroIdEfetivo } : {}),
           cliente: { nome, telefone },
           servicoIds,
           valorPagoCentavos: valorCentavos,
@@ -323,8 +277,9 @@ function VenderDialog({
           <input className="input" placeholder="Nome do cliente" value={nome} onChange={(e) => setNome(e.target.value)} />
           <input className="input" placeholder="Telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
           <div>
-            <label className="label">Barbeiro dono do pacote</label>
-            <select className="select" value={barbeiroIdEfetivo ?? ''} onChange={(e) => setBarbeiroId(e.target.value)}>
+            <label className="label">Barbeiro (opcional)</label>
+            <select className="select" value={barbeiroId} onChange={(e) => setBarbeiroId(e.target.value)}>
+              <option value="">Qualquer barbeiro</option>
               {barbeirosQueAtendem.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.nome}
@@ -332,8 +287,8 @@ function VenderDialog({
               ))}
             </select>
             <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              O rateio usa o preço deste barbeiro (referência ou override) — crédito só pode ser
-              consumido com ele.
+              Escolhendo um barbeiro, só ele atende os serviços deste pacote. Sem escolher, qualquer
+              um que atenda o serviço pode. O rateio usa sempre o preço de referência da casa.
             </div>
           </div>
           <div>
@@ -369,7 +324,7 @@ function VenderDialog({
           {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
           <button
             className="btn"
-            disabled={salvando || !nome || !telefone || valorCentavos <= 0 || !barbeiroIdEfetivo || servicoIds.length === 0}
+            disabled={salvando || !nome || !telefone || valorCentavos <= 0 || servicoIds.length === 0}
             onClick={salvar}
           >
             {salvando ? 'Vendendo…' : 'Vender pacote'}
@@ -380,6 +335,13 @@ function VenderDialog({
   );
 }
 
+/**
+ * Sessão 2026-08-17 (pacote é da empresa, não do barbeiro): crédito deixou de
+ * ser travado ao "dono" da venda — pode ser consumido por qualquer barbeiro
+ * ativo que atenda o serviço do item. Antes este diálogo nem oferecia escolha
+ * (mandava sempre `venda.barbeiroId` fixo); agora é um select, com o dono
+ * como sugestão inicial (conveniência, não obrigação).
+ */
 function AgendarCreditoDialog({
   alvo,
   usuario,
@@ -392,14 +354,37 @@ function AgendarCreditoDialog({
   aoSalvar: () => void;
 }) {
   const tz = useTimezone();
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
   const [data, setData] = useState(() => hojeISO(tz));
   const [horaInicio, setHoraInicio] = useState('10:00');
+  const [barbeiroId, setBarbeiroId] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter(
+    (b) => b.ativo && alvo && b.servicosAtendidos.includes(alvo.item.servicoId),
+  );
+  // Pacote comprado COM barbeiro: não há escolha, é ele. Sem barbeiro: admin
+  // escolhe entre quem atende; barbeiro não-admin só agenda pra si mesmo
+  // (mesmo escopo já usado em agenda/comissão).
+  const presoAoBarbeiroDaCompra = !!alvo?.venda.barbeiroId;
+  const opcoesBarbeiro = presoAoBarbeiroDaCompra
+    ? barbeirosQueAtendem.filter((b) => b.id === alvo!.venda.barbeiroId)
+    : ehAdmin
+      ? barbeirosQueAtendem
+      : barbeirosQueAtendem.filter((b) => b.id === usuario.barbeiroId);
+  const barbeiroIdEfetivo = idEfetivo(barbeiroId || alvo?.venda.barbeiroId, opcoesBarbeiro);
+
+  useEffect(() => {
+    setBarbeiroId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alvo?.item.id]);
 
   if (!alvo) return null;
 
   const salvar = async () => {
+    if (!barbeiroIdEfetivo) return;
     setSalvando(true);
     setErro(null);
     try {
@@ -408,7 +393,7 @@ function AgendarCreditoDialog({
         body: {
           vendaId: alvo.venda.id,
           itemId: alvo.item.id,
-          barbeiroId: alvo.venda.barbeiroId,
+          barbeiroId: barbeiroIdEfetivo,
           data,
           horaInicio,
         },
@@ -429,18 +414,38 @@ function AgendarCreditoDialog({
           será cobrado ao concluir.
         </div>
         <div>
-          <label className="label">Barbeiro</label>
-          <div className="text-[14px] font-semibold">
-            {alvo.venda.barbeiroNome}{' '}
-            <span className="text-[11px] font-normal" style={{ color: 'var(--text-muted)' }}>
-              (dono do pacote — crédito só pode ser consumido com ele)
-            </span>
+          <label className="label">Barbeiro que vai atender</label>
+          {opcoesBarbeiro.length === 0 ? (
+            <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
+              {presoAoBarbeiroDaCompra
+                ? `${alvo.venda.barbeiroNome ?? 'O barbeiro da compra'} não atende ${alvo.item.servicoNome}.`
+                : `Nenhum barbeiro ativo atende ${alvo.item.servicoNome}.`}
+            </div>
+          ) : presoAoBarbeiroDaCompra ? (
+            <div className="text-[14px] font-semibold">{alvo.venda.barbeiroNome}</div>
+          ) : (
+            <select
+              className="select"
+              value={barbeiroIdEfetivo ?? ''}
+              onChange={(e) => setBarbeiroId(e.target.value)}
+            >
+              {opcoesBarbeiro.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nome}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            {presoAoBarbeiroDaCompra
+              ? 'O cliente comprou este pacote com este barbeiro — os serviços são atendidos por ele.'
+              : 'Comprado sem barbeiro escolhido: qualquer um que atenda o serviço pode atender.'}
           </div>
         </div>
         <input className="input" type="date" value={data} onChange={(e) => setData(e.target.value)} />
         <input className="input" type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
         {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
-        <button className="btn" disabled={salvando} onClick={salvar}>
+        <button className="btn" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
           {salvando ? 'Agendando…' : 'Agendar com crédito'}
         </button>
       </div>
@@ -494,12 +499,12 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
   const [rejeitando, setRejeitando] = useState<PacoteOfertaDTO | null>(null);
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
 
-  // Não-admin só vê/gerencia o próprio catálogo — mesma restrição de escopo
-  // já aplicada em agenda/comissão pra barbeiro não-admin.
-  const ofertasVisiveis = (dados ?? []).filter((o) => ehAdmin || o.barbeiroId === usuario.barbeiroId);
-  const pendentes = ehAdmin
-    ? ofertasVisiveis.filter((o) => o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO)
-    : [];
+  // 2026-08-18: a oferta é da EMPRESA (não tem dono) e o cadastro é admin-only
+  // no backend — não há mais "as minhas ofertas" pra escopar.
+  const ofertasVisiveis = dados ?? [];
+  const pendentes = ofertasVisiveis.filter(
+    (o) => o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO,
+  );
 
   const alternarAtivo = async (o: PacoteOfertaDTO) => {
     await api(`/pacote-ofertas/${o.id}/status`, { method: 'PATCH', body: { ativo: !o.ativo } });
@@ -521,29 +526,25 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
-          {ehAdmin ? 'Catálogo de toda a barbearia.' : 'Suas ofertas — cada barbeiro tem o próprio catálogo.'}
-        </div>
-        <div className="flex gap-2 items-center flex-shrink-0">
-          <BotaoAtualizar onClick={recarregar} carregando={carregando} />
-          <button
-            className="btn btn-sm"
-            disabled={barbeirosQueAtendem.length === 0 || servicos.length === 0}
-            onClick={() => {
-              setEditando(null);
-              setAberto(true);
-            }}
-          >
-            + Nova
-          </button>
-        </div>
-      </div>
-      <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-        Composição pode misturar serviços diferentes. O preço é sempre o que se salva — o
-        percentual de desconto exibido é calculado a partir dele, nunca o contrário. Toda oferta
-        nova entra como Pendente — só depois de Aprovada aparece no funil público.
-      </div>
+      <CabecalhoDeCatalogo
+        descricao={
+          <>
+            {ehAdmin ? 'Catálogo de toda a barbearia. ' : 'Suas ofertas. '}
+            Composição pode misturar serviços diferentes; o preço é sempre o que se salva (o
+            percentual é derivado dele). Oferta nova entra como Pendente — só aparece no funil
+            depois de Aprovada. Todo cliente vê todas as ofertas aprovadas, independente do
+            barbeiro escolhido.
+          </>
+        }
+        carregando={carregando}
+        aoAtualizar={recarregar}
+        criarDesabilitado={barbeirosQueAtendem.length === 0 || servicos.length === 0}
+        rotuloCriar="+ Nova oferta"
+        aoCriar={() => {
+          setEditando(null);
+          setAberto(true);
+        }}
+      />
 
       {pendentes.length > 0 && (
         <div className="card mb-3" style={{ borderStyle: 'dashed', borderColor: 'var(--status-warning)' }}>
@@ -554,7 +555,7 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
             {pendentes.map((o) => (
               <div key={o.id} className="flex items-center justify-between gap-2">
                 <div className="text-[13px]">
-                  <strong>{o.nome}</strong> · {o.barbeiroNome} · {dinheiro(o.precoCentavos)}
+                  <strong>{o.nome}</strong> · {dinheiro(o.precoCentavos)}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button className="btn btn-sm" onClick={() => aprovar(o)}>
@@ -570,54 +571,72 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
         </div>
       )}
 
-      {carregando && <Loading />}
-      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
-      {!carregando && !erro && ofertasVisiveis.length === 0 && <Vazio texto="Nenhuma oferta de pacote cadastrada." />}
+      <EstadoDaLista
+        carregando={carregando}
+        erro={erro}
+        vazio={ofertasVisiveis.length === 0}
+        textoVazio="Nenhuma oferta de pacote cadastrada."
+        aoTentar={recarregar}
+      />
       <div className="flex flex-col gap-2">
         {ofertasVisiveis.map((o) => {
-          const podeEditar = ehAdmin || o.barbeiroId === usuario.barbeiroId;
+          const podeEditar = ehAdmin;
+          const aprovada = o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO;
+          const pendente = o.statusAprovacao === StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO;
+          // Mesmo menu de ações de serviços/produtos (components/crud) —
+          // aprovar/rejeitar entram nele quando fazem sentido, em vez de virar
+          // mais dois botões soltos empurrando o card.
+          const acoes: AcaoDeItem[] = [
+            ...(podeEditar
+              ? [
+                  {
+                    label: 'Editar',
+                    onClick: () => {
+                      setEditando(o);
+                      setAberto(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(ehAdmin && pendente
+              ? [
+                  { label: 'Aprovar', onClick: () => void aprovar(o) },
+                  { label: 'Rejeitar', onClick: () => setRejeitando(o), perigo: true },
+                ]
+              : []),
+            ...(podeEditar && aprovada
+              ? [
+                  o.ativo
+                    ? { label: 'Desativar', onClick: () => void alternarAtivo(o), perigo: true }
+                    : { label: 'Reativar', onClick: () => void alternarAtivo(o) },
+                ]
+              : []),
+          ];
           return (
-            <div key={o.id} className="card">
-              <div className="flex items-center justify-between mb-1">
-                <div className="text-[14px] font-bold">{o.nome}</div>
-                <div className="flex items-center gap-2">
-                  {/* Um estado só por vez: Ativo/Inativo só é mostrado quando
-                      APROVADO — é o único status em que essa flag tem efeito
-                      visível (só oferta aprovada aparece no funil público).
-                      Mostrar "Ativo" ao lado de "Rejeitado"/"Pendente" é o
-                      que causava o badge contraditório. */}
-                  <Badge tone={toneAprovacao[o.statusAprovacao]}>{labelAprovacao[o.statusAprovacao]}</Badge>
-                  {o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO && (
-                    <Badge tone={o.ativo ? 'success' : 'neutral'}>{o.ativo ? 'Ativo' : 'Inativo'}</Badge>
-                  )}
-                  {podeEditar && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        setEditando(o);
-                        setAberto(true);
-                      }}
-                    >
-                      Editar
-                    </button>
-                  )}
-                  {podeEditar && o.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => alternarAtivo(o)}>
-                      {o.ativo ? 'Desativar' : 'Reativar'}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                dono: {o.barbeiroNome} · {o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')}
-              </div>
-              <div className="text-[13px] mt-1">
+            <ItemDeCatalogo
+              key={o.id}
+              titulo={o.nome}
+              subtitulo={
+                o.composicao.map((i) => `${i.quantidade}× ${i.servicoNome}`).join(' + ')
+              }
+              badges={[
+                // Um estado só por vez: Ativo/Inativo só é mostrado quando
+                // APROVADO — é o único status em que essa flag tem efeito
+                // visível (só oferta aprovada aparece no funil público).
+                { tone: toneAprovacao[o.statusAprovacao], texto: labelAprovacao[o.statusAprovacao] },
+                ...(aprovada
+                  ? [{ tone: o.ativo ? 'success' : 'neutral', texto: o.ativo ? 'Ativo' : 'Inativo' }]
+                  : []),
+              ]}
+              acoes={acoes}
+            >
+              <div className="text-[13px] mt-1.5">
                 <strong>{dinheiro(o.precoCentavos)}</strong>
                 {o.economiaCentavos > 0 && (
                   <span style={{ color: 'var(--text-muted)' }}>
                     {' '}
-                    · avulso {dinheiro(o.precoAvulsoTotalCentavos)} · economia {o.economiaPercentual.toFixed(1)}% (base: preço do
-                    barbeiro dono)
+                    · avulso {dinheiro(o.precoAvulsoTotalCentavos)} · economia{' '}
+                    {o.economiaPercentual.toFixed(1)}%
                   </span>
                 )}
               </div>
@@ -626,17 +645,14 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
                   motivo da rejeição: {o.motivoRejeicao}
                 </div>
               )}
-            </div>
+            </ItemDeCatalogo>
           );
         })}
       </div>
       <OfertaDialog
         aberto={aberto}
         editando={editando}
-        barbeiros={barbeirosQueAtendem}
         servicos={servicos}
-        ehAdmin={ehAdmin}
-        barbeiroForcadoId={usuario.barbeiroId}
         aoFechar={() => setAberto(false)}
         aoSalvar={() => {
           setAberto(false);
@@ -656,27 +672,24 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
   );
 }
 
+/**
+ * 2026-08-18: a oferta é da EMPRESA — não tem barbeiro dono. A composição pode
+ * ter qualquer serviço ativo do catálogo, e a base de comparação (soma dos
+ * avulsos) é o preço de REFERÊNCIA DA CASA, igual para todo cliente.
+ */
 function OfertaDialog({
   aberto,
   editando,
-  barbeiros,
   servicos,
-  ehAdmin,
-  barbeiroForcadoId,
   aoFechar,
   aoSalvar,
 }: {
   aberto: boolean;
   editando: PacoteOfertaDTO | null;
-  barbeiros: BarbeiroDTO[];
   servicos: ServicoDTO[];
-  /** Admin escolhe livremente o dono; barbeiro não-admin só cria pra si mesmo. */
-  ehAdmin: boolean;
-  barbeiroForcadoId: string;
   aoFechar: () => void;
   aoSalvar: () => void;
 }) {
-  const [barbeiroId, setBarbeiroId] = useState('');
   const [nome, setNome] = useState('');
   const [linhas, setLinhas] = useState<LinhaComposicao[]>([{ servicoId: '', quantidade: '1' }]);
   const [modo, setModo] = useState<'percentual' | 'preco'>('percentual');
@@ -685,27 +698,17 @@ function OfertaDialog({
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
-  const barbeiroIdEfetivo = editando ? editando.barbeiroId : ehAdmin ? barbeiroId || barbeiros[0]?.id || '' : barbeiroForcadoId;
-  const barbeiroSelecionado = barbeiros.find((b) => b.id === barbeiroIdEfetivo);
-  // ★ Fix "invariante furada": a composição só pode oferecer o que o
-  // barbeiro dono realmente atende — filtrar aqui evita o usuário montar uma
-  // composição que o backend vai recusar (a validação de verdade continua
-  // no domínio; isto é só pra não deixar o admin/barbeiro chegar num beco
-  // sem saída na hora de salvar).
-  const servicosDoBarbeiro = barbeiroSelecionado
-    ? servicos.filter((s) => barbeiroSelecionado.servicosAtendidos.includes(s.id))
-    : servicos;
+  // Sem barbeiro dono, qualquer serviço ativo do catálogo pode compor a oferta.
+  const servicosDisponiveis = servicos;
 
   useEffect(() => {
     if (!aberto) return;
     if (editando) {
-      setBarbeiroId(editando.barbeiroId);
       setNome(editando.nome);
       setLinhas(editando.composicao.map((i) => ({ servicoId: i.servicoId, quantidade: String(i.quantidade) })));
       setModo('preco');
       setPrecoCentavos(editando.precoCentavos);
     } else {
-      setBarbeiroId(ehAdmin ? barbeiros[0]?.id ?? '' : barbeiroForcadoId);
       setNome('');
       setLinhas([{ servicoId: '', quantidade: '1' }]);
       setModo('percentual');
@@ -713,17 +716,14 @@ function OfertaDialog({
       setPrecoCentavos(0);
     }
     setErroSalvar(null);
-  }, [aberto, editando, barbeiros, ehAdmin, barbeiroForcadoId]);
+  }, [aberto, editando]);
 
   const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
-  // Preço EFETIVO do barbeiro dono (override ?? referência) — sem isto, o
-  // preview de "soma dos avulsos"/% aqui divergia do que o backend calcula
-  // de verdade com `precoDeReferencia` ao salvar (mesmo sintoma do bug-raiz:
-  // "override cadastrado não reflete em lugar nenhum", agora também no preview).
-  const precoEfetivo = (servicoId: string): number => {
-    const override = barbeiroSelecionado?.precosServicos.find((p) => p.servicoId === servicoId)?.precoCentavos;
-    return override ?? servicoPorId.get(servicoId)?.precoAvulsoCentavos ?? 0;
-  };
+  // Preço de REFERÊNCIA DA CASA — a mesma base que o backend usa pra validar e
+  // pra exibir a economia no funil (a oferta é da empresa, override de barbeiro
+  // vale só pro avulso). Preview e backend calculam o mesmo número.
+  const precoEfetivo = (servicoId: string): number =>
+    servicoPorId.get(servicoId)?.precoAvulsoCentavos ?? 0;
   const somaAvulsosCentavos = linhas.reduce((acc, l) => {
     const qtd = parseInt(l.quantidade, 10) || 0;
     return acc + qtd * precoEfetivo(l.servicoId);
@@ -739,7 +739,7 @@ function OfertaDialog({
   const percentualCalculado =
     somaAvulsosCentavos > 0 ? ((somaAvulsosCentavos - precoCentavosCalculado) / somaAvulsosCentavos) * 100 : 0;
 
-  const adicionarLinha = () => setLinhas((ls) => [...ls, { servicoId: servicosDoBarbeiro[0]?.id ?? '', quantidade: '1' }]);
+  const adicionarLinha = () => setLinhas((ls) => [...ls, { servicoId: servicosDisponiveis[0]?.id ?? '', quantidade: '1' }]);
   const removerLinha = (i: number) => setLinhas((ls) => ls.filter((_, idx) => idx !== i));
   const atualizarLinha = (i: number, dados: Partial<LinhaComposicao>) =>
     setLinhas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...dados } : l)));
@@ -759,7 +759,7 @@ function OfertaDialog({
       } else {
         await api('/pacote-ofertas', {
           method: 'POST',
-          body: { barbeiroId: barbeiroIdEfetivo, nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
         });
       }
       aoSalvar();
@@ -773,26 +773,17 @@ function OfertaDialog({
   return (
     <Dialog open={aberto} onClose={aoFechar} title={editando ? 'Editar oferta de pacote' : 'Nova oferta de pacote'}>
       <div className="flex flex-col gap-3">
-        {!editando && ehAdmin && (
-          <div>
-            <label className="label">Barbeiro dono</label>
-            <select className="select" value={barbeiroIdEfetivo} onChange={(e) => setBarbeiroId(e.target.value)}>
-              {barbeiros.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+          A oferta é da empresa — vale para todo cliente, com qualquer barbeiro. A economia é
+          calculada sobre o preço de referência da casa.
+        </div>
         <input className="input" placeholder="Nome do pacote" value={nome} onChange={(e) => setNome(e.target.value)} />
 
         <div>
           <label className="label">Composição</label>
-          {servicosDoBarbeiro.length === 0 && (
+          {servicosDisponiveis.length === 0 && (
             <div className="text-[12px] mb-2" style={{ color: 'var(--status-danger)' }}>
-              Este barbeiro ainda não tem nenhum serviço marcado como atendido — configure em
-              Ajustes → Serviços por barbeiro antes de montar uma oferta pra ele.
+              Nenhum serviço cadastrado — crie os serviços no Catálogo antes de montar uma oferta.
             </div>
           )}
           <div className="flex flex-col gap-2">
@@ -804,7 +795,7 @@ function OfertaDialog({
                   onChange={(e) => atualizarLinha(i, { servicoId: e.target.value })}
                 >
                   <option value="">Serviço…</option>
-                  {servicosDoBarbeiro.map((s) => (
+                  {servicosDisponiveis.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.nome} · {dinheiro(precoEfetivo(s.id))}
                     </option>
@@ -825,7 +816,7 @@ function OfertaDialog({
                 )}
               </div>
             ))}
-            <button className="btn btn-ghost btn-sm" disabled={servicosDoBarbeiro.length === 0} onClick={adicionarLinha}>
+            <button className="btn btn-ghost btn-sm" disabled={servicosDisponiveis.length === 0} onClick={adicionarLinha}>
               + adicionar serviço
             </button>
           </div>

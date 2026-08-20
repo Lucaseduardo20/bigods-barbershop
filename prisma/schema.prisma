@@ -13,10 +13,12 @@ enum Papel {
 }
 
 enum StatusAtendimento {
+  RESERVADO
   AGENDADO
   CONCLUIDO
   CANCELADO
   NAO_COMPARECEU
+  RESERVA_EXPIRADA
 }
 
 enum OrigemAtendimento {
@@ -88,9 +90,14 @@ model Company {
   // não constante global — outras barbearias em outros fusos usarão o sistema.
   // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
   timezone               String @default("America/Sao_Paulo")
+  // Desconto progressivo dos avulsos (substituiu os combos fixos): teto do
+  // desconto acumulado, por mais serviços que o cliente some. null = sem teto.
+  // Os degraus por posição ficam em DegrauDeDesconto.
+  descontoTetoCentavos   Int?
 
   servicos      Servico[]
   produtos      Produto[]
+  degrausDesconto DegrauDeDesconto[]
   barbeiros     Barbeiro[]
   clientes      Cliente[]
   atendimentos  Atendimento[]
@@ -100,6 +107,91 @@ model Company {
   intencoes     IntencaoDePagamento[]
   pacoteOfertas PacoteOferta[]
   vales         Vale[]
+  itensOrderBump ItemDeOrderBump[]
+}
+
+/**
+ * ItemDeOrderBump (raiz, sessão 2026-08-17 Parte 2): a PARAMETRIZAÇÃO de um
+ * item na vitrine "Adicione à sua visita" do funil (DOMAIN.md §8.13).
+ *
+ * Por que tabela própria em vez de mais colunas em Servico/Produto: a
+ * configuração é a MESMA para os dois tipos (aparece? por quanto? com que
+ * chamada? em que ordem?), e as invariantes também — duplicar isso nos dois
+ * agregados seria a mesma regra implementada em dois lugares. Aqui é
+ * merchandising do funil, não cadastro de catálogo: quem decide "o que a casa
+ * oferece e por quanto no geral" é Servico/Produto; quem decide "o que é
+ * empurrado no fechamento do pedido, com que oferta" é este agregado.
+ *
+ * Relação polimórfica proposital (`tipo` + `referenciaId`, sem FK): apontar
+ * para duas tabelas distintas com FK exigiria duas colunas nuláveis e uma
+ * checagem de "exatamente uma preenchida". A existência é validada na camada
+ * de aplicação, que já carrega o catálogo de qualquer forma.
+ */
+model ItemDeOrderBump {
+  id        String              @id
+  companyId String
+  tipo      TipoItemDeOrderBump
+  /// Servico.id ou Produto.id, conforme `tipo`.
+  referenciaId String
+  /// Aparece no funil? (o "sim/não" que antes era Servico/Produto.sugeridoNoBump)
+  ativo     Boolean @default(true)
+  /// Preço FINAL do item quando adicionado pelo bump. null = sem promoção,
+  /// cobra o preço normal. Persistimos o preço em centavos, nunca o
+  /// percentual — o percentual exibido é sempre DERIVADO (mesma disciplina do
+  /// preço de PacoteOferta).
+  precoPromocionalCentavos Int?
+  /// Chamada customizável ("Leve pra casa por só R$X"). null = sem mensagem.
+  mensagem  String?
+  /// Ordem de exibição na vitrine (menor primeiro; empate desempata por nome).
+  ordem     Int     @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, tipo, referenciaId])
+  @@index([companyId, ativo])
+}
+
+enum TipoItemDeOrderBump {
+  SERVICO
+  PRODUTO
+}
+
+/**
+ * Um degrau da tabela de desconto progressivo: "o serviço na POSIÇÃO N do
+ * carrinho abate `valorCentavos`". Posição 1 nunca tem degrau (o primeiro
+ * serviço é sempre preço cheio). Tabela GLOBAL da empresa — a mesma para todos
+ * os barbeiros —, mas o desconto incide sobre o preço DAQUELE barbeiro.
+ */
+model DegrauDeDesconto {
+  id            String @id
+  companyId     String
+  posicao       Int
+  valorCentavos Int
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, posicao])
+}
+
+/**
+ * "Cliente da casa" — relação BARBEIRO ↔ CLIENTE, nunca um flag global no
+ * cliente. O mesmo cliente pode ser da casa do Gabriel e não ser do Lucas: a
+ * marca vale só na agenda de quem marcou, porque é uma relação de confiança
+ * pessoal, não um atributo do cliente.
+ *
+ * Chave composta = a própria relação. Não há status nem soft-delete: ou existe
+ * a linha (é da casa) ou não existe (não é).
+ */
+model ClienteDaCasa {
+  barbeiroId String
+  clienteId  String
+  marcadoEm  DateTime @default(now())
+
+  barbeiro Barbeiro @relation(fields: [barbeiroId], references: [id])
+  cliente  Cliente  @relation(fields: [clienteId], references: [id])
+
+  @@id([barbeiroId, clienteId])
+  @@index([clienteId])
 }
 
 model Servico {
@@ -109,6 +201,13 @@ model Servico {
   precoAvulsoCentavos Int
   duracaoMinutos      Int
   ativo               Boolean @default(true)
+  // ⚠️ DEPRECADO em 2026-08-17 (Parte 2) — substituído por ItemDeOrderBump,
+  // que guarda o mesmo "aparece: sim/não" MAIS preço promocional, mensagem e
+  // ordem. A migration copiou todo `sugeridoNoBump = true` para lá; nada lê
+  // nem escreve esta coluna desde então. Mantida no banco só para rollback
+  // seguro (sistema em produção) — remover numa migration futura, ver
+  // DECISOES_PENDENTES.
+  sugeridoNoBump      Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -118,11 +217,17 @@ model Servico {
 // Produto (raiz) — venda de produto MÍNIMA, SEM controle de estoque (decisão
 // consciente: sem quantidade/fornecedor). Soft-disable como Servico.
 model Produto {
-  id            String  @id
-  companyId     String
-  nome          String
-  precoCentavos Int
-  ativo         Boolean @default(true)
+  id             String  @id
+  companyId      String
+  nome           String
+  precoCentavos  Int
+  ativo          Boolean @default(true)
+  // Foto do produto (2026-08-19): URL pública no bucket de uploads. Sem foto,
+  // o funil mostra um placeholder — nunca imagem quebrada.
+  fotoUrl        String?
+  // ⚠️ DEPRECADO em 2026-08-17 (Parte 2) — ver a nota igual em Servico:
+  // substituído por ItemDeOrderBump, migrado, não lido por ninguém.
+  sugeridoNoBump Boolean @default(false)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -130,7 +235,7 @@ model Produto {
 }
 
 // PacoteOferta (raiz, agregado de domínio — sessão "sessão-B"): catálogo de
-// pacotes que a barbearia oferece, com dono (barbeiroId) e composição mista
+// pacotes que a EMPRESA oferece (sem dono — 2026-08-18) e composição mista
 // (N serviços distintos, cada um com sua quantidade). O que se PERSISTE é
 // sempre o preço em centavos — percentual de desconto é sempre DERIVADO na
 // exibição, nunca fonte de verdade (mesma disciplina de snapshot do resto do
@@ -140,7 +245,11 @@ model Produto {
 model PacoteOferta {
   id             String                      @id
   companyId      String
-  barbeiroId     String
+  // ⚠️ DEPRECADO em 2026-08-18 — a oferta é da EMPRESA, não de um barbeiro
+  // (decisão do dono). Ninguém lê nem escreve esta coluna desde então;
+  // mantida nulável só para rollback seguro (sistema em produção), remover
+  // numa migration futura — ver DECISOES_PENDENTES.
+  barbeiroId     String?
   nome           String
   precoCentavos  Int
   ativo          Boolean                     @default(true)
@@ -150,11 +259,10 @@ model PacoteOferta {
   motivoRejeicao  String?
 
   company  Company            @relation(fields: [companyId], references: [id])
-  barbeiro Barbeiro           @relation(fields: [barbeiroId], references: [id])
+  barbeiro Barbeiro?          @relation(fields: [barbeiroId], references: [id])
   itens    PacoteOfertaItem[]
 
   @@index([companyId])
-  @@index([barbeiroId])
 }
 
 // Composição da oferta: quais serviços (e em que quantidade) o pacote inclui.
@@ -184,6 +292,10 @@ model Barbeiro {
   // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"
   // em vez de UUID. Único por empresa, gerado no cadastro, editável pelo admin.
   slug               String
+  // Foto de perfil (2026-08-19, resolve DECISOES_PENDENTES #4): URL pública no
+  // bucket de uploads. Nullable de propósito — quem não tem foto cai no avatar
+  // de iniciais, nunca numa imagem quebrada.
+  fotoUrl            String?
 
   // credenciais da autenticação local (infra — não fazem parte do domínio)
   login     String? @unique
@@ -197,6 +309,7 @@ model Barbeiro {
   expedienteJanelas ExpedienteJanela[]
   pacoteOfertas     PacoteOferta[]
   vendasDePacote    VendaDePacote[]
+  clientesDaCasa    ClienteDaCasa[]
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -277,8 +390,17 @@ model Cliente {
   nome       String
   telefone   String
   cognitoSub String?
+  // Opcionais, coletados no funil (nunca obrigatórios — atrito no funil custa
+  // conversão). Só são gravados quando o cliente preenche; um agendamento
+  // posterior com o campo em branco NÃO apaga o que já havia.
+  email      String?
+  // "Fale sobre você": estilo de corte, se gosta de conversar, etc. É
+  // informação para o BARBEIRO usar no atendimento — aparece no detalhe do
+  // atendimento no painel.
+  sobreVoce  String?
 
   company Company @relation(fields: [companyId], references: [id])
+  daCasaDe ClienteDaCasa[]
 
   @@unique([companyId, telefone])
 }
@@ -305,6 +427,12 @@ model Atendimento {
   // acumulador solto).
   valorAbatidoSaldoCentavos Int    @default(0)
   vendaAbatidaId            String?
+  // Sessão de OTP+reserva: prazo da reserva TEMPORÁRIA (status RESERVADO,
+  // canal online) — depois de confirmada (RESERVADO→AGENDADO) o campo
+  // permanece preenchido como marca permanente de "veio do canal online"
+  // (usado pela cota de presenciais pra excluir corretamente atendimentos
+  // online da contagem). Null em qualquer atendimento presencial.
+  reservaOnlineExpiraEm DateTime? @db.Timestamptz(3)
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
@@ -347,9 +475,12 @@ model VendaDePacote {
   id                    String          @id
   companyId             String
   clienteId             String
-  // Dono do pacote (sessão-B, Fase 2) — o rateio (§3.6) usa o preço DESTE
-  // barbeiro no momento da venda; crédito só é consumido com ele (§8.2).
-  barbeiroId            String
+  // Barbeiro ESCOLHIDO PELO CLIENTE na compra (2026-08-18). Não é "dono" do
+  // pacote — a oferta é da empresa —, é a única regra que sobrou: se o cliente
+  // comprou com um barbeiro selecionado, só ele atende os serviços daquele
+  // pacote. `null` = comprou sem escolher ("não tenho preferência"): qualquer
+  // barbeiro ativo que atenda o serviço pode consumir o crédito (§8.2).
+  barbeiroId            String?
   valorPagoCentavos     Int
   saldoResidualCentavos Int             @default(0)
   // FASE 4a (sessão-E, §8.7): quanto do saldo residual já foi GASTO
@@ -378,7 +509,7 @@ model VendaDePacote {
   origemLinkBarbeiroId  String?
 
   company              Company                  @relation(fields: [companyId], references: [id])
-  barbeiro             Barbeiro                 @relation(fields: [barbeiroId], references: [id])
+  barbeiro             Barbeiro?                @relation(fields: [barbeiroId], references: [id])
   itens                ItemDoPacote[]
   solicitacoesReembolso SolicitacaoDeReembolso[]
 

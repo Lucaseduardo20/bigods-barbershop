@@ -3,8 +3,8 @@ import { Icon } from '../components/ui';
 export function Header({ nome, telefone, onSair }: { nome: string; telefone: string; onSair: () => void }) {
   return (
     <div className="account-header">
-      <div className="auth-mark" style={{ width: 40, height: 40, fontSize: 18, margin: 0 }}>
-        B
+      <div className="auth-mark" style={{ width: 40, height: 40, margin: 0 }}>
+        <img src="/brand/symbol-dark.png" alt="Bigod's Barber" style={{ width: '68%', height: 'auto' }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--brand-cream)' }}>Olá, {primeiroNome(nome)}</div>

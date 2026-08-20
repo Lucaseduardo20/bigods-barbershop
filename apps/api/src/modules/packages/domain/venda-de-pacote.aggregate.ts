@@ -34,8 +34,13 @@ export interface VendaDePacoteProps {
   id: VendaDePacoteId;
   companyId: CompanyId;
   clienteId: ClienteId;
-  /** Dono do pacote (Fase 2) — rateio usa o preço deste barbeiro; crédito só é consumido por ele. */
-  barbeiroId: BarbeiroId;
+  /**
+   * Barbeiro que o CLIENTE escolheu ao comprar (2026-08-18). Não é dono do
+   * pacote — a oferta é da empresa —, é a única restrição que sobrou: com um
+   * barbeiro escolhido, só ele atende os serviços deste pacote. `null` =
+   * comprou sem escolher: qualquer barbeiro que atenda o serviço pode.
+   */
+  barbeiroId: BarbeiroId | null;
   valorPago: Dinheiro;
   itens: ItemDoPacote[];
   saldoResidual: Dinheiro;
@@ -93,7 +98,8 @@ export class VendaDePacote extends AggregateRoot {
     id: VendaDePacoteId;
     companyId: CompanyId;
     clienteId: ClienteId;
-    barbeiroId: BarbeiroId;
+    /** Escolhido pelo cliente na compra; `null` = sem preferência. */
+    barbeiroId: BarbeiroId | null;
     valorPago: Dinheiro;
     itens: ItemParaVenda[];
     compradoEm: Date;
@@ -180,17 +186,25 @@ export class VendaDePacote extends AggregateRoot {
     this.props.statusPagamento = StatusPagamento.FALHOU;
   }
 
-  /** DISPONIVEL | SEGUNDA_CHANCE → AGENDADO. Exige pacote PAGO. */
   /**
-   * `barbeiroId` é quem vai atender — precisa ser o dono do pacote (Fase 2:
-   * o rateio deste pacote foi calculado com o preço DESTE barbeiro; deixar
-   * outro barbeiro consumir o crédito quebraria essa relação). Resgate
-   * cruzado entre barbeiros fica fora desta sessão (decisão futura).
+   * DISPONIVEL | SEGUNDA_CHANCE → AGENDADO. Exige pacote PAGO.
+   *
+   * ★ A ÚNICA regra de barbeiro que sobrou (2026-08-18, decisão do dono): a
+   * OFERTA é da empresa e não tem dono, mas se o cliente COMPROU com um
+   * barbeiro selecionado, só ele atende os serviços daquele pacote — foi com
+   * ele que o cliente decidiu se tratar. Comprou sem escolher
+   * (`barbeiroId === null`)? Então qualquer barbeiro pode.
+   *
+   * "O barbeiro atende este serviço" NÃO é checado aqui: é a mesma invariante
+   * que `Atendimento.agendar()` já aplica a qualquer atendimento (§3.5), e o
+   * use case cria os dois agregados na mesma transação.
    */
   agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId, barbeiroId: BarbeiroId): void {
     this.exigirPago();
-    if (barbeiroId !== this.props.barbeiroId) {
-      throw new InvarianteVioladaError('Crédito só pode ser consumido pelo barbeiro dono do pacote');
+    if (this.props.barbeiroId !== null && barbeiroId !== this.props.barbeiroId) {
+      throw new InvarianteVioladaError(
+        'Este pacote foi comprado com um barbeiro específico — só ele pode atender estes serviços',
+      );
     }
     const item = this.item(itemId);
     if (

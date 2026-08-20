@@ -29,8 +29,12 @@ export function Servicos({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="text-[22px] font-extrabold">O que vai ser?</div>
+      {/* A economia NÃO vive aqui. Ela aparecia acima da lista e, ao surgir/
+          sumir a cada clique, empurrava os itens para baixo — o cliente
+          clicava num serviço e outro mudava de lugar. Foi para a barra de
+          resumo, que é fixa no rodapé e não desloca nada. */}
       <div className="text-[13px] -mt-1.5 mb-1" style={{ color: 'var(--text-muted)' }}>
-        Pode escolher mais de um.
+        Pode escolher mais de um — quanto mais serviços, maior o desconto.
       </div>
       {servicos.map((s) => {
         const on = selecionados.includes(s.id);

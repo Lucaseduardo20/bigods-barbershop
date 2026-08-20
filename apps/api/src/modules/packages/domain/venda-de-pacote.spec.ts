@@ -22,19 +22,27 @@ const item = (id: string, servicoId: string, precoCentavos: number): ItemParaVen
   precoAvulsoNaVenda: Dinheiro.deCentavos(precoCentavos),
 });
 
-const vender = (valorPagoCentavos: number, itens: ItemParaVenda[]) =>
+const vender = (
+  valorPagoCentavos: number,
+  itens: ItemParaVenda[],
+  barbeiroId: string | null = 'bar-1',
+) =>
   VendaDePacote.vender({
     id: 'pac-1',
     companyId: 'co-1',
     clienteId: 'cli-1',
-    barbeiroId: 'bar-1',
+    barbeiroId,
     valorPago: Dinheiro.deCentavos(valorPagoCentavos),
     itens,
     compradoEm: hoje,
   });
 
-const venderPago = (valorPagoCentavos: number, itens: ItemParaVenda[]) => {
-  const v = vender(valorPagoCentavos, itens);
+const venderPago = (
+  valorPagoCentavos: number,
+  itens: ItemParaVenda[],
+  barbeiroId: string | null = 'bar-1',
+) => {
+  const v = vender(valorPagoCentavos, itens, barbeiroId);
   v.confirmarPagamento();
   return v;
 };
@@ -288,11 +296,19 @@ describe('ItemDoPacote — transições ilegais', () => {
     expect(() => v.agendarItem('i1', 'at-1', 'bar-1')).toThrow(InvarianteVioladaError);
   });
 
-  it('crédito só pode ser consumido pelo barbeiro dono do pacote (Fase 2 — preço por barbeiro)', () => {
-    const v = venderPago(4000, [item('i1', 'corte', 4000)]);
+  it('★ comprou COM barbeiro escolhido: só ele atende os serviços daquele pacote', () => {
+    // A única regra de barbeiro que sobrou (2026-08-18): a OFERTA é da
+    // empresa, mas a COMPRA amarra ao barbeiro que o cliente escolheu.
+    const v = venderPago(4000, [item('i1', 'corte', 4000)], 'bar-1');
     expect(() => v.agendarItem('i1', 'at-1', 'bar-outro')).toThrow(InvarianteVioladaError);
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.DISPONIVEL); // nada mudou
-    v.agendarItem('i1', 'at-1', 'bar-1'); // com o dono, funciona normalmente
+    v.agendarItem('i1', 'at-1', 'bar-1');
+    expect(v.obterItem('i1').status).toBe(StatusItemPacote.AGENDADO);
+  });
+
+  it('★ comprou SEM escolher barbeiro: qualquer um atende', () => {
+    const v = venderPago(4000, [item('i1', 'corte', 4000)], null);
+    v.agendarItem('i1', 'at-1', 'bar-qualquer-um');
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.AGENDADO);
   });
 

@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { TabelaDeDescontoDTO } from '@bigods/contracts';
 import { ParametrosDaEmpresaRepository } from '../domain/parametros-da-empresa.repository';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { CompanyId } from '../../../shared/domain/ids';
@@ -43,6 +45,43 @@ export class PrismaParametrosRepository implements ParametrosDaEmpresaRepository
 
   async timezone(companyId: CompanyId): Promise<Timezone> {
     return Timezone.de((await this.buscarOuFalhar(companyId)).timezone);
+  }
+
+  async tabelaDeDesconto(companyId: CompanyId): Promise<TabelaDeDescontoDTO> {
+    const company = await this.buscarOuFalhar(companyId);
+    const degraus = await this.prisma.degrauDeDesconto.findMany({
+      where: { companyId },
+      orderBy: { posicao: 'asc' },
+    });
+    return {
+      degraus: degraus.map((d) => ({ posicao: d.posicao, valorCentavos: d.valorCentavos })),
+      tetoCentavos: company.descontoTetoCentavos,
+    };
+  }
+
+  /**
+   * Substitui a tabela inteira (não faz merge): a configuração é uma lista
+   * ordenada, e remover um degrau precisa ser tão simples quanto editar outro.
+   * Numa transação para nunca existir um instante com a tabela pela metade —
+   * seria desconto errado cobrado de um cliente real.
+   */
+  async definirTabelaDeDesconto(companyId: CompanyId, tabela: TabelaDeDescontoDTO): Promise<void> {
+    await this.buscarOuFalhar(companyId);
+    await this.prisma.$transaction([
+      this.prisma.degrauDeDesconto.deleteMany({ where: { companyId } }),
+      this.prisma.degrauDeDesconto.createMany({
+        data: tabela.degraus.map((d) => ({
+          id: randomUUID(),
+          companyId,
+          posicao: d.posicao,
+          valorCentavos: d.valorCentavos,
+        })),
+      }),
+      this.prisma.company.update({
+        where: { id: companyId },
+        data: { descontoTetoCentavos: tabela.tetoCentavos },
+      }),
+    ]);
   }
 
   private async buscarOuFalhar(companyId: CompanyId) {

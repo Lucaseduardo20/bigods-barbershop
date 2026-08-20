@@ -27,10 +27,18 @@ const companyId = `co-cock-${randomUUID()}`;
 const corteId = `svc-cock-${randomUUID()}`;
 const barbeiroId = `bar-cock-${randomUUID()}`;
 const ofertaDemoId = `oferta-cock-${randomUUID()}`;
-const DIA = '2030-06-11'; // terça futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 const sufixo = String(Date.now()).slice(-6);
-const foneMain = `11 96${sufixo}`;
-const foneVazio = `11 95${sufixo}`;
+const foneMain = `11 96${sufixo}0`;
+const foneVazio = `11 95${sufixo}0`;
 const e164 = (t: string) => Telefone.de(t).e164;
 
 let app: INestApplication;
@@ -227,10 +235,12 @@ describe('Cockpit do cliente', () => {
   });
 
   it('confirmar-demo (modo demo) confirma o PIX e libera créditos; idempotente', async () => {
-    const fone = `11 94${sufixo}`;
+    const fone = `11 94${sufixo}0`;
+    const token = await loginToken(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId: ofertaDemoId, cliente: { nome: 'Demo Pag', telefone: fone }, formaPagamento: 'online' })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId: ofertaDemoId, cliente: { nome: 'Demo Pag' }, formaPagamento: 'online' })
       .expect(201);
     const url = `/public/pagamentos/${venda.body.intencaoId}/confirmar-demo?companyId=${companyId}`;
 

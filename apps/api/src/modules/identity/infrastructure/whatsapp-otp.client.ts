@@ -14,6 +14,14 @@ export interface WhatsAppOtpClient {
 export class WhatsAppEnvioIndisponivelError extends Error {}
 
 /**
+ * O número não existe no WhatsApp. Distinto de "indisponível" de propósito: ali
+ * cabe tentar de novo, aqui não adianta nunca — o cliente precisa conferir o
+ * número. Antes esse caso era invisível: o Baileys aceitava o envio para um JID
+ * inexistente sem erro, e o cliente esperava um código que nunca chegava.
+ */
+export class TelefoneSemWhatsAppError extends Error {}
+
+/**
  * Implementação real: POST `{baseUrl}/enviar` com um token interno fixo
  * (`X-Internal-Token`) — o serviço whatsapp-otp não tem nenhuma outra autenticação,
  * então este token é o que impede qualquer outra coisa na rede de mandar
@@ -47,6 +55,9 @@ export class HttpWhatsAppOtpClient implements WhatsAppOtpClient {
       );
     } finally {
       clearTimeout(timeout);
+    }
+    if (resposta.status === 422) {
+      throw new TelefoneSemWhatsAppError('Número não encontrado no WhatsApp');
     }
     if (!resposta.ok) {
       throw new WhatsAppEnvioIndisponivelError(`Serviço de WhatsApp respondeu ${resposta.status}`);

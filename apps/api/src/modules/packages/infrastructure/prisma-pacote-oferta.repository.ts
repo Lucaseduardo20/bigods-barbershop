@@ -5,7 +5,7 @@ import { Db } from '../../../shared/infrastructure/db';
 import { PacoteOferta } from '../domain/pacote-oferta.aggregate';
 import { PacoteOfertaRepository } from '../domain/pacote-oferta.repository';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
-import { BarbeiroId, CompanyId, PacoteOfertaId } from '../../../shared/domain/ids';
+import { CompanyId, PacoteOfertaId } from '../../../shared/domain/ids';
 
 type LinhaComItens = PacoteOfertaPrisma & { itens: PacoteOfertaItemPrisma[] };
 
@@ -13,7 +13,6 @@ function paraDominio(row: LinhaComItens): PacoteOferta {
   return PacoteOferta.reconstituir({
     id: row.id,
     companyId: row.companyId,
-    barbeiroId: row.barbeiroId,
     nome: row.nome,
     composicao: row.itens.map((i) => ({ servicoId: i.servicoId, quantidade: i.quantidade })),
     preco: Dinheiro.deCentavos(row.precoCentavos),
@@ -36,15 +35,9 @@ export class PrismaPacoteOfertaRepository implements PacoteOfertaRepository {
     return rows.map(paraDominio);
   }
 
-  async listarPorBarbeiro(barbeiroId: BarbeiroId): Promise<PacoteOferta[]> {
-    const rows = await this.db.pacoteOferta.findMany({ where: { barbeiroId }, include: { itens: true }, orderBy: { nome: 'asc' } });
-    return rows.map(paraDominio);
-  }
-
   async salvar(oferta: PacoteOferta): Promise<void> {
     const dados = {
       companyId: oferta.companyId,
-      barbeiroId: oferta.barbeiroId,
       nome: oferta.nome,
       precoCentavos: oferta.preco.centavos,
       ativo: oferta.ativo,

@@ -3,17 +3,28 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
-import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
-import { Telefone } from '../../src/shared/domain/telefone';
 
+// Configura o provider demo ANTES de subir a app (lido no construtor do provider) —
+// sessão de OTP+reserva: a escrita pública agora exige sessão de cliente
+// verificada por OTP, então todo teste de escrita precisa logar primeiro.
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
+process.env.DEMO_OTP_TTL_MINUTOS = '5';
+
+// eslint-disable-next-line import/first
+import { AppModule } from '../../src/app.module';
+// eslint-disable-next-line import/first
+import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
+// eslint-disable-next-line import/first
+import { Telefone } from '../../src/shared/domain/telefone';
 
 /**
  * E2E do funil público de agendamento avulso. Boota o AppModule REAL (com o
- * guard global de papéis) e bate nos endpoints `@Publico()` SEM token — provando
- * que a escrita pública passa pelas mesmas invariantes de domínio, não por um
- * atalho sem validação.
+ * guard global de papéis) e bate nos endpoints `@Publico()`/`@ContaCliente()` —
+ * provando que a escrita pública passa pelas mesmas invariantes de domínio, e
+ * agora também exige sessão de cliente verificada por OTP (Problema 1, sessão
+ * de OTP+reserva), nunca um atalho sem validação.
  */
 
 const companyId = `co-booking-${randomUUID()}`;
@@ -21,15 +32,34 @@ const barbeiroId = `bar-booking-${randomUUID()}`;
 const corteId = `svc-corte-${randomUUID()}`;
 const barbaId = `svc-barba-${randomUUID()}`;
 const inativoId = `svc-inativo-${randomUUID()}`;
-const DIA = '2030-06-10'; // segunda-feira futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 // telefones únicos por execução para não colidir com o unique (companyId, telefone)
 const sufixo = String(Date.now()).slice(-7);
-const fone = (n: number) => `11 9${sufixo}${n}`;
+// Celular BR real: DDD + 9 + 8 dígitos (o sufixo deste arquivo tem 7).
+const fone = (n: number) => `11 9${sufixo.slice(0, 6)}${String(n).padStart(2, '0')}`;
 
 let app: INestApplication;
 let prisma: PrismaService;
 let http: ReturnType<typeof request>;
+
+/** Login OTP completo (provider demo) — devolve o token de sessão do cliente. */
+async function loginCompleto(telefone: string): Promise<string> {
+  const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+  const confirmar = await http
+    .post('/conta/login/confirmar')
+    .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+    .expect(201);
+  return confirmar.body.token;
+}
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -74,6 +104,7 @@ afterAll(async () => {
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
@@ -136,17 +167,35 @@ describe('GET /public/horarios', () => {
   });
 });
 
-describe('POST /public/agendamentos (fluxo completo, sem token)', () => {
-  it('cria cliente novo por telefone e um atendimento que aparece na agenda', async () => {
+describe('POST /public/agendamentos — sessão de OTP+reserva (Problema 1)', () => {
+  it('sem token → 401, nenhum atendimento criado', async () => {
+    await http
+      .post('/public/agendamentos')
+      .send({ companyId, barbeiroId, servicoIds: [corteId], data: DIA, horaInicio: '09:00', cliente: { nome: 'SemToken' } })
+      .expect(401);
+  });
+
+  it('token inválido → 401', async () => {
+    await http
+      .post('/public/agendamentos')
+      .set('Authorization', 'Bearer token-forjado')
+      .send({ companyId, barbeiroId, servicoIds: [corteId], data: DIA, horaInicio: '09:00', cliente: { nome: 'TokenRuim' } })
+      .expect(401);
+  });
+
+  it('cria cliente novo por telefone e um atendimento que aparece na agenda (com sessão)', async () => {
+    const telefone = fone(0);
+    const token = await loginCompleto(telefone);
     const res = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '10:00',
-        cliente: { nome: 'Marcos', telefone: fone(0) },
+        cliente: { nome: 'Marcos' },
       })
       .expect(201);
     expect(res.body.atendimentoId).toBeTruthy();
@@ -158,27 +207,76 @@ describe('POST /public/agendamentos (fluxo completo, sem token)', () => {
     expect(atendimento?.status).toBe('AGENDADO');
     expect(atendimento?.origem).toBe('AVULSO');
     expect(atendimento?.formaPagamento).toBeNull(); // pagamento presencial na conclusão
+    expect(atendimento?.reservaOnlineExpiraEm).toBeNull(); // presencial nunca passa por RESERVADO
     expect(atendimento?.inicio.toISOString()).toBe(`${DIA}T13:00:00.000Z`); // 10:00 local = 13:00Z
 
-    const cliente = await prisma.cliente.findFirst({ where: { companyId, nome: 'Marcos' } });
-    expect(cliente).toBeTruthy();
-    expect(atendimento?.clienteId).toBe(cliente?.id);
+    const cliente = await prisma.cliente.findUnique({ where: { id: atendimento!.clienteId } });
+    expect(cliente?.telefone).toBe(Telefone.de(telefone).e164);
+  });
+
+  it('telefone enviado no corpo é IGNORADO — usa sempre o telefone verificado da sessão', async () => {
+    const telefoneReal = fone(9);
+    const token = await loginCompleto(telefoneReal);
+    const res = await http
+      .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: '09:00',
+        // tenta forjar um telefone diferente do verificado — o DTO nem tem
+        // mais esse campo, mas o whitelist do ValidationPipe garante que,
+        // mesmo enviado, é descartado antes de chegar no controller.
+        cliente: { nome: 'Forjado', telefone: '11 900000000' } as unknown as { nome: string },
+      })
+      .expect(201);
+    const atendimento = await prisma.atendimento.findUnique({ where: { id: res.body.atendimentoId } });
+    const cliente = await prisma.cliente.findUnique({ where: { id: atendimento!.clienteId } });
+    expect(cliente?.telefone).toBe(Telefone.de(telefoneReal).e164);
+    expect(cliente?.telefone).not.toBe(Telefone.de('11 900000000').e164);
+  });
+
+  it('sessão de outra empresa → 403', async () => {
+    const outraEmpresaId = `co-outra-${randomUUID()}`;
+    await prisma.company.create({ data: { id: outraEmpresaId, nome: 'Outra Barbearia' } });
+    try {
+      const telefone = fone(8);
+      const iniciar = await http.post('/conta/login/iniciar').send({ companyId: outraEmpresaId, telefone }).expect(201);
+      const confirmar = await http
+        .post('/conta/login/confirmar')
+        .send({ companyId: outraEmpresaId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+        .expect(201);
+      await http
+        .post('/public/agendamentos')
+        .set('Authorization', `Bearer ${confirmar.body.token}`)
+        .send({ companyId, barbeiroId, servicoIds: [corteId], data: DIA, horaInicio: '09:00', cliente: { nome: 'Cross' } })
+        .expect(403);
+    } finally {
+      await prisma.demoIdentidade.deleteMany({ where: { companyId: outraEmpresaId } });
+      await prisma.cliente.deleteMany({ where: { companyId: outraEmpresaId } });
+      await prisma.company.delete({ where: { id: outraEmpresaId } });
+    }
   });
 
   it('conflito de horário → 422 (mesma invariante de domínio do painel)', async () => {
+    const tokenA = await loginCompleto(fone(1));
+    const tokenB = await loginCompleto(fone(2));
     const payload = {
       companyId,
       barbeiroId,
       servicoIds: [corteId],
       data: DIA,
       horaInicio: '11:00',
-      cliente: { nome: 'Primeiro', telefone: fone(1) },
+      cliente: { nome: 'Primeiro' },
     };
-    await http.post('/public/agendamentos').send(payload).expect(201);
+    await http.post('/public/agendamentos').set('Authorization', `Bearer ${tokenA}`).send(payload).expect(201);
     // sobreposição direta (mesmo horário) com cliente diferente
     const conflito = await http
       .post('/public/agendamentos')
-      .send({ ...payload, horaInicio: '11:15', cliente: { nome: 'Segundo', telefone: fone(2) } })
+      .set('Authorization', `Bearer ${tokenB}`)
+      .send({ ...payload, horaInicio: '11:15', cliente: { nome: 'Segundo' } })
       .expect(422);
     // Bug 3: a mensagem que chega à tela do cliente não pode expor UUID/jargão
     // técnico — precisa ser amigável e acionável.
@@ -188,28 +286,33 @@ describe('POST /public/agendamentos (fluxo completo, sem token)', () => {
   });
 
   it('fora da disponibilidade (08:00, antes de 09:00 local) → 422', async () => {
+    const token = await loginCompleto(fone(3));
     await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '08:00',
-        cliente: { nome: 'Madrugador', telefone: fone(3) },
+        cliente: { nome: 'Madrugador' },
       })
       .expect(422);
   });
 
-  it('reconciliação por telefone: dois agendamentos, mesmo telefone, um só cliente', async () => {
+  it('reconciliação por telefone: dois agendamentos, mesma sessão, um só cliente', async () => {
     const telefone = fone(4);
+    const token = await loginCompleto(telefone);
     await http
       .post('/public/agendamentos')
-      .send({ companyId, barbeiroId, servicoIds: [corteId], data: DIA, horaInicio: '14:00', cliente: { nome: 'Rafa', telefone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, barbeiroId, servicoIds: [corteId], data: DIA, horaInicio: '14:00', cliente: { nome: 'Rafa' } })
       .expect(201);
     await http
       .post('/public/agendamentos')
-      .send({ companyId, barbeiroId, servicoIds: [barbaId], data: DIA, horaInicio: '15:00', cliente: { nome: 'Rafa Souza', telefone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, barbeiroId, servicoIds: [barbaId], data: DIA, horaInicio: '15:00', cliente: { nome: 'Rafa Souza' } })
       .expect(201);
 
     const clientes = await prisma.cliente.findMany({
@@ -219,9 +322,11 @@ describe('POST /public/agendamentos (fluxo completo, sem token)', () => {
   });
 
   it('validação de borda: payload sem serviços → 400', async () => {
+    const token = await loginCompleto(fone(5));
     await http
       .post('/public/agendamentos')
-      .send({ companyId, barbeiroId, servicoIds: [], data: DIA, horaInicio: '16:00', cliente: { nome: 'X', telefone: fone(5) } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, barbeiroId, servicoIds: [], data: DIA, horaInicio: '16:00', cliente: { nome: 'X' } })
       .expect(400);
   });
 });

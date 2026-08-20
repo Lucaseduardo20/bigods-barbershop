@@ -16,7 +16,24 @@ export function precoDeReferencia(servico: Servico, barbeiroDono: Barbeiro): Din
   return barbeiroDono.overridePrecoPara(servico.id) ?? servico.precoAvulso;
 }
 
-/** Soma dos preços de referência da composição, já multiplicados pela quantidade de cada item. */
+/**
+ * Soma dos preços de REFERÊNCIA DA CASA da composição, multiplicados pela
+ * quantidade — a base do catálogo de pacotes desde 2026-08-18, quando a oferta
+ * deixou de ter dono. Um preço de pacote para todos ⇒ uma base de comparação
+ * para todos. Override de barbeiro (§3.2.2) vale para avulso.
+ */
+export function somaDeReferenciaDaCasa(
+  composicao: ItemComposicaoPacote[],
+  servicos: Map<ServicoId, Servico>,
+): Dinheiro {
+  return composicao.reduce(
+    (acc, item) =>
+      acc.somar(servicos.get(item.servicoId)!.precoAvulso.multiplicarPorInteiro(item.quantidade)),
+    Dinheiro.zero(),
+  );
+}
+
+/** Soma com o preço de UM barbeiro — usada só onde ainda há barbeiro em jogo. */
 export function somaDeReferencia(
   composicao: ItemComposicaoPacote[],
   servicos: Map<ServicoId, Servico>,

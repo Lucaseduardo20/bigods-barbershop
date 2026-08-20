@@ -1,3 +1,4 @@
+import { TabelaDeDescontoDTO } from './desconto';
 import {
   FormaPagamento,
   OrigemAtendimento,
@@ -45,6 +46,7 @@ export interface CriarServicoRequest {
 export interface AtualizarServicoRequest {
   nome?: string;
   precoAvulsoCentavos?: number;
+  duracaoMinutos?: number;
   ativo?: boolean;
 }
 
@@ -76,6 +78,11 @@ export interface BarbeiroDTO {
   comissaoProdutos: number; // porcentagem
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
   precosServicos: ExcecaoPrecoDTO[];
+  /**
+   * Foto de perfil (2026-08-19) — URL pública, ou `null`. Sem foto, a UI usa
+   * o avatar de iniciais que já existe; nunca uma imagem quebrada.
+   */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 /**
@@ -165,6 +172,12 @@ export interface ClienteDTO {
   nome: string;
   telefone: string;
   possuiConta: boolean;
+  /**
+   * "Da casa" NA RELAÇÃO DE QUEM PERGUNTA — é uma relação barbeiro↔cliente, não
+   * um atributo do cliente. O mesmo cliente pode vir `true` para um barbeiro e
+   * `false` para outro.
+   */
+  daCasa: boolean;
 }
 
 // ---------- Agenda ----------
@@ -183,7 +196,16 @@ export interface ItemProdutoAtendidoDTO {
 }
 export interface AtendimentoDTO {
   id: string;
-  cliente: { id: string; nome: string; telefone: string };
+  cliente: {
+    id: string;
+    nome: string;
+    telefone: string;
+    email: string | null;
+    /** "Fale sobre você" do funil — o barbeiro lê antes de atender. */
+    sobreVoce: string | null;
+    /** É "da casa" DO BARBEIRO DESTE ATENDIMENTO (relação, não atributo). */
+    daCasa: boolean;
+  };
   barbeiro: { id: string; nome: string };
   itens: ItemAtendidoDTO[];
   produtos: ItemProdutoAtendidoDTO[];
@@ -237,14 +259,35 @@ export interface AdicionarProdutoAtendimentoRequest {
   produtoId: string;
   quantidade?: number; // default 1
 }
+/**
+ * Ponte de pagamento manual por WhatsApp — TEMPORÁRIO (2026-08-18), enquanto o
+ * AbacatePay não libera produção. Presente no lugar de `cobranca` quando
+ * `PAGAMENTO_MANUAL_WHATSAPP=true`: o funil manda o cliente pro WhatsApp com a
+ * comanda pronta e mostra "aguardando confirmação" em vez do QR.
+ */
+export interface PagamentoManualDTO {
+  /** A mesma intenção que o admin vai confirmar depois. */
+  intencaoId: string;
+  /** Link `wa.me` com a comanda já no texto — o funil só abre. */
+  whatsappUrl: string;
+  /** O texto da comanda (para exibir/copiar, se o link falhar). */
+  comanda: string;
+  /** Prazo da reserva/intenção (ISO) — o horário expira igual ao fluxo com PIX. */
+  expiraEm: string | null;
+}
+
 export interface CobrancaDTO {
   intencaoId: string;
   qrCode: string;
   copiaECola: string;
+  /** Prazo da reserva/intenção (ISO) — sessão de OTP+reserva, front mostra contagem regressiva. */
+  expiraEm: string;
 }
 export interface AgendarResponse {
   atendimentoId: string;
   cobranca: CobrancaDTO | null;
+  /** Modo manual (§ PagamentoManualDTO): vem no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
 }
 
 // ---------- Pacotes ----------
@@ -262,8 +305,12 @@ export interface VendaDePacoteDTO {
   id: string;
   cliente: { id: string; nome: string; telefone: string };
   /** Dono do pacote (Fase 2) — crédito só pode ser consumido com ele. */
-  barbeiroId: string;
-  barbeiroNome: string;
+  /**
+   * Barbeiro escolhido PELO CLIENTE na compra (2026-08-18) — só ele atende os
+   * serviços deste pacote. `null` = comprou sem escolher, qualquer um atende.
+   */
+  barbeiroId: string | null;
+  barbeiroNome: string | null;
   valorPagoCentavos: number;
   saldoResidualCentavos: number;
   /** FASE 4a (sessão-E, §8.7) — soma já abatida em agendamentos avulsos. */
@@ -431,10 +478,24 @@ export interface EmpresaPublicaDTO {
    * SEMPRE `false` em produção (o boot recusa DEMO_MODE=true em produção).
    */
   demoMode: boolean;
+  /**
+   * Tabela de desconto progressivo dos avulsos. Vai para o funil porque ele
+   * precisa MOSTRAR o desconto antes de o cliente confirmar — usando a mesma
+   * função de cálculo que a API usa para cobrar (`calcularDescontoProgressivo`).
+   */
+  descontoProgressivo: TabelaDeDescontoDTO;
+  /**
+   * TEMPORÁRIO (2026-08-18): quando true, "pagar agora" leva o cliente ao
+   * WhatsApp da barbearia em vez de gerar PIX. O funil usa só para ajustar o
+   * texto do botão — quem decide de fato é o backend.
+   */
+  pagamentoManualWhatsapp?: boolean;
 }
 export interface BarbeiroPublicoDTO {
   id: string;
   nome: string;
+  /** Foto de perfil (2026-08-19) — URL pública, ou `null` (cai no avatar de iniciais). */
+  fotoUrl: string | null;
 }
 export interface HorarioDisponivelDTO {
   horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
@@ -443,6 +504,18 @@ export interface HorarioDisponivelDTO {
 export interface HorariosDisponiveisDTO {
   data: string; // YYYY-MM-DD, dia civil local consultado
   horarios: HorarioDisponivelDTO[];
+}
+export interface DiaDisponivelDTO {
+  data: string; // YYYY-MM-DD, dia civil local
+  /** false → o seletor de data mostra o dia riscado/desabilitado. */
+  disponivel: boolean;
+}
+/**
+ * Disponibilidade de um PERÍODO inteiro numa resposta só. Existe para o funil
+ * poder riscar as datas sem horário sem fazer uma requisição por dia.
+ */
+export interface DiasDisponiveisDTO {
+  dias: DiaDisponivelDTO[];
 }
 export interface AgendarPublicoRequest {
   companyId: string;
@@ -456,11 +529,109 @@ export interface AgendarPublicoRequest {
 }
 export interface AgendarPublicoResponse {
   atendimentoId: string;
+  /** Modo manual (§ PagamentoManualDTO): presente no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
   /** intenção de pagamento quando online (para consultar status); null se presencial. */
   intencaoId: string | null;
   /** cobrança PIX quando online; null se presencial. */
   cobranca: CobrancaDTO | null;
+  /**
+   * Barbeiro que vai atender. Sempre presente — inclusive (e principalmente)
+   * quando o cliente escolheu "não tenho preferência" e a atribuição foi do
+   * servidor: ele precisa saber com quem ficou.
+   */
+  barbeiro: { id: string; nome: string };
+  /**
+   * Total efetivamente cobrado, em centavos. Importa no "sem preferência":
+   * preço é por barbeiro, então só dá para saber o valor final depois de
+   * atribuir — o funil mostra "a partir de" antes e este número depois.
+   */
+  valorTotalCentavos: number;
 }
+
+export enum TipoItemDeOrderBump {
+  SERVICO = 'SERVICO',
+  PRODUTO = 'PRODUTO',
+}
+
+/**
+ * Um item da vitrine "Adicione à sua visita" (DOMAIN.md §8.13), já
+ * PRECIFICADO para o barbeiro escolhido.
+ *
+ * O front nunca recalcula preço promocional a partir de percentual: recebe
+ * `precoNormalCentavos` e `precoPromocionalCentavos` prontos e derivada daí a
+ * ênfase visual. O percentual vem calculado junto só para exibição.
+ */
+export interface ItemDeOrderBumpDTO {
+  tipo: TipoItemDeOrderBump;
+  /** `Servico.id` ou `Produto.id`, conforme `tipo`. */
+  id: string;
+  nome: string;
+  /** Preço cheio do item — para serviço, já é o preço DAQUELE barbeiro. */
+  precoNormalCentavos: number;
+  /** O que o cliente paga ao adicionar pelo bump. Igual ao normal quando não há oferta. */
+  precoPromocionalCentavos: number;
+  /** `precoNormal − precoPromocional`. Zero = sem oferta, exibe sem ênfase de promoção. */
+  descontoCentavos: number;
+  /** Derivado, só para exibição ("−30%"). Zero quando não há oferta. */
+  descontoPercentual: number;
+  /** Chamada configurada pelo admin ("Leve pra casa por só R$X"). */
+  mensagem: string | null;
+  /** Só serviço — o bump de serviço ocupa tempo na agenda. */
+  duracaoMinutos: number | null;
+  /**
+   * Foto do item (2026-08-19) — só produto tem; serviço vem `null`. Sem foto,
+   * a vitrine mostra um placeholder, nunca imagem quebrada.
+   */
+  fotoUrl: string | null;
+}
+
+/**
+ * Order-bump (sessão 2026-08-17): vitrine de complementos mostrada na
+ * confirmação do funil — "Adicione à sua visita". Lista curada e
+ * PARAMETRIZADA pelo admin (preço promocional, mensagem, ordem), SEM motor de
+ * regras condicionais (decisão do dono, ver DECISOES_PENDENTES). Já vem
+ * ordenada; os serviços vêm com o preço do barbeiro escolhido, e cabe ao front
+ * esconder os que o cliente já tem no carrinho.
+ */
+export interface OrderBumpDTO {
+  servicos: ItemDeOrderBumpDTO[];
+  produtos: ItemDeOrderBumpDTO[];
+}
+
+/** Um produto do order-bump escolhido pelo cliente, com a quantidade. */
+export interface ProdutoBumpRequest {
+  produtoId: string;
+  quantidade: number;
+}
+
+// ---------- Configuração do order-bump (admin, seção Funil de Vendas) ----------
+
+/** Item do catálogo + como (e se) ele está configurado no bump. */
+export interface ConfiguracaoDeOrderBumpDTO {
+  tipo: TipoItemDeOrderBump;
+  /** `Servico.id` ou `Produto.id`. */
+  id: string;
+  nome: string;
+  /** Preço de referência da casa — base do percentual mostrado ao admin. */
+  precoNormalCentavos: number;
+  /** true = aparece na vitrine do funil. */
+  ativoNoBump: boolean;
+  /** null = sem promoção (cobra o preço normal). */
+  precoPromocionalCentavos: number | null;
+  mensagem: string | null;
+  ordem: number;
+}
+
+export interface ConfigurarItemDeOrderBumpRequest {
+  ativo: boolean;
+  /** Preço FINAL em centavos. null remove a promoção. O percentual é derivado, nunca persistido. */
+  precoPromocionalCentavos?: number | null;
+  mensagem?: string | null;
+  ordem?: number;
+}
+
+export const MAX_MENSAGEM_BUMP = 90;
 
 // ---------- Área do cliente (login OTP por telefone) ----------
 // Tenant explícito: o app da conta carrega o `companyId` (deploy da barbearia)
@@ -520,13 +691,11 @@ export interface ItemComposicaoPacoteDTO {
   servicoId: string;
   servicoNome: string;
   quantidade: number;
-  /** Preço de referência unitário usado no cálculo da economia (§ preço por barbeiro, Fase 2). */
+  /** Preço de REFERÊNCIA DA CASA, base do cálculo da economia (a oferta é da empresa). */
   precoUnitarioCentavos: number;
 }
 export interface PacoteOfertaDTO {
   id: string;
-  barbeiroId: string;
-  barbeiroNome: string;
   nome: string;
   composicao: ItemComposicaoPacoteDTO[];
   /** Preço do pacote (o que o cliente paga) — única fonte de verdade. */
@@ -549,7 +718,6 @@ export interface ItemComposicaoPacoteRequest {
   quantidade: number;
 }
 export interface CriarPacoteOfertaRequest {
-  barbeiroId: string;
   nome: string;
   composicao: ItemComposicaoPacoteRequest[];
   precoCentavos: number;
@@ -578,13 +746,24 @@ export interface VenderPacotePublicoRequest {
   companyId: string;
   ofertaId: string;
   cliente: { nome: string; telefone: string };
+  /**
+   * Barbeiro escolhido no funil. Presente ⇒ só ele atende os serviços deste
+   * pacote (2026-08-18). Ausente = "não tenho preferência": qualquer um atende.
+   */
+  barbeiroId?: string | null;
 }
 export interface VenderPacotePublicoResponse {
   vendaId: string;
   clienteId: string;
+  /** Modo manual (§ PagamentoManualDTO): presente no lugar de `cobranca`. */
+  pagamentoManual?: PagamentoManualDTO | null;
   /** intenção de pagamento — sempre presente (para consultar status / reconciliar). */
   intencaoId: string;
-  /** cobrança PIX — sempre presente (pagamento online é obrigatório no pacote). */
+  /**
+   * Cobrança PIX. Pagamento online é obrigatório no pacote, então vem
+   * preenchida — EXCETO no modo de pagamento manual, onde `pagamentoManual`
+   * toma o lugar dela.
+   */
   cobranca: CobrancaDTO | null;
 }
 
@@ -592,6 +771,12 @@ export interface VenderPacotePublicoResponse {
 export interface PagamentoStatusDTO {
   intencaoId: string;
   status: StatusPagamento;
+  /**
+   * Prazo da reserva/intenção (sessão de OTP+reserva) — ISO, null quando não
+   * é pagamento online (presencial) ou em linhas anteriores a essa sessão.
+   * O front usa pra mostrar contagem regressiva ("reservado por 9:59...").
+   */
+  expiraEm: string | null;
 }
 
 // ---------- Agendar com crédito na área do cliente ----------
@@ -613,6 +798,8 @@ export interface ProdutoDTO {
   id: string;
   nome: string;
   precoCentavos: number;
+  /** Foto do produto (2026-08-19) — URL pública, ou `null` (a UI mostra placeholder). */
+  fotoUrl: string | null;
   ativo: boolean;
 }
 export interface CriarProdutoRequest {

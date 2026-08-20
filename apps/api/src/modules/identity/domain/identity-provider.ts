@@ -53,9 +53,17 @@ export interface IdentityProvider {
   provisionarUsuario(input: ProvisionarUsuarioInput): Promise<void>;
 
   /**
-   * Inicia o login: dispara o código OTP (SMS em produção). Para telefones não
-   * provisionados, retorna um desafio neutro SEM código — resposta indistinguível
-   * para não revelar quem é ou não cliente (resistência a enumeração).
+   * Inicia o login: dispara o código OTP de verdade para QUALQUER telefone,
+   * tenha ele conta prévia ou não. Provisionar, se necessário, é obrigação da
+   * implementação — nunca motivo para não enviar.
+   *
+   * Isso já foi diferente: telefone não provisionado recebia desafio vazio e
+   * nenhum código, o que resistia a enumeração de contas mas quebrava o
+   * primeiro agendamento e a primeira compra (quem ainda não tem `sub` é
+   * justamente quem mais precisa do código). A troca é consciente: "ter conta"
+   * deixou de ser informação sensível, e a proteção contra abuso de envio
+   * passou a ser inteiramente do rate limit da borda (por telefone e por
+   * origem). Não reintroduzir o gate.
    */
   iniciarLogin(input: IniciarLoginInput): Promise<DesafioLogin>;
 

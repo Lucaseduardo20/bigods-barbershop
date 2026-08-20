@@ -24,11 +24,13 @@ O funil oferece horários de início de 15 em 15 minutos dentro da janela de dis
 
 **A confirmar com o negócio:** passo de 15 min (atual), alinhamento a horários "redondos" (:00/:30), ou passo = duração do serviço. Como é só leitura, mudar depois é trivial e não afeta invariante (a escrita rejeita qualquer conflito).
 
-## 4. Foto do barbeiro no funil
+## 4. Foto do barbeiro no funil — ✅ RESOLVIDO (2026-08-19)
 
-A etapa de seleção de barbeiro no protótipo mostra foto do profissional, mas o agregado `Barbeiro` (DOMAIN.md §3.2) **não modela foto**. Não inventei um campo de domínio.
+A etapa de seleção de barbeiro no protótipo mostra foto do profissional, mas o agregado `Barbeiro` (DOMAIN.md §3.2) **não modelava foto**. Não inventei um campo de domínio.
 
-**Mínimo implementado:** avatar com iniciais do nome (mesmo componente visual do admin). Se o negócio quiser fotos, entra como um campo novo no agregado/perfil do barbeiro numa sessão futura.
+**Resolvido em 2026-08-19:** `Barbeiro.fotoUrl` (e `Produto.fotoUrl`), com camada de storage em S3 — validação por conteúdo, otimização para WebP 512px e "trocar apaga a anterior". Ver DOMAIN.md §3.14. O avatar de iniciais **continua existindo** como fallback: foto é opcional, e imagem quebrada nunca aparece.
+
+O que destravou: um bucket de uploads **separado** dos buckets de frontend. O impedimento antigo era que o deploy dos frontends roda `aws s3 sync --delete` e apagaria as fotos.
 
 ## 5. "1 mês" como período máximo de consulta da agenda
 
@@ -417,3 +419,296 @@ inventar regra de negócio financeira.
 verdade (reverter o crédito de pacote já consumido? notificar o admin
 manualmente? estornar comissão?) é uma decisão financeira que precisa vir do
 dono — hoje fica só registrado em log para revisão manual.
+
+## 28. Janela de pagamento do PACOTE — ✅ RESOLVIDO: de volta a 1h, desacoplada do avulso online (2026-08-14)
+
+**Estava:** a sessão de OTP+reserva unificou o prazo de pagamento do pacote
+com `PRAZO_RESERVA_SEGUNDOS` (10min, a mesma constante do avulso online),
+interpretando a spec original ("AVULSO ONLINE ou PACOTE... reserva TEMPORÁRIA
+(10 min)") como aplicável aos dois. Registrado ali mesmo como decisão própria
+a confirmar, não como regra certa.
+
+**Confirmado pelo dono: estava errado.** Os 10 minutos existem por causa da
+RESERVA DE HORÁRIO (Problema 2 — evitar um slot preso esperando pagamento).
+`VendaDePacote` não reserva horário nenhum — não existe slot pra proteger.
+Além disso pacote é ticket mais alto; o cliente precisa de mais tempo pra
+pagar.
+
+**Correção aplicada:** os dois prazos voltaram a ser **conceitos e constantes
+separados**, cada um com seu próprio motivo de existir:
+- **Avulso online**: `PRAZO_RESERVA_SEGUNDOS` (10 min, fixo,
+  `apps/api/src/modules/payments/domain/prazo-reserva.ts`) — ligado à reserva
+  de horário (`Atendimento.reservaOnlineExpiraEm`). Inalterado.
+- **Pacote**: `gateway.expiraEmSegundos` (1h, configurável via
+  `ABACATEPAY_EXPIRA_SEGUNDOS`) — o mesmo valor usado antes da sessão de
+  OTP+reserva, sem reserva de horário nenhuma envolvida.
+
+`vender-pacote.usecase.ts` voltou a usar `this.gateway.expiraEmSegundos`
+(não importa mais `PRAZO_RESERVA_SEGUNDOS`); o comentário em `prazo-reserva.ts`
+foi reforçado explicitamente avisando pra NÃO reunificar os dois por engano de
+novo — são coincidentemente relacionados (os dois "prazo de pagamento online"),
+não a mesma regra. Testado explicitamente:
+`test/integration/pacote-publico.e2e.spec.ts` (cobrança nasce com ~1h de
+`expiraEm`) e `test/integration/otp-reserva.e2e.spec.ts` (avulso online
+continua com ~10min, tanto na reserva quanto na cobrança).
+
+## 29. Cota de presenciais (Problema 3) não vale pro admin nem pro reagendar — decisão minha (sessão de OTP+reserva)
+
+A spec diz "vale pra logado e não-logado igualmente" — na minha leitura,
+"logado" se refere ao cliente autenticado no cockpit (`@ContaCliente()`),
+não ao admin/staff. `AgendarAvulsoUseCase` é compartilhado entre o funil
+público, o cockpit do cliente E o painel admin (`POST /atendimentos`) —
+apliquei a cota só nos dois primeiros (`aplicarCotaPresencial: true`,
+default), e o controller do admin passa `aplicarCotaPresencial: false`
+explicitamente.
+
+**Por quê:** a cota existe pra conter abuso de auto-atendimento (um cliente
+com telefone verificado entupindo a agenda sozinho) — não pra limitar o
+julgamento operacional do staff (exceção pra cliente VIP, situação
+especial, etc.). Apliquei a mesma lógica ao `ReagendarAtendimentoClienteUseCase`:
+como ele cria o novo atendimento ANTES de cancelar o antigo (pra nunca
+deixar o cliente sem os dois se o novo horário falhar), contar a cota nesse
+meio-tempo bloquearia incorretamente um cliente no limite tentando só mover
+um agendamento que já tinha — por isso reagendar também passa
+`aplicarCotaPresencial: false`.
+
+**A confirmar com o negócio:** se o admin também deveria ter algum limite
+(ex.: um staff mal-intencionado ou descuidado criando dezenas de presenciais
+fantasma) — hoje não há trava nenhuma pro admin, por design (autonomia de
+julgamento), mas isso presume que o acesso ao painel admin já é
+suficientemente controlado (só quem tem login de staff chega lá).
+
+---
+
+## 29. Comissão do barbeiro sobre o valor COM ou SEM desconto progressivo?
+
+**Decisão minha, a confirmar** (sessão do funil único + desconto progressivo).
+
+**O que está implementado:** o desconto progressivo abate o valor de cada
+`ItemAtendido` (`valorCobrado`), e a comissão sai desse valor
+(`on-atendimento-concluido.handler.ts`: `valorBase = item.valorCobradoCentavos`).
+Na prática, **o barbeiro divide o desconto com a casa**: num carrinho de
+corte R$50 + barba R$25 com R$10 de desconto, a comissão incide sobre R$65,
+não sobre R$75.
+
+**Por quê:** é a consequência natural de `valorCobrado` ser o snapshot do que
+foi REALMENTE cobrado do cliente — a mesma disciplina que vale no resto do
+sistema. Fazer diferente exigiria guardar dois valores por item (cheio e
+cobrado) e escolher qual alimenta a comissão, o que só se justifica se o
+negócio quiser mesmo essa separação.
+
+**A confirmar com o dono:** quem banca o desconto?
+- **Dividido** (hoje): comissão sobre o valor cobrado. Simples, e o barbeiro
+  participa do incentivo que traz mais serviços por visita.
+- **Casa banca sozinha**: comissão sobre o preço cheio. Exige `precoCheio`
+  como segundo snapshot no item e mudar a base do handler de comissão.
+
+Enquanto não confirmado, vale o comportamento atual. Nenhuma comissão já
+lançada muda — o ledger é imutável e os snapshots antigos seguem intactos.
+
+---
+
+## 30. "Bigod's Club" como membership/assinatura recorrente?
+
+**Fora de escopo nesta sessão, registrado como futuro possível.**
+
+O que existe hoje é só **rótulo de marca + vitrine**: a seção "Bigod's Club"
+no topo do funil apresenta as `PacoteOferta` que já existiam, com pegada de
+clube de benefícios. Não há — e não foi modelado — nada de:
+mensalidade/assinatura recorrente, status de membro, benefício contínuo,
+renovação automática, nível/tier.
+
+**A discutir com o dono, se ele quiser evoluir para membership de verdade:**
+- cobrança recorrente (o gateway hoje só faz PIX avulso, sem recorrência);
+- o que o membro ganha por ser membro (desconto permanente? prioridade de
+  horário? serviços inclusos por mês?);
+- o que acontece quando ele para de pagar (créditos já comprados vencem?);
+- se membership e pacote coexistem ou um substitui o outro.
+
+Cada uma dessas respostas muda o modelo de domínio — por isso não foi
+antecipado nada. O nome hoje não cria dívida: é texto de apresentação sobre
+um agregado que já existe.
+
+---
+
+## 31. "Menor comissão" na atribuição sem preferência: em reais ou em percentual?
+
+**Decisão minha, a confirmar** (sessão de barbeiro/aprovação, Fase 2).
+
+O 1º critério da cascata de "não tenho preferência" é "o de MENOR comissão para
+os serviços em questão". Com preço TAMBÉM por barbeiro (§3.2.2), isso tem duas
+leituras possíveis:
+
+- **Em centavos (implementado):** Σ (preço dele × percentual efetivo dele) por
+  serviço. É o custo real da casa naquele atendimento. Um barbeiro com 40% sobre
+  R$50 (R$20) ganha de outro com 30% sobre R$80 (R$24).
+- **Em percentual puro:** compara só o `percentualPara(servico)`. Mais simples de
+  explicar ("vai pro que tem a menor porcentagem"), mas pode mandar o cliente
+  para quem custa mais caro à casa.
+
+Fui de centavos porque "menor comissão" só tem significado econômico em dinheiro
+— e porque o preço por barbeiro já existe e seria estranho ignorá-lo justamente
+no critério de custo. Trocar é mudar só o número que entra na cascata; a ordem
+dos critérios e os testes de desempate não mudam.
+
+---
+
+## 32. Order-bump com regras condicionais / segmentação (sessão 2026-08-17)
+
+**Fora de escopo nesta sessão, decisão explícita do dono ("Começar SIMPLES").**
+
+O order-bump ("Adicione à sua visita", DOMAIN.md §8.13) é uma vitrine curada à mão pelo admin —
+`ItemDeOrderBump` (§3.13), uma lista geral, igual para todo cliente (só filtrada pelo que o
+barbeiro escolhido atende e pelo que já está no carrinho).
+
+**A Parte 2 da sessão (2026-08-17) trouxe PARAMETRIZAÇÃO por item** — preço promocional, mensagem
+e ordem de exibição. Isso NÃO é motor de regras: continua sendo "este item, sempre, para todo
+mundo, com esta oferta". Segue fora de escopo:
+
+- motor de regras condicionais ("se o carrinho tem corte, ofereça barba"; "se é a primeira visita,
+  ofereça X");
+- segmentação por serviço selecionado, por barbeiro, por histórico do cliente, por horário;
+- limite de uso da oferta (validade, primeira compra, N por cliente).
+
+**A discutir com o dono, se ele quiser evoluir:**
+- vale a pena medir conversão da vitrine parametrizada atual antes de investir num motor de regras?
+- regras por serviço (matriz servico→sugestões) ou por atributo (categoria de serviço)?
+- quem edita as regras — ainda o admin, numa tela nova, ou fica hardcoded?
+
+Não modelei nada disso agora porque cada resposta muda a forma de configuração (schema novo,
+tela nova) — melhor esperar a vitrine parametrizada provar (ou não) que vale a pena investir mais.
+
+---
+
+## 33. Upsell de troca-pra-cima (serviço premium) (sessão 2026-08-17)
+
+**Fora de escopo nesta sessão.**
+
+O order-bump (DOMAIN.md §8.13) só ADICIONA itens ao carrinho — nunca substitui um serviço já
+selecionado por uma versão mais cara dele ("troca seu corte simples por um corte + tratamento").
+Isso é um mecanismo diferente: precisaria saber qual serviço "vira" qual (uma relação de
+upgrade/substituição), e a UX de trocar (não somar) é distinta da de adicionar com um toque.
+
+**O mecanismo atual já comporta um serviço premium como item comum de bump** — se a barbearia
+cadastrar "Corte Premium" como `Servico` com `sugeridoNoBump: true`, ele aparece na vitrine e pode
+ser ADICIONADO ao lado do corte normal (não troca por ele). Trocar de verdade é decisão de UX/
+negócio futura: precisa decidir se o upgrade remove o item original do carrinho, como isso afeta
+o desconto progressivo (§3.2.3, muda a composição do carrinho no meio do fluxo), e se faz sentido
+ter dois preços "concorrendo" na mesma vitrine.
+
+---
+
+## 34. Pacote é da empresa: crédito resgatável com qualquer barbeiro — ✅ RESOLVIDO (2026-08-17)
+
+**Decisão confirmada pelo dono**, em resposta a bug reportado ("as ofertas e pacotes não precisam
+ter vínculo com o barbeiro, é da empresa em si"). Duas opções foram apresentadas:
+
+1. Crédito resgatável com QUALQUER barbeiro ativo da casa que atenda o serviço — o dono da
+   oferta/venda vira só a base de preço do rateio, sem restringir consumo.
+2. Vitrine deixa de filtrar por barbeiro, mas a venda continua amarrada a um "dono" que
+   exclusivamente pode atender aquele crédito.
+
+**Escolhida a opção 1.** Implementado em `VendaDePacote.agendarItem` (parou de exigir
+`barbeiroId === venda.barbeiroId`) e em `GET /public/pacotes` (parou de filtrar por barbeiro
+escolhido no funil — sempre devolve a vitrine inteira da empresa). Documentado em DOMAIN.md §8.14.
+`barbeiroId` de `PacoteOferta`/`VendaDePacote` NÃO foi removido do schema — continua como base de
+preço do rateio (congelado) e autoria/CRUD (§3.11, §4.3), só parou de restringir visibilidade e
+consumo. Ver também DOMAIN.md §11 (linha "Resgate cruzado de crédito entre barbeiros", marcada
+resolvida).
+
+---
+
+## 35. Colunas `sugeridoNoBump` deprecadas no banco (2026-08-17, Parte 2)
+
+**Dívida técnica consciente, com prazo em aberto.**
+
+`Servico.sugeridoNoBump` e `Produto.sugeridoNoBump` (criadas na Parte 1 desta mesma sessão) foram
+substituídas por `ItemDeOrderBump` (DOMAIN.md §3.13), que guarda o mesmo "aparece: sim/não" mais
+preço promocional, mensagem e ordem. A migration `20260818031633_order_bump_parametrizavel` copiou
+todo `sugeridoNoBump = true` para a tabela nova.
+
+**As colunas antigas continuam no banco, sem nenhum leitor.** Motivo: o sistema está em produção e
+a migration foi feita aditiva — se o deploy precisasse voltar atrás, a configuração antiga ainda
+estaria lá. Estão marcadas como DEPRECADO no `schema.prisma` e no DOMAIN.md.
+
+**O que falta decidir:** quando dropar. Sugestão: depois de uma semana de produção estável com a
+vitrine nova, numa migration de limpeza. Enquanto isso, o risco é baixo (coluna morta) mas o
+incômodo é real — alguém lendo o schema pode achar que ainda vale.
+
+---
+
+## 36. `PacoteOferta.barbeiroId` deprecado no banco (2026-08-18)
+
+**Mesma dívida do #35, outra coluna.**
+
+Com o pacote virando da empresa (DOMAIN.md §8.14), `PacoteOferta.barbeiroId` deixou de existir no
+domínio — a oferta não tem dono, não tem base de preço por barbeiro, e o cadastro é admin-only. A
+migration `20260818162756_pacote_sem_dono` apenas **relaxou** a coluna para nulável (nenhum dado
+perdido, nenhum drop), e o código parou de ler/escrever.
+
+`VendaDePacote.barbeiroId` também virou nulável, mas esse campo **continua vivo e com significado
+novo**: é o barbeiro que o cliente escolheu na compra, a única trava de consumo que sobrou.
+
+**O que falta decidir:** quando dropar `PacoteOferta.barbeiroId`. Sugestão: junto da limpeza do
+#35, depois de uma semana estável. Enquanto isso o risco é baixo (coluna morta, nulável), mas quem
+ler o schema pode achar que ainda vale.
+
+---
+
+## 39. Bucket de uploads é público para leitura — e é público mesmo (2026-08-19)
+
+> (Os números 37 e 38 estão reservados: #37 nasceu na branch `feat/otp-sms-cognito` e #38 na
+> `feat/pagamento-manual-whatsapp`. Pulados de propósito para as três não colidirem no merge.)
+
+
+O bucket de fotos (DOMAIN.md §3.14) é público para LEITURA, como pedido: o funil mostra a foto
+do barbeiro sem autenticar nada, e é a forma mais simples de servir imagem para um site público.
+
+**A consequência, dita em voz alta:** quem tiver a URL vê a imagem, para sempre, mesmo depois de
+"removida" do sistema. Remover a foto apaga o objeto do bucket, então a URL morre — mas se
+alguém já baixou ou compartilhou o arquivo antes, isso está fora do nosso alcance. Nome de objeto
+é UUID aleatório, então ninguém varre o bucket adivinhando, e não há como listar o conteúdo.
+
+Para foto de perfil de barbeiro e foto de produto de vitrine, isso é aceitável — é material que
+existe para ser visto. **Não guarde outra coisa neste bucket** (documento de cliente, comprovante,
+qualquer imagem que não seja para o público) sem antes trocar o modelo de acesso.
+
+**Se um dia precisar fechar:** CloudFront com Origin Access Control na frente e bucket privado —
+o mesmo desenho que os três buckets de frontend já usam. `UPLOADS_BASE_URL` existe exatamente
+para essa troca: as URLs já gravadas no banco continuam válidas, sem migração de dado.
+
+## 40. Foto de produto exige salvar o produto antes (2026-08-19)
+
+No CRUD de produto, o bloco de foto só aparece ao **editar** — criar → salvar → reabrir para pôr
+a foto. Motivo: o upload é um endpoint por id (`POST /produtos/:id/foto`), e um produto que ainda
+não foi salvo não tem id.
+
+**Alternativa não implementada:** segurar os bytes em memória no navegador e subir junto do
+"Salvar". Não fiz porque é estado extra na tela para economizar um clique, e porque o upload
+falharia *depois* de o produto já ter sido criado — dois caminhos de erro em vez de um.
+
+**O que falta decidir:** se o clique a mais incomoda na operação real. Se incomodar, o caminho é
+o formulário guardar o arquivo e disparar o upload logo após o POST de criação.
+## 38. Modo de pagamento manual por WhatsApp é TEMPORÁRIO — precisa ser desligado (2026-08-18)
+
+> (O #37 nasceu na branch `feat/otp-sms-cognito` e chega aqui quando ela for mergeada — o número
+> foi pulado de propósito para as duas não colidirem.)
+
+A AbacatePay leva ~7 dias úteis para liberar produção. Até lá, `PAGAMENTO_MANUAL_WHATSAPP=true`
+faz o "pagar online" mandar o cliente pro WhatsApp da barbearia com a comanda pronta, em vez de
+gerar PIX (DOMAIN.md §3.8). A confirmação é manual, pelo admin.
+
+**Isto não é uma decisão de arquitetura — é um andaime.** O código do gateway continua intacto e
+testado; a flag só desvia a chamada num ponto (`CobrancaOnlineService.gerar()`).
+
+**O que falta fazer** — quando a AbacatePay liberar produção:
+1. `PAGAMENTO_MANUAL_WHATSAPP=false` (ou remover a variável) e reiniciar a API. **Só isso**
+   devolve o fluxo de PIX — não precisa de deploy de código nem de sessão de trabalho.
+2. Confira uma compra de pacote e um avulso online de ponta a ponta com o gateway real.
+3. Só então decida se apaga o modo manual. Vale a pena **manter** enquanto o gateway for novo:
+   é o plano B se a AbacatePay cair, e o custo de mantê-lo é uma flag desligada.
+
+**Se for apagar um dia:** `CobrancaOnlineService` volta a ser a chamada direta ao gateway, e saem
+`comanda-whatsapp.ts`, `pagamento-manual.ts`, `PagamentoManualAguardando.tsx` e o ramo
+`pagamentoManual` dos dois casos de uso. Os endpoints de confirmação manual **ficam** — eles são
+do bug 8 (pagamento no balcão), não deste modo.

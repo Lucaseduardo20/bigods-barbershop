@@ -31,4 +31,24 @@ describe('Cliente', () => {
     c.promoverParaUsuario('sub-123');
     expect(() => c.promoverParaUsuario('sub-999')).toThrow(InvarianteVioladaError);
   });
+
+  describe('renomear — corrige o placeholder do login OTP sem cadastro prévio', () => {
+    it('sobrescreve o nome com o que veio digitado agora', () => {
+      const c = Cliente.criar({ id: 'cli-1', companyId: 'co-1', nome: 'Cliente', telefone: Telefone.de('11999998888') });
+      c.renomear('Maria Silva');
+      expect(c.nome).toBe('Maria Silva');
+    });
+
+    it('nome vazio/só espaço não apaga o nome já existente', () => {
+      const c = criar();
+      c.renomear('   ');
+      expect(c.nome).toBe('João');
+    });
+
+    it('remove espaços nas pontas', () => {
+      const c = criar();
+      c.renomear('  Pedro Souza  ');
+      expect(c.nome).toBe('Pedro Souza');
+    });
+  });
 });

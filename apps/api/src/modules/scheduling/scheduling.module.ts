@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AtendimentosController } from './presentation/atendimentos.controller';
 import { BookingPublicoController } from './presentation/booking-publico.controller';
 import { AgendarAvulsoUseCase } from './application/agendar-avulso.usecase';
+import { CancelarReservaOnlineUseCase } from './application/cancelar-reserva-online.usecase';
 import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usecase';
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
@@ -21,6 +22,7 @@ import { PaymentsModule } from '../payments/payments.module';
   controllers: [AtendimentosController, BookingPublicoController],
   providers: [
     AgendarAvulsoUseCase,
+    CancelarReservaOnlineUseCase,
     AgendarComCreditoUseCase,
     ConcluirAtendimentoUseCase,
     CancelarAtendimentoUseCase,
@@ -38,6 +40,7 @@ import { PaymentsModule } from '../payments/payments.module';
   // avulso, cancelar, e listar/detalhar os próprios agendamentos.
   exports: [
     AgendarAvulsoUseCase,
+    CancelarReservaOnlineUseCase,
     AgendarComCreditoUseCase,
     CancelarAtendimentoClienteUseCase,
     ReagendarAtendimentoClienteUseCase,

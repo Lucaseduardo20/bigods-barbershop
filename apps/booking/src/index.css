@@ -207,6 +207,26 @@ body {
   cursor: pointer; text-align: center; transition: all 0.12s;
 }
 .day.selected { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
+/* Dia sem nenhum horário livre, ou fora da janela de agendamento: o cliente vê
+   que não adianta clicar, em vez de clicar e encontrar a lista vazia. */
+.day:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: var(--surface-sunken);
+  border-style: dashed;
+}
+.day:disabled .day-num { text-decoration: line-through; }
+
+/* Lista de horários rola DENTRO dela mesma. Sem isto, um dia com muitos slots
+   empurra a página inteira e o cliente perde de vista o seletor de data logo
+   acima (ele rolava a tela toda). */
+.slots-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
 .day-dow { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
 .day-num { font-size: 18px; font-weight: 800; color: var(--text-primary); margin-top: 2px; }
 
@@ -228,6 +248,25 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- Modal (bottom-sheet — mesmo padrão do admin/account) ---- */
+.dialog-overlay {
+  position: fixed; inset: 0; z-index: 30;
+  background: rgba(28, 19, 10, 0.55);
+  display: flex; align-items: flex-end; justify-content: center;
+  animation: overlay-in 0.18s ease-out;
+}
+.dialog {
+  width: 100%; max-width: 560px; max-height: 88dvh;
+  overflow-y: auto; box-sizing: border-box;
+  background: var(--surface-app);
+  border-radius: 22px 22px 0 0;
+  padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 40px rgba(28, 19, 10, 0.18);
+  animation: sheet-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
 /* ---- Checkmark de sucesso (SVG animado, sem dependência de Lottie) ---- */
 .success-badge { width: 96px; height: 96px; }
 .success-badge circle {
@@ -240,3 +279,45 @@ body {
   stroke-dasharray: 70; stroke-dashoffset: 70; animation: draw 0.4s 0.5s ease-out forwards;
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* ---- Order-bump "Adicione à sua visita" (Parte 2, 2026-08-17) ----
+   Item com oferta ganha moldura e fundo de promoção; sem oferta fica
+   discreto como qualquer card selecionável — não vale simular promoção
+   onde o admin não configurou nenhuma. */
+.bump-card {
+  width: 100%; text-align: left;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--surface-card);
+  border-radius: 14px; padding: 12px 14px;
+  cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s;
+  display: block;
+}
+.bump-card:hover { border-color: var(--brand-gold-300); }
+.bump-card.oferta {
+  border-color: var(--brand-gold-300);
+  background: linear-gradient(180deg, var(--surface-brand-tint) 0%, var(--surface-card) 60%);
+}
+.bump-card.selecionado {
+  border-color: var(--accent-primary);
+  background: var(--surface-brand-tint);
+  box-shadow: 0 2px 12px rgba(184, 142, 66, .15);
+}
+.bump-selo {
+  flex-shrink: 0;
+  background: var(--accent-primary); color: var(--text-on-gold);
+  border-radius: 999px; padding: 2px 7px;
+  font: 800 10.5px var(--font-ui); letter-spacing: .02em;
+}
+.bump-acao {
+  flex-shrink: 0;
+  font: 700 11.5px var(--font-ui);
+  color: var(--brand-gold-700);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.bump-acao.remover { color: var(--text-muted); }
+.bump-remover {
+  flex-shrink: 0; border: none; background: none; padding: 0;
+  font: 700 11px var(--font-ui); color: var(--text-muted);
+  text-decoration: underline; cursor: pointer;
+}
+.bump-remover:hover { color: var(--status-danger); }

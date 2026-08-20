@@ -16,6 +16,9 @@ vi.hoisted(() => {
   process.env.ABACATEPAY_API_KEY = 'test-key';
   process.env.ABACATEPAY_BASE_URL = 'https://sandbox.abacatepay.local/v2';
   process.env.ABACATEPAY_WEBHOOK_SECRET = 'wh-secret-pacote';
+  // Sessão de OTP+reserva: pacote também exige sessão de cliente verificada.
+  process.env.IDENTITY_PROVIDER = 'demo';
+  process.env.DEMO_MODE = 'true';
 });
 
 const fetchMock = vi.fn(async () => ({
@@ -81,6 +84,16 @@ function postWebhook(corpo: string, assinatura: string) {
     .send(corpo);
 }
 
+/** Login OTP completo (provider demo) — devolve o token de sessão do cliente. */
+async function loginCompleto(telefone: string): Promise<string> {
+  const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+  const confirmar = await http
+    .post('/conta/login/confirmar')
+    .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+    .expect(201);
+  return confirmar.body.token;
+}
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication({ rawBody: true });
@@ -133,14 +146,30 @@ describe('Compra de pacote pública', () => {
     expect(res.body[0].precoAvulsoTotalCentavos).toBe(20000); // 4000 × 5
   });
 
+  it('sem token → 401', async () => {
+    await http
+      .post('/public/pacotes')
+      .send({ companyId, ofertaId, cliente: { nome: 'SemToken' } })
+      .expect(401);
+  });
+
   it('gera cobrança, webhook v2 assinado confirma e libera os créditos', async () => {
-    const fone = `11 97${sufixo}`;
+    const fone = `11 97${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'Rafa PacPub', telefone: fone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Rafa PacPub' } })
       .expect(201);
     expect(venda.body.cobranca).toBeTruthy();
     expect(venda.body.intencaoId).toBeTruthy();
+
+    // DECISOES_PENDENTES.md #28: prazo de pagamento do PACOTE é 1h
+    // (gateway.expiraEmSegundos), NUNCA os 10min de PRAZO_RESERVA_SEGUNDOS
+    // (esse é só do avulso online, que reserva horário — pacote não reserva).
+    const restanteSeg = (new Date(venda.body.cobranca.expiraEm).getTime() - Date.now()) / 1000;
+    expect(restanteSeg).toBeGreaterThan(3500); // ~1h, não ~10min (600s)
+    expect(restanteSeg).toBeLessThanOrEqual(3600);
 
     // status inicial AGUARDANDO
     const s1 = await http.get(`/public/pagamentos/${venda.body.intencaoId}?companyId=${companyId}`).expect(200);
@@ -165,10 +194,12 @@ describe('Compra de pacote pública', () => {
   });
 
   it('política do dono (FASE 3): pacote SEMPRE gera cobrança online, mesmo se o cliente mandar formaPagamento=presencial (campo removido, ignorado)', async () => {
-    const fone = `11 91${sufixo}`;
+    const fone = `11 91${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'TentaPresencial', telefone: fone }, formaPagamento: 'presencial' })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'TentaPresencial' }, formaPagamento: 'presencial' })
       .expect(201);
     expect(venda.body.cobranca).toBeTruthy();
     const s = await http.get(`/public/pagamentos/${venda.body.intencaoId}?companyId=${companyId}`).expect(200);
@@ -176,18 +207,39 @@ describe('Compra de pacote pública', () => {
   });
 
   it('reconciliação por telefone: comprar de novo não duplica o cliente', async () => {
-    const fone = `11 98${sufixo}`;
-    await http.post('/public/pacotes').send({ companyId, ofertaId, cliente: { nome: 'Bis', telefone: fone } }).expect(201);
-    await http.post('/public/pacotes').send({ companyId, ofertaId, cliente: { nome: 'Bis', telefone: fone } }).expect(201);
+    const fone = `11 98${sufixo}0`;
+    const token = await loginCompleto(fone);
+    await http.post('/public/pacotes').set('Authorization', `Bearer ${token}`).send({ companyId, ofertaId, cliente: { nome: 'Bis' } }).expect(201);
+    await http.post('/public/pacotes').set('Authorization', `Bearer ${token}`).send({ companyId, ofertaId, cliente: { nome: 'Bis' } }).expect(201);
     const clientes = await prisma.cliente.findMany({ where: { companyId, telefone: e164(fone) } });
     expect(clientes).toHaveLength(1);
   });
 
+  it('BUG corrigido: login OTP sem cadastro prévio cria o Cliente com nome placeholder "Cliente" — a compra corrige com o nome real', async () => {
+    const fone = `11 93${sufixo}0`;
+    const token = await loginCompleto(fone);
+    // Login sozinho (sem nenhuma compra ainda) sempre grava o placeholder —
+    // ver ConfirmarLoginClienteUseCase. É o que a venda seguinte tem que corrigir.
+    const antes = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(antes!.nome).toBe('Cliente');
+
+    await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Nome Real Do Cliente' } })
+      .expect(201);
+
+    const depois = await prisma.cliente.findFirst({ where: { companyId, telefone: e164(fone) } });
+    expect(depois!.nome).toBe('Nome Real Do Cliente');
+  });
+
   it('polling de status é idempotente: consultar N vezes não muda nada', async () => {
-    const fone = `11 90${sufixo}`;
+    const fone = `11 90${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'Poll', telefone: fone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Poll' } })
       .expect(201);
     const url = `/public/pagamentos/${venda.body.intencaoId}?companyId=${companyId}`;
     for (let i = 0; i < 4; i++) {
@@ -199,10 +251,12 @@ describe('Compra de pacote pública', () => {
   });
 
   it('expira por timeout local: prazo vencido é detectado no próprio polling (sem webhook de expiração — AbacatePay não emite um)', async () => {
-    const fone = `11 94${sufixo}`;
+    const fone = `11 94${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'Expira', telefone: fone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Expira' } })
       .expect(201);
 
     // Força o prazo pro passado direto no banco — o gateway real usa uma janela
@@ -221,10 +275,12 @@ describe('Compra de pacote pública', () => {
   });
 
   it('confirmar-demo é INERTE fora do modo demo (403)', async () => {
-    const fone = `11 93${sufixo}`;
+    const fone = `11 93${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'NoDemo', telefone: fone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'NoDemo' } })
       .expect(201);
     // O endpoint lê DEMO_MODE por requisição; forçamos "não-demo" aqui para o
     // teste ser determinístico (outros arquivos e2e mexem na env global).
@@ -241,10 +297,12 @@ describe('Compra de pacote pública', () => {
   });
 
   it('status de intenção de outra empresa → 404 (tenant explícito)', async () => {
-    const fone = `11 92${sufixo}`;
+    const fone = `11 92${sufixo}0`;
+    const token = await loginCompleto(fone);
     const venda = await http
       .post('/public/pacotes')
-      .send({ companyId, ofertaId, cliente: { nome: 'Tenant', telefone: fone } })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Tenant' } })
       .expect(201);
     await http.get(`/public/pagamentos/${venda.body.intencaoId}?companyId=outra-empresa`).expect(404);
   });

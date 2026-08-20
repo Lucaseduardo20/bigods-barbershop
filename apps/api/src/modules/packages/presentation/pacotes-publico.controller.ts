@@ -11,7 +11,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { MAX_SOBRE_VOCE } from '@bigods/contracts';
+import { EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { Throttle } from '@nestjs/throttler';
 import {
   PacoteOfertaDTO,
@@ -27,11 +29,16 @@ import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
   IntencaoDePagamentoRepository,
 } from '../../payments/domain/intencao-de-pagamento.repository';
+import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
 import { Publico } from '../../identity/presentation/auth.decorators';
+import { ClienteAtual, ContaCliente } from '../../identity/presentation/cliente.guard';
+import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 
 class ClientePublicoDto {
-  @IsString() @MinLength(1) nome!: string;
-  @IsString() @MinLength(8) telefone!: string;
+  // Mesmas regras do funil de agendamento — o formulário de cliente é o mesmo.
+  @EhNomeDeCliente() nome!: string;
+  @IsOptional() @EhEmail() email?: string;
+  @IsOptional() @IsString() @MaxLength(MAX_SOBRE_VOCE) sobreVoce?: string;
 }
 
 class VenderPacotePublicoDto {
@@ -40,6 +47,11 @@ class VenderPacotePublicoDto {
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
+  /**
+   * Barbeiro escolhido no funil. Presente ⇒ só ele atende os serviços deste
+   * pacote. Ausente = "não tenho preferência": qualquer um atende.
+   */
+  @IsOptional() @IsString() barbeiroId?: string;
 }
 
 /**
@@ -60,29 +72,56 @@ export class PacotesPublicoController {
     private readonly processarWebhook: ProcessarWebhookUseCase,
     private readonly expirarPagamentoVencido: ExpirarPagamentoVencidoUseCase,
     @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
+    @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
   ) {}
 
+  /**
+   * `barbeiroId` não é mais aceito de propósito (sessão 2026-08-17) — pacote
+   * é da empresa, a vitrine não muda conforme o barbeiro escolhido no funil
+   * (ver `PacoteOfertasQueryService.listar`).
+   */
   @Publico()
   @Get('pacotes')
-  async listarOfertas(
-    @Query('companyId') companyId?: string,
-    @Query('barbeiroId') barbeiroId?: string,
-  ): Promise<PacoteOfertaDTO[]> {
+  async listarOfertas(@Query('companyId') companyId?: string): Promise<PacoteOfertaDTO[]> {
     if (!companyId) throw new BadRequestException('Parâmetro companyId obrigatório');
-    return this.ofertas.listar(companyId, barbeiroId);
+    return this.ofertas.listar(companyId);
   }
 
-  @Publico()
+  /**
+   * Sessão de OTP+reserva: pacote é "sempre online", agrupado com avulso
+   * online sob o mesmo prazo de pagamento (10 min) e a mesma exigência de
+   * sessão verificada — ver `@ContaCliente()` em `BookingPublicoController`
+   * pro racional completo (reusa o MESMO mecanismo, nada novo aqui).
+   * Telefone vem sempre da sessão, nunca do corpo.
+   */
+  @ContaCliente()
   @Throttle({ default: { limit: 30, ttl: 600_000 } })
   @Post('pacotes')
-  async vender(@Body() body: VenderPacotePublicoDto): Promise<VenderPacotePublicoResponse> {
+  async vender(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: VenderPacotePublicoDto,
+  ): Promise<VenderPacotePublicoResponse> {
+    if (atual.companyId !== body.companyId) {
+      throw new ForbiddenException('Sessão não pertence a esta empresa');
+    }
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== body.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
     const oferta = await this.ofertas.porId(body.companyId, body.ofertaId);
     if (!oferta) throw new NotFoundException('Oferta de pacote não encontrada');
 
     const resultado = await this.venderPacote.executar({
       companyId: body.companyId,
-      cliente: body.cliente,
-      barbeiroId: oferta.barbeiroId,
+      cliente: {
+        nome: body.cliente.nome,
+        telefone: cliente.telefone.e164,
+        email: body.cliente.email ?? null,
+        sobreVoce: body.cliente.sobreVoce ?? null,
+      },
+      // Barbeiro ESCOLHIDO no funil (2026-08-18): a oferta não tem dono, mas
+      // se o cliente escolheu alguém, só ele atende os serviços deste pacote.
+      barbeiroId: body.barbeiroId ?? null,
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)
       servicoIds: oferta.servicoIds,
@@ -99,6 +138,7 @@ export class PacotesPublicoController {
       clienteId: resultado.clienteId,
       intencaoId: resultado.intencaoId,
       cobranca: resultado.cobranca,
+      pagamentoManual: resultado.pagamentoManual,
     };
   }
 

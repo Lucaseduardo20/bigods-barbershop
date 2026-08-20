@@ -41,9 +41,16 @@ Dois consumidores da mesma regra:
 - **Escrita** (criar agendamento): a invariante "não existem dois atendimentos sobrepostos
   para o mesmo barbeiro" é garantida no domínio **e** por uma constraint de exclusão no
   Postgres (`EXCLUDE USING gist` sobre um range temporal). O banco recusa fisicamente a
-  sobreposição, mesmo sob concorrência.
+  sobreposição, mesmo sob concorrência. Cobre `status IN (AGENDADO, RESERVADO)` — a reserva
+  TEMPORÁRIA de um avulso online (§3.5, §3.8) ocupa o horário igual a um agendamento firme,
+  senão duas reservas concorrentes pro mesmo slot poderiam ambas nascer (sessão de OTP+reserva,
+  Problema 2).
 - **Leitura** (listar horários livres): é uma **projeção**, não a fonte da verdade. Pode ser
-  otimizada livremente. Se ela errar por corrida, a escrita rejeita — sem inconsistência.
+  otimizada livremente. Se ela errar por corrida, a escrita rejeita — sem inconsistência. Ao
+  listar, uma `RESERVADO` cujo prazo já passou (`reservaOnlineExpiraEm`) NÃO conta como ocupada,
+  mesmo que ainda não tenha sido lazy-expirada por ninguém (o EXCLUDE do banco só entende status,
+  não timestamp — quem escreve um novo agendamento naquele slot é quem, na prática, força a
+  reserva vencida a ceder, via a mesma invariante de conflito).
 
 **Por quê:** na v1, essa regra foi implementada duas vezes (query SQL na criação, comparação
 em memória na listagem) e as duas podiam divergir. A causa raiz foi não separar invariante de
@@ -146,11 +153,19 @@ Serviço oferecido pela barbearia.
 | `precoAvulso` | Dinheiro | preço quando comprado individualmente |
 | `duracao` | Duracao (minutos) | |
 | `ativo` | boolean | soft-disable, nunca deletar (histórico depende dele) |
+| ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** preço > 0; duração > 0.
 
 **Nota:** um `Servico` nunca é deletado, apenas desativado. Atendimentos históricos e itens de
 pacote referenciam serviços — deletar quebraria a auditoria.
+
+**Edição (nome, preço, duração):** todos editáveis, e nenhum reescreve o passado —
+`ItemAtendido` guarda `valorCobrado` e `duracaoMinutos` como snapshot (§3.5), então mudar o
+catálogo hoje só afeta agendamentos NOVOS. Renomear é seguro e desejável (é a mesma entidade,
+com o nome corrigido). Até 2026-08-17 o `PATCH` aceitava `nome` e o descartava em silêncio — o
+agregado não tinha `atualizarNome`; e duração não era editável. Corrigido na Parte 1 daquela
+sessão.
 
 ---
 
@@ -170,6 +185,7 @@ Quem realiza atendimentos. Um `Barbeiro` pode também ser admin (papéis são or
 | `servicosAtendidos` | Set\<ServicoId\> | quais serviços ele realiza |
 | `comissaoProdutos` | Percentual | percentual ÚNICO sobre produto — sem matriz por produto (§3.9). Default 0% |
 | `precosServicos` | Map\<ServicoId, Dinheiro\> | override de PREÇO por serviço (§3.2.2, sessão-B) — ausência = usa `Servico.precoAvulso` |
+| `fotoUrl` | string \| null | foto de perfil (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | |
 
 **Regra de comissão (serviço):**
@@ -230,6 +246,76 @@ domínio não pedida nesta sessão, não implementada (ver DECISOES_PENDENTES).
 **Nota v1:** o papel era string livre (`'admin'`, `'barber'`) comparada literalmente em vários
 lugares. Aqui é enum, e autorização é centralizada (guard/policy), nunca comparação de string
 espalhada.
+
+---
+
+#### 3.2.3 Desconto progressivo do avulso (substituiu os combos fixos)
+
+Antes existiam **combos como itens de catálogo** ("Corte + Barba" por R$70, um `Servico` com
+preço próprio). Isso criava uma decisão redundante: clicar no combo, ou clicar em corte e barba
+separados? Dois caminhos para o mesmo resultado, com preços diferentes.
+
+Agora o desconto é **automático e por POSIÇÃO no carrinho**, configurado pelo admin:
+
+| Config | Onde vive | Significado |
+|---|---|---|
+| Degraus | `DegrauDeDesconto` (por empresa) | "o serviço na posição N abate R$X". Posição 1 nunca tem degrau |
+| Teto | `Company.descontoTetoCentavos` | limite do desconto acumulado. `null` = sem teto |
+
+A tabela é **global da empresa** (a mesma para todos os barbeiros), mas o desconto **incide
+sobre o preço DAQUELE barbeiro** — ou seja, entra depois de `precoDeReferencia` (§3.2.2). Mesma
+tabela, bases diferentes, resultados coerentes com cada uma.
+
+**Ordem de aplicação — por que a pergunta se dissolve.** "Qual serviço é o 2º?" não afeta o
+total: os degraus são valores **absolutos**, não percentuais, então o desconto total depende só
+de **quantos** serviços o carrinho tem. O que resta decidir é como repartir esse desconto entre
+os itens — e isso importa porque cada `ItemAtendido` guarda seu próprio `valorCobrado` (que é a
+base da comissão, §3.9). O critério é **rateio proporcional ao preço de cada item**, o mesmo já
+usado em `VendaDePacote` (§3.6). Consequências:
+
+- **order-independent**: `{corte, barba}` e `{barba, corte}` produzem exatamente o mesmo
+  resultado, item a item — não existe "dois cálculos para o mesmo carrinho";
+- **máximo benefício**: o desconto configurado é sempre entregue por inteiro quando cabe;
+- **nunca negativo**: quem é mais caro absorve mais desconto, então um item barato nunca "deve"
+  dinheiro.
+
+**Invariantes** (mesmo rigor do rateio de pacote): `Σ descontos == descontoTotal` (nenhum centavo
+some ou aparece no arredondamento), nenhum item negativo, total nunca abaixo de zero — inclusive
+com tabela mal configurada (degraus somando mais que o carrinho).
+
+**Uma implementação só, duas pontas.** O cálculo vive em `packages/contracts/src/desconto.ts`
+(centavos inteiros, sem framework) porque o funil precisa MOSTRAR ao cliente exatamente o número
+que a API vai COBRAR. Duas implementações seriam duas verdades sobre dinheiro. O domínio da API
+(`catalog/domain/desconto-progressivo.ts`) embrulha em `Dinheiro` e confere as invariantes antes
+de o valor virar snapshot.
+
+**Combos antigos:** são desativados pelo admin (`Servico.ativo = false`), **nunca deletados**.
+Desativar só impede novos agendamentos; o `valorCobrado` dos atendimentos passados é snapshot e
+não é recalculado por nada — nem por mudança de tabela, nem por desativação do serviço.
+
+---
+
+#### 3.2.4 "Cliente da casa" — relação, não atributo
+
+Um barbeiro pode marcar um cliente como **da casa**. É uma relação
+BARBEIRO ↔ CLIENTE (`ClienteDaCasa`, chave composta), nunca um flag no
+`Cliente`: o cliente é "da casa DO Gabriel", e isso vale só na agenda do
+Gabriel. O mesmo cliente não é da casa do Lucas até o Lucas também marcá-lo —
+é relação de confiança pessoal, e um flag global faria a marca de um valer
+para todos.
+
+Sem status e sem soft-delete: ou a linha existe (é da casa) ou não existe.
+Marcar/desmarcar são idempotentes.
+
+**Autorização vive no backend, não em botão escondido:** um barbeiro só
+cria/remove a marca da PRÓPRIA relação — mandar o `barbeiroId` de outro no
+corpo devolve 403. O admin gerencia a de qualquer um, e é o único que enxerga
+todas as relações de um cliente (para um barbeiro, de quem mais o cliente é
+"da casa" não é informação dele).
+
+Nas leituras, `daCasa` é sempre relativo a quem pergunta: em `ClienteDTO` é a
+relação com o usuário autenticado; em `AtendimentoDTO.cliente` é a relação com
+o barbeiro DAQUELE atendimento.
 
 ---
 
@@ -302,11 +388,74 @@ Cliente final da barbearia.
 
 **Promoção a usuário autenticável:**
 O funil público cria `Cliente` sem conta (só nome + telefone — atrito mínimo). O cliente vira
-**usuário Cognito** (`cognitoSub` preenchido) no momento em que passa a ter algo que justifique
-login: **compra de um pacote**. Antes disso, não há área logada a acessar.
+usuário (`cognitoSub` preenchido) **no momento em que prova posse do telefone**, ou seja, na
+CONFIRMAÇÃO do código OTP — nunca antes. Não é a compra de pacote que promove: essa era a regra
+original, quando "ter conta" dependia de comprar algo, e ela deixou quem só agendou avulso (ou
+nunca comprou nada) sem acesso à própria área logada.
 
-`telefone` é a chave de reconciliação: se um cliente já existente (do funil) compra um pacote,
-promovemos o registro existente em vez de criar um duplicado.
+`telefone` é a chave de reconciliação: um cliente já existente (do funil) que depois confirma um
+código é promovido no registro existente, nunca duplicado.
+
+**Enviar o código NÃO depende de ter conta.** Qualquer telefone recebe OTP, em qualquer fluxo
+(agendamento, compra, login do cockpit) — é o envio que PERMITE criar a primeira prova de posse,
+então condicioná-lo a já existir `sub` inverte a ordem dos fatos e trava exatamente o cliente de
+primeira viagem. Houve um gate assim em `OtpIdentityProviderBase.iniciarLogin` (telefone sem
+identidade externa recebia desafio vazio, sem código); foi removido — a implementação provisiona
+na hora e envia. **Não reintroduzir.**
+
+Consequência consciente: a resposta do "iniciar" deixou de ser neutra quanto à existência de
+conta (todo mundo recebe código, então não há o que esconder). "Ter conta" não é informação
+sensível aqui — o dono aceitou essa troca. Com isso, a ÚNICA trava contra abuso de envio passou a
+ser o rate limit da borda, em duas dimensões que resolvem abusos diferentes:
+
+| Trava | Chave | Freia |
+|---|---|---|
+| `default` nas rotas de login | telefone (normalizado E.164) | martelar UM número — força bruta de código e incomodar um cliente |
+| `otp-origem` (`@EnviaOtp()`) | origem/IP | varrer MIL números — spam, custo de SMS e queima da franquia/chip |
+
+Só o segundo protege contra varredura: cada telefone novo ganha um balde próprio no primeiro, então
+sem o limite por origem o volume é ilimitado na prática. O limite por origem depende de `req.ip`
+ser o cliente real — ver `trust proxy` em `main.ts` e a sobrescrita de `X-Forwarded-For` no
+`Caddyfile`. Com SMS o custo virou dinheiro direto (cada envio é um SMS pago pelo chip), o que
+tornou esse limite mais crítico do que era no WhatsApp.
+
+#### Canal do OTP: SMS via Cognito + SMS Gate (2026-08-18)
+
+O canal padrão de produção passou a ser **SMS**, com o **AWS Cognito** como provedor de identidade
+(`IDENTITY_PROVIDER=cognito`). O WhatsApp (`whatsapp`, Baileys) continua funcional como adapter,
+mas deixou de ser o canal de OTP — fica reservado para transacional futuro.
+
+```
+funil → nossa API → Cognito InitiateAuth(CUSTOM_AUTH)
+                       ├─ DefineAuthChallenge          orquestra
+                       ├─ CreateAuthChallenge          gera o código e manda o SMS (SMS Gate)
+                       └─ VerifyAuthChallengeResponse  confere
+```
+
+O frontend **nunca** fala com o Cognito: fala com a nossa API, como sempre. O Cognito entra como um
+adapter da porta `IdentityProvider` que já existia — nenhum caminho paralelo.
+
+**★ Quem é a fonte de verdade do código.** Depende do provider, e isso é deliberado:
+
+| Provider | Gera/guarda/confere o código | Nossa base (`DemoDesafioLogin`) |
+|---|---|---|
+| `cognito` | o **Cognito**, via os triggers | não usada nesse fluxo |
+| `whatsapp` / `demo` | **nós**, via `OtpIdentityProviderBase` | guarda o desafio (hash, TTL, uso único, tentativas) |
+
+Nunca os dois ao mesmo tempo. Dois sistemas de código competindo pelo mesmo login é a receita para
+"o código que chegou não é o que o servidor espera" — por isso `CognitoIdentityProvider` não herda
+de `OtpIdentityProviderBase`: ele delega o desafio inteiro para a AWS e o `desafio` que devolve é a
+`Session` opaca do Cognito.
+
+**Consequência operacional:** com `cognito`, o limite de tentativas por desafio é o do
+`DefineAuthChallenge` (3), não o `MAX_TENTATIVAS_POR_DESAFIO` da nossa base; e errar o código não
+dispara SMS novo — o `CreateAuthChallenge` reaproveita o mesmo código entre as tentativas da mesma
+sessão (cada SMS custa).
+
+O envio em si (Basic Auth, E.164, timeout, erro limpo) mora em `infra/cognito-triggers/sms-gate.js`,
+sem dependências, testado com `fetch` mockado. **Sem criptografia ponta-a-ponta** (decisão do dono):
+o conteúdo é um código de 6 dígitos, curto e de uso único; se um dia trafegar link ou dado pessoal,
+reavaliar.
 
 ---
 
@@ -328,6 +477,7 @@ Um serviço (ou conjunto de serviços) marcado com um barbeiro em um horário.
 | `formaPagamento` | FormaPagamento \| null | preenchido só na conclusão — ver regra generalizada abaixo |
 | `motivoCancelamento` | string \| null | obrigatório se CANCELADO |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio o agendamento, se veio de algum (só registro, ver §8.4) |
+| `reservaOnlineExpiraEm` | Date \| null | sessão de OTP+reserva — setado SÓ na criação de um avulso ONLINE; ver §4.1 e §8.9 |
 
 **`ItemAtendido`** (value object dentro do agregado):
 
@@ -351,10 +501,10 @@ ontem continua valendo R$40. Sem snapshot, o histórico e o extrato de comissão
 retroativamente — inaceitável num sistema que precisa ser auditável.
 
 **Invariantes:**
-- Não existem dois `Atendimento` com status ativo (`AGENDADO`) sobrepostos no tempo para o mesmo
-  `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no Postgres. `IntervaloDeTempo`
-  é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se tocam (o fim de um é igual ao
-  início do outro) não conflitam.
+- Não existem dois `Atendimento` com status ativo (`AGENDADO` **ou** `RESERVADO`, §4.1) sobrepostos
+  no tempo para o mesmo `barbeiroId`. Garantido no domínio **e** por constraint `EXCLUDE` no
+  Postgres. `IntervaloDeTempo` é **semiaberto** `[inicio, fim)`: dois atendimentos que apenas se
+  tocam (o fim de um é igual ao início do outro) não conflitam.
 - O `intervalo` deve estar contido em alguma `DisponibilidadeBarbeiro` daquele barbeiro naquela
   data — a disponibilidade é procurada pelo **dia civil local** do início do atendimento (§2.6),
   nunca pelo dia UTC bruto do instante.
@@ -424,7 +574,7 @@ itens individuais, cada um com ciclo de vida próprio.
 | `id` | VendaDePacoteId | |
 | `companyId` | CompanyId | |
 | `clienteId` | ClienteId | |
-| `barbeiroId` | BarbeiroId | **dono do pacote** (sessão-B, Fase 2) — ver regra abaixo |
+| `barbeiroId` | BarbeiroId \| null | barbeiro **escolhido pelo cliente na compra** — a única regra de barbeiro que sobrou (§8.14). `null` = comprou sem escolher. NÃO é base de preço |
 | `valorPago` | Dinheiro | valor total efetivamente pago |
 | `itens` | List\<ItemDoPacote\> | entidades internas |
 | `saldoResidual` | Dinheiro | acumula valor de itens expirados (§4.2); dinheiro **disponível** — pode ser abatido (§8.7) ou reembolsado (§8.7) |
@@ -436,11 +586,19 @@ itens individuais, cada um com ciclo de vida próprio.
 | `statusPagamento` | StatusPagamento | ver §3.8 |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
 
-**Dono do pacote (`barbeiroId`, sessão-B Fase 2):** todo pacote pertence a UM barbeiro —
-é o preço DELE (`precoPara`, §3.2.2) que alimenta o rateio abaixo. Crédito só pode ser
-consumido com o barbeiro dono (`agendarItem` recusa qualquer outro barbeiro —
-`InvarianteVioladaError`). **Resgate cruzado entre barbeiros está fora desta sessão**
-(decisão futura, ver DECISOES_PENDENTES).
+**`barbeiroId` = o barbeiro que o CLIENTE escolheu ao comprar (2026-08-18).** Não é dono
+do pacote e não é base de preço: a oferta é da empresa e o rateio usa a referência da casa
+(abaixo). É só a trava de consumo — ver §8.14.
+
+**`agendarItem` (a única regra de barbeiro que sobrou):**
+- `barbeiroId !== null` ⇒ **só ele** atende os serviços daquele pacote. Foi com ele que o
+  cliente decidiu se tratar; agendar com outro é `InvarianteVioladaError`.
+- `barbeiroId === null` (comprou sem escolher) ⇒ qualquer barbeiro pode.
+
+"O barbeiro atende este serviço" **não** é verificado aqui: é a MESMA invariante que
+`Atendimento.agendar()` já aplica a qualquer atendimento (§3.5), e o use case cria os dois
+agregados na mesma transação — não há brecha entre "agendou o item" e "criou um
+Atendimento com barbeiro inválido".
 
 **`ItemDoPacote`** (entidade dentro do agregado — **nunca manipulada fora da raiz**):
 
@@ -458,7 +616,7 @@ consumido com o barbeiro dono (`agendarItem` recusa qualquer outro barbeiro —
 
 ```
 Para cada item i:
-  pesoNominal(i) = precoPara(servico(i), barbeiroDono)   // §3.2.2 — vigente NA VENDA
+  pesoNominal(i) = servico(i).precoAvulso   // referência da CASA, vigente NA VENDA
   somaNominal    = Σ pesoNominal
 
   valorRateado(i) = arredonda( valorPago × pesoNominal(i) / somaNominal )
@@ -467,14 +625,17 @@ Resíduo de arredondamento vai para o último item, garantindo:
   Σ valorRateado == valorPago   (INVARIANTE)
 ```
 
-O algoritmo do rateio em si **não mudou** desde a sessão original — só o peso nominal,
-que antes de sempre olhar `Servico.precoAvulso` (referência da casa), agora passa pelo
-`precoPara` (override do barbeiro dono, senão a referência). **Congelado igual a
-qualquer outro snapshot:** mudar o `precosServicos` de um barbeiro DEPOIS de uma venda
-não altera `valorRateado` das vendas já feitas — só afeta rateios de vendas futuras.
-Testado explicitamente (`preco-por-barbeiro.e2e.spec.ts`): cria venda + conclui
-atendimento (gera comissão) → muda o preço do barbeiro → venda antiga e lançamento de
-comissão permanecem byte a byte idênticos.
+O algoritmo do rateio **nunca mudou**; o peso nominal sim, duas vezes. A Fase 2 (sessão-B)
+o trocou de `Servico.precoAvulso` para `precoPara` (override do barbeiro dono). Em
+2026-08-18, com o pacote virando da EMPRESA, ele voltou a ser `Servico.precoAvulso` —
+**decisão do dono**: existe UM preço de pacote para todo mundo, então o valor pago tem que
+se dividir igual para todo mundo. Override de barbeiro (§3.2.2) vale para AVULSO, onde o
+cliente de fato paga o preço daquele barbeiro; não para pacote, onde o preço é da casa.
+
+**Congelado igual a qualquer outro snapshot:** mudar o preço do serviço DEPOIS de uma
+venda não altera `valorRateado` das vendas já feitas. Testado explicitamente
+(`preco-por-barbeiro.e2e.spec.ts`): cria venda + conclui atendimento (gera comissão) →
+muda preço → venda antiga e lançamento de comissão permanecem byte a byte idênticos.
 
 Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) + 1 barba
 (avulso R$30), vendido por R$60.
@@ -487,7 +648,7 @@ Exemplo (sem override, igual à referência): pacote com 1 corte (avulso R$40) +
 - Um item nunca tem mais de 1 falta computada (na segunda, expira).
 - Um item não pode ir para `AGENDADO` se não estiver `DISPONIVEL` ou `SEGUNDA_CHANCE`.
 - Não é possível consumir item de um pacote com `statusPagamento != PAGO`.
-- `agendarItem` exige que o barbeiro passado seja o `barbeiroId` dono do pacote (sessão-B, Fase 2).
+- `agendarItem` exige o barbeiro da COMPRA quando houver um (2026-08-18); sem barbeiro na compra, aceita qualquer um. "Atende o serviço" é `Atendimento.agendar()` quem garante.
 
 **Eventos emitidos:**
 - `PacoteVendido`
@@ -579,8 +740,14 @@ pagamento nunca confirmaria).
 | `expiraEm` | Date \| null | prazo local de expiração do PIX (null quando não é pagamento online, ex. presencial) — ver expiração abaixo |
 
 **Fluxo:**
-1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente
-   (`agora + gateway.expiraEmSegundos`).
+1. Domínio cria `IntencaoDePagamento` em `AGUARDANDO`, com `expiraEm` calculado localmente. A
+   janela **depende da referência** (sessão de OTP+reserva — §8.9 — dois conceitos diferentes,
+   não uma constante só):
+   - `ATENDIMENTO` (avulso online): `agora + PRAZO_RESERVA_SEGUNDOS` (10 min) — o MESMO instante
+     de `Atendimento.reservaOnlineExpiraEm`, calculado uma única vez.
+   - `VENDA_DE_PACOTE` (pacote): `agora + gateway.expiraEmSegundos` (1h, via
+     `ABACATEPAY_EXPIRA_SEGUNDOS`) — pacote não reserva horário, então o prazo curto da reserva
+     não se aplica a ele (DECISOES_PENDENTES.md #28).
 2. Infra chama `POST /v2/transparents/create` na AbacatePay, passando nosso `externalId` em
    `data.externalId`. Resposta devolve QR Code (`brCodeBase64`) e copia-e-cola (`brCode`).
 3. Webhook `transparent.completed` chega → assinatura validada (ver abaixo) → busca a intenção
@@ -604,6 +771,31 @@ AbacatePay não emite webhook nenhum para PIX simplesmente não pago.
 leitura de status (`GET /public/pagamentos/:id`, usado tanto pelo polling de pacote quanto de
 avulso) — se `AGUARDANDO` e o prazo já passou, transiciona para `EXPIRADO` ali mesmo, antes de
 responder. Sem cron, sem job separado: o próprio polling do cliente é o gatilho.
+
+**Modo de pagamento manual por WhatsApp — TEMPORÁRIO (2026-08-18, flag):** enquanto a AbacatePay
+não libera produção (~7 dias úteis), `PAGAMENTO_MANUAL_WHATSAPP=true` faz o "pagar online" **não
+gerar PIX**: o funil manda o cliente para o WhatsApp da barbearia (`PAGAMENTO_MANUAL_WHATSAPP_NUMERO`)
+com uma **comanda** pré-escrita (cliente, telefone, itens com valores, barbeiro, quando, total), e
+o PIX acontece por fora do sistema.
+
+A decisão vive num **único ponto** — `CobrancaOnlineService.gerar()`, exatamente onde antes havia
+a chamada ao gateway. Nada mais no fluxo sabe da flag. **Tudo o que vem ANTES é idêntico nos dois
+modos, de propósito:**
+- a `IntencaoDePagamento` nasce igual, em `AGUARDANDO`, com o **mesmo `expiraEm`**;
+- o avulso online continua nascendo `RESERVADO` com `reservaOnlineExpiraEm`;
+- a expiração por timeout local (acima) segue valendo, com o mesmo gatilho de polling.
+
+É isso que impede o **buraco de agenda**: cliente que clica "pagar", vai pro WhatsApp e some não
+prende o horário — a reserva expira sozinha, como no fluxo com PIX de verdade.
+
+A confirmação **não é um caminho novo**: reusa a aprovação manual que já existia
+(`POST /pacotes/:id/confirmar-pagamento`, do bug 8) e a irmã dela para o avulso
+(`POST /atendimentos/:id/confirmar-pagamento`), que chama o **mesmo `ProcessarWebhookUseCase`** do
+gateway — portanto idempotente, admin-only, e `RESERVADO → AGENDADO` pela mesma transição de
+sempre. O OTP continua exigido igual; a opção "pagar na barbearia" do avulso **não muda em nada**.
+
+Desligar a flag devolve o PIX do gateway na hora — o código do gateway nunca sai do lugar
+(DECISOES_PENDENTES.md #38).
 
 **Política do funil (decisão do dono):** na trilha de **pacote**, pagamento online é
 **obrigatório** — não existe mais opção "pagar na barbearia" no funil público, pra garantir caixa
@@ -633,12 +825,15 @@ desativado, porque histórico de venda/comissão depende dele.
 | `companyId` | CompanyId | |
 | `nome` | string | |
 | `preco` | Dinheiro | |
+| `fotoUrl` | string \| null | foto do produto (§3.14, 2026-08-19) — URL pública no bucket de uploads |
 | `ativo` | boolean | soft-disable |
+| ~~`sugeridoNoBump`~~ | boolean | **DEPRECADO** (2026-08-17, Parte 2) — substituído por `ItemDeOrderBump` (§3.13). Coluna mantida no banco só para rollback; ninguém lê |
 
 **Invariantes:** nome não-vazio; `preco` positivo.
 
-Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` na
-conclusão (§3.5, `ItemProdutoAtendido`) ou numa `VendaDeProduto` avulsa (§3.10).
+Produto é vendido de duas formas (nunca uma terceira): anexado a um `Atendimento` — na conclusão
+(§3.5, `ItemProdutoAtendido`) ou já na criação, via order-bump (§8.13) — ou numa `VendaDeProduto`
+avulsa (§3.10).
 
 ---
 
@@ -678,7 +873,6 @@ rateio, só é a fonte da composição e do preço que alimentam a venda.
 |---|---|---|
 | `id` | PacoteOfertaId | |
 | `companyId` | CompanyId | |
-| `barbeiroId` | BarbeiroId | **dono da oferta** (Fase 2) — cada barbeiro tem seu próprio catálogo |
 | `nome` | string | |
 | `composicao` | List\<{servicoId, quantidade}\> | **MISTA**: N serviços distintos, cada um com sua quantidade (ex.: 2 cortes + 2 barbas no mesmo pacote) |
 | `preco` | Dinheiro | **única fonte de verdade persistida** — ver regra de precificação abaixo |
@@ -700,22 +894,27 @@ congelado; o que é derivado, é sempre recalculado, nunca guardado). O modo (a)
 **só uma conveniência de entrada no frontend** — o backend só recebe e persiste
 `precoCentavos`, sempre.
 
-**Base de cálculo da soma de referência:** usa `precoPara(servico, barbeiroDono)`
-(§3.2.2) — ou seja, o mesmo pacote pode ter percentual de desconto **diferente** entre
-barbeiros com preços diferentes para os mesmos serviços. Isso é correto e esperado, não
-é bug — a UI do admin deixa claro que a base é o preço do barbeiro dono.
+**Base de cálculo da soma de referência:** `Servico.precoAvulso` — o preço de REFERÊNCIA
+DA CASA. Desde 2026-08-18 a oferta não tem barbeiro nenhum (§8.14): existe um preço de
+pacote para todos, então a economia exibida é a mesma para todos. Override de barbeiro
+(§3.2.2) vale para avulso, não para o catálogo de pacotes.
 
 **Invariantes:**
 - `nome` não-vazio.
 - `composicao` tem ao menos um item; toda `quantidade` inteiro positivo.
-- Todo `servicoId` da composição deve estar em `barbeiroDono.servicosAtendidos`.
 - `preco` > 0.
 - `preco` **não pode ser maior** que a soma dos preços de referência da composição — um
   "pacote" mais caro que comprar os mesmos serviços separado é erro de cadastro, não um
   desconto negativo.
 
-**Autorização:** "barbeiro cria/edita → PENDENTE" — o barbeiro dono (ou um admin em
-nome dele) pode criar/editar sua própria oferta; só um admin aprova/rejeita (ver §4.3).
+**Autorização (2026-08-18): cadastro é ADMIN-ONLY.** Sem dono, não existe "as minhas
+ofertas" para escopar — catálogo da empresa é responsabilidade do admin. O workflow de
+aprovação (§4.3) continua: a oferta nasce PENDENTE e só aparece no funil depois de
+APROVADA, o que na prática virou um "rascunho → publicado" (a trava que impede uma oferta
+pela metade cair no funil público).
+
+**A vitrine pública é sempre a empresa inteira** (`listarPorEmpresa`), independente de
+qual barbeiro o cliente escolheu no funil.
 
 **Uso na venda:** `expandirServicoIds()` repete cada `servicoId` da composição pela
 `quantidade` — o mesmo array plano que `VenderPacoteUseCase` já aceitava antes desta
@@ -763,6 +962,104 @@ saldo".
 
 ---
 
+### 3.13 `ItemDeOrderBump` (raiz) — sessão 2026-08-17, Parte 2
+
+Parametrização de um item na vitrine "Adicione à sua visita" do funil (§8.13): **merchandising**,
+não cadastro. `Servico`/`Produto` respondem "o que a casa oferece e por quanto no geral"; este
+agregado responde "o que é empurrado no fechamento do pedido, com que oferta".
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `id` | ItemDeOrderBumpId | |
+| `companyId` | CompanyId | |
+| `tipo` | SERVICO \| PRODUTO | discriminador da referência |
+| `referenciaId` | ServicoId \| ProdutoId | conforme `tipo` |
+| `ativo` | boolean | aparece na vitrine do funil |
+| `precoPromocional` | Dinheiro \| null | preço FINAL no bump. `null` = sem oferta, cobra o normal |
+| `mensagem` | string \| null | chamada customizável ("Leve pra casa por só R$X"), máx. 90 |
+| `ordem` | int ≥ 0 | ordem de exibição; empate desempata por nome |
+
+**Por que tabela própria em vez de mais colunas em `Servico`/`Produto`:** a configuração e as
+invariantes são as MESMAS para os dois tipos — duplicá-las nos dois agregados seria a mesma regra
+implementada em dois lugares (§10). A relação é polimórfica de propósito (`tipo` + `referenciaId`,
+sem FK): duas FKs nuláveis exigiriam uma checagem de "exatamente uma preenchida"; a existência é
+validada na aplicação, que já carrega o catálogo de qualquer forma.
+
+**Invariantes:**
+- `precoPromocional`, quando presente: **> 0** e **≤ preço de catálogo** do item — oferta que
+  ultrapassa o preço normal é acréscimo disfarçado, não desconto. (Brinde a R$0 é recusado: decisão
+  consciente, não foi pedido.)
+- `mensagem` aparada; vazia vira `null`. `ordem` inteiro não-negativo.
+
+**`precoDeVenda(precoBase)` é o único lugar onde o preço do bump é decidido** — usado tanto pela
+vitrine pública quanto pelo caso de uso que cobra, para serviço e para produto. Aplica
+`min(promocional, precoBase)`, então promoção nunca vira acréscimo mesmo com preço por barbeiro
+mais baixo que o promocional (§3.2.2). Ver a regra completa em §8.13.
+
+O que se persiste é sempre o preço final em centavos; o "−30%" mostrado é **derivado** de
+(preço base, promocional) — mesma disciplina de `PacoteOferta` (§3.11).
+
+**Migração:** substituiu `Servico.sugeridoNoBump`/`Produto.sugeridoNoBump` (Parte 1 da mesma
+sessão). A migration copiou todo `sugeridoNoBump = true` para cá; as colunas antigas ficaram no
+banco, deprecadas e sem leitor, só para rollback seguro — remover numa migration futura
+(DECISOES_PENDENTES).
+
+---
+
+### 3.14 Imagens de upload — foto de barbeiro e de produto (2026-08-19)
+
+Resolve a DECISAO_PENDENTE #4 ("o protótipo mostra foto do profissional, mas o agregado não
+modela foto").
+
+**Onde a foto mora:** num bucket S3 **separado** dos três buckets de frontend. Não é preferência
+de organização — o deploy dos frontends roda `aws s3 sync --delete`, que apagaria qualquer foto
+guardada junto. Bucket público para LEITURA (o funil mostra a foto sem autenticar), escrita só
+pela credencial IAM do backend (cadeia padrão do SDK, IAM Role em produção).
+Configuração: `UPLOADS_BUCKET`, `UPLOADS_REGION`, `UPLOADS_BASE_URL` (opcional).
+
+**O que o domínio guarda:** a **URL pública**, nada mais. `Barbeiro` e `Produto` não sabem o que
+é um bucket. Os dois expõem o mesmo par de operações, e a assinatura é a regra:
+
+```
+definirFoto(url) -> URL anterior (ou null)
+removerFoto()    -> URL anterior (ou null)
+```
+
+**Devolver a anterior em vez de apagá-la** é o que mantém o domínio sem I/O: quem chama é que
+apaga o objeto (`GerenciarFotoUseCase`). Sem isso, ou o agregado faria rede, ou cada troca de
+foto deixaria um objeto órfão no bucket — vazamento silencioso que só aparece na fatura.
+
+**Ordem da troca (importa):** sobe a nova → aponta o agregado → **salva** → só então apaga a
+antiga. Se o upload falhar, o dono continua com a foto que tinha; se o banco falhar, a foto
+antiga ainda é a que vale, e apagá-la deixaria o registro apontando para um objeto morto.
+Apagar a antiga **nunca** derruba a operação: falha ali vira log, porque a troca já deu certo.
+
+**Validação — não confie no cliente.** Nome do arquivo, extensão e `Content-Type` vêm todos do
+navegador de quem envia; qualquer um renomeia um script para `.jpg`. O que é checado é o
+**conteúdo**: assinatura de bytes (magic bytes) de JPEG/PNG/WebP, e teto de 8 MB conferido
+**antes** de qualquer decodificação. Recusa vira 422 com mensagem escrita para o usuário final
+("Envie JPG, PNG ou WebP"), nunca 500.
+
+**Otimização (`modules/storage/infrastructure/s3-armazenamento.ts`):** toda imagem sai como
+**WebP, no máximo 512×512 (`fit: cover`, sem ampliar), qualidade 80**, com a orientação do EXIF
+já aplicada. As duas fotos que existem aparecem em avatar redondo e miniatura de card — nenhuma
+passa de ~120 px na tela, e 512 dá folga para retina. Foto de celular de 3–5 MB vira 20–40 KB:
+é o que o cliente baixa no 4G da rua.
+
+**Nome do objeto:** `pasta/uuid.webp` (`barbeiros/`, `produtos/`). UUID, **nunca** o nome que veio
+do usuário — nome de cliente traz acento, espaço, `../`, e sobrescreve o arquivo de outra pessoa
+se colidir. Aleatório também impede varrer o bucket adivinhando nomes. Chave nova a cada troca é
+o que torna seguro marcar `Cache-Control: immutable`.
+
+**Permissão:** foto de barbeiro é editada pelo **admin ou pelo próprio** (mesma régua do resto da
+gestão de usuário); foto de produto é **admin-only**, como todo o catálogo.
+
+**Fallback (invariante de UI):** foto é sempre opcional. Sem foto — **ou com a foto quebrada**, se
+o objeto sumir do bucket — a interface mostra as iniciais (pessoa) ou um placeholder (produto).
+Imagem quebrada na tela do cliente não é estado aceitável em lugar nenhum.
+
+---
+
 ## 4. Máquinas de estado
 
 Estados são **explícitos**. Nunca representar estado com combinação de flags booleanas ou
@@ -770,26 +1067,40 @@ soft-delete (foi assim que a v1 acabou com cancelamento representado de duas for
 
 ### 4.1 `Atendimento`
 
+Sessão de OTP+reserva (Problema 2): avulso ONLINE nasce `RESERVADO` (temporário), não
+`AGENDADO` — vira firme só quando o pagamento confirma, ou expira sozinho se não confirmar a
+tempo. Presencial continua nascendo `AGENDADO` direto, como sempre.
+
 ```
-                    ┌─────────────┐
-                    │  AGENDADO   │
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌────────────┐  ┌────────────┐  ┌────────────┐
-    │ CONCLUIDO  │  │ CANCELADO  │  │ NAO_COMPA- │
-    │            │  │ (c/ motivo)│  │  RECEU     │
-    └────────────┘  └────────────┘  └────────────┘
-       (final)         (final)          (final)
+   ┌────────────┐  pagamento     ┌─────────────┐
+   │ RESERVADO  │ ─confirmado──▶ │  AGENDADO   │◄── presencial nasce direto aqui
+   └──────┬─────┘                └──────┬──────┘
+          │ timeout                     │
+          ▼                ┌────────────┼───────────────┐
+   ┌──────────────┐        ▼            ▼               ▼
+   │ RESERVA_     │ ┌────────────┐┌────────────┐  ┌────────────┐
+   │ EXPIRADA     │ │ CONCLUIDO  ││ CANCELADO  │  │ NAO_COMPA- │
+   └──────────────┘ │            ││ (c/ motivo)│  │  RECEU     │
+      (final)       └────────────┘└────────────┘  └────────────┘
+                        (final)      (final)          (final)
 ```
 
+- `RESERVADO → AGENDADO` (`confirmarReserva`): pagamento online confirmado (webhook
+  `transparent.completed` ou `confirmar-demo`, §3.8). Só agora emite `AtendimentoAgendado` — não
+  na criação da reserva, pra nunca notificar "você está agendado" antes de existir pagamento
+  algum (Fase 2 de notificação, ainda não construída, mas o evento já existe pra ela plugar).
+- `RESERVADO → RESERVA_EXPIRADA` (`expirarReserva`): prazo (`reservaOnlineExpiraEm`) vencido sem
+  pagamento — libera o horário (não conflita mais, §2.1). Sempre disparado na MESMA transação em
+  que a `IntencaoDePagamento` vinculada expira (`ExpirarPagamentoVencidoUseCase`), nunca isolado —
+  senão intenção e reserva podem divergir (uma expirada, a outra não).
 - `AGENDADO → CONCLUIDO`: emite `AtendimentoConcluido`. Exige `formaPagamento` se `AVULSO`.
 - `AGENDADO → CANCELADO`: exige motivo. Emite `AtendimentoCancelado` com `antecipado: boolean`
   (`true` se cancelado antes do horário marcado) — usado pelo handler de Pacote para decidir se o
   item associado conta falta (§3.5, §4.2).
 - `AGENDADO → NAO_COMPARECEU`: emite `ClienteFaltou`.
 - **Estados finais não transicionam.** Reagendar = criar um novo `Atendimento`, não mutar o antigo.
-  (Isso preserva a auditoria: o histórico mostra que houve uma falta.)
+  (Isso preserva a auditoria: o histórico mostra que houve uma falta.) `RESERVA_EXPIRADA` é final
+  igual aos outros — uma reserva morta nunca revive, nem por um webhook tardio.
 
 ### 4.2 `ItemDoPacote`
 
@@ -1071,22 +1382,33 @@ essa classe inteira de bug antes que ela nasça. É a maior razão pela qual est
 
 ## 8. Casos de uso principais
 
-### 8.1 Agendar avulso (funil público, sem login)
+### 8.1 Agendar avulso (funil público) — sessão de OTP+reserva
 
 ```
+0. Exigir sessão de cliente verificada por OTP (@ContaCliente — mesmo
+   mecanismo do login do cockpit). Sem sessão ativa, o front roda OTP ANTES
+   deste passo (ver §8.9); o telefone usado é sempre o da sessão, nunca do
+   corpo da requisição.
 1. Validar serviços existem, estão ativos, e o barbeiro os atende
 2. Calcular intervalo (soma das durações)
 3. Validar que o intervalo cabe na disponibilidade do barbeiro
    → a disponibilidade é buscada pelo DIA CIVIL local (fuso da empresa) do
      horário pedido, nunca pelo dia UTC bruto do instante (§2.6)
-4. Encontrar-ou-criar Cliente pelo telefone (normalizado)
-5. Criar Atendimento (AGENDADO, origem=AVULSO)
-   → invariante de sobreposição validada no domínio
-   → constraint EXCLUDE do Postgres como rede de segurança
-6. Criar IntencaoDePagamento (AGUARDANDO)
-7. Chamar AbacatePay, retornar QR Code
+4. Encontrar-ou-criar Cliente pelo telefone (da sessão, normalizado)
+5. PRESENCIAL: cota de presenciais futuros ativos (§8.9) — recusa o 4º.
+   ONLINE: pula a cota (pagamento já é a trava natural contra abuso).
+6. Criar Atendimento
+   → PRESENCIAL: nasce AGENDADO (firme) direto, como sempre foi.
+   → ONLINE: nasce RESERVADO (temporário, §4.1, §8.9), não AGENDADO —
+     sem isso, um PIX nunca pago prenderia o horário pra sempre.
+   → invariante de sobreposição validada no domínio (cobre AGENDADO E
+     RESERVADO, §2.1) — constraint EXCLUDE do Postgres como rede de segurança
+6b. ONLINE: criar IntencaoDePagamento (AGUARDANDO), expiraEm = MESMO instante
+    de Atendimento.reservaOnlineExpiraEm (nunca duas chamadas a "agora",
+    senão intenção e reserva podem divergir por milissegundos)
+7. ONLINE: chamar AbacatePay pedindo expiresIn = essa mesma janela, retornar QR Code
 
-TUDO em UMA transação (passos 4-6).
+TUDO em UMA transação (passos 4-6b).
 Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou, órfão no banco.
 ```
 
@@ -1332,6 +1654,284 @@ número só.
 
 ---
 
+### 8.9 OTP obrigatório + reserva temporária + cota de presenciais (sessão de OTP+reserva)
+
+Três problemas reais do funil anônimo, cada um com sua própria trava — não confundir uma com
+a solução da outra:
+
+**Problema 1 — agenda falsa:** qualquer telefone digitado reservava sem provar posse.
+**Solução:** a escrita pública (`POST /public/agendamentos`, `POST /public/pacotes`) exige
+sessão de cliente verificada por OTP — **com uma exceção por forma de pagamento, decidida pelo
+dono depois:** o avulso **ONLINE** dispensa o OTP, porque ali a reserva já nasce TEMPORÁRIA
+(`RESERVADO`, 10 min) e morre sozinha se o PIX não confirmar — o pagamento É a trava contra
+agenda falsa, e o OTP vira só atrito no caminho de maior valor. O **PRESENCIAL** continua
+exigindo, porque é ele que segura o horário FIRME sem pagar nada. Pacote também continua
+exigindo (o crédito vive na conta do cliente). Quando HÁ sessão, o telefone vem sempre dela e o
+do corpo é ignorado — senão um cliente verificado marcaria em nome de outro número e a agenda
+falsa voltaria por outra porta. Token presente mas inválido é 401, nunca tratado como anônimo
+(`ClienteGuardOpcional`) (`@ContaCliente()` — mesmo mecanismo do login do cockpit,
+`IdentityProvider` + `ClienteSessaoService`, nada novo construído). Sem sessão salva localmente
+no funil, o front roda `/conta/login/iniciar` + `/conta/login/confirmar` ANTES de confirmar o
+agendamento — depois de escolher barbeiro/serviço/horário, nunca antes (mataria conversão). Com
+sessão válida (recorrência no mesmo navegador), pula o OTP. O `cliente.telefone` do request
+**não existe mais** nesses DTOs — vem sempre do token verificado, nunca do corpo.
+
+**Problema 2 — buraco na agenda:** gerar um PIX pra um avulso online reservava o horário como se
+fosse presencial; se o cliente nunca pagasse, o horário ficava preso pra sempre. **Solução:**
+reserva `RESERVADO` temporária (§4.1) com prazo (`PRAZO_RESERVA_SEGUNDOS`, 10 min, parametrizado
+— não número mágico espalhado) — a MESMA janela alimenta `Atendimento.reservaOnlineExpiraEm`,
+`IntencaoDePagamento.expiraEm` (§3.8) e o `expiresIn` pedido de verdade à AbacatePay, sempre a
+partir do MESMO instante calculado uma vez (nunca duas chamadas a "agora" separadas — evita
+split-brain entre "reserva expirou" e "intenção expirou"). `ExpirarPagamentoVencidoUseCase`
+expira os dois juntos, na mesma transação, disparado pelo próprio polling do funil (sem cron).
+
+Pacote (`VendaDePacote`) não tem horário — "reserva do horário" não se aplica a ele
+estruturalmente, e por isso **não** usa `PRAZO_RESERVA_SEGUNDOS`: o prazo de pagamento do pacote
+continua sendo `gateway.expiraEmSegundos` (1h, via `ABACATEPAY_EXPIRA_SEGUNDOS`), como sempre foi.
+Uma sessão anterior chegou a unificar os dois prazos por engano (pacote herdou os 10min da reserva
+de horário do avulso, já que a spec original os agrupava na mesma frase) — corrigido:
+`DECISOES_PENDENTES.md` #28. São conceitos diferentes (reserva de slot vs. prazo de pagamento de
+um ticket mais alto, que precisa de mais tempo) que não devem voltar a compartilhar constante.
+
+**Problema 3 — enxurrada de presenciais:** OTP prova que o telefone é real, mas não impede que o
+MESMO cliente marque dezenas de presenciais (que reservam firme sem pagamento algum). OTP é a
+ferramenta errada aqui — a trava certa é limite de agendamentos. **Solução:**
+`LIMITE_PRESENCIAIS_FUTUROS_ATIVOS = 3` (`regra-cota-presencial.ts`) — um cliente não pode ter
+mais que 3 `Atendimento` `AGENDADO`, futuros, **presenciais** (nunca passaram pelo canal
+online — detectado por `reservaOnlineExpiraEm IS NULL`, sem precisar de campo novo nem relação
+com `IntencaoDePagamento`) ao mesmo tempo. Só vale pro canal de auto-atendimento do cliente
+(funil público + cockpit, `aplicarCotaPresencial: true` por default em `AgendarAvulsoUseCase`) —
+o admin agenda por julgamento próprio (`aplicarCotaPresencial: false` explícito no controller do
+painel), e reagendar (cancela+cria, §8.6) também passa `false` — senão o cliente no limite seria
+recusado ao tentar mover um dos 3 que ele já tem (a implementação cria o novo ANTES de cancelar o
+antigo pra avulso, então por um instante os dois "existem"). Online nunca conta nem é limitado
+por esta cota — o pagamento já é a trava natural contra abuso ali.
+
+### 8.11 Funil único — apresentação unificada, transações separadas
+
+Antes, a entrada do funil pedia uma escolha antes de qualquer informação: "Agendar horário" ou
+"Comprar um pacote". O cliente decidia sem ver preço de nenhum dos dois.
+
+Agora a entrada tem um caminho só. Depois de escolher o barbeiro, **uma tela** apresenta:
+
+1. **Bigod's Club** no topo — vitrine das `PacoteOferta` APROVADAS daquele barbeiro (§3.11), com
+   a economia vs. avulso que já era calculada;
+2. **os serviços avulsos** abaixo, com o desconto progressivo (§3.2.3).
+
+**O princípio estrutural: unifica a APRESENTAÇÃO, não a transação.** Não existe carrinho híbrido
+somando compra de pacote + agendamento avulso num pedido só — seriam dois modelos de pagamento
+(pacote é pré-pago online obrigatório; avulso pode ser presencial) e dois conjuntos de estados
+convivendo na mesma transação. A tela é uma; os fluxos por baixo continuam os mesmos de sempre:
+
+| Escolha do cliente | Para onde vai |
+|---|---|
+| Um pacote do clube | fluxo de pacote existente (`VendaDePacote`, pagamento online) |
+| Um ou mais serviços | fluxo avulso existente (`Atendimento`, agenda horário) |
+
+A separação é garantida no estado do funil: escolher um pacote zera `servicoIds`/data/hora;
+mexer nos serviços zera a oferta selecionada. Nunca há os dois preenchidos ao mesmo tempo.
+
+**"Bigod's Club" é rótulo de marca, não membership.** Não há mensalidade, status de membro nem
+benefício recorrente modelado — só apresentação sobre os pacotes que já existem. Evoluir para
+assinatura de verdade é decisão em aberto (DECISOES_PENDENTES.md #30).
+
+### 8.12 "Não tenho preferência" — horários globais e atribuição na confirmação
+
+O cliente pode seguir o funil sem escolher barbeiro. A partir daí:
+
+- **Listagem:** `/public/horarios` e `/public/dias` sem `barbeiroId` devolvem a
+  UNIÃO dos horários de todos os barbeiros ATIVOS que atendem **todos** os
+  serviços do carrinho. Um horário aparece se pelo menos um deles está livre
+  nele. Duas queries para o conjunto inteiro, nunca uma por barbeiro.
+- **Atribuição:** acontece na CONFIRMAÇÃO, no servidor
+  (`regra-atribuicao-de-barbeiro.ts`), não na listagem — entre ver o horário e
+  confirmar, a agenda pode ter mudado, então quem decide olha o estado de agora.
+
+Cascata, nesta ordem: **menor comissão** → **menos agendamentos naquele dia** →
+**aleatório**. Só entram candidatos que atendem todos os serviços, têm janela
+que comporta o atendimento inteiro e não têm conflito no intervalo; a cascata só
+desempata entre quem já pode atender. O sorteio do último critério opera sobre
+lista ordenada por id, para "aleatório" não virar "depende da ordenação do banco".
+
+"Menor comissão" é medida em CENTAVOS (preço dele × percentual efetivo dele, por
+serviço, somado), não em percentual puro — preço também é por barbeiro (§3.2.2),
+então só o valor em dinheiro representa o custo real da casa. Ver
+DECISOES_PENDENTES.md #31.
+
+**Preço sem mentira:** como preço é por barbeiro, o valor final só existe depois
+da atribuição. Antes dela o funil mostra "a partir de" (referência da casa) e
+avisa que pode variar; a resposta de `POST /public/agendamentos` traz o barbeiro
+atribuído e o `valorTotalCentavos` efetivamente cobrado, e é isso que a tela de
+sucesso exibe.
+
+### 8.13 Order-bump — "Adicione à sua visita" (sessão 2026-08-17)
+
+Na confirmação do funil avulso, uma seção oferece complementos de um toque: **serviços
+complementares** (ex.: corte → oferecer barba) e **produtos** do catálogo (que antes existiam mas
+não apareciam no funil). Objetivo de negócio: vender produto e aumentar ticket, sem inventar um
+segundo carrinho.
+
+**Configuração é curadoria PARAMETRIZADA, não motor de regras.** Cada item da vitrine é um
+agregado `ItemDeOrderBump` (§3.13): aparece ou não, por quanto sai, com que chamada, em que ordem.
+A vitrine é geral — igual para todo cliente, sem segmentação por perfil, por horário ou por
+composição do carrinho (além do filtro óbvio de `barbeiro.atende`). Um motor condicional ("se o
+carrinho tem X, ofereça Y") continua fora de escopo (DECISOES_PENDENTES #32).
+
+**Dois tipos de item, um mecanismo de preço:**
+
+- **Serviço complementar**: entra na mesma lista de serviços do carrinho (`servicoIds`) — é um
+  serviço do atendimento como outro qualquer: ocupa agenda, vira `ItemAtendido`, exige que o
+  barbeiro o atenda. O que o distingue é a lista paralela `servicosBump`, que diz **quem veio pelo
+  bump** e portanto paga o preço promocional configurado.
+- **Produto**: vira uma venda de produto anexada ao `Atendimento` (mecanismo `ItemProdutoAtendido`,
+  §3.9/§3.5) já na CRIAÇÃO do agendamento — o mesmo mecanismo do walk-in add-on que antes só
+  acontecia entre agendar e concluir. Snapshot do preço **efetivamente cobrado** (o promocional,
+  quando há oferta); a comissão de produto do barbeiro incide sobre esse valor efetivo, não sobre
+  o preço de tabela.
+- **Filtro óbvio:** um serviço complementar que o cliente já tem no carrinho não aparece na vitrine
+  — exceto o que ele adicionou pelo próprio bump, que continua visível porque é ali que ele remove.
+
+#### ★ Regra de preço do bump de serviço (decisão do dono, Parte 2)
+
+Um item do carrinho recebe **exatamente UMA** regra de preço, nunca duas:
+
+| Situação | Preço |
+|---|---|
+| Serviço escolhido na tela de serviços | preço do barbeiro (§3.2.2) + desconto progressivo (§3.2.3) |
+| Serviço do bump **com** preço promocional | o promocional, cravado — **fora** da escada progressiva |
+| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal (entra na escada) |
+
+O item promocional sai também da **contagem de posições** da escada. Se contasse, adicionar um
+item já descontado aprofundaria o desconto dos outros — desconto sobre desconto, em cascata, com
+o total dependendo de quem entrou primeiro. Fora da escada, o efeito de adicionar um bump é sempre
+exatamente "+ preço promocional", e nada mais no carrinho muda. Isso é o que torna o preço
+previsível para o dono e para o cliente.
+
+Duas travas fecham o resto:
+- `min(promocional, preço do barbeiro)` — promoção **nunca vira acréscimo**. Preço é por barbeiro,
+  então um promocional configurado sobre a referência da casa pode ficar acima do preço de um
+  barbeiro mais barato; nesse caso ele simplesmente não desconta nada.
+- O que se **persiste** é sempre o preço final em centavos, nunca o percentual (a UI aceita as duas
+  formas de entrada). Percentual persistido faria a oferta se mover sozinha quando o preço de
+  catálogo mudasse — mesma disciplina de `PacoteOferta` (§3.11).
+
+O cálculo mora numa função só, `precificarCarrinhoDoFunil` em `@bigods/contracts`, usada pelo funil
+e pela API — duas implementações seriam duas verdades sobre dinheiro.
+
+> **Mudança consciente em relação à Parte 1 desta mesma sessão:** ali valia "adicionar barba pelo
+> bump ou pela tela de serviços dá exatamente o mesmo preço". Com preço promocional por item, isso
+> deixa de valer **de propósito** — a oferta só existe no fechamento do pedido, e é justamente esse
+> o incentivo. O que continua valendo é o princípio por trás: **um item, uma regra de preço**.
+
+**Pagamento segue o agendamento, sempre recalculado ANTES de qualquer cobrança nascer.** Bump
+online entra na mesma transação que gera a `IntencaoDePagamento` e a cobrança PIX — o valor do QR
+já é agendamento + bumps, nunca um QR de serviços seguido de um ajuste fora dele. Bump presencial
+soma no valor a cobrar no balcão. Pacote não tem order-bump: é crédito pré-pago, sem `Atendimento`
+para anexar produto ou serviço complementar.
+
+**Remoção sem refazer o funil (Parte 2).** Adicionar e remover são o mesmo toque, na própria
+confirmação, e o total atualiza na hora. Depois que o QR já foi emitido, editar o carrinho por
+baixo dele cobraria o valor errado — então "Alterar meu pedido" **desfaz a tentativa** no servidor
+(`CancelarReservaOnlineUseCase`): expira a intenção (o QR antigo morre) e libera a reserva do
+horário, na mesma transação — a mesma dupla atômica de `ExpirarPagamentoVencidoUseCase`, só que
+disparada por decisão do cliente em vez de por timeout. Confirmar de novo emite um QR novo pelo
+valor certo. Reserva já **paga** não é cancelável por aí: dinheiro que entrou é outro fluxo.
+
+Depois de tudo — inclusive depois da confirmação do avulso, na tela de sucesso — o funil também
+mostra o Bigod's Club (§8.11): o order-bump vende mais na MESMA visita; o clube, no fim, é a
+tentativa de vender a PRÓXIMA.
+
+### 8.14 Pacote é da empresa — o barbeiro só existe na COMPRA (2026-08-18)
+
+Evoluiu em dois passos, ambos por decisão do dono depois de testar em produção.
+
+**Passo 1 (2026-08-17):** "as ofertas e pacotes não precisam ter vínculo com o barbeiro, é da
+empresa em si — não podemos mostrar pacotes para barbeiro x e não mostrar pra barbeiro y". A
+vitrine parou de filtrar por barbeiro e o crédito virou resgatável com qualquer um.
+
+**Passo 2 (2026-08-18), a forma final:** *"não terá mais nenhum vínculo do pacote com o Barbeiro
+[…] não terá mais barbeiro dono de pacote, isso será extinto. A única regra é: quando o cliente
+selecionar o barbeiro x e comprar um pacote com ele selecionado, só ele poderá atender serviços
+daquele pacote."*
+
+#### O que deixou de existir
+
+| Antes | Agora |
+|---|---|
+| `PacoteOferta.barbeiroId` (dono/autor) | **extinto** — a oferta é da empresa |
+| Cada barbeiro com o próprio catálogo de ofertas | catálogo único da casa, cadastro **admin-only** |
+| Composição limitada ao que o dono atende | qualquer serviço do catálogo |
+| Rateio pesado pelo preço do dono (`precoPara`) | **referência da casa** (`Servico.precoAvulso`) |
+| Economia exibida variando por barbeiro | uma economia só, igual para todo cliente |
+
+#### A única regra que sobrou
+
+`VendaDePacote.barbeiroId` deixou de ser "dono" e passou a ser **o barbeiro que o cliente escolheu
+no funil ao comprar**:
+
+- **Escolheu alguém** ⇒ só ele atende os serviços daquele pacote. Foi com ele que o cliente decidiu
+  se tratar, e é isso que o pacote reserva.
+- **Não escolheu** (`null`, "não tenho preferência") ⇒ qualquer barbeiro ativo que atenda o serviço.
+
+A trava vive em `VendaDePacote.agendarItem` (§3.6). "O barbeiro atende o serviço" continua sendo
+`Atendimento.agendar()` quem garante (§3.5) — a mesma invariante de qualquer atendimento, sem
+duplicação.
+
+#### Por que o rateio usa a referência da casa
+
+Decisão do dono entre duas opções apresentadas. Um preço de pacote para todos ⇒ o valor pago tem
+que se dividir igual para todos. Se o peso viesse do barbeiro escolhido, o MESMO pacote pelo MESMO
+preço se dividiria diferente conforme quem o cliente escolheu — e como o rateado é a base da
+comissão, dois barbeiros ganhariam diferente pelo mesmo trabalho vendido pelo mesmo valor. Override
+de barbeiro (§3.2.2) vale para AVULSO, onde o cliente de fato paga o preço daquele barbeiro.
+
+#### Migration
+
+Aditiva: `PacoteOferta.barbeiroId` e `VendaDePacote.barbeiroId` viraram nuláveis (nenhum dado
+perdido). O código parou de ler/escrever `PacoteOferta.barbeiroId`; a coluna fica no banco só para
+rollback seguro, marcada DEPRECADO — remover numa migration futura (DECISOES_PENDENTES). Vendas
+antigas mantêm o barbeiro que tinham, o que sob a regra nova significa "compradas com aquele
+barbeiro" — leitura fiel, já que o cliente de fato escolheu aquele barbeiro na época.
+
+#### Onde isso aparece
+
+- **Funil:** a vitrine do Bigod's Club é a mesma para todos; o `barbeiroId` escolhido vai no corpo
+  da compra.
+- **Cockpit do cliente:** pacote comprado com barbeiro mostra "você comprou com X"; comprado sem,
+  abre o passo "Com quem?" entre quem atende o serviço.
+- **Painel:** "Agendar com crédito" fixa o barbeiro da compra quando há um; a venda manual do admin
+  tem barbeiro **opcional** ("Qualquer barbeiro").
+
+#### ACL do barbeiro sobre pacotes (2026-08-18)
+
+Pedido do dono: *"o barbeiro pode apenas ver os pacotes vendidos PARA ELE, e agendar um item do
+pacote do cliente DELE, nada mais que isso"* — e, sobre a tela: *"se ele não tem acesso, ele não
+pode ver"*.
+
+| Ação | Barbeiro não-admin | Admin |
+|---|---|---|
+| `GET /pacotes` | só os comprados COM ELE | todos |
+| `POST /pacotes` (vender) | **403** | sim |
+| `POST /pacotes/:id/confirmar-pagamento` | **403** | sim |
+| `/pacote-ofertas/*` (catálogo) | **403** | sim |
+| `/pacotes/reembolsos/*` | **403** | sim |
+| `POST /atendimentos/com-credito` | só pacote DELE, em nome dele | qualquer |
+| `PUT /auth/senha` (própria senha) | sim | sim |
+
+Pacote comprado **sem** barbeiro escolhido não é de ninguém em particular: não aparece para
+barbeiro nenhum e só o admin distribui quem atende.
+
+**A garantia é o servidor, não a tela.** Cada linha acima tem e2e que tenta o request direto
+(`acl-barbeiro-pacotes.e2e.spec.ts`); esconder aba e botão é conveniência de UX em cima disso —
+antes a aba "Catálogo de ofertas" aparecia e o clique caía num erro de papel insuficiente, que é
+exatamente o que o dono não quer ver.
+
+**Troca da própria senha** (`PUT /auth/senha`) é a única ação do barbeiro em Ajustes. Exige a senha
+ATUAL — sem isso, uma sessão esquecida aberta trancaria o dono para fora da própria conta. Reusa
+`validarCredenciais`, a mesma conferência do login; não há segunda implementação de senha.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -1405,5 +2005,7 @@ Registrado para não ser reintroduzido por acidente — e para que a arquitetura
 | Desconto progressivo por volume no carrinho | Mecânica distinta do pacote pré-pago; sem evidência operacional | Regra de precificação nova no catálogo |
 | App mobile nativo | Web responsiva resolve; app da v1 morreu sem resolver problema real | PWA primeiro; nativo só se surgir necessidade que só ele resolve |
 | Divisão de lucro entre sócios | Contabilidade da empresa, **não** domínio do produto | Fora do produto — planilha/contador, a partir dos números do sistema |
-| Resgate cruzado de crédito entre barbeiros | `VendaDePacote.barbeiroId` (sessão-B, Fase 2) trava o crédito ao dono; deixar outro barbeiro consumir quebra a relação preço-do-dono ↔ rateio congelado, sem regra de negócio definida pra isso ainda | Precisaria de uma decisão explícita de como converter/rebalancear o rateio entre barbeiros — decisão futura, registrada em DECISOES_PENDENTES |
+| ~~Resgate cruzado de crédito entre barbeiros~~ | **Saiu desta lista** (sessão 2026-08-17, §8.14) — decisão do dono: crédito é da empresa, resgatável com qualquer barbeiro ativo que atenda o serviço. `barbeiroId` da venda virou só a base de preço do rateio (congelada, sem mudar retroativamente) | Implementado |
 | Relatório/dashboard de origemLink | `origemLinkBarbeiroId` (§8.5, Fase 4c) é só registro nesta sessão — não há tela nem métrica | Read model simples quando "quanto cada barbeiro converte pelo próprio link" virar pergunta de negócio real |
+| Order-bump com regras condicionais / segmentação | Decisão do dono para começar SIMPLES (§8.13, sessão 2026-08-17): vitrine curada é uma lista geral, sem "se o carrinho tem X, ofereça Y" nem segmentação por serviço/barbeiro | Motor de regras condicionais sobre a mesma vitrine, quando houver evidência de que a lista geral não converte o suficiente — registrado em DECISOES_PENDENTES |
+| Upsell de troca-pra-cima (trocar um serviço por uma versão premium) | Fora de escopo desta sessão — o order-bump (§8.13) só ADICIONA itens, nunca substitui um já escolhido | O mecanismo atual já comporta um serviço premium como item de bump comum, quando um existir no catálogo; troca-pra-cima de verdade (substituir, não somar) é decisão de UX/negócio futura, registrada em DECISOES_PENDENTES |

@@ -21,6 +21,8 @@ import {
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
 import { Publico } from './auth.decorators';
+import { EhCelularBrasileiro } from '../../../shared/presentation/validadores';
+import { EnviaOtp } from './envia-otp.decorator';
 import { ClienteAtual, ContaCliente } from './cliente.guard';
 import { ClienteAutenticado } from '../infrastructure/cliente-sessao.service';
 import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
@@ -45,17 +47,30 @@ import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** Login por OTP: no máximo 5 tentativas por telefone a cada 10 minutos. */
+/**
+ * Login por OTP: no máximo 5 tentativas por telefone a cada 10 minutos (o
+ * tracker do `default` é o telefone quando ele vem no corpo).
+ *
+ * Não confundir com o limite por ORIGEM: quem envia mensagem de verdade também
+ * leva `@EnviaOtp()`, que ativa o throttler `otp-origem` (ver `app.module.ts`).
+ * São travas para abusos diferentes — martelar UM número vs. varrer MIL.
+ */
 const THROTTLE_LOGIN = { default: { limit: 5, ttl: 600_000 } };
 
+/**
+ * O telefone é validado como CELULAR brasileiro aqui, e não só como "string com
+ * 8+ caracteres": é por este endpoint que sai a mensagem de WhatsApp, e telefone
+ * fixo nunca vai receber o código. Barrar na borda evita gastar envio (e cota de
+ * rate limit) num número que não tem como responder.
+ */
 class IniciarLoginDto {
   @IsString() @MinLength(1) companyId!: string;
-  @IsString() @MinLength(8) telefone!: string;
+  @EhCelularBrasileiro() telefone!: string;
 }
 
 class ConfirmarLoginDto {
   @IsString() @MinLength(1) companyId!: string;
-  @IsString() @MinLength(8) telefone!: string;
+  @EhCelularBrasileiro() telefone!: string;
   @Matches(/^\d{6}$/) codigo!: string;
   @IsString() @Length(0, 4096) desafio!: string;
 }
@@ -107,6 +122,7 @@ export class ContaClienteController {
 
   @Publico()
   @Throttle(THROTTLE_LOGIN)
+  @EnviaOtp()
   @Post('login/iniciar')
   async iniciar(@Body() body: IniciarLoginDto): Promise<IniciarLoginClienteResponse> {
     const r = await this.iniciarLogin.executar({ companyId: body.companyId, telefone: body.telefone });

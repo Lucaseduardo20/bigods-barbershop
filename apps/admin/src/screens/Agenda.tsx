@@ -14,6 +14,7 @@ import {
 import { useTimezone } from '../lib/tz-context';
 import { Badge, BotaoAtualizar, Dialog, ErroEstado, Loading, Tabs, useApi, Vazio } from '../components/ui';
 import { AtendimentoDetalheDialog, labelStatus, toneStatus } from '../components/AtendimentoDetalheDialog';
+import { Foto } from '../components/FotoUpload';
 
 const PERIODO_MAXIMO_DIAS = 31;
 
@@ -27,9 +28,9 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
   const [periodoDe, setPeriodoDe] = useState(() => hojeISO(tz));
   const [periodoAte, setPeriodoAte] = useState(() => somarDias(hojeISO(tz), 6));
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
-  const [filtroStatus, setFiltroStatus] = useState<'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.CONCLUIDO>(
-    'todos',
-  );
+  const [filtroStatus, setFiltroStatus] = useState<
+    'todos' | StatusAtendimento.AGENDADO | StatusAtendimento.RESERVADO | StatusAtendimento.CONCLUIDO
+  >('todos');
   const [novoAberto, setNovoAberto] = useState(false);
   const [vendaAberta, setVendaAberta] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
@@ -147,6 +148,10 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
           tabs={[
             { value: 'todos', label: 'Todos' },
             { value: StatusAtendimento.AGENDADO, label: 'Agendados' },
+            // Pagamento manual por WhatsApp (2026-08-18): o PIX cai por fora e
+            // o dono precisa achar RÁPIDO o atendimento que acabou de chegar
+            // pra confirmar. Sem esta aba, ele caça no meio da semana inteira.
+            { value: StatusAtendimento.RESERVADO, label: 'Aguardando pgto' },
             { value: StatusAtendimento.CONCLUIDO, label: 'Concluídos' },
           ]}
         />
@@ -229,6 +234,7 @@ export function Agenda({ usuario }: { usuario: UsuarioDTO }) {
       />
       <AtendimentoDetalheDialog
         atendimentoId={selecionadoId}
+        ehAdmin={ehAdmin}
         aoFechar={() => setSelecionadoId(null)}
         aoMudar={() => {
           setSelecionadoId(null);
@@ -397,6 +403,7 @@ function VendaDeProdutoDialog({
   // Barbeiro desativado não recebe nova venda atribuída a ele.
   const barbeirosQueAtendem = (barbeiros.dados ?? []).filter((b) => b.papeis.includes(Papel.BARBEIRO) && b.ativo);
   const produtosAtivos = (produtos.dados ?? []).filter((p) => p.ativo);
+  const produtoSelecionado = produtosAtivos.find((p) => p.id === produtoId) ?? null;
 
   const salvar = async () => {
     setSalvando(true);
@@ -456,14 +463,32 @@ function VendaDeProdutoDialog({
           {!produtos.erro && produtosAtivos.length === 0 && !produtos.carregando && (
             <Vazio texto="Nenhum produto ativo cadastrado (ver Ajustes → Produtos)." />
           )}
-          <select className="select" value={produtoId} onChange={(e) => setProdutoId(e.target.value)}>
-            <option value="">Selecione…</option>
-            {produtosAtivos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome} · {dinheiro(p.precoCentavos)}
-              </option>
-            ))}
-          </select>
+          {/* `<option>` nativo não aceita imagem, então a foto do produto
+              escolhido aparece ao lado — confere que é o item certo sem trocar
+              o select por um picker inteiro. */}
+          <div className="flex items-center gap-2">
+            <select
+              className="select flex-1"
+              value={produtoId}
+              onChange={(e) => setProdutoId(e.target.value)}
+            >
+              <option value="">Selecione…</option>
+              {produtosAtivos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome} · {dinheiro(p.precoCentavos)}
+                </option>
+              ))}
+            </select>
+            {produtoSelecionado && (
+              <Foto
+                url={produtoSelecionado.fotoUrl}
+                nome={produtoSelecionado.nome}
+                size={40}
+                redonda={false}
+                fallback={<span aria-hidden="true">🧴</span>}
+              />
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <div className="flex-1">

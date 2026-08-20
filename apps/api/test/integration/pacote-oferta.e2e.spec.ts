@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -92,6 +95,7 @@ afterAll(async () => {
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.pacoteOfertaItem.deleteMany({ where: { oferta: { companyId } } });
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
@@ -188,16 +192,18 @@ describe('CRUD de PacoteOferta (admin)', () => {
     await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ barbeiroId, nome: 'Caro demais', composicao: [{ servicoId: corteId, quantidade: 1 }], precoCentavos: 9000 })
+      .send({ nome: 'Caro demais', composicao: [{ servicoId: corteId, quantidade: 1 }], precoCentavos: 9000 })
       .expect(422);
   });
 
-  it('serviço da composição que o barbeiro dono não atende → 422', async () => {
-    await http
+  it('qualquer serviço do catálogo entra na composição — a oferta é da empresa, não tem dono (2026-08-18)', async () => {
+    const criada = await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
-      .send({ barbeiroId, nome: 'Sobrancelha', composicao: [{ servicoId: sobrancelhaId, quantidade: 1 }], precoCentavos: 1000 })
-      .expect(422);
+      .send({ nome: 'Sobrancelha', composicao: [{ servicoId: sobrancelhaId, quantidade: 1 }], precoCentavos: 1000 })
+      .expect(201);
+    await prisma.pacoteOfertaItem.deleteMany({ where: { ofertaId: criada.body.id } });
+    await prisma.pacoteOferta.delete({ where: { id: criada.body.id } });
   });
 
   it('mudar o preço avulso de referência do serviço NÃO altera o preço de um pacote já cadastrado — só o % exibido muda', async () => {
@@ -241,12 +247,19 @@ describe('Venda de uma oferta MISTA reusa o rateio existente (§3.6) sem reescre
     // só aparece/compra no funil público depois de aprovado (Fase 3)
     await http.patch(`/pacote-ofertas/${criada.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
+    const telefone = `11 9${String(Date.now()).slice(-8)}`;
+    const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+    const confirmar = await http
+      .post('/conta/login/confirmar')
+      .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+      .expect(201);
     const venda = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${confirmar.body.token}`)
       .send({
         companyId,
         ofertaId: criada.body.id,
-        cliente: { nome: 'Cliente Misto', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Cliente Misto' },
         formaPagamento: 'presencial',
       })
       .expect(201);
@@ -259,13 +272,12 @@ describe('Venda de uma oferta MISTA reusa o rateio existente (§3.6) sem reescre
 });
 
 describe('Workflow de aprovação (sessão-B, Fase 3)', () => {
-  it('barbeiro cria sua própria oferta (nasce PENDENTE_APROVACAO) — outro barbeiro NÃO pode criar em nome dele', async () => {
+  it('cadastro é ADMIN-ONLY (2026-08-18): oferta nasce PENDENTE e barbeiro não-admin nem cria', async () => {
     const criada = await http
       .post('/pacote-ofertas')
-      .set('Authorization', `Bearer ${tokenOutroBarbeiro}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId: outroBarbeiroId,
-        nome: 'Oferta do Outro Barbeiro',
+        nome: 'Oferta Da Casa',
         composicao: [{ servicoId: corteId, quantidade: 1 }],
         precoCentavos: 3500,
       })
@@ -273,15 +285,14 @@ describe('Workflow de aprovação (sessão-B, Fase 3)', () => {
     expect(criada.body.statusAprovacao).toBe('PENDENTE_APROVACAO');
 
     // não aparece no funil público antes de aprovada
-    const publico = await http.get(`/public/pacotes?companyId=${companyId}&barbeiroId=${outroBarbeiroId}`).expect(200);
+    const publico = await http.get(`/public/pacotes?companyId=${companyId}`).expect(200);
     expect(publico.body.some((o: { id: string }) => o.id === criada.body.id)).toBe(false);
 
-    // um barbeiro não pode criar oferta EM NOME de outro
+    // sem dono, o catálogo é da empresa — barbeiro comum não cadastra
     await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenOutroBarbeiro}`)
       .send({
-        barbeiroId, // dono é OUTRO barbeiro (o admin/dono principal), não quem está logado
         nome: 'Tentativa indevida',
         composicao: [{ servicoId: corteId, quantidade: 1 }],
         precoCentavos: 3500,
@@ -292,9 +303,8 @@ describe('Workflow de aprovação (sessão-B, Fase 3)', () => {
   it('admin aprova → aparece no funil público; editar depois volta pra PENDENTE_APROVACAO e some de novo', async () => {
     const criada = await http
       .post('/pacote-ofertas')
-      .set('Authorization', `Bearer ${tokenOutroBarbeiro}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId: outroBarbeiroId,
         nome: 'Oferta Aprovável',
         composicao: [{ servicoId: corteId, quantidade: 1 }],
         precoCentavos: 3500,
@@ -302,27 +312,25 @@ describe('Workflow de aprovação (sessão-B, Fase 3)', () => {
       .expect(201);
 
     await http.patch(`/pacote-ofertas/${criada.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
-    let publico = await http.get(`/public/pacotes?companyId=${companyId}&barbeiroId=${outroBarbeiroId}`).expect(200);
+    let publico = await http.get(`/public/pacotes?companyId=${companyId}`).expect(200);
     expect(publico.body.some((o: { id: string }) => o.id === criada.body.id)).toBe(true);
 
-    // barbeiro dono edita a própria oferta (já aprovada) — volta pra pendente
     const editada = await http
       .patch(`/pacote-ofertas/${criada.body.id}`)
-      .set('Authorization', `Bearer ${tokenOutroBarbeiro}`)
       .send({ nome: 'Oferta Editada', composicao: [{ servicoId: corteId, quantidade: 1 }], precoCentavos: 3800 })
+      .set('Authorization', `Bearer ${tokenAdmin}`)
       .expect(200);
     expect(editada.body.statusAprovacao).toBe('PENDENTE_APROVACAO');
 
-    publico = await http.get(`/public/pacotes?companyId=${companyId}&barbeiroId=${outroBarbeiroId}`).expect(200);
+    publico = await http.get(`/public/pacotes?companyId=${companyId}`).expect(200);
     expect(publico.body.some((o: { id: string }) => o.id === criada.body.id)).toBe(false);
   });
 
   it('admin rejeita com motivo — não pode rejeitar sem motivo', async () => {
     const criada = await http
       .post('/pacote-ofertas')
-      .set('Authorization', `Bearer ${tokenOutroBarbeiro}`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId: outroBarbeiroId,
         nome: 'Oferta Rejeitável',
         composicao: [{ servicoId: corteId, quantidade: 1 }],
         precoCentavos: 3500,
@@ -346,12 +354,11 @@ describe('Workflow de aprovação (sessão-B, Fase 3)', () => {
       .expect(403);
   });
 
-  it('admin que também é barbeiro pode aprovar o próprio pacote (caso Gabriel)', async () => {
+  it('admin cadastra e aprova (rascunho → publicado)', async () => {
     const criada = await http
       .post('/pacote-ofertas')
       .set('Authorization', `Bearer ${tokenAdmin}`)
       .send({
-        barbeiroId, // o próprio admin logado é dono deste barbeiroId
         nome: 'Oferta do Admin-Barbeiro',
         composicao: [{ servicoId: corteId, quantidade: 1 }],
         precoCentavos: 3500,

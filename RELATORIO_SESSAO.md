@@ -72,6 +72,34 @@ da instrução original sobre `transparent.lost` — ver DECISOES_PENDENTES.md #
 **428 testes verdes no backend**, idênticos sob os 3 fusos (`npm run
 test:multitz`). `turbo run build` verde nos 5 pacotes.
 
+Sessão de OTP+reserva (2026-08-13, "agenda falsa + buraco na agenda +
+enxurrada de presenciais" — ver seção dedicada perto do fim deste arquivo):
+três problemas do funil anônimo, três travas distintas. OTP obrigatório na
+confirmação do agendamento/compra pra quem não tem sessão (reusa o mecanismo
+de login do cockpit, zero OTP novo construído); avulso online passou a nascer
+`RESERVADO` (novo estado, temporário) em vez de `AGENDADO` firme, expira
+sozinho em 10 min sem pagamento e libera o horário; cota de 3 presenciais
+futuros ativos por cliente, só no canal de auto-atendimento (não vale pro
+admin). **Dois desvios/decisões próprias reportados com destaque**: a janela
+de pagamento do pacote encolheu de 1h pra 10min (DECISOES_PENDENTES.md #28) e
+a cota de presenciais não se aplica ao admin/reagendar (DECISOES_PENDENTES.md
+#29). **456 testes verdes no backend**, idênticos sob os 3 fusos. `turbo run
+build` verde nos 5 pacotes.
+
+Sessão de order-bump (2026-08-17, "Adicione à sua visita" — ver seção dedicada
+perto do fim deste arquivo): um order-bump só na confirmação do funil avulso,
+oferecendo produtos (que já existiam no catálogo mas não apareciam no funil) e
+serviços complementares. Decisão do dono: começar SIMPLES, sem motor de regras
+condicionais (DECISOES_PENDENTES #32/#33). Serviço-bump reusa exatamente a
+mesma lógica de serviço avulso (desconto progressivo + preço por barbeiro,
+provado por teste que os dois caminhos geram o mesmo valor cobrado); produto-
+bump reusa o mecanismo de venda de produto anexada ao atendimento, agora
+disponível já na criação. Online, o bump recalcula a cobrança PIX ANTES do QR
+nascer — nunca um QR gerado e "completado" depois. Bigod's Club também passou
+a aparecer no fim da confirmação do avulso. **558 testes verdes no backend,
+36 no booking**, idênticos sob os 3 fusos. `turbo run build` verde nos 5
+pacotes.
+
 ## Fase 1 — Fundação do monorepo ✅
 
 - npm workspaces + Turborepo (`turbo.json` com pipelines build/test/lint/dev).
@@ -2170,6 +2198,1309 @@ de sandbox carregados:
 8. **Assinatura inválida:** enviar manualmente um POST pra
    `/webhooks/abacatepay` sem header `X-Webhook-Signature` (ex.: via curl) e
    confirmar 401, sem nenhum efeito em nenhuma intenção.
+
+## OTP obrigatório + reserva temporária + cota de presenciais (2026-08-13) ✅
+
+Três problemas reais do funil de agendamento anônimo, cada um com sua trava específica —
+suíte confirmada verde (428 testes) antes de tocar em qualquer código, como pedido.
+
+### Matriz implementada
+
+| Cenário | OTP | Reserva |
+|---|---|---|
+| Presencial, sem sessão | Exige OTP na confirmação | Firme direto após o OTP |
+| Presencial, com sessão | Sem OTP | Firme direto |
+| Online/pacote, sem sessão | Exige OTP na confirmação | Temporária (10 min) → firme no pagamento |
+| Online/pacote, com sessão | Sem OTP | Temporária (10 min) → firme no pagamento |
+
+### Problema 1 — agenda falsa (qualquer telefone reservava sem provar posse)
+
+**Solução:** `POST /public/agendamentos` e `POST /public/pacotes` passaram de `@Publico()` pra
+`@ContaCliente()` — mesma sessão de cliente do login do cockpit (`IdentityProvider` + OTP +
+`ClienteSessaoService`), **zero mecanismo de OTP novo construído**. O telefone do request DTO foi
+**removido** — vem sempre da sessão verificada, nunca do corpo (testado explicitamente: um
+telefone forjado no body é ignorado). Sem sessão local válida, o front (`apps/booking`) roda
+`/conta/login/iniciar` + `/conta/login/confirmar` — só depois de escolher barbeiro/serviço/
+horário, nunca antes (protegendo conversão). Com sessão salva (token HMAC, 30 dias, localStorage
+próprio de `apps/booking`), pula o OTP.
+
+### Problema 2 — buraco na agenda (PIX nunca pago prendia o horário pra sempre)
+
+**Solução:** novo estado `RESERVADO` em `StatusAtendimento` (+ `RESERVA_EXPIRADA`, final). Avulso
+online nasce `RESERVADO`, não `AGENDADO` — participa da invariante de conflito de horário (domínio
++ constraint `EXCLUDE` do Postgres, estendida pra cobrir os dois status) igual a um agendamento
+firme, mas expira sozinho se não pagar a tempo. `PRAZO_RESERVA_SEGUNDOS = 600` (10 min, constante
+nomeada) alimenta, no MESMO instante calculado uma única vez: `Atendimento.reservaOnlineExpiraEm`,
+`IntencaoDePagamento.expiraEm` e o `expiresIn` pedido de verdade à AbacatePay — nunca duas chamadas
+a "agora" separadas, pra nunca haver split-brain entre "reserva expirou" e "intenção expirou", nem
+a AbacatePay aceitar um pagamento depois que a reserva local já foi liberada.
+
+`ExpirarPagamentoVencidoUseCase` (já existia da sessão do AbacatePay, só pra intenção) passou a
+rodar numa transação que expira a intenção **e** a reserva do atendimento juntas — disparado pelo
+próprio polling do funil (`GET /public/pagamentos/:id`), sem cron. `ProcessarWebhookUseCase` ganhou
+um branch para `referencia.tipo === 'ATENDIMENTO'`: pagamento confirmado chama
+`Atendimento.confirmarReserva()` (`RESERVADO → AGENDADO`) na mesma transação do
+`IntencaoDePagamento.confirmarPagamento()`. A projeção pública de horários livres
+(`GET /public/horarios`) também não mostra mais como ocupado um slot `RESERVADO` cujo prazo já
+passou, mesmo que ninguém ainda tenha lido o status pra disparar a expiração de verdade.
+
+**★ Pacote também passou a usar essa mesma janela de 10 min** (era 1h) — decisão minha, reportada
+em detalhe em `DECISOES_PENDENTES.md` #28, porque `VendaDePacote` não tem horário pra reservar
+(a spec agrupa avulso-online e pacote sob o mesmo prazo, mas isso é uma leitura minha, não um
+número confirmado pelo dono pro caso do pacote especificamente).
+
+### Problema 3 — enxurrada de presenciais (OTP prova telefone real, não impede volume)
+
+**Solução:** `LIMITE_PRESENCIAIS_FUTUROS_ATIVOS = 3` (`regra-cota-presencial.ts`, domínio puro). Um
+cliente não pode ter mais de 3 `Atendimento` `AGENDADO`, futuros, **presenciais** (nunca passaram
+pelo canal online — detectado via `reservaOnlineExpiraEm IS NULL`, sem campo novo nem relação com
+`IntencaoDePagamento`) ao mesmo tempo. Online nunca conta nem é limitado (pagamento já é a trava
+natural). Só vale pro canal de auto-atendimento (funil público + cockpit) — **o admin e o
+reagendar (cancela+cria) ficam de fora**, decisão minha detalhada em `DECISOES_PENDENTES.md` #29.
+
+### Testes
+
+**456 testes verdes no backend** (44 arquivos, +28 sobre a sessão anterior), idênticos sob
+`TZ=UTC`/`America/Sao_Paulo`/`Asia/Tokyo`. Novo arquivo dedicado
+`test/integration/otp-reserva.e2e.spec.ts` (8 testes: reserva nasce `RESERVADO` e ocupa o horário
+na projeção pública, confirmação vira firme, duas reservas concorrentes pro mesmo slot → 422,
+reserva expira e libera o slot pra uma nova reserva, webhook tardio numa reserva já expirada não
+revive, e os 3 cenários de cota de presenciais). `atendimento.spec.ts` ganhou 10 testes de domínio
+da máquina de reserva. Oito arquivos e2e pré-existentes precisaram de ajuste mecânico (obter uma
+sessão de cliente via login OTP demo antes de chamar os endpoints públicos, já que passaram a
+exigir `@ContaCliente()`) — nenhuma regra de negócio pré-existente mudou de comportamento nesses
+arquivos, só a forma de autenticar a chamada de teste. `turbo run build` verde nos 5 pacotes —
+incluiu corrigir 3 mapas exaustivos `Record<StatusAtendimento, ...>` no admin/account que não
+cobriam os dois status novos (erro de compilação real, pego pelo build, não pelos testes).
+
+### Roteiro de smoke test manual (para o dono rodar)
+
+1. **Presencial sem sessão:** no funil público (`apps/booking`), escolher barbeiro/serviço/
+   horário, marcar "pagar na barbearia", confirmar → aparece a tela de código OTP. Digitar o
+   código (modo demo: aparece na tela; produção: chega por WhatsApp) → o agendamento confirma
+   direto, sem reserva/PIX.
+2. **Presencial com sessão:** repetir o fluxo acima no MESMO navegador — a segunda vez não deve
+   pedir OTP de novo (sessão local salva).
+3. **Avulso online:** escolher "pagar agora (PIX)" → confirmar (OTP se necessário) → tela de PIX
+   aparece com **contagem regressiva** ("Seu horário está reservado por 9:59…"). Não pagar e
+   esperar o prazo passar → a tela deve trocar sozinha pra "sua reserva expirou, gere um novo
+   horário"; o mesmo horário deve voltar a aparecer disponível pra outro cliente.
+4. **Avulso online, pagando a tempo:** repetir o passo 3, mas pagar (ou simular, em modo demo)
+   dentro da janela — a tela avança pra sucesso e o atendimento aparece firme na agenda do admin.
+5. **Pacote:** comprar um pacote → confirmar que também pede OTP (se sem sessão) e mostra a
+   contagem regressiva do PIX — sem menção a "horário" (pacote não reserva agenda).
+6. **Cota de presenciais:** com o MESMO telefone, marcar 3 presenciais em horários diferentes →
+   tentar um 4º → deve recusar com a mensagem "você já tem 3 horários marcados...". Cancelar um
+   dos 3 pelo cockpit (`apps/account`) → tentar de novo → deve aceitar.
+7. **Cota não bloqueia online:** com o telefone do passo 6 já no limite de 3 presenciais, comprar
+   um pacote ou marcar um avulso online → deve funcionar normalmente (a cota é só de presenciais).
+8. **Admin sem cota:** pelo painel admin, criar mais de 3 presenciais pro mesmo cliente → não deve
+   ser bloqueado (autonomia do staff, decisão registrada em DECISOES_PENDENTES.md #29).
+
+## Correção: prazo de pagamento do pacote volta a ser 1h (2026-08-14) ✅
+
+Suíte confirmada verde (456 testes, 3 fusos) antes de tocar em qualquer código, como pedido.
+
+**O bug:** a sessão de OTP+reserva unificou o prazo de pagamento do pacote com
+`PRAZO_RESERVA_SEGUNDOS` (10 min, a constante da reserva de horário do avulso online),
+registrado como decisão própria em `DECISOES_PENDENTES.md` #28 — o dono confirmou que estava
+errado: os 10 minutos existem por causa da reserva de horário (Problema 2 da sessão anterior,
+evitar um slot preso esperando pagamento); `VendaDePacote` não reserva horário nenhum, e é um
+ticket mais alto que merece mais tempo pra pagar.
+
+**A correção:** os dois prazos voltaram a ser conceitos e constantes separados:
+- **Avulso online** continua com `PRAZO_RESERVA_SEGUNDOS` (10 min, fixo,
+  `payments/domain/prazo-reserva.ts`) — ligado à reserva de horário. Nada mudou aqui.
+- **Pacote** voltou a `gateway.expiraEmSegundos` (1h, via `ABACATEPAY_EXPIRA_SEGUNDOS`) —
+  `vender-pacote.usecase.ts` não importa mais `PRAZO_RESERVA_SEGUNDOS`. O comentário na constante
+  do avulso agora avisa explicitamente pra não reunificar os dois por engano de novo.
+
+**Testes:** `pacote-publico.e2e.spec.ts` ganhou uma asserção explícita que a cobrança do pacote
+nasce com `expiraEm` entre 3500 e 3600 segundos no futuro (não ~600s). `otp-reserva.e2e.spec.ts`
+ganhou a mesma checagem em sentido contrário pro avulso online (entre 500 e 600s, tanto na reserva
+do atendimento quanto na cobrança) — prova que os dois caminhos continuam com prazos distintos.
+**456 testes verdes**, idênticos sob os 3 fusos. `DECISOES_PENDENTES.md` #28 marcada ✅ RESOLVIDA.
+
+## Identidade visual nos 3 apps (2026-08-14) ✅
+
+Frente independente da correção acima (nenhum arquivo em comum). Objetivo: tirar os 3 apps
+(admin, booking, account) do estado "pelado" aplicando a marca que já existe em `assets/brand/`
+— sem redesign, sem inventar cor nova.
+
+**Paleta:** antes de aplicar qualquer coisa, extraí a cor dominante real dos pixels dos PNGs da
+logo (`logo-classico.png`, PIL + `Counter` sobre pixels opacos) pra conferir contra os tokens já
+definidos em `index.css` dos 3 apps. Bateu exato: `--brand-ink #342414`, `--brand-gold #b88e42`,
+`--brand-cream #ffecb9`, `--brand-beige #c4b58e` já eram a paleta real da marca (herdados da
+importação do "Claude Design" no admin, Fase 4). Ou seja, **nenhum token novo foi criado** — só
+confirmado que o sistema existente já era a paleta certa, e usado como estava.
+
+**Logo no header/login:**
+- **Admin** — logo completa (`logo-full-dark.png`, variante escura pra fundo claro) no header
+  pós-login (`App.tsx`) e em destaque na tela de login (`Login.tsx`, variante clara
+  `logo-full-light.png` sobre o fundo escuro da tela).
+- **Booking** — logo completa em destaque na `Landing.tsx` (substituiu o placeholder `.hero-mark`
+  "B" + texto solto, já que a logo já traz "BIGOD'S BARBERSHOP" escrito); símbolo isolado
+  (`symbol-dark.png`) pequeno no `StepHeader` do funil (`App.tsx`), que antes não tinha marca
+  nenhuma.
+- **Account** — símbolo isolado no `.auth-mark` da tela de login (`Auth.tsx`) e no header da área
+  logada (`Header.tsx`), substituindo o "B" literal; wordmark "Bigod's Barber" adicionada acima do
+  subtítulo "Área do cliente" no login, no mesmo padrão de duas linhas do admin. `index.css` do
+  account não tinha a classe `.brand-wordmark` (admin e booking já tinham, idêntica) — adicionada
+  pra consistência.
+
+Cada app ganhou uma pasta `public/brand/` (nenhum dos 3 tinha `public/` antes) com
+`logo-full-dark.png`, `logo-full-light.png`, `symbol-dark.png`, `symbol-light.png` — recortados e
+redimensionados (900px/400px, bbox + padding) a partir dos originais 3000×3000 de `assets/brand/`.
+
+**Favicon (nenhum dos 3 apps tinha):** gerado a partir do símbolo isolado da marca
+(`logo-sem-escrita-classico.png`), composto sobre um quadrado opaco `--brand-gold-100` (`#f3e2c2`)
+— mesma linguagem visual dos badges circulares já usados em login/header. Gerados
+`favicon.ico` (multi-resolução 16/32/48), `favicon-16x16.png`, `favicon-32x32.png`,
+`apple-touch-icon.png` (180×180) e, como bônus, `icon-192.png`/`icon-512.png`. Referenciados nos
+3 `index.html`. Os `<title>` das abas já estavam corretos (nome + contexto) desde sessões
+anteriores — nenhuma mudança necessária aí.
+
+**⚠️ Limitação de asset, registrada conforme pedido:** o único arquivo "símbolo isolado" fornecido
+(`logo-sem-escrita-classico.png` / `logo-light-sem-escrita.png`) é uma marca horizontal larga
+(bigode + tesoura juntos, proporção ~2,8:1) — **não existe um ícone quadrado/compacto pronto** nos
+arquivos de marca. Pra caber num favicon sem distorcer nem esticar a arte, recortei só o bigode
+(excluindo a tesoura, ~79% da largura do bbox recortado) e centralizei sobre o fundo quadrado
+dourado. Verifiquei visualmente em 192px (ótimo) e 32px (ainda legível como silhueta de bigode,
+fino mas reconhecível) antes de finalizar. **Se você tiver — ou quiser gerar — uma versão quadrada
+oficial do símbolo (só o bigode, ou bigode+tesoura compactado), me manda que eu troco o favicon
+por ela**; o que está publicado hoje é o recorte mais sensato possível a partir do material
+existente, não a versão ideal.
+
+**Paleta nos elementos de destaque:** auditei (`grep` de hex literal fora do `index.css`) os 3
+apps em busca de cor "inventada" fora do sistema de tokens — não achei nenhuma; os poucos hex
+literais encontrados são `#fff` em texto sobre botão colorido e fallbacks defensivos de `var()`
+(`var(--state-success, #2e7d32)`). Botões primários, chips selecionados e destaques já usam
+`--accent-primary`/`--brand-*` consistentemente desde antes desta sessão — nada a reescrever aqui.
+
+**Verificação:** os 3 apps rodados localmente (`env-up.sh`) e conferidos por screenshot headless
+(login/landing de cada um, 430×900) — logo aparece certo, sem imagem quebrada, sem quebra de
+layout. Favicon e imagens de marca confirmadas com HTTP 200 nas 3 portas de dev. `npx turbo run
+build` — **5/5 pacotes verdes**; `dist/` de cada app conferido com favicons e `brand/` presentes
+(cópia estática do Vite via `public/`). Suíte completa (456 testes, 3 fusos) reconfirmada verde
+depois do build, sem nenhum arquivo em comum com a Parte 1.
+
+## Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅
+
+Suíte confirmada verde (456 testes, 3 fusos) antes de tocar em qualquer código.
+
+### Onde estava o gate
+
+Rastreei todos os pontos onde a ausência de `sub` condicionava envio ou verificação:
+
+| Ponto | O que fazia | Ação |
+|---|---|---|
+| `OtpIdentityProviderBase.iniciarLogin` | **O gate.** Telefone sem linha em `DemoIdentidade` recebia `desafio: ''` e `codigoDemo: null` — nenhum código enviado | **Removido.** Agora provisiona na hora (`garantirIdentidade`) e envia sempre |
+| `OtpIdentityProviderBase.confirmarLogin` | `if (!identidade) return null` | **Mantido** como defensivo — `iniciarLogin` garante a identidade antes de emitir desafio, então não bloqueia fluxo legítimo |
+| `CognitoIdentityProvider.iniciarLogin` | `UserNotFoundException` → resposta neutra | **Mantido** (provider não está no fluxo hoje); comentário corrigido — é defensivo, não gate, porque o caso de uso provisiona antes |
+| `IniciarLoginClienteUseCase` | Já provisionava antes de chamar o provider | Inalterado |
+| `Cliente.cognitoSub` / `ehUsuario` | Só leitura para `possuiConta` no painel + a escrita na confirmação | **Inalterado** — a coluna e a regra de escrita (§3.4, decisão #7) continuam iguais |
+| `services/whatsapp-otp` | Nenhum gate — envia para o JID normalizado | Inalterado |
+
+**Observação honesta sobre o sintoma:** o gate era real e estava lá, mas por
+`/conta/login/iniciar` ele já estava mascarado desde o commit `41bca6b`, porque
+`IniciarLoginClienteUseCase` provisiona a identidade antes de chamar o provider — e existe até
+teste de regressão para isso (`conta-cliente.e2e.spec.ts`, "bug 2"). Ou seja: **não consegui
+reproduzir a falha pela API nesta branch**. O gate seguia perigoso como código latente (qualquer
+chamador novo do provider o reencontraria) e foi removido como pedido. Se o sintoma está
+acontecendo em produção, vale conferir se a versão publicada é anterior a `41bca6b`, ou se o que
+o cliente vê é na verdade o 503 de "não foi possível enviar o código agora" (serviço de WhatsApp
+fora/sem sessão), que é um caminho de erro diferente e tem outra causa.
+
+### ★ Rate limit — o que existia e o que faltava
+
+Com o gate fora, o rate limit vira a única trava contra spam e queima do número.
+
+**Já existia:** limite por TELEFONE (5 por 10 min), via `TelefoneOuIpThrottlerGuard`, que usa o
+telefone do corpo como chave.
+
+**Faltava, e foi adicionado:** limite por ORIGEM. O guard escolhia telefone **ou** IP — e como as
+rotas de OTP sempre têm telefone no corpo, elas nunca eram limitadas por origem. Quem varresse mil
+números ganhava mil baldes de 5, todos dentro do limite: o sistema estava aberto a disparar
+WhatsApp em volume para desconhecidos. Agora há um throttler nomeado `otp-origem` (30/hora por
+origem, `OTP_LIMITE_POR_ORIGEM_HORA`), restrito por `skipIf` às rotas marcadas com `@EnviaOtp()` —
+o resto da API não ganhou limite novo nenhum.
+
+**Dois problemas achados no caminho, que tornariam o limite por origem inútil:**
+
+1. **`trust proxy` não estava ligado.** Em produção a API só é alcançada pelo Caddy, então
+   `req.ip` era o IP do container do proxy para **toda** requisição. Consequência que já existia
+   antes desta sessão: o teto global de 300/min do throttler `default` valia para a API inteira
+   somada, não por cliente — qualquer pico de uso legítimo poderia 429-ar todo mundo. Corrigido
+   com `trust proxy = 1` em `main.ts`.
+2. **`X-Forwarded-For` era acrescentado, não sobrescrito** (default do Caddy). Confiar nele assim
+   deixaria um cliente mandar o próprio cabeçalho e ganhar um balde novo a cada requisição,
+   furando o limite. `Caddyfile` agora usa `header_up X-Forwarded-For {remote_host}`.
+
+**Terceiro problema, no limite por telefone:** a chave era o telefone cru do corpo, então
+`11999998888`, `(11) 99999-8888` e `+5511999998888` eram três baldes diferentes para o mesmo
+número — bastava alternar formato para triplicar o limite. O tracker agora normaliza para E.164
+com o mesmo VO `Telefone` do domínio.
+
+### Testes (+11)
+
+`otp-sem-conta.e2e.spec.ts` (7): telefone inédito recebe código de verdade; verifica e **agenda**;
+verifica e **compra pacote**; entra no cockpit e vê home vazia; `sub` nasce só na confirmação (e
+não no envio) e casa com o da identidade; limite por telefone ainda corta na 6ª; trocar o formato
+do número não dá limite novo.
+
+`otp-limite-por-origem.e2e.spec.ts` (4): a mesma origem é cortada ao tentar disparar para N
+telefones **diferentes** (cada um no primeiro envio, então o limite por telefone não é o que
+corta); nenhuma mensagem sai além do limite; o limite **não vazou** para o resto da API (leituras
+públicas seguem 200); `login/confirmar` não é bloqueado pelo limite de envio.
+
+`whatsapp-identity-provider.e2e.spec.ts`: o teste "telefone não provisionado: resposta neutra,
+nada é enviado" **afirmava o gate** — foi invertido para afirmar a regra nova.
+
+**467 testes na API**, idênticos sob os 3 fusos.
+
+## Sessão órfã de cliente: 404 sem saída → 401 com recuperação (2026-08-14) ✅
+
+Achado durante smoke manual do funil: primeiro agendamento de um cliente falhava com
+**404 "Cliente não encontrado"**, sem caminho de volta.
+
+**Causa:** `ClienteGuard` validava só a assinatura HMAC do token — nunca conferia se o `Cliente`
+apontado por ele ainda existia. Um token bem assinado e dentro da validade (30 dias) apontando
+para um registro que sumiu passava pelo guard, e cada controller descobria o problema sozinho,
+devolvendo 404. Do lado do cliente virava um beco sem saída: o front considera a sessão válida
+(a assinatura confere de fato), **nunca refaz o OTP**, e todo agendamento falha com uma mensagem
+que não sugere ação nenhuma. No caso local o registro sumiu porque o banco foi recriado; em
+produção o mesmo acontece com exclusão a pedido do cliente, limpeza pelo admin ou restore de
+backup.
+
+**Correção:** sessão cujo dono não existe mais é sessão inválida — o guard passa a recusar com
+**401**. Um ponto só, valendo para todos os endpoints de `@ContaCliente()`. Os fronts já tinham o
+caminho de recuperação pronto (`App.tsx` do booking limpa a sessão local e reabre o OTP ao receber
+401), então ele passou a funcionar sozinho, sem mudança de front.
+
+Custo: uma leitura por chave primária a cada requisição autenticada de cliente — endpoints de
+cockpit/funil, volume baixo, e a maioria já carregava o `Cliente` logo em seguida.
+
+**Testes (+4):** `sessao-de-cliente-orfa.e2e.spec.ts` — token legítimo (login real), confirmado
+funcionando ANTES; o `Cliente` é apagado; agendar, comprar pacote e o cockpit passam a devolver
+401 (não 404); e refazer o OTP com o mesmo telefone destrava o fluxo ponta a ponta.
+
+**471 testes na API**, idênticos sob os 3 fusos.
+
+## Envio de WhatsApp para JID inventado — o buraco negro do nono dígito (2026-08-14) ✅
+
+Achado em smoke manual: código não chegava, **sem erro nenhum**. Nossa ponta reportava sucesso
+(inclusive o desafio era gravado no banco, o que só acontece depois do envio retornar OK) e o
+cliente ficava esperando.
+
+**Causa:** `services/whatsapp-otp` montava o JID por conta própria —
+`${digitos}@s.whatsapp.net`. Número de celular brasileiro tem o problema do nono dígito: o E.164
+que guardamos é `+55 11 9XXXX-XXXX`, mas o JID real de contas mais antigas costuma ser sem o 9.
+Mandar para um JID inexistente **não dá erro** no Baileys — ele aceita, responde OK, e a mensagem
+não chega a lugar nenhum.
+
+**Correção:** o JID passa a ser resolvido pelo próprio WhatsApp (`sock.onWhatsApp`), nunca
+inventado. Quando o JID canônico difere do número informado, isso vai para o log — sem esse
+registro a diferença entre "número certo" e "número que não recebe nada" é invisível.
+
+Número que não existe no WhatsApp virou erro explícito em vez de buraco negro: serviço responde
+**422**, `HttpWhatsAppOtpClient` levanta `TelefoneSemWhatsAppError` (distinto de
+`WhatsAppEnvioIndisponivelError`), e o provider devolve **400 "Esse número não tem WhatsApp.
+Confira o número digitado"** em vez do 503 "tente novamente em instantes". A distinção importa
+porque as duas situações pedem ações opostas: serviço fora → insistir resolve; número sem
+WhatsApp → insistir nunca resolve e ainda queima o rate limit do cliente.
+
+**Testes (+2):** 422 vira `TelefoneSemWhatsAppError` no cliente HTTP; provider devolve 400 (não
+503) e **não** persiste desafio órfão — mesma garantia que já valia para indisponibilidade.
+
+**473 testes na API**, idênticos sob os 3 fusos.
+
+> Nota operacional: mandar OTP para o MESMO número que hospeda a sessão do Baileys cai na conversa
+> "Mensagens para si mesmo", que não notifica como um chat normal — fácil de achar que não chegou.
+> Para validar entrega, use um segundo número.
+
+## Ajustes no funil público (2026-08-14) ✅
+
+Suíte confirmada verde (473 testes, 3 fusos) antes de tocar em qualquer código. Nenhuma mudança
+estrutural: precificação, lógica de pacote, desconto progressivo e funil único não foram tocados.
+
+### Onde ficou cada validação
+
+Regra geral pedida: validar nas DUAS pontas. Para não cair no anti-padrão "mesma regra em dois
+lugares", as regras vivem em **`packages/contracts/src/validacao.ts`** (TypeScript puro) e as duas
+pontas importam a MESMA função — o front chama direto, o back embrulha em `class-validator`
+(`apps/api/src/shared/presentation/validadores.ts`). Uma implementação, dois pontos de uso.
+
+| # | Item | Frontend | Backend |
+|---|---|---|---|
+| 1 | Celular BR válido (dígito pós-DDD = 9) | `Dados.tsx` (erro no blur) + botão só habilita se válido | `@EhCelularBrasileiro()` em `IniciarLoginDto`/`ConfirmarLoginDto` → **400** |
+| 2 | Label "Celular com WhatsApp" | `Dados.tsx` | — |
+| 3 | Nome mínimo | `Dados.tsx` | `@EhNomeDeCliente()` nos DTOs de agendamento e de pacote → **400** |
+| 4 | E-mail opcional | `Dados.tsx` (só valida se preenchido) | `@IsOptional() @EhEmail()` + coluna `Cliente.email` |
+| 5 | "Fale sobre você" opcional | `Dados.tsx` (textarea) | `@MaxLength(MAX_SOBRE_VOCE)` + coluna `Cliente.sobreVoce` |
+| 7 | Janela de hoje + 30 dias | `DataHora.tsx` (datas fora nem são clicáveis) | `assertDentroDaJanelaDeAgendamento` no `AgendarAvulsoUseCase` → **422** |
+
+Detalhes que valem registro:
+
+- **Telefone fixo é recusado** (8 dígitos após o DDD): o código vai por WhatsApp, e fixo nunca
+  receberia. A validação valida o primeiro dígito do NÚMERO, não o primeiro caractere digitado —
+  "11 99999-8888" é válido, "99 88888-7777" não.
+- **Nome**: mínimo de 3 caracteres com ao menos 2 letras distintas. Pega "a", "aa", "aaa" e "..."
+  sem barrar "Ana", "Léo" ou "Bia" — de propósito NÃO exigimos sobrenome.
+- **Opcionais nunca apagam**: `Cliente.atualizarDadosOpcionais` só sobrescreve o que veio
+  preenchido. Um agendamento posterior com os campos em branco preserva o que o cliente já disse.
+- **Janela de 30 dias** (`LIMITE_DIAS_AGENDAMENTO`, em contracts) vale só para auto-atendimento.
+  O admin passa `aplicarJanelaDeAgendamento: false` — mesmo critério já usado na cota de
+  presenciais.
+- **Item 5 vai até o barbeiro**: `AtendimentoDTO.cliente.sobreVoce` e `.email`, exibidos no
+  `AtendimentoDetalheDialog` do painel num bloco "O cliente contou". Guardar sem exibir seria
+  inútil, e é isso que o e2e verifica.
+
+### Seleção de data/horário
+
+- **Item 6 — dias sem horário riscados.** Endpoint novo `GET /public/dias?de&ate`, que resolve o
+  período inteiro em **duas queries** (janelas + atendimentos), agrupa por dia em memória e para no
+  primeiro slot livre de cada dia. O funil pede **uma requisição por semana visível**, nunca uma
+  por dia (seriam 30 para pintar um mês). O período é limitado à janela de agendamento para o
+  endpoint não virar varredor de agenda. Dia indisponível fica desabilitado e com o número riscado.
+- **Item 7** — datas além de hoje+30 não são selecionáveis, e a seta de "próxima semana" desliga
+  quando a semana seguinte já está toda fora.
+- **Item 8 — scroll.** A lista de horários virou um contêiner com `max-height: 46vh` e
+  `overflow-y: auto` (`.slots-scroll`), com `overscroll-behavior: contain`. Antes o scroll levava a
+  página inteira e o seletor de data saía da tela.
+
+### Telas de resumo, sucesso e inicial
+
+- **Item 9** — título "Serviços Realizados" acima da lista, no resumo do agendamento.
+- **Item 10** — "Pagar na barbearia" agora informa as formas aceitas no balcão.
+- **Item 11** — "Adicionar à minha agenda" com link do Google Agenda e download de `.ics`
+  (Apple/Outlook). Geração em funções puras (`lib/agenda.ts`), com instantes em UTC — o cliente
+  pode estar em outro fuso — e escape de RFC 5545 (vírgula do endereço quebraria o arquivo em
+  silêncio).
+- **Itens 12 e 13** — endereço + link do mapa nas telas finais e na tela inicial, com os canais
+  sociais. Centralizado em `lib/barbearia.ts`.
+
+### ⚠️ O que falta você preencher
+
+Tudo em `apps/booking/src/lib/barbearia.ts`. **Enquanto estiverem pendentes, os links
+simplesmente não são renderizados** — melhor não mostrar nada do que um @ inventado ou link morto:
+
+| Campo | Situação |
+|---|---|
+| Endereço | ✅ Preenchido (Av. Deputado Emílio Carlos, 2117 — São Paulo/SP) |
+| Link do Google Maps | ✅ Montado a partir do endereço; funciona. Se quiser o link oficial com avaliações, troque |
+| `instagram` | ❌ **PENDENTE** — o @ da barbearia |
+| `whatsapp` | ❌ **PENDENTE** — telefone público em E.164. (Não usei o número do serviço de OTP: aquele é descartável, não é o de contato) |
+| `googleUrl` | ❌ **PENDENTE** — perfil do Google com avaliações; hoje cai no link do mapa |
+| `formasDePagamentoPresencial` | ⚠️ **CONFIRMAR** — está com Dinheiro, PIX, Cartão de débito e Cartão de crédito (o exemplo que você deu). Confirme se é isso mesmo antes de considerar definitivo |
+
+### Fallout nos testes existentes (esperado, e corrigido)
+
+A validação estrita de celular quebrou ~50 testes que usavam telefones sintéticos inválidos (13
+dígitos, ou 10 sem o nono) — eles passavam porque o VO `Telefone` só exigia E.164 genérico.
+Normalizados para celulares BR reais (DDD + 9 + 8 dígitos). A janela de 30 dias quebrou os specs
+que agendavam em datas fixas de 2030/2031; passaram a usar `hoje + 20 dias`, relativo — o que é
+mais correto de qualquer forma, já que a disponibilidade é criada pelo próprio teste.
+
+**Testes (+20):** 12 em contracts (as regras de validação, cobrindo o que precisa ser barrado sem
+barrar cliente legítimo), 7 da janela de agendamento (colados nas bordas: aceita o último dia
+permitido, recusa o seguinte), 13 e2e do funil (validações na borda, gravação e exibição dos
+opcionais, disponibilidade de período, janela) e 6 no booking (.ics e Google Agenda: fuso e escape
+de RFC 5545). **493 testes na API**, idênticos nos 3 fusos; build verde nos 5 pacotes.
+
+## Funil único + desconto progressivo (2026-08-14) ✅
+
+Suíte confirmada verde (493 API + 65 fronts, 3 fusos) antes de tocar em qualquer código.
+
+### Fase 1 — A regra do desconto
+
+Combos como item de catálogo criavam decisão redundante: clicar em "Corte + Barba R$70", ou
+clicar em corte e barba separados? Dois caminhos, dois preços, mesmo resultado. Substituídos por
+desconto automático por **posição no carrinho**, com degraus e teto configuráveis pelo admin.
+
+**Ordem de aplicação — a ambiguidade se dissolve.** O enunciado pedia para escolher entre
+"maximizar o benefício" ou "uma ordem fixa". Na verdade a pergunta "qual é o 2º serviço?" **não
+tem efeito sobre o total**: os degraus são valores ABSOLUTOS, não percentuais, então o desconto
+total depende só de QUANTOS serviços o carrinho tem — nunca de qual foi clicado primeiro nem de
+qual é o mais caro.
+
+O que restava decidir era como repartir esse desconto **entre os itens** — e isso importa porque
+cada `ItemAtendido` guarda seu próprio `valorCobrado`, que é a base da comissão. O critério
+escolhido é **rateio proporcional ao preço de cada item**, o mesmo que `VendaDePacote` já usa
+para ratear o valor pago. Três consequências, todas desejadas:
+
+- **order-independent**: `{corte, barba}` dá exatamente o mesmo resultado que `{barba, corte}`,
+  item a item. Não existe "dois cálculos para o mesmo carrinho";
+- **máximo benefício**: o desconto configurado é sempre entregue por inteiro quando cabe;
+- **nunca negativo**: quem é mais caro absorve mais desconto, então um item barato nunca fica
+  devendo (o caso "barba de R$5 com degrau de R$10").
+
+**Invariantes garantidas** (mesmo rigor do rateio de pacote): `Σ descontos == descontoTotal`,
+nenhum item negativo, total nunca abaixo de zero — inclusive com tabela mal configurada.
+
+**Uma implementação, duas pontas.** O cálculo vive em `packages/contracts/src/desconto.ts`
+(centavos inteiros, sem framework): o funil precisa MOSTRAR o número que a API vai COBRAR, e duas
+implementações seriam duas verdades sobre dinheiro. O domínio da API embrulha em `Dinheiro` e
+checa as invariantes antes de o valor virar snapshot.
+
+**Onde ficou cada parte:**
+
+| Peça | Arquivo |
+|---|---|
+| Regra pura (centavos) | `packages/contracts/src/desconto.ts` |
+| Fronteira do domínio (Dinheiro + invariantes) | `apps/api/src/modules/catalog/domain/desconto-progressivo.ts` |
+| Persistência (degraus + teto) | `DegrauDeDesconto` + `Company.descontoTetoCentavos` |
+| Aplicação | `AgendarAvulsoUseCase` — depois de `precoDeReferencia`, sobre o preço do barbeiro |
+| Config do admin | `GET/PUT /parametros/desconto` + seção em Ajustes |
+| Exibição no funil | preço cheio riscado por item, faixa "você está economizando", dica do próximo degrau |
+
+### O que aconteceu com os combos antigos
+
+**Nada foi deletado nem desativado automaticamente.** No banco local só existem "Corte" e
+"Barba" — os combos existem apenas em produção, e eu não tenho como distinguir com segurança um
+`Servico` "combo" de um serviço legítimo com "+" no nome. Desativar por heurística de nome seria
+arriscado em sistema em produção.
+
+**A ação é sua, e é de um clique:** Catálogo → o serviço combo → "Desativar". O toggle já
+existia. Desativar (nunca deletar) é o caminho certo porque:
+
+- `Servico.ativo = false` só impede **novos** agendamentos — a borda recusa com 400;
+- o histórico não depende do catálogo: `ItemAtendido.valorCobrado` é snapshot do que foi
+  cobrado, e não é recalculado por nada.
+
+**A prova está em teste** (`desconto-progressivo.e2e.spec.ts`): um atendimento é criado com um
+serviço-combo de R$70; depois o combo é desativado E a tabela de desconto é alterada
+radicalmente (degrau de R$99,99); o teste relê os itens gravados e confirma que continuam
+idênticos, R$70. Um segundo teste confirma que o serviço desativado não pode mais ser agendado,
+mas continua existindo (não foi deletado).
+
+### Fase 2 — Funil único
+
+A entrada tinha dois botões ("Agendar horário" / "Comprar um pacote"), obrigando o cliente a
+decidir antes de ver preço de qualquer um. Agora a entrada tem um caminho só, e depois de
+escolher o barbeiro **uma tela** mostra o **Bigod's Club** no topo (vitrine das ofertas aprovadas
+daquele barbeiro, com a economia vs. avulso) e os **serviços avulsos** abaixo, com o desconto
+progressivo.
+
+**Apresentação unificada, transações separadas** — o princípio foi respeitado literalmente: não
+existe carrinho híbrido. A separação é garantida no estado do funil: escolher um pacote zera
+`servicoIds`/data/hora; mexer nos serviços zera a oferta selecionada. Nunca há os dois
+preenchidos ao mesmo tempo, e cada escolha cai no fluxo que já existia (pacote → `VendaDePacote`
+com pagamento online; avulso → `Atendimento` com agenda).
+
+`Pacote.tsx` (a tela separada) foi removido; quem tinha progresso salvo no passo antigo é migrado
+para a tela unificada em `sanitizarEstadoCarregado`, com teste.
+
+"Bigod's Club" é só rótulo de marca sobre os pacotes existentes — sem mensalidade, status de
+membro ou benefício recorrente (DECISOES_PENDENTES #30).
+
+### Testes (+30)
+
+14 em contracts (a regra: degraus, teto, ordem irrelevante, arredondamento hostil com preços
+primos, varredura de combinações, item nunca negativo, tabela absurda), 14 e2e na API (config e
+suas recusas, valores REALMENTE GRAVADOS para 1/2/3/4 serviços, teto, dois barbeiros com bases
+diferentes, e os dois testes de snapshot histórico) e 2 no booking (migração do passo antigo).
+
+**507 testes na API**, 26 em contracts, 21 no booking — verdes nos 3 fusos, build verde nos 6
+pacotes.
+
+### ⚠️ Decisão que precisa da sua confirmação
+
+**Comissão sobre valor com ou sem desconto?** Hoje o desconto abate o `valorCobrado` do item, e a
+comissão sai dele — ou seja, **o barbeiro divide o desconto com a casa**. Num carrinho de R$75
+com R$10 de desconto, a comissão incide sobre R$65. Foi a consequência natural de o snapshot ser
+"o que foi realmente cobrado", mas é decisão de negócio, não técnica. A alternativa (casa banca
+sozinha) exige guardar o preço cheio como segundo snapshot. Registrado em DECISOES_PENDENTES #29.
+
+### Roteiro de smoke test manual
+
+Configure primeiro em **Ajustes → Desconto progressivo**: 2º = R$10, 3º = R$15, 4º = R$20, teto
+R$40. Os casos de dinheiro são os que importam:
+
+| # | O que fazer | Resultado esperado |
+|---|---|---|
+| 1 | Funil → escolher barbeiro | Bigod's Club no topo com os pacotes DELE; serviços abaixo. Nenhum botão "Comprar pacote" na entrada |
+| 2 | Selecionar só 1 serviço (Corte R$40) | Sem desconto. Total R$40. Aparece a dica "adicione mais um e ganhe R$10" |
+| 3 | Adicionar Barba (R$30) | Faixa "🎉 Você está economizando R$10", cheio R$70 riscado, total **R$60** |
+| 4 | Ir até a Confirmação | Cada item com o preço cheio riscado ao lado do cobrado; total R$60 |
+| 5 | Confirmar (presencial) e abrir no painel | Valor do atendimento **R$60**, e a soma dos itens bate exatamente |
+| 6 | Repetir com 4 serviços | Desconto para em **R$40** (teto), mesmo que os degraus somem R$45 |
+| 7 | Trocar a ordem de clique dos mesmos serviços | Total idêntico, centavo a centavo |
+| 8 | Repetir com um barbeiro que tenha preço próprio | Mesmo desconto em reais, base diferente (ex.: R$110 → R$100) |
+| 9 | Escolher um pacote no clube | Vai direto para Dados → Confirmação de **compra** (sem data/hora), pagamento PIX obrigatório |
+| 10 | Voltar da Confirmação de pacote | Cai na tela unificada; ao clicar num serviço, a oferta é abandonada (nunca os dois juntos) |
+| 11 | Abrir um atendimento ANTIGO feito com combo | Valor original intacto, mesmo depois de desativar o combo |
+
+## Avulso online dispensa o OTP (2026-08-14) ✅
+
+Ajuste pedido depois da sessão do funil único: **escolhendo "Pagar agora (PIX na hora)", o
+cliente não precisa mais fazer o OTP.** Antes os dois caminhos exigiam.
+
+**Por que é seguro nesse caminho, e só nele.** O OTP existia para fechar a "agenda falsa"
+(qualquer telefone digitado segurava horário sem provar posse). No avulso online essa trava já
+existe por outro mecanismo: a reserva nasce `RESERVADO` com prazo de 10 min e **morre sozinha se
+o PIX não confirmar**. Quem marcar de brincadeira não trava nada — o horário volta. No
+presencial não há nada disso: o horário fica FIRME sem pagamento nenhum, então lá o OTP continua
+sendo a única prova de que o telefone é real.
+
+| Caminho | OTP | Por quê |
+|---|---|---|
+| Avulso **online** (PIX) | **dispensado** | reserva temporária + pagamento já travam a agenda falsa |
+| Avulso **presencial** | exigido | segura horário firme sem pagar nada |
+| **Pacote** | exigido | o crédito vive na conta do cliente — sem telefone provado, ele não acessa depois |
+
+**O que ficou blindado** (é o risco real dessa mudança):
+
+- **Sessão vence o corpo.** Havendo sessão, o telefone vem SEMPRE dela e o do corpo é ignorado.
+  Sem isso, um cliente verificado poderia marcar em nome de outro número e a agenda falsa
+  voltaria por outra porta. Tem teste que tenta exatamente isso e confirma que o agendamento
+  fica no telefone da sessão, e que o número do terceiro não vira cliente nenhum.
+- **Token ruim não vira anônimo.** `ClienteGuardOpcional` trata token AUSENTE como anônimo, mas
+  token presente e inválido/expirado/órfão continua 401. Tratar token ruim como anônimo faria
+  uma sessão expirada criar em silêncio um agendamento sem dono — e mataria o caminho de
+  recuperação (401 → o front limpa a sessão e refaz o OTP).
+- **Telefone continua validado** como celular BR na borda, mesmo anônimo.
+- **Rate limit por origem** (30/10min no endpoint) segue como rede de proteção do caminho
+  anônimo — agora ele importa mais, porque o OTP não protege mais essa rota.
+
+**O que o cliente perde ao pular o OTP:** não ganha sessão no cockpit (precisa fazer login por
+OTP depois para ver o agendamento) e a confirmação por WhatsApp vai para um número que ninguém
+provou ser dele. Foi a troca aceita para reduzir atrito no caminho que já se paga.
+
+**Testes (+9):** online sem token agenda e gera PIX; a reserva nasce temporária; sem telefone no
+corpo → 400; telefone não-celular → 400; presencial sem token → 401 e nada é criado; default sem
+`formaPagamento` também exige; presencial com token nasce `AGENDADO` (firme); sessão vence o
+corpo; token inválido → 401. **516 testes na API**, verdes nos 3 fusos.
+
+## Barbeiro e aprovação — Fases 2 e 3 (2026-08-14) ✅ / Fases 1 e 4 bloqueadas ⛔
+
+Suíte confirmada verde (516 API + 65 fronts, 3 fusos) antes de tocar em qualquer código.
+
+### ⛔ FASE 1 (fotos) — PAREI, como você pediu
+
+Você instruiu: *"O projeto JÁ TEM object storage configurado — use o que existe. Se não encontrar
+a config de storage, PARE e reporte em vez de inventar."* **Não existe.** O que existe é outra
+coisa:
+
+| O que existe | O que NÃO existe |
+|---|---|
+| 3 buckets S3 (`bigods-admin/booking/account`), privados, servindo o **build estático** dos fronts via CloudFront | Bucket para uploads da aplicação |
+| Escrita neles pelo `scripts/deploy-frontends.sh`, com credencial **da sua máquina**, no deploy | SDK de S3 na API (`@aws-sdk/client-s3` não está instalado — só o do Cognito) |
+| | Qualquer tratamento de upload (sem multer, sem `FileInterceptor`, sem multipart) |
+| | Credencial/role da API (EC2) com permissão de escrita em bucket |
+
+E um detalhe que torna a confusão perigosa: o deploy roda
+`aws s3 sync apps/<app>/dist s3://<bucket> --delete`. Se as fotos fossem parar num desses
+buckets, **o próximo deploy de frontend apagaria todas** — o `--delete` remove tudo que não está
+no `dist/`.
+
+**O que falta para destravar** (decisão sua, não invento):
+1. Criar um bucket dedicado a uploads (ex.: `bigods-uploads`), separado dos de frontend;
+2. Dar à role da EC2 permissão de `s3:PutObject`/`DeleteObject` **só nesse bucket**;
+3. Definir como a imagem é servida — CloudFront próprio na frente do bucket, ou URL assinada.
+
+Com isso definido, a Fase 1 é direta: `@aws-sdk/client-s3` + endpoint de upload (validando tipo e
+tamanho, redimensionando com `sharp`) + `Barbeiro.fotoUrl` + foto no funil com fallback para as
+iniciais. Não escrevi nada disso para não deixar código morto apontando para bucket inexistente.
+
+### ⛔ FASE 4 — o enunciado chegou truncado
+
+A mensagem termina no meio da frase: *"Agendamento PRESENCIAL de um cliente que JÁ é 'da casa'
+daquele barbeiro: APROVADO AUTOMATICAMENTE (sem passo de"*. Faltam as regras finais. Não
+implementei porque as perguntas em aberto mudam o modelo de estados:
+
+- O `Atendimento` ganha um estado novo (`PENDENTE_APROVACAO`) ou um campo de aprovação separado?
+  Estado novo mexe na máquina de estados (§4.1) e em tudo que filtra por `AGENDADO`.
+- Agendamento pendente **ocupa o horário** enquanto aguarda? (Se sim, vira o mesmo problema da
+  "agenda falsa"; se não, dois clientes podem pedir o mesmo horário.)
+- Tem prazo para o barbeiro responder? O que acontece se ele não responder?
+- Recusa: o horário volta a ficar livre? O cliente é avisado como?
+- Vale também para o avulso ONLINE, ou só presencial (que é o que você citou)?
+
+A Fase 3 está pronta, então a Fase 4 pode ser feita direto quando você mandar o resto.
+
+### ✅ FASE 2 — "Não tenho preferência" (commit `bcc33bb`)
+
+Nova opção na escolha de barbeiro (só aparece com mais de um). A partir dela o funil pede a
+**união** dos horários de todos os barbeiros ativos que atendem **todos** os serviços do carrinho,
+e o barbeiro é atribuído **na confirmação**, pelo servidor — não na listagem, porque entre ver o
+horário e confirmar a agenda pode mudar.
+
+**Cascata** (`regra-atribuicao-de-barbeiro.ts`, pura e testada): menor comissão → menos
+agendamentos no dia → aleatório. Só entram candidatos que atendem todos os serviços, têm janela
+que comporta o atendimento inteiro e não têm conflito — a cascata só desempata entre quem já pode
+atender. O sorteio do último critério opera sobre lista ordenada por id, para "aleatório" não
+virar "depende da ordenação do Postgres".
+
+**Interpretação que precisa da sua confirmação:** "menor comissão" está medida em **centavos**
+(preço dele × percentual efetivo dele, por serviço, somado), não em percentual puro. Como preço
+também é por barbeiro, só o valor em dinheiro representa o custo real da casa — um barbeiro com
+40% sobre R$50 (R$20) sai mais barato que outro com 30% sobre R$80 (R$24). Registrado em
+DECISOES_PENDENTES #31; trocar é mudar só o número que entra na cascata.
+
+**Preço sem mentira:** como preço é por barbeiro, o valor só é conhecido depois de atribuir. O
+funil mostra **"a partir de"** e um aviso explícito de que pode variar conforme quem atender; a
+resposta da API traz o barbeiro atribuído e o valor efetivamente cobrado, e a tela de sucesso
+mostra os dois ("Escolhemos Gabriel para te atender · R$65").
+
+Consultas globais em duas queries, não uma por barbeiro.
+
+### ✅ FASE 3 — Cliente "da casa"
+
+Relação **barbeiro ↔ cliente** (`ClienteDaCasa`, chave composta), nunca um flag no cliente: o
+cliente é da casa DO Gabriel, e isso vale só na agenda dele. Sem status e sem soft-delete — ou a
+linha existe ou não existe; marcar/desmarcar são idempotentes.
+
+**Autorização no backend, não em botão escondido:** um barbeiro só mexe na própria relação —
+mandar o `barbeiroId` de outro no corpo devolve **403**, e há teste que tenta exatamente isso. O
+admin gerencia a de qualquer um e é o único que enxerga todas as relações de um cliente (para um
+barbeiro, de quem mais o cliente é "da casa" não é informação dele).
+
+Nas leituras, `daCasa` é sempre relativo a quem pergunta: em `ClienteDTO` é a relação com o
+usuário logado; em `AtendimentoDTO.cliente` é a relação com o barbeiro daquele atendimento — que
+é o que o painel usa para o botão "Marcar como cliente da casa de {barbeiro}".
+
+### Testes (+28)
+
+8 da cascata de atribuição (ordem dos critérios, um critério nunca atropela o anterior,
+determinismo do sorteio), 9 e2e de "sem preferência" (união dos horários, quem não atende todos
+os serviços fica fora mesmo com comissão menor, o atribuído está realmente livre, preço coerente
+com o atribuído, ninguém livre → 422) e 11 e2e de cliente da casa (a marca é por barbeiro,
+idempotência, e os quatro casos de autorização). **544 testes na API**, verdes nos 3 fusos; build
+verde nos 5 pacotes.
+
+## Order-bump no funil — "Adicione à sua visita" (2026-08-17) ✅
+
+Suíte confirmada verde (558 API + 33 booking) antes de tocar em qualquer código. Um order-bump só
+na confirmação do funil avulso, dois tipos de item — **produtos** (que já existiam no catálogo mas
+não apareciam no funil) e **serviços complementares** (ex.: corte → oferecer barba). Objetivo do
+dono: vender produto, aumentar ticket. Decisão dele desde o início: **começar SIMPLES, sem motor
+de regras condicionais** — isso ficou de fora de propósito (DECISOES_PENDENTES #32/#33).
+
+**Configuração admin:** um toggle por item, `sugeridoNoBump: sim/não`, em `Servico` e `Produto`
+(mesma tela de Catálogo, botão "Sugerir no bump"/"Tirar do bump" ao lado do já existente
+Ativar/Desativar). Uma lista geral — sem segmentação por serviço escolhido ou por barbeiro, além
+do filtro óbvio: `GET /public/order-bump` já exclui o que o barbeiro escolhido não atende, e o
+front nunca sugere um serviço complementar que o cliente já tem no carrinho.
+
+**Preço sem caminho paralelo (o ponto mais delicado da sessão):**
+- Serviço-bump não tem cálculo próprio — adicionar um é literalmente colocar o id na MESMA lista
+  `servicoIds` que a tela de serviços usa. Entra no desconto progressivo e usa o preço DO
+  BARBEIRO exatamente como um serviço escolhido do jeito normal; provado por teste e2e que agendar
+  "corte + barba direto" e "corte + barba pelo bump" gera o MESMO `valorTotalCentavos` e os MESMOS
+  valores gravados em `ItemAtendido`.
+- Produto-bump reusa o mecanismo do walk-in add-on (`ItemProdutoAtendido`) — só que agora
+  disponível já na CRIAÇÃO do agendamento, não só entre agendar e concluir. Snapshot do preço no
+  momento (mudar o preço do produto depois não altera o que já foi gravado — testado); comissão de
+  produto do barbeiro sai normal na conclusão, porque o handler de comissão não distingue produto
+  anexado na criação de produto anexado depois.
+- **Online:** o total do produto/serviço do bump entra na MESMA transação que calcula o valor da
+  `IntencaoDePagamento` — o QR PIX já nasce com o total certo (serviços + bump), nunca é gerado
+  primeiro e "completado" depois. Testado lendo o valor embutido no `copiaECola` do gateway fake e
+  comparando com `intencaoDePagamento.valorCentavos`.
+- **Presencial:** bump soma no valor total (a cobrar no balcão), sem gerar PIX nenhum.
+- Pacote não tem order-bump: é crédito pré-pago sem `Atendimento` para anexar nada.
+
+**Também na tela de sucesso do avulso** (pedido explícito do dono: "depois de tudo, oferecer o
+Bigod's Club"): reusa o MESMO componente `BigodsClub` do topo do funil, com um handler novo
+(`comprarPacoteDoClub`) que bifurca pra uma compra de pacote nova, preservando nome/telefone/email
+já digitados e resetando o resto — o agendamento que acabou de fechar é estado terminal, a compra
+do clube é uma transação nova e separada, nunca um carrinho híbrido.
+
+**Bug pego durante a implementação, corrigido antes de virar problema real:** a tela de espera do
+PIX calculava o valor exibido recomputando o total localmente (`totalAvulsoComDesconto()`), que
+não sabia nada sobre produto do bump — mostraria um valor MENOR que o realmente cobrado assim que
+o primeiro bump de produto fosse usado. Corrigido para usar `estado.valorFinalCentavos` (o que a
+API já confirmou) como fonte, com o recompute local só como fallback antes da resposta chegar.
+
+**Handler de toggle do serviço-bump é dedicado, não reaproveita o da tela de Serviços:** o
+`toggleServico` da tela normal zera `data`/`horaInicio` de propósito (mudar seleção ali invalida o
+horário escolhido) — reusar ele na confirmação apagaria o horário já escolhido no meio do bump.
+`toggleServicoBump` faz a mesma mutação de `servicoIds`, sem esse reset; se a duração extra não
+couber mais no horário, o backend recusa normalmente na hora de confirmar.
+
+### Testes (+13)
+
+6 de domínio (`Atendimento` nasce com produtos já na criação, quantidade inválida rejeitada,
+produto não mexe no intervalo, evento de conclusão carrega o snapshot correto) e 8 e2e de dinheiro
+num arquivo dedicado (`order-bump.e2e.spec.ts`): vitrine só mostra o que está marcado e o que o
+barbeiro atende, admin liga/desliga muda a vitrine, serviço-bump = mesmo preço que selecionar
+direto, produto-bump com snapshot e comissão corretos, snapshot sobrevive a mudança de preço
+depois, produto inativo recusado, e os dois casos de pagamento (online recalcula o PIX antes do
+QR, presencial soma no valor do balcão). +3 de lógica pura no front (`servicosSugeridosDoBump`).
+**558 testes na API, 36 no booking**, verdes nos 3 fusos (`npm run test:multitz -w @bigods/api`);
+build verde nos 5 pacotes.
+
+### Roteiro de smoke test manual (foco em dinheiro)
+
+1. No admin (Catálogo), marque um serviço (ex. Barba) e um produto (ex. Shampoo) como "no bump".
+2. No funil, selecione só Corte, avance até Confirmação. A seção "Adicione à sua visita" deve
+   mostrar Barba e Shampoo — nunca um serviço que você já tenha selecionado na tela anterior.
+3. Toque em Barba: o "Total" da confirmação deve subir exatamente o preço de Barba (menos o
+   desconto progressivo do 2º serviço, se a tabela estiver configurada) — o MESMO valor que dá se
+   você voltar e selecionar Barba na tela de Serviços em vez do bump.
+4. Toque em Shampoo: o "Total" sobe o preço cheio do produto, sem desconto (produto não entra no
+   desconto progressivo).
+5. Escolha "Pagar agora" (online) e confirme: o QR PIX tem que refletir o total com os dois bumps
+   somados — confira contra o valor mostrado na tela de espera.
+6. Repita com "Pagar na barbearia": sem QR, mas o valor final (na tela de sucesso, se exibido, ou
+   no painel admin) tem que incluir os bumps.
+7. No painel admin, confira o atendimento criado: o item de produto deve aparecer anexado, e ao
+   concluir o atendimento, a comissão de produto do barbeiro deve aparecer no extrato dele.
+8. Na tela de sucesso de um agendamento avulso (não-pacote), confirme que o Bigod's Club aparece
+   no fim — e que escolher um pacote ali abre uma compra nova, não mistura com o agendamento que
+   acabou de fechar.
+
+## Reorganização do admin — Parte 1 (2026-08-17) ✅
+
+Suíte confirmada verde (566 API + 38 booking, 3 fusos) antes de tocar em qualquer código.
+Parte de baixo risco, feita e commitada **separadamente** da Parte 2 (order-bump rico) a pedido
+do dono — pra dar pra distinguir o que quebrou o quê.
+
+### 1a. CRUD de catálogo padronizado (serviços, produtos e ofertas)
+
+Antes, as três telas eram três variações visuais do mesmo CRUD, cada uma com botões soltos na
+linha ("Editar preço", "Desativar", "Sugerir no bump", "Aprovar", "Rejeitar") que iam empurrando o
+card conforme cresciam. Agora existe **um componente só** (`apps/admin/src/components/crud.tsx`):
+
+- `ItemDeCatalogo` — linha com anatomia fixa: título · subtítulo · badges · **um** menu "⋯".
+- `MenuDeAcoes` — as ações do item, fechando ao clicar fora/Esc.
+- `CabecalhoDeCatalogo` e `EstadoDaLista` — o topo (descrição + atualizar + "novo") e o trio
+  carregando/erro/vazio, que as três telas repetiam à mão.
+
+Serviços e produtos ganharam **editar de verdade**, num diálogo único que serve criar e editar.
+Ofertas de pacote passaram a usar a mesma linha e o mesmo menu — aprovar/rejeitar viraram itens
+do menu em vez de mais dois botões na linha. Nada deleta: a ação destrutiva continua sendo
+soft-disable (`ativo: false`), porque histórico de atendimento/comissão referencia o item.
+
+**Bug de backend encontrado no caminho:** `PATCH /servicos/:id` já **aceitava** `nome` no DTO e
+**descartava em silêncio** — o agregado `Servico` nunca teve `atualizarNome`. Duração não era
+editável de jeito nenhum. Os dois foram implementados (`atualizarNome`, `atualizarDuracao`), com
+teste e2e provando que editar o catálogo **não** reescreve atendimento já marcado (valor e duração
+são snapshot em `ItemAtendido`, §3.5).
+
+### 1b. Reembolsos: de "Pacotes & Ofertas" para o Financeiro
+
+Reembolso é dinheiro saindo da casa — pertence junto de comissão/vale/pagamento, não no meio do
+catálogo de pacotes. A tela virou `screens/Reembolsos.tsx` e é uma sub-aba do Financeiro (só
+admin, mesmo escopo de antes). **Nenhuma regra de reembolso mudou** — mesmo endpoint, mesmo caso
+de uso (§8.7); só o lugar onde o admin acessa.
+
+### 1c. Nova seção "Funil de Vendas"
+
+Nova aba (admin-only) que separa **merchandising do funil público** do **cadastro** em si. Nasce
+abrigando a configuração do order-bump, que antes era um botão solto dentro do CRUD de serviços e
+produtos — decidir "isto é oferecido no fechamento do pedido" é decisão de venda, não de cadastro,
+e ficava invisível ali no meio. Mostra serviços e produtos ativos separados por tipo, com contador
+de quantos itens estão na vitrine. É a casa onde a Parte 2 mora.
+
+Com 7 abas na barra de 430px, os rótulos foram encurtados ("Pacotes & Ofertas" → "Pacotes") e a
+`.bottom-nav` ganhou `min-width: 0` + ellipsis — sem isso um rótulo longo espremia os vizinhos e a
+barra deixava de dividir o espaço igualmente.
+
+### Testes (+8)
+
+3 de domínio (`Servico.atualizarNome` incluindo rejeição de nome vazio, `atualizarDuracao`) e 5
+e2e num arquivo dedicado (`catalogo-crud.e2e.spec.ts`): renomear funciona de verdade, duração é
+editável, borda recusa nome vazio/duração não-positiva, CRUD de produto com soft-disable, e o
+teste que importa — **editar o catálogo não mexe em atendimento já marcado**. **574 testes na
+API**, verdes nos 3 fusos; build verde nos 5 pacotes.
+
+## Order-bump rico — Parte 2 (2026-08-17) ✅
+
+Commit separado da Parte 1, como o dono pediu. Aqui mexe em dinheiro.
+
+O order-bump deixou de ser um "aparece: sim/não" e virou **parametrizável por item**: preço
+promocional, chamada customizável e ordem de exibição. Sem motor de regras condicionais — continua
+sendo "este item, sempre, para todo mundo, com esta oferta" (DECISOES_PENDENTES #32).
+
+### ★ A regra de preço do bump de serviço (o ponto mais delicado)
+
+**Um item do carrinho recebe exatamente UMA regra de preço, nunca duas:**
+
+| Situação | Preço |
+|---|---|
+| Serviço escolhido na tela de serviços | preço do barbeiro + desconto progressivo |
+| Serviço do bump **com** preço promocional | o promocional, cravado — **fora** da escada progressiva |
+| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal |
+
+O item promocional sai também da **contagem de posições** da escada. Se contasse, adicionar um item
+já descontado aprofundaria o desconto dos outros — desconto sobre desconto, com o total dependendo
+de quem entrou primeiro. Fora da escada, adicionar um bump é sempre exatamente "+ preço
+promocional", e **nada mais no carrinho muda**. É isso que torna o preço previsível.
+
+Duas travas fecham o resto: `min(promocional, preço do barbeiro)` — promoção **nunca vira
+acréscimo**, mesmo que um barbeiro cobre menos que o promocional configurado sobre a referência da
+casa; e o que se **persiste** é sempre o preço final em centavos, nunca o percentual (a UI aceita
+as duas entradas, mas percentual persistido faria a oferta se mover sozinha quando o catálogo
+mudasse).
+
+O cálculo mora numa função só — `precificarCarrinhoDoFunil` em `@bigods/contracts` — usada pelo
+funil e pela API. Duas implementações seriam duas verdades sobre dinheiro.
+
+⚠️ **Mudança consciente em relação à Parte 1:** ali valia "adicionar barba pelo bump ou pela tela de
+serviços dá exatamente o mesmo preço". Com preço promocional isso deixa de valer **de propósito** —
+a oferta só existe no fechamento do pedido, e é esse o incentivo. O princípio que continua valendo
+é o de trás: um item, uma regra de preço.
+
+### Modelagem
+
+Novo agregado `ItemDeOrderBump` (DOMAIN.md §3.13) em vez de mais colunas em `Servico`/`Produto`: a
+configuração e as invariantes são as MESMAS para os dois tipos, e duplicá-las nos dois agregados
+seria a mesma regra em dois lugares. `precoDeVenda(precoBase)` é o **único** lugar onde o preço do
+bump é decidido — vitrine pública e cobrança chamam o mesmo método.
+
+Migration **aditiva**: cria a tabela e copia todo `sugeridoNoBump = true` para ela, então a vitrine
+em produção continua idêntica depois do deploy. As colunas antigas ficaram no banco, deprecadas e
+sem leitor, para rollback seguro (DECISOES_PENDENTES #35) — mas o **código** que as lia/escrevia foi
+removido por inteiro (DTOs, controllers, agregados), porque deixar um `PATCH` que grava numa coluna
+que ninguém lê é pior que remover: parece que funciona.
+
+### Remoção sem refazer o funil
+
+Adicionar e remover são o mesmo toque, na confirmação, e o total atualiza na hora — antes, tirar um
+complemento obrigava a recomeçar. Um serviço adicionado pelo bump continua visível na vitrine
+(marcado como escolhido) justamente para poder ser removido ali.
+
+**O caso difícil — remover depois do QR gerado:** editar o carrinho por baixo de um PIX já emitido
+cobraria o valor errado, e emitir um segundo QR sem matar o primeiro deixaria dois códigos vivos
+para o mesmo horário. "Alterar meu pedido" **desfaz a tentativa** no servidor
+(`CancelarReservaOnlineUseCase`): expira a intenção (QR antigo morre) e libera a reserva do
+horário, na mesma transação — a mesma dupla atômica de `ExpirarPagamentoVencidoUseCase`, só que
+disparada pelo cliente em vez de por timeout. Confirmar de novo emite um QR novo pelo valor certo.
+Reserva já **paga** não é cancelável por aí.
+
+### Testes (+46)
+
+13 do cálculo compartilhado em `@bigods/contracts` (`precificarCarrinhoDoFunil`: promoção não
+empilha com a escada, item promocional não conta posição, `min` blinda acréscimo, total nunca
+negativo, Σ itens == total, ordem não muda nada), 12 do agregado `ItemDeOrderBump` (invariantes de
+oferta, `precoDeVenda`), 13 e2e de dinheiro (`order-bump-rico.e2e.spec.ts`) e 8 de front
+(`promocionaisDoBump`, `alternarServicoNoBump`, remoção na vitrine). Os e2e cobrem exatamente o que
+o dono pediu: admin configura → funil exibe com % correto; adicionar aplica o promocional;
+**remover volta o total ao certo**; online adiciona-e-remove → **o QR reflete o valor final, nunca
+o intermediário**; e o bump de serviço é determinístico.
+
+**599 testes na API**, verdes nos 3 fusos; 46 no booking, 37 em contracts, 18 no admin; build verde
+nos 5 pacotes.
+
+### Roteiro de smoke test manual (foco em cálculo e remoção)
+
+1. **Admin → Funil de Vendas → Order-bump.** Configure a Barba com desconto: teste as duas entradas
+   (preço final e %) e confira que o card mostra o preço riscado + o novo. Ponha uma chamada
+   ("Aproveita e faz a barba!") e ordem 1. Configure um produto igual.
+2. Tente salvar uma oferta MAIOR que o preço normal — tem que ser recusado (seria acréscimo).
+3. **Funil → só Corte → Confirmação.** A seção deve aparecer com pegada de oferta: preço normal
+   riscado, promocional em destaque, selo "−X%", sua chamada.
+4. **Adicione a Barba pelo bump.** O total tem que subir **exatamente o preço promocional** — o
+   Corte não pode mudar de preço (é isso que prova que não há cascata de desconto).
+5. **Compare:** volte, selecione a Barba na tela de Serviços (não pelo bump) e confirme. Agora sim
+   ela entra no desconto progressivo, com preço diferente do bump. Os dois números têm que bater
+   com o que a tela mostrou em cada caso.
+6. **Remova** o bump na confirmação (link "remover" ao lado do item). O total volta na hora, sem
+   refazer nada do funil.
+7. **Online:** adicione o bump, escolha "Pagar agora", gere o QR. Confira o valor. Toque em
+   **"← Alterar meu pedido"**, remova o bump, confirme de novo: o novo QR tem que vir com o valor
+   MENOR, e o QR antigo não pode mais ser pago (tente "Simular pagamento" no antigo — não existe
+   mais; a reserva foi liberada).
+8. **Barbeiro mais barato:** se algum barbeiro tem override de preço abaixo do promocional, abra o
+   funil com ele — o bump deve mostrar o preço DELE, nunca o promocional mais caro.
+9. **Painel:** conclua um atendimento com produto do bump e confira no extrato que a comissão de
+   produto saiu sobre o valor **promocional**, não sobre o de tabela.
+
+## Pacote é da empresa — barbeiro dono extinto (2026-08-18) ✅
+
+Fecha o que a sessão anterior tinha começado pela metade. O dono foi explícito: *"não terá mais
+nenhum vínculo do pacote com o Barbeiro […] não terá mais barbeiro dono de pacote, isso será
+extinto. A única regra é: quando o cliente selecionar o barbeiro x e comprar um pacote com ele
+selecionado, só ele poderá atender serviços daquele pacote."*
+
+### O que foi extinto
+
+| Antes | Agora |
+|---|---|
+| `PacoteOferta.barbeiroId` (dono/autor) | **extinto** — a oferta é da empresa |
+| Cada barbeiro com o próprio catálogo | catálogo único da casa, cadastro **admin-only** |
+| Composição limitada ao que o dono atende | qualquer serviço do catálogo |
+| Rateio pesado pelo preço do dono | **referência da casa** (`Servico.precoAvulso`) |
+| Economia exibida variando por barbeiro | uma economia só, igual para todo cliente |
+
+### A única regra que sobrou
+
+`VendaDePacote.barbeiroId` deixou de ser "dono" e virou **o barbeiro que o cliente escolheu ao
+comprar**: escolheu alguém → só ele atende aqueles serviços; não escolheu (`null`) → qualquer
+barbeiro ativo que atenda. A trava vive em `VendaDePacote.agendarItem`; "atende o serviço" continua
+sendo `Atendimento.agendar()` quem garante, sem duplicação.
+
+**Isso reverte, de propósito, o que eu tinha feito ontem** ("qualquer barbeiro pode consumir"). Na
+ocasião o dono escolheu essa opção entre duas; agora refinou a regra. O código de ontem ficou meio
+caminho — a oferta ainda tinha dono e o rateio ainda usava o preço dele.
+
+### Duas decisões de dinheiro, confirmadas antes de mexer
+
+1. **Base do rateio = referência da casa.** Um preço de pacote para todos ⇒ o valor pago se divide
+   igual para todos. Se o peso viesse do barbeiro escolhido, o MESMO pacote pelo MESMO preço se
+   dividiria diferente conforme a escolha — e como o rateado é a base da comissão, dois barbeiros
+   ganhariam diferente pelo mesmo trabalho vendido pelo mesmo valor. Override de barbeiro (§3.2.2)
+   vale para AVULSO, onde o cliente de fato paga o preço daquele barbeiro.
+2. **Cadastro de ofertas vira admin-only.** Sem dono, não existe "as minhas ofertas" para escopar.
+   O workflow de aprovação continua (nasce PENDENTE → APROVADO), agora como "rascunho → publicado".
+
+### Migration
+
+Aditiva: as duas colunas viraram **nuláveis**, nenhum dado perdido, nenhum drop. O código parou de
+ler/escrever `PacoteOferta.barbeiroId`; a coluna fica para rollback seguro (DECISOES_PENDENTES #36).
+Vendas antigas mantêm o barbeiro que tinham — sob a regra nova isso significa "compradas com aquele
+barbeiro", leitura fiel, já que o cliente de fato o escolheu na época.
+
+### Onde aparece
+
+- **Funil:** vitrine do clube igual para todos; o barbeiro escolhido vai no corpo da compra.
+- **Cockpit:** pacote comprado com barbeiro mostra "você comprou com X"; sem barbeiro, abre o passo
+  "Com quem?" entre quem atende o serviço.
+- **Painel:** "Agendar com crédito" fixa o barbeiro da compra quando há um; venda manual do admin
+  tem barbeiro **opcional** ("Qualquer barbeiro").
+
+### Testes
+
+**601 na API**, verdes nos 3 fusos; 46 booking, 37 contracts, 18 admin, 16 account; build verde nos
+5 pacotes. 9 testes existentes afirmavam regras que foram removidas — cada um reescrito para a
+regra nova, nenhum apagado: o rateio agora prova que o override **não** muda o peso; a oferta prova
+que aceita qualquer serviço; e o consumo ganhou os dois casos novos (preso ao barbeiro da compra ×
+livre quando não houve escolha).
+
+### ACL do barbeiro (segunda rodada, mesmo dia)
+
+Testando em produção, o dono viu o barbeiro enxergando o que não devia: os pacotes vendidos por
+outros barbeiros, o botão "+ Vender", e a aba "Catálogo de ofertas" que ao ser clicada dava erro de
+papel insuficiente. O pedido veio com um princípio junto: **"se ele não tem acesso, ele não pode
+ver"**.
+
+Eram três **brechas reais de backend**, não só de tela — `GET /pacotes` não escopava por barbeiro,
+`POST /pacotes` (vender) não exigia admin, e `POST /atendimentos/com-credito` deixava um barbeiro
+agendar item de pacote de qualquer outro (e até em nome de terceiro). Corrigido no servidor
+primeiro, com 11 e2e que tentam exatamente esses requests diretos; só depois a tela escondeu aba,
+botão e ação.
+
+| Ação | Barbeiro | Admin |
+|---|---|---|
+| Listar pacotes | só os comprados COM ELE | todos |
+| Vender / confirmar pagamento | **403** | sim |
+| Catálogo de ofertas / reembolsos | **403** (aba nem aparece) | sim |
+| Agendar com crédito | só pacote DELE, em nome dele | qualquer |
+
+Pacote comprado **sem** barbeiro não é de ninguém: não aparece para barbeiro nenhum, só o admin
+distribui.
+
+**Ajustes** virou o que o dono pediu: perfil (avatar + papéis) e **trocar a própria senha** — antes
+não existia esse endpoint, só o reset pelo admin, então o barbeiro dependia do dono para trocar.
+`PUT /auth/senha` exige a senha ATUAL: sem isso, uma sessão esquecida aberta trancaria o dono para
+fora da própria conta. Os parâmetros da empresa sumiram da tela do barbeiro (antes mostravam um
+aviso de "restrito ao admin", que é justamente o tipo de porta fechada que o dono não quer ver).
+
+⚠️ **Foto de perfil não deu para fazer.** O agregado `Barbeiro` não tem campo de foto e o projeto
+não tem storage de upload configurado — foi exatamente o que travou a Fase 1 da sessão de
+2026-08-14 (DECISOES_PENDENTES #4: os buckets S3 existentes servem o build dos frontends e o
+`--delete` do deploy apagaria qualquer imagem posta ali). O avatar mostra as iniciais, e o lugar
+onde a imagem entra já está marcado no código. Para destravar: bucket dedicado + permissão de
+escrita na role da EC2 + decidir como servir (CloudFront ou URL assinada).
+
+> ✅ **Destravado em 2026-08-19** — com um bucket de uploads separado, exatamente como previsto
+> aqui. Ver a seção "Upload de imagens" mais abaixo.
+
+### Roteiro de smoke test manual
+
+1. **Admin → Pacotes & Ofertas → Catálogo:** crie uma oferta. Não deve haver campo de barbeiro, e a
+   economia deve bater com o preço de referência da casa. Aprove.
+2. **Funil, com o Erick escolhido:** a oferta tem que aparecer (antes só apareceria se fosse "dele").
+   Compre.
+3. **Cockpit do cliente → usar crédito:** deve dizer "você comprou este pacote com Erick" e NÃO
+   oferecer escolha. Agende e confirme que o atendimento ficou com o Erick.
+4. **Repita comprando sem escolher barbeiro** (use "não tenho preferência" no funil): agora o
+   cockpit abre "Com quem?" com todos que atendem o serviço; escolha outro e confirme.
+5. **Painel → Vendidos → Agendar:** pacote com barbeiro mostra o nome fixo; pacote sem barbeiro
+   mostra o select.
+6. **Rateio:** dê um override de preço a um barbeiro, venda um pacote com ele escolhido e confira
+   que o `valorRateado` dos itens usa o preço da CASA, não o override.
+7. **Entre como um barbeiro não-admin:** a aba "Catálogo de ofertas" não deve existir, nem o botão
+   "+ Vender"; a lista deve mostrar só os pacotes comprados com ele. Em Ajustes, só perfil e
+   "Alterar senha" — nenhum parâmetro de empresa.
+8. **Troque a senha pelo próprio barbeiro:** errar a senha atual tem que recusar; acertando, a
+   senha nova entra e a antiga para de funcionar.
+
+## Upload de imagens — foto de barbeiro e de produto (2026-08-19) ✅
+
+Resolve a **DECISAO_PENDENTE #4**, aberta desde a primeira sessão: o protótipo mostrava foto do
+profissional, o agregado `Barbeiro` não modelava foto, e o que travava era storage — os buckets
+existentes servem o build dos frontends e o `--delete` do deploy apagaria qualquer imagem posta
+ali.
+
+O que destravou foi um **bucket separado** para uploads.
+
+### Variáveis de ambiente
+
+```bash
+UPLOADS_BUCKET="bigods-uploads-..."   # bucket SEPARADO dos 3 de frontend
+UPLOADS_REGION="us-east-1"            # cai em AWS_REGION se ausente
+UPLOADS_BASE_URL=""                   # vazio = URL virtual-hosted do S3
+```
+
+Sem as duas primeiras, o upload responde *"não está configurado"* com mensagem clara e o resto do
+sistema segue normal — foto é opcional em todo lugar. `UPLOADS_BASE_URL` existe para o dia em que
+um CloudFront entrar na frente: as URLs já gravadas continuam respondendo, **sem migração de
+dado**.
+
+Credenciais pela cadeia padrão do SDK (IAM Role em produção) — nenhuma chave no `.env`.
+
+### Otimização — os números escolhidos e por quê
+
+| Parâmetro | Valor | Motivo |
+|---|---|---|
+| Formato de saída | **WebP** | tudo sai igual, independente do que entrou |
+| Dimensão máxima | **512×512**, `fit: cover` | as duas fotos aparecem em avatar redondo e miniatura de card; nenhuma passa de ~120 px na tela, e 512 dá folga para retina 2× |
+| Ampliação | **desligada** (`withoutEnlargement`) | ampliar não cria detalhe, só peso e borrão |
+| Qualidade | **80** | o joelho da curva do WebP — acima disso o arquivo cresce bem mais rápido que a qualidade percebida |
+| Orientação | EXIF aplicado (`.rotate()`) | sem isso, foto tirada de lado no celular chega deitada |
+| Tamanho máximo aceito | **8 MB** | cobre foto de celular moderno; acima é engano ou tentativa de estourar memória |
+
+Resultado típico: foto de celular de 3–5 MB vira **20–40 KB**. É o que o cliente baixa no 4G da
+rua, na tela de escolher barbeiro.
+
+### Segurança do upload — o que é checado
+
+**Não se confia no cliente.** Nome do arquivo, extensão e `Content-Type` vêm todos do navegador de
+quem envia; qualquer um renomeia um script para `.jpg` e manda `image/jpeg` no header. O que é
+verificado é o **conteúdo**: assinatura de bytes (magic bytes) de JPEG/PNG/WebP, e o teto de
+tamanho conferido **antes** de qualquer decodificação — o `sharp` só vê bytes que já passaram
+pelo porteiro. Recusa vira **422 com mensagem escrita para o usuário final**, nunca 500.
+
+O nome do objeto é `pasta/uuid.webp` — **nunca** o nome que veio do usuário (acento, espaço,
+`../`, colisão com o arquivo de outra pessoa). Aleatório também impede varrer o bucket
+adivinhando nomes.
+
+### "Trocar apaga a anterior" — onde a regra mora
+
+Num lugar só: `GerenciarFotoUseCase`. Os agregados (`Barbeiro`, `Produto`) expõem
+`definirFoto(url)` e `removerFoto()`, e **os dois devolvem a URL anterior** — é assim que a regra
+existe sem o domínio fazer I/O.
+
+A ordem é deliberada: sobe a nova → aponta o agregado → **salva** → só então apaga a antiga.
+Se o upload falhar, o dono continua com a foto que tinha; se o banco falhar, a antiga ainda é a
+que vale. E apagar a antiga **nunca** derruba a operação: falha ali vira log, porque a troca já
+deu certo. Objeto órfão custa centavos; erro na cara do usuário custa a foto.
+
+### Fallback — nunca imagem quebrada
+
+Foto é opcional em todo lugar. Sem foto, aparecem as **iniciais** (pessoa) ou um **placeholder**
+(produto). E há um segundo nível: todo `<img>` tem `onError` que cai no mesmo fallback — se o
+objeto sumir do bucket, a URL continua no banco e o navegador mostraria o ícone de imagem
+partida. Ninguém vê.
+
+### Onde a foto aparece
+
+- **Funil, escolha de barbeiro:** avatar de **64 px** (era 44) — a Onda 3 pediu mais visível, e
+  quem escolhe profissional escolhe pela cara dele. O card "não tenho preferência" acompanhou o
+  tamanho para a lista não ficar torta.
+- **Funil, order-bump:** miniatura do produto na vitrine.
+- **Admin → Usuários:** miniatura na lista + bloco de foto no detalhe (só para quem é BARBEIRO —
+  admin puro não é escolhido por ninguém no funil).
+- **Admin → Ajustes:** o barbeiro gerencia **a própria** foto, sem depender do admin (era o
+  pedido de 2026-08-18 que ficou bloqueado pela #4).
+- **Admin → Catálogo → Produtos:** miniatura na lista + upload no diálogo de edição.
+- **Admin → venda avulsa de produto:** prévia da foto ao lado do select (`<option>` nativo não
+  aceita imagem).
+
+### Testes — 44 novos, S3 sempre dublê
+
+- **13 de domínio** (`imagem.spec.ts`): magic bytes de JPEG/PNG/WebP; script, PHP, PDF, GIF, BMP,
+  SVG e `.wav` recusados; teto de tamanho (inclusive exatamente no limite); chave única em 500
+  gerações.
+- **8 de config** (`storage.spec.ts`): ida e volta URL↔chave nos dois formatos (S3 e base
+  própria); URL de outro bucket devolve `null` — nunca sai apagando chave adivinhada.
+- **17 do adapter** (`s3-armazenamento.spec.ts`): redimensiona de 4000 px para 512; sai menos da
+  metade do tamanho e em WebP; não amplia imagem pequena; arquivo hostil **não chega ao bucket**;
+  falha do S3 ao apagar **não propaga**.
+- **17 e2e** (`foto-upload.e2e.spec.ts`): upload real ponta a ponta, troca apaga a anterior,
+  remoção, 403 do barbeiro na foto de outro, 403 do barbeiro em produto, 401 sem sessão, e as
+  fotos chegando no `/public/barbeiros` e na vitrine do `/public/order-bump` (com serviço vindo
+  `fotoUrl: null`, que é o caso do fallback).
+
+★ Em todos, o **cliente S3 é dublê**, mas a validação e a otimização são reais — trocar o
+armazenamento inteiro por mock deixaria um teste que só prova que um mock foi chamado.
+
+⚠️ **O que NÃO tem teste automatizado:** a renderização do fallback (iniciais/placeholder) e o
+`onError` da imagem quebrada. Os três frontends rodam Vitest com `environment: 'node'` e **não
+têm nenhum teste de componente** — cobrir isso exigiria trazer jsdom + testing-library, uma
+decisão de infraestrutura que este brief não pediu. O que está coberto é o lado do dado: sem foto
+o campo chega `null` (e2e + domínio), que é a condição do fallback. O comportamento visual entra
+no roteiro manual (passos 3 e 6).
+
+### Roteiro de smoke test manual
+
+Com `UPLOADS_BUCKET`/`UPLOADS_REGION` no `.env` e a API reiniciada:
+
+1. **Admin → Usuários → um barbeiro → Foto de perfil → Enviar foto.** Mande uma foto grande do
+   celular (3–5 MB). Deve subir em segundos e aparecer redonda ali mesmo.
+2. **Confira no bucket:** o objeto está em `barbeiros/<uuid>.webp`, com **dezenas de KB**, não
+   megabytes. Se o arquivo estiver do tamanho original, a otimização não rodou.
+3. **Funil → "Com quem?":** a foto aparece grande (64 px) no card do barbeiro. Um barbeiro sem
+   foto continua mostrando as iniciais, no mesmo tamanho.
+4. ★ **Trocar:** envie outra foto para o mesmo barbeiro. A nova aparece **e a antiga some do
+   bucket** — confira que sobrou só um objeto em `barbeiros/` para aquele barbeiro. É o teste que
+   mais importa: sem isso, cada troca deixa lixo pago.
+5. **Remover:** o card volta para as iniciais e o objeto sai do bucket.
+6. **Tente subir um arquivo que não é imagem** (renomeie um `.txt` para `.jpg`): tem que recusar
+   com *"Envie JPG, PNG ou WebP"*, e **nada** deve aparecer no bucket.
+7. **Entre como um barbeiro não-admin → Ajustes → Minha foto:** ele troca a própria e vê o avatar
+   do topo atualizar. Em Usuários ele nem entra (aba admin-only), então não há como mexer na de
+   outro.
+8. **Produto:** Catálogo → Produtos → editar um produto → enviar foto. Aparece na lista, no
+   diálogo, na venda avulsa e na vitrine do order-bump (se o produto estiver configurado lá).
+   Trocar apaga a anterior, igual.
+
+### Migration
+
+`20260819021500_foto_barbeiro_e_produto` — **aditiva**: duas colunas novas, nuláveis, sem default
+e sem backfill. O código antigo continua rodando sem enxergá-las, e nenhuma linha existente muda.
+
+### O que conferir no deploy
+
+- **IAM:** a role da EC2 precisa de `s3:PutObject` e `s3:DeleteObject` no bucket de uploads
+  (`arn:aws:s3:::<bucket>/*`). Sem o `DeleteObject`, o upload funciona e a limpeza da foto antiga
+  falha em silêncio — vira log de erro e objeto órfão, nunca erro na tela.
+- **Bucket:** público para leitura (`s3:GetObject` para todos), e o *Block Public Access* precisa
+  permitir isso — senão a foto sobe, a URL responde 403 e o funil cai no fallback de iniciais sem
+  ninguém entender por quê.
+- **Docker:** nada a mudar. O `sharp` é instalado pelo `npm ci` dentro do container
+  (`node:20-bookworm-slim`), que baixa o binário `linux-x64` certo, e os `.env` já são lidos por
+  `env_file` nos composes. As credenciais vêm da IAM Role, como o resto.
+## Pagamento manual por WhatsApp — ponte TEMPORÁRIA (2026-08-18) ✅
+
+A AbacatePay leva ~7 dias úteis para liberar produção. Até lá o "pagar online" não pode
+simplesmente sumir do funil — mas também não há PIX para gerar. A ponte: o cliente é mandado pro
+WhatsApp da barbearia com o pedido já escrito, o PIX acontece por fora, e o dono confirma no admin.
+
+**Isto é um andaime, não arquitetura.** Ligar e desligar é uma variável de ambiente.
+
+### A flag
+
+```bash
+PAGAMENTO_MANUAL_WHATSAPP="true"              # false/ausente = PIX normal pelo gateway
+PAGAMENTO_MANUAL_WHATSAPP_NUMERO="5511990036469"  # E.164, com DDI — destino da comanda
+```
+
+A API **recusa subir** com a flag ligada e sem número (ou com número curto demais para ter DDI):
+melhor quebrar no boot do que mandar o cliente pra um link de WhatsApp quebrado bem na hora de
+pagar. Voltar ao PIX é `false` + restart — **sem deploy de código**.
+
+### Onde a decisão mora
+
+Num lugar só: `CobrancaOnlineService.gerar()` (`modules/payments/application/`), exatamente onde
+antes havia a chamada direta ao gateway. Nenhum outro ponto do sistema sabe que a flag existe —
+nada de `if` espalhado por caso de uso, controller ou tela.
+
+O que isso comprou de graça: **tudo o que acontece ANTES da cobrança é idêntico nos dois modos**.
+A `IntencaoDePagamento` nasce igual, com o mesmo `expiraEm`; o avulso online nasce `RESERVADO`
+com o mesmo prazo; a expiração por timeout continua valendo, com o mesmo gatilho de polling.
+
+★ **É isso que impede buraco de agenda.** O cliente que clica "pagar", vai pro WhatsApp e some
+não prende o horário — a reserva expira sozinha, exatamente como expiraria com um PIX de verdade.
+Não foi escrito código novo pra isso; foi só não mexer no que já estava certo.
+
+### ON vs OFF — o que muda de fato
+
+| | Flag OFF (normal) | Flag ON (manual) |
+|---|---|---|
+| Resposta da API | `cobranca` (QR + copia-e-cola) | `pagamentoManual` (link `wa.me` + comanda) |
+| Tela do funil | `PixAguardando` | `PagamentoManualAguardando` |
+| Quem confirma | webhook da AbacatePay | admin, no painel |
+| Intenção de pagamento | criada, `AGUARDANDO`, com prazo | **igual** |
+| Reserva do avulso | `RESERVADO`, expira em 10 min | **igual** |
+| OTP | exigido | **igual** |
+| "Pagar na barbearia" | inalterado | **inalterado** |
+
+Só um dos dois campos vem preenchido, e quem decide é o servidor — o front nunca lê a flag para
+escolher fluxo (só para trocar o texto do botão, para não prometer "PIX na hora" e entregar outra
+coisa na tela seguinte).
+
+### Reuso, não reconstrução
+
+Nada aqui inventou um caminho de confirmação:
+
+- **Pacote:** `POST /pacotes/:id/confirmar-pagamento` já existia (bug 8, pagamento no balcão). Só
+  o rótulo do botão mudou — "Confirmar pagamento **recebido**" em vez de "presencial", que agora
+  seria mentira.
+- **Avulso:** `POST /atendimentos/:id/confirmar-pagamento` é novo, mas o corpo dele é uma chamada
+  ao **mesmo `ProcessarWebhookUseCase`** que o gateway usa. Idempotente pelo mesmo motivo de
+  sempre; clicar duas vezes não faz efeito duplo (tem teste).
+- **Expiração:** `ExpirarPagamentoVencidoUseCase`, intocado.
+
+Código novo mesmo, só três arquivos: o construtor de comanda (`comanda-whatsapp.ts`, TypeScript
+puro no domínio), o serviço de decisão, e a tela de espera do funil.
+
+### A comanda
+
+Chega no WhatsApp da barbearia assim:
+
+```
+*Agendamento — Bigod's Barber*
+
+*Cliente:* João da Silva
+*Telefone:* +5511998887777
+*Barbeiro:* Gabriel
+*Quando:* 21/08/2026 às 09:00
+
+*Itens:*
+• Corte — R$ 50,00
+• Barba — R$ 25,00
+
+*Total: R$ 75,00*
+
+Vou fazer o PIX deste valor. Pode confirmar, por favor?
+```
+
+(Está na voz do **cliente** — é ele quem envia. Os `*` viram negrito no WhatsApp.)
+
+No pacote não há barbeiro nem horário, então essas linhas simplesmente não aparecem, e os itens
+saem agrupados (`5× Corte`).
+
+### Testes
+
+- **9 de domínio** (`comanda-whatsapp.spec.ts`): conteúdo da comanda, formatação de dinheiro
+  (vírgula, nunca centavos crus), item sem valor não vira "R$ 0,00", link `wa.me` codificado e
+  decodificável, e falha alta quando não há número configurado.
+- **4 de config** (`config-seguranca.spec.ts`): boot recusa flag ligada sem número e com número
+  sem DDI; aceita com máscara; flag desligada não exige nada.
+- **10 e2e** (`pagamento-manual-whatsapp.e2e.spec.ts`): pacote e avulso não geram PIX e devolvem a
+  ponte; crédito de pacote **não agenda** antes da aprovação (422) e agenda depois; avulso
+  `RESERVADO` → `AGENDADO` na aprovação; dupla aprovação é no-op; ★ **reserva abandonada expira e
+  o horário aceita outro cliente**; presencial continua exigindo OTP, sem ponte e sem cobrança;
+  rota de confirmação não é pública.
+
+A não-regressão do modo OFF é o resto da suíte: todos os outros e2e de pagamento rodam sem a flag
+e continuam verdes.
+
+### Roteiro de smoke test manual
+
+Com `PAGAMENTO_MANUAL_WHATSAPP=true` e o número da barbearia no `.env`, API reiniciada:
+
+1. **Funil → pacote:** a tela de confirmação deve dizer "PIX pelo WhatsApp". Confirme, faça o OTP.
+2. A tela seguinte é a ponte — toque em **"Abrir o WhatsApp"**. A conversa abre com a comanda
+   escrita; confira nome, itens e total. Envie.
+3. **Não pague ainda.** Volte ao funil: continua "aguardando confirmação", girando.
+4. **Admin → Pacotes & Ofertas → Vendidos:** o pacote está `AGUARDANDO`. Clique em **"Confirmar
+   pagamento recebido"**.
+5. O funil avança sozinho em até ~3s, e os créditos aparecem no cockpit do cliente.
+6. **Repita no avulso** escolhendo "Pagar agora": mesma ponte. O atendimento aparece na agenda como
+   "Aguardando pagamento"; abra o detalhe e confirme — vira agendado.
+7. ★ **Teste o abandono:** faça um avulso online, vá pro WhatsApp e **não confirme nada**. Depois de
+   10 minutos o horário tem que voltar a aparecer como livre no funil, e o atendimento sair da
+   agenda firme. É o cenário que mais dói se estiver quebrado.
+8. **Desligue a flag** (`false` + restart) e refaça o passo 1: tem que voltar o QR Code do PIX.
+
+### Quando a AbacatePay liberar
+
+Vire a flag para `false` e reinicie. Só isso. Ver DECISOES_PENDENTES #38 — inclusive a sugestão de
+**manter** o modo manual desligado por um tempo, como plano B se o gateway cair.
 
 ## Como rodar localmente
 

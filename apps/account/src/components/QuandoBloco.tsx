@@ -20,7 +20,8 @@ export function QuandoBloco({
   onHora,
 }: {
   tz: string;
-  barbeiroId: string;
+  /** `null` = sem barbeiro definido: horários são a UNIÃO de quem atende (§8.12). */
+  barbeiroId: string | null;
   servicoIds: string[];
   data: string;
   hora: string | null;
@@ -35,7 +36,9 @@ export function QuandoBloco({
   const req = useApi(
     () =>
       api<HorariosDisponiveisDTO>(
-        `/public/horarios?companyId=${encodeURIComponent(COMPANY_ID)}&barbeiroId=${barbeiroId}&data=${data}&servicoIds=${servicoIdsCsv}`,
+        `/public/horarios?companyId=${encodeURIComponent(COMPANY_ID)}${
+          barbeiroId ? `&barbeiroId=${barbeiroId}` : ''
+        }&data=${data}&servicoIds=${servicoIdsCsv}`,
       ),
     [barbeiroId, servicoIdsCsv, data],
   );

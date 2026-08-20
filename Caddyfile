@@ -9,7 +9,14 @@
 }
 
 {$API_DOMAIN} {
-	reverse_proxy api:3000
+	reverse_proxy api:3000 {
+		# SOBRESCREVE (não acrescenta) o X-Forwarded-For com o IP real do peer.
+		# O default do Caddy é acrescentar, o que deixaria um cliente mandar o
+		# próprio X-Forwarded-For e ganhar um balde de rate limit novo a cada
+		# requisição — furando o limite por origem do envio de OTP. A API roda
+		# com `trust proxy = 1` e confia neste cabeçalho; ele precisa ser nosso.
+		header_up X-Forwarded-For {remote_host}
+	}
 
 	# Access log básico — útil pra depurar sem entrar no container da API.
 	log {

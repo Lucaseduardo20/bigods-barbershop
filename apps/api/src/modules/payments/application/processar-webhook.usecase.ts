@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { StatusAtendimento } from '@bigods/contracts';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
@@ -32,7 +33,9 @@ export class ProcessarWebhookUseCase {
       await repos.intencoesDePagamento.salvar(intencao);
       eventos.push(...intencao.puxarEventos());
 
-      // PagamentoConfirmado libera o pacote na mesma transação (requisito financeiro)
+      // PagamentoConfirmado libera o pacote / confirma a reserva do horário
+      // na mesma transação (requisito financeiro / Problema 2, sessão de
+      // OTP+reserva).
       if (intencao.referencia.tipo === 'VENDA_DE_PACOTE') {
         const venda = await repos.vendasDePacote.porId(intencao.referencia.vendaDePacoteId);
         if (!venda) {
@@ -41,6 +44,30 @@ export class ProcessarWebhookUseCase {
         venda.confirmarPagamento();
         await repos.vendasDePacote.salvar(venda);
         eventos.push(...venda.puxarEventos());
+      } else if (intencao.referencia.tipo === 'ATENDIMENTO') {
+        const atendimento = await repos.atendimentos.porId(intencao.referencia.atendimentoId);
+        if (!atendimento) {
+          throw new NotFoundException('Atendimento referenciado pela intenção não encontrado');
+        }
+        // Só confirma se ainda está RESERVADO — se por algum motivo já
+        // expirou/foi cancelado antes deste webhook tardio chegar, não
+        // reviver uma reserva morta (o cliente pode já ter perdido o
+        // horário pra outro conflito legítimo).
+        if (atendimento.status === StatusAtendimento.RESERVADO) {
+          atendimento.confirmarReserva();
+          await repos.atendimentos.salvar(atendimento);
+          eventos.push(...atendimento.puxarEventos());
+        } else {
+          // Pagamento chegou depois da reserva já ter expirado/mudado de
+          // estado por outro caminho — dinheiro recebido sem horário
+          // garantido. Decisão de estorno/realocação é financeira e não foi
+          // pedida nesta sessão (mesmo tratamento dado a `transparent.lost`
+          // na sessão de AbacatePay): registrar e não inventar a regra.
+          this.logger.warn(
+            `Webhook confirmou pagamento do atendimento ${atendimento.id}, mas ele está em ` +
+              `${atendimento.status} (não RESERVADO) — reserva NÃO revivida. Revisar manualmente.`,
+          );
+        }
       }
       return true;
     });

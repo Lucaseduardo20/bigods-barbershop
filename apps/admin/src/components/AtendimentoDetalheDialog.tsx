@@ -8,16 +8,23 @@ import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
 
 export const toneStatus: Record<StatusAtendimento, string> = {
+  // Sessão de OTP+reserva: avulso online fica RESERVADO até o pagamento
+  // confirmar (some da agenda firme, mas ocupa o horário) — nunca revive
+  // depois de RESERVA_EXPIRADA.
+  [StatusAtendimento.RESERVADO]: 'warning',
   [StatusAtendimento.AGENDADO]: 'info',
   [StatusAtendimento.CONCLUIDO]: 'success',
   [StatusAtendimento.CANCELADO]: 'danger',
   [StatusAtendimento.NAO_COMPARECEU]: 'warning',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'neutral',
 };
 export const labelStatus: Record<StatusAtendimento, string> = {
+  [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Faltou',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'Expirado',
 };
 
 /**
@@ -34,6 +41,7 @@ export function AtendimentoDetalheDialog({
   aoFechar,
   aoMudar,
   somenteLeitura = false,
+  ehAdmin = false,
 }: {
   atendimentoId: string | null;
   aoFechar: () => void;
@@ -47,6 +55,8 @@ export function AtendimentoDetalheDialog({
    * outro caller (Agenda) só é alcançável por admin.
    */
   somenteLeitura?: boolean;
+  /** Confirmar dinheiro que entrou é caixa — só admin (mesma regra do backend). */
+  ehAdmin?: boolean;
 }) {
   const tz = useTimezone();
   const [forma, setForma] = useState<FormaPagamento>(FormaPagamento.PIX);
@@ -56,6 +66,8 @@ export function AtendimentoDetalheDialog({
   const [servicoParaAdicionar, setServicoParaAdicionar] = useState('');
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState('');
   const [qtdProduto, setQtdProduto] = useState('1');
+  const [marcando, setMarcando] = useState(false);
+  const [erroDaCasa, setErroDaCasa] = useState<string | null>(null);
 
   const {
     dados: atendimento,
@@ -117,6 +129,32 @@ export function AtendimentoDetalheDialog({
     }
   };
 
+  /**
+   * Marca/desmarca na relação do barbeiro DESTE atendimento. O backend recusa
+   * (403) se o usuário logado não for esse barbeiro nem admin — aqui o botão
+   * aparece mesmo assim e o erro é mostrado, em vez de sumir sem explicação.
+   */
+  const alternarDaCasa = async () => {
+    if (!a) return;
+    setMarcando(true);
+    setErroDaCasa(null);
+    try {
+      if (a.cliente.daCasa) {
+        await api(`/clientes/${a.cliente.id}/da-casa?barbeiroId=${a.barbeiro.id}`, { method: 'DELETE' });
+      } else {
+        await api(`/clientes/${a.cliente.id}/da-casa`, {
+          method: 'POST',
+          body: { barbeiroId: a.barbeiro.id },
+        });
+      }
+      recarregar();
+    } catch (e) {
+      setErroDaCasa(String((e as Error).message));
+    } finally {
+      setMarcando(false);
+    }
+  };
+
   return (
     <Dialog open onClose={aoFechar} title={a?.cliente.nome ?? 'Atendimento'}>
       {carregando && <Loading texto="Carregando atendimento…" />}
@@ -129,12 +167,82 @@ export function AtendimentoDetalheDialog({
             {a.pagoOnline && <Badge tone="success">Pago online</Badge>}
           </div>
 
+          {/* Pagamento manual por WhatsApp (TEMPORÁRIO, 2026-08-18): o PIX cai
+              por fora e ninguém avisa o sistema. RESERVADO só existe no avulso
+              online, então este é exatamente o atendimento à espera de
+              confirmação. O botão chama o MESMO caminho do webhook — idempotente,
+              clicar duas vezes não faz efeito duplo. */}
+          {a.status === StatusAtendimento.RESERVADO && ehAdmin && (
+            <div className="card" style={{ background: 'var(--surface-brand-tint)' }}>
+              <div className="text-[13px] font-bold">Aguardando pagamento online</div>
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                O horário está reservado e expira sozinho se o pagamento não chegar. Confirme aqui
+                quando o PIX cair — o atendimento vira agendado na hora.
+              </div>
+              <button
+                className="btn btn-sm mt-2"
+                disabled={ocupado}
+                onClick={() =>
+                  acao(() => api(`/atendimentos/${a.id}/confirmar-pagamento`, { method: 'POST' }))
+                }
+              >
+                {ocupado ? 'Confirmando…' : 'Confirmar pagamento recebido'}
+              </button>
+            </div>
+          )}
+
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>
             <div className="text-[14px] font-bold">{a.cliente.nome}</div>
             <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
               {a.cliente.telefone || 'Telefone não informado'}
             </div>
+            {a.cliente.email && (
+              <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                {a.cliente.email}
+              </div>
+            )}
+            {/* "Cliente da casa" é relação com ESTE barbeiro (o do atendimento),
+                não um atributo do cliente — por isso o texto cita o nome dele. */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {a.cliente.daCasa && <Badge tone="gold">Cliente da casa</Badge>}
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={marcando}
+                onClick={alternarDaCasa}
+              >
+                {marcando
+                  ? 'Salvando…'
+                  : a.cliente.daCasa
+                    ? `Remover de "da casa" de ${a.barbeiro.nome}`
+                    : `Marcar como cliente da casa de ${a.barbeiro.nome}`}
+              </button>
+            </div>
+            {erroDaCasa && (
+              <div className="text-[12px] mt-1.5" style={{ color: 'var(--status-danger)' }}>
+                {erroDaCasa}
+              </div>
+            )}
           </div>
+
+          {/* "Fale sobre você" do funil. Fica em destaque porque é informação
+              pro barbeiro USAR no atendimento (estilo de corte, se gosta de
+              conversar) — guardar sem mostrar não serviria pra nada. */}
+          {a.cliente.sobreVoce && (
+            <div
+              className="card"
+              style={{ background: 'var(--surface-brand-tint)', borderColor: 'var(--brand-gold-300)' }}
+            >
+              <div
+                className="text-[11px] font-bold uppercase mb-1"
+                style={{ letterSpacing: '0.06em', color: 'var(--brand-gold-700)' }}
+              >
+                O cliente contou
+              </div>
+              <div className="text-[13px]" style={{ color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                {a.cliente.sobreVoce}
+              </div>
+            </div>
+          )}
 
           <div className="text-[13px] flex flex-col gap-0.5" style={{ color: 'var(--text-secondary)' }}>
             <div>

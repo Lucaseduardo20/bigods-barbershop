@@ -171,10 +171,14 @@ body {
 }
 .bottom-nav button {
   flex: 1;
+  /* Sem isto, um rótulo longo ("Pacotes & Ofertas") empurra os vizinhos e a
+     barra deixa de dividir o espaço igualmente — piorou ao entrar a 7ª aba
+     (Funil de Vendas, sessão 2026-08-17). */
+  min-width: 0;
   border: none;
   background: none;
-  padding: 10px 0 12px;
-  font: 700 11px var(--font-ui);
+  padding: 10px 2px 12px;
+  font: 700 10.5px var(--font-ui);
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
@@ -182,7 +186,45 @@ body {
   align-items: center;
   gap: 3px;
 }
+.bottom-nav button .rotulo {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bottom-nav button.ativo { color: var(--brand-gold-700); }
+
+/* Menu "⋯" de ações por item do catálogo (components/crud.tsx) — o padrão
+   único de CRUD de serviços/produtos/ofertas. */
+.menu-acoes { position: relative; }
+.menu-acoes-lista {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 25;
+  min-width: 172px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(28, 19, 10, 0.16);
+  overflow: hidden;
+  padding: 4px;
+}
+.menu-acoes-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: 600 13px var(--font-ui);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.menu-acoes-item:hover:not(:disabled) { background: var(--surface-sunken); }
+.menu-acoes-item.perigo { color: var(--status-danger); }
+.menu-acoes-item:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .dialog-overlay {
   position: fixed;

@@ -13,10 +13,12 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json",
+    "test": "vitest run"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
-    "@bigods/config": "*"
+    "@bigods/config": "*",
+    "vitest": "^3.0.0"
   }
 }

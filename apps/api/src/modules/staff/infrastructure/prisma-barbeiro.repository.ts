@@ -34,6 +34,7 @@ function paraDominio(row: Row): Barbeiro {
     ),
     servicosAtendidos: new Set(row.servicosAtendidos.map((s) => s.servicoId)),
     precosServicos: new Map(row.excecoesPreco.map((e) => [e.servicoId, Dinheiro.deCentavos(e.precoCentavos)])),
+    fotoUrl: row.fotoUrl,
     ativo: row.ativo,
   });
 }
@@ -69,6 +70,7 @@ export class PrismaBarbeiroRepository implements BarbeiroRepository {
       papeis: [...barbeiro.papeis],
       comissaoPadraoBp: barbeiro.comissaoPadrao.pontosBase,
       comissaoProdutosBp: barbeiro.comissaoProdutos.pontosBase,
+      fotoUrl: barbeiro.fotoUrl,
       ativo: barbeiro.ativo,
     };
     await this.db.barbeiro.upsert({

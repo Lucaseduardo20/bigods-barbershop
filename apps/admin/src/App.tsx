@@ -7,6 +7,7 @@ import { Login } from './screens/Login';
 import { Agenda } from './screens/Agenda';
 import { Usuarios } from './screens/Usuarios';
 import { Catalogo } from './screens/Catalogo';
+import { FunilDeVendas } from './screens/FunilDeVendas';
 import { Pacotes } from './screens/Pacotes';
 import { Financeiro } from './screens/Financeiro';
 import { Ajustes } from './screens/Ajustes';
@@ -22,21 +23,30 @@ import { Ajustes } from './screens/Ajustes';
 // "Financeiro" (renomeada de "Comissão", sessão de vale/pagamento): extrato
 // sozinho não cobre mais tudo — ganhou sub-abas (Extrato/Vales/Fechamento,
 // ver Financeiro.tsx).
-type Aba = 'agenda' | 'usuarios' | 'catalogo' | 'pacotes' | 'financeiro' | 'ajustes';
+// Sessão 2026-08-17 (Parte 1): "Funil de Vendas" (nova) separa MERCHANDISING
+// do funil público (hoje, a vitrine do order-bump) do CADASTRO em si
+// (Catálogo) — a config de bump vivia como botão solto dentro do CRUD de
+// serviços/produtos. Reembolsos saiu de "Pacotes & Ofertas" e foi pro
+// Financeiro, onde mora o resto do dinheiro (comissão/vale/pagamento).
+type Aba = 'agenda' | 'usuarios' | 'catalogo' | 'funil' | 'pacotes' | 'financeiro' | 'ajustes';
 
 const icones: Record<Aba, string> = {
   agenda: '📅',
   usuarios: '👤',
   catalogo: '🗂️',
+  funil: '🎯',
   pacotes: '📦',
   financeiro: '💰',
   ajustes: '⚙️',
 };
+// Rótulos curtos: com 7 abas na barra de 430px, nome longo espremia os
+// vizinhos (ver `.bottom-nav button` no index.css — min-width:0 + ellipsis).
 const rotulos: Record<Aba, string> = {
   agenda: 'Agenda',
   usuarios: 'Usuários',
   catalogo: 'Catálogo',
-  pacotes: 'Pacotes & Ofertas',
+  funil: 'Funil',
+  pacotes: 'Pacotes',
   financeiro: 'Financeiro',
   ajustes: 'Ajustes',
 };
@@ -52,9 +62,10 @@ const rotulos: Record<Aba, string> = {
 // backend); Ajustes mostra os próprios dados + Sair pra todo mundo, e só
 // esconde a seção de Parâmetros da empresa pra não-admin. Só ficam de fora
 // da navegação as telas 100% admin, sem NENHUMA função útil pra um barbeiro
-// comum (Usuários, Catálogo). Controle real continua nos guards do backend;
-// esconder aba/seção é só não oferecer caminho morto/botão que dá 403.
-const ABAS_ADMIN: Aba[] = ['agenda', 'usuarios', 'catalogo', 'pacotes', 'financeiro', 'ajustes'];
+// comum (Usuários, Catálogo, Funil de Vendas). Controle real continua nos
+// guards do backend; esconder aba/seção é só não oferecer caminho morto/botão
+// que dá 403.
+const ABAS_ADMIN: Aba[] = ['agenda', 'usuarios', 'catalogo', 'funil', 'pacotes', 'financeiro', 'ajustes'];
 const ABAS_BARBEIRO_NAO_ADMIN: Aba[] = ['agenda', 'pacotes', 'financeiro', 'ajustes'];
 
 export default function App() {
@@ -71,7 +82,7 @@ export default function App() {
     <TimezoneProvider>
       <div className="app-shell">
         <header className="flex items-center justify-between px-5 pt-5 pb-2">
-          <div className="brand-wordmark">Bigod's Barber</div>
+          <img src="/brand/logo-full-dark.png" alt="Bigod's Barber" style={{ height: 34, width: 'auto' }} />
           <div className="flex items-center gap-2">
             <div
               className="w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-[14px]"
@@ -91,6 +102,7 @@ export default function App() {
           {aba === 'agenda' && <Agenda usuario={usuario} />}
           {aba === 'usuarios' && <Usuarios usuario={usuario} />}
           {aba === 'catalogo' && <Catalogo usuario={usuario} />}
+          {aba === 'funil' && <FunilDeVendas usuario={usuario} />}
           {aba === 'pacotes' && <Pacotes usuario={usuario} />}
           {aba === 'financeiro' && <Financeiro usuario={usuario} />}
           {aba === 'ajustes' && <Ajustes usuario={usuario} />}
@@ -99,7 +111,7 @@ export default function App() {
           {abas.map((a) => (
             <button key={a} className={aba === a ? 'ativo' : ''} onClick={() => setAba(a)}>
               <span className="text-[18px] leading-none">{icones[a]}</span>
-              {rotulos[a]}
+              <span className="rotulo">{rotulos[a]}</span>
             </button>
           ))}
         </nav>

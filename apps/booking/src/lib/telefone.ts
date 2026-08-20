@@ -13,3 +13,14 @@ export function telefoneValido(entrada: string): boolean {
   const d = entrada.replace(/\D/g, '');
   return d.length === 10 || d.length === 11;
 }
+
+/**
+ * E.164 (+5511988776655, como vem de `ClienteSessaoDTO`) → máscara local
+ * legível ((11) 98877-6655) — usado no banner de "sessão ativa" (sessão de
+ * OTP+reserva), pra mostrar de qual telefone é a sessão sem expor o +55 cru.
+ */
+export function mascararE164(e164: string): string {
+  const digitos = e164.replace(/\D/g, '');
+  const semPais = digitos.length > 11 && digitos.startsWith('55') ? digitos.slice(2) : digitos;
+  return mascararTelefone(semPais);
+}

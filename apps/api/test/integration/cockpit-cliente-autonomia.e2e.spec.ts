@@ -31,9 +31,19 @@ const corteId = `svc-cockpit-corte-${randomUUID()}`;
 const barbaId = `svc-cockpit-barba-${randomUUID()}`;
 const adminLogin = `admin-cockpit-${randomUUID().slice(0, 8)}`;
 const SENHA = 'bigods123';
-const DIA_FUTURO = '2030-08-20'; // terça futura, longe de "agora" — usado pra criar atendimentos via fluxo real
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA_FUTURO = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 const sufixo = String(Date.now()).slice(-6);
+// Celular BR real: DDD + 9 + 8 dígitos. `prefixo` (2) distingue os testes,
+// `sufixo` (6) distingue as execuções.
 const fone = (prefixo: string) => `11 9${prefixo}${sufixo}`;
 const e164 = (t: string) => Telefone.de(t).e164;
 
@@ -153,8 +163,8 @@ afterAll(async () => {
 });
 
 describe('FASE 1 — histórico e detalhe no cockpit (leitura pura)', () => {
-  const foneA = fone('1000');
-  const foneB = fone('2000');
+  const foneA = fone('10');
+  const foneB = fone('20');
   let clienteAId: string;
   let clienteBId: string;
   let tokenA: string;
@@ -222,8 +232,8 @@ describe('FASE 1 — histórico e detalhe no cockpit (leitura pura)', () => {
 });
 
 describe('FASE 2 — cancelar pelo cockpit (§8.6)', () => {
-  const foneC = fone('3000');
-  const foneD = fone('4000');
+  const foneC = fone('30');
+  const foneD = fone('40');
   let clienteCId: string;
   let tokenC: string;
   let tokenD: string;
@@ -292,8 +302,8 @@ describe('FASE 2 — cancelar pelo cockpit (§8.6)', () => {
 });
 
 describe('FASE 3 — reagendar pelo cockpit (§8.6)', () => {
-  const foneE = fone('5000');
-  const foneF = fone('6000');
+  const foneE = fone('50');
+  const foneF = fone('60');
   let clienteEId: string;
   let tokenE: string;
   let tokenF: string;
@@ -394,7 +404,7 @@ describe('FASE 3 — reagendar pelo cockpit (§8.6)', () => {
 });
 
 describe('FASE 4a — abater saldo residual em avulso (§8.7)', () => {
-  const foneG = fone('7000');
+  const foneG = fone('70');
   let clienteGId: string;
   let tokenG: string;
 
@@ -480,7 +490,7 @@ describe('FASE 4a — abater saldo residual em avulso (§8.7)', () => {
   });
 
   it('não é possível abater o saldo de OUTRO cliente — 403, nada muda', async () => {
-    const outroFone = fone('7500');
+    const outroFone = fone('75');
     await http
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)
@@ -512,7 +522,7 @@ describe('FASE 4a — abater saldo residual em avulso (§8.7)', () => {
 });
 
 describe('FASE 4b — reembolso manual do saldo residual (§8.7)', () => {
-  const foneH = fone('8000');
+  const foneH = fone('80');
   let clienteHId: string;
   let tokenH: string;
   let tokenBarbeiroNaoAdmin: string;
@@ -658,7 +668,7 @@ describe('FASE 4b — reembolso manual do saldo residual (§8.7)', () => {
   });
 
   it('pedir reembolso de saldo de OUTRO cliente é recusado — 403, nada muda', async () => {
-    const outroFone = fone('8500');
+    const outroFone = fone('85');
     await http
       .post('/pacotes')
       .set('Authorization', `Bearer ${tokenAdmin}`)

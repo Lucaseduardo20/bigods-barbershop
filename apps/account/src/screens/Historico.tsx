@@ -7,10 +7,12 @@ import { ErroEstado, Icon, Loading, useApi } from '../components/ui';
 import { AtendimentoDetalhe } from './AtendimentoDetalhe';
 
 const rotuloStatus: Record<StatusAtendimento, string> = {
+  [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Não compareceu',
+  [StatusAtendimento.RESERVA_EXPIRADA]: 'Expirado',
 };
 
 /** FASE 1 (sessão-E): histórico de atendimentos do cliente — leitura pura. */

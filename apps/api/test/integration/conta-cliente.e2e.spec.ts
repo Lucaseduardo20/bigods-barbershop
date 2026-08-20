@@ -35,13 +35,14 @@ const adminLogin = `admin-${randomUUID().slice(0, 8)}`;
 const SENHA = 'bigods123';
 
 const sufixo = String(Date.now()).slice(-6);
+// Celular BR real: DDD + 9 + 8 dígitos (prefixo de 2 + sufixo de 6).
 const fone = (prefixo: string) => `11 9${prefixo}${sufixo}`;
-const foneMain = fone('0000');
-const foneUso = fone('1111');
-const foneExpira = fone('2222');
-const fonePerfil = fone('3333');
-const foneRate = fone('4444');
-const foneUnprov = fone('5555');
+const foneMain = fone('00');
+const foneUso = fone('11');
+const foneExpira = fone('22');
+const fonePerfil = fone('33');
+const foneRate = fone('44');
+const foneUnprov = fone('55');
 const e164 = (t: string) => Telefone.de(t).e164;
 
 let app: INestApplication;
@@ -199,7 +200,7 @@ describe('Login OTP (demo)', () => {
   });
 
   it('bug 2: confirmar o código de um telefone sem Cliente cria a conta na hora (posse do telefone já provada)', async () => {
-    const foneNovo = fone('6666');
+    const foneNovo = fone('66');
     const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone: foneNovo }).expect(201);
     const confirmar = await http
       .post('/conta/login/confirmar')

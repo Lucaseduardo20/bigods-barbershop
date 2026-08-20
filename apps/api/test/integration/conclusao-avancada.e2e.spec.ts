@@ -27,7 +27,15 @@ const produtoId = `prod-concl-${randomUUID()}`;
 const barbeiroId = `bar-concl-${randomUUID()}`;
 const adminLogin = `admin-${randomUUID().slice(0, 8)}`;
 const SENHA = 'bigods123';
-const DIA = '2030-06-12'; // sexta futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 let app: INestApplication;
 let prisma: PrismaService;
@@ -50,8 +58,21 @@ async function agendarAvulso(horaInicio: string, gerarCobranca: boolean, telefon
   return res.body as { atendimentoId: string; cobranca: { intencaoId: string } | null };
 }
 
+/**
+ * Marca a intenção como PAGA e confirma a reserva do atendimento (RESERVADO
+ * → AGENDADO) — sessão de OTP+reserva: como este arquivo testa CONCLUSÃO, não
+ * pagamento, simulamos direto o estado final que o webhook/confirmar-demo
+ * produziriam, sem exercitar a máquina real de pagamento (coberta em
+ * webhook-abacatepay.e2e.spec.ts / pacote-publico.e2e.spec.ts).
+ */
 async function marcarPago(intencaoId: string) {
-  await prisma.intencaoDePagamento.update({ where: { id: intencaoId }, data: { status: 'PAGO' } });
+  const intencao = await prisma.intencaoDePagamento.update({
+    where: { id: intencaoId },
+    data: { status: 'PAGO' },
+  });
+  if (intencao.atendimentoId) {
+    await prisma.atendimento.update({ where: { id: intencao.atendimentoId }, data: { status: 'AGENDADO' } });
+  }
 }
 
 beforeAll(async () => {

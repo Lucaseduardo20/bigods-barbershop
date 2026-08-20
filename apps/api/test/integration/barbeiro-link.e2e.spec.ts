@@ -5,6 +5,9 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
+// Sessão de OTP+reserva: escrita pública agora exige sessão de cliente.
+process.env.IDENTITY_PROVIDER = 'demo';
+process.env.DEMO_MODE = 'true';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -27,7 +30,15 @@ const outroBarbeiroId = `bar-link2-${randomUUID()}`;
 const corteId = `svc-link-${randomUUID()}`;
 const adminLogin = `admin-${randomUUID().slice(0, 8)}`;
 const SENHA = 'bigods123';
-const DIA = '2030-06-13'; // quinta futura, longe de qualquer seed
+/**
+ * Dia de teste dentro da JANELA DE AGENDAMENTO (hoje + LIMITE_DIAS_AGENDAMENTO):
+ * o auto-atendimento recusa datas além dela. Relativo a hoje, e não uma data
+ * fixa no futuro distante, justamente por isso — e ainda assim longe o
+ * bastante das janelas de cancelamento/reagendamento. A disponibilidade deste
+ * dia é criada pelo próprio teste, então o dia da semana não importa.
+ */
+const DIA_OFFSET_DIAS = 20;
+const DIA = new Date(Date.now() + DIA_OFFSET_DIAS * 86_400_000).toISOString().slice(0, 10);
 
 let app: INestApplication;
 let prisma: PrismaService;
@@ -74,12 +85,23 @@ beforeAll(async () => {
   tokenAdmin = login.body.token;
 });
 
+/** Login OTP completo (provider demo) — devolve o token de sessão do cliente. */
+async function loginCompleto(telefone: string): Promise<string> {
+  const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+  const confirmar = await http
+    .post('/conta/login/confirmar')
+    .send({ companyId, telefone, codigo: iniciar.body.codigoDemo, desafio: iniciar.body.desafio })
+    .expect(201);
+  return confirmar.body.token;
+}
+
 afterAll(async () => {
   await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
   await prisma.atendimento.deleteMany({ where: { companyId } });
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.disponibilidade.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
@@ -94,7 +116,9 @@ afterAll(async () => {
 describe('GET /public/barbeiro-por-slug', () => {
   it('resolve o slug pro barbeiro certo', async () => {
     const res = await http.get(`/public/barbeiro-por-slug?companyId=${companyId}&slug=barbeiro-link`).expect(200);
-    expect(res.body).toEqual({ id: barbeiroId, nome: 'Barbeiro Link' });
+    // `fotoUrl` entrou no DTO público em 2026-08-19 — barbeiro sem foto vem
+    // null, e o funil cai no avatar de iniciais.
+    expect(res.body).toEqual({ id: barbeiroId, nome: 'Barbeiro Link', fotoUrl: null });
   });
 
   it('slug inexistente → 404 (o front cai no funil normal, nunca mostra isso)', async () => {
@@ -128,15 +152,17 @@ describe('PUT /barbeiros/:id/slug', () => {
 
 describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
   it('agendamento avulso sem link não registra origem', async () => {
+    const token = await loginCompleto(`11 9${String(Date.now()).slice(-8)}`);
     const res = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '10:00',
-        cliente: { nome: 'Sem Link', telefone: `11 9${String(Date.now()).slice(-8)}` },
+        cliente: { nome: 'Sem Link' },
       })
       .expect(201);
     const atendimento = await prisma.atendimento.findUnique({ where: { id: res.body.atendimentoId } });
@@ -144,15 +170,17 @@ describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
   });
 
   it('agendamento avulso VINDO do link do barbeiro registra origemLinkBarbeiroId', async () => {
+    const token = await loginCompleto(`11 9${String(Date.now() + 1).slice(-8)}`);
     const res = await http
       .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         barbeiroId,
         servicoIds: [corteId],
         data: DIA,
         horaInicio: '11:00',
-        cliente: { nome: 'Com Link', telefone: `11 9${String(Date.now() + 1).slice(-8)}` },
+        cliente: { nome: 'Com Link' },
         origemLinkBarbeiroId: barbeiroId,
       })
       .expect(201);
@@ -168,12 +196,14 @@ describe('origemLinkBarbeiroId (Fase 4c — só registro)', () => {
       .expect(201);
     await http.patch(`/pacote-ofertas/${oferta.body.id}/aprovar`).set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
 
+    const token = await loginCompleto(`11 9${String(Date.now() + 2).slice(-8)}`);
     const venda = await http
       .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
         ofertaId: oferta.body.id,
-        cliente: { nome: 'Compra Link', telefone: `11 9${String(Date.now() + 2).slice(-8)}` },
+        cliente: { nome: 'Compra Link' },
         formaPagamento: 'presencial',
         origemLinkBarbeiroId: barbeiroId,
       })

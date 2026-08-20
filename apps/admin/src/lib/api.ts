@@ -57,3 +57,32 @@ export async function api<T>(
   }
   return data as T;
 }
+
+/**
+ * Upload de arquivo (2026-08-19) — `multipart/form-data`, não JSON. Precisa ser
+ * uma função à parte porque o `Content-Type` NÃO pode ser setado à mão aqui: o
+ * navegador é que escreve o `boundary` do multipart, e mandar o header fixo
+ * quebra o parse no servidor de um jeito bem confuso de diagnosticar.
+ *
+ * Fora isso, é a mesma `api`: mesma base, mesmo token, mesmo tratamento de 401
+ * e de mensagem de erro (as do upload são feitas pra serem lidas pelo usuário).
+ */
+export async function apiUpload<T>(path: string, arquivo: File, campo = 'arquivo'): Promise<T> {
+  const form = new FormData();
+  form.append(campo, arquivo);
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { ...(token() ? { Authorization: `Bearer ${token()}` } : {}) },
+    body: form,
+  });
+  if (res.status === 401) {
+    limparSessao();
+    window.location.reload();
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = Array.isArray(data?.message) ? data.message.join('; ') : data?.message;
+    throw new ApiError(res.status, msg ?? `Erro ${res.status}`);
+  }
+  return data as T;
+}
