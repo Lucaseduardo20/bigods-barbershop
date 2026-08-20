@@ -143,6 +143,15 @@ export function Home({
       )}
       {perfil.pacotes.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '6px 10px', marginBottom: 24 }}>
+          {/* Marca em INK: fundo claro. O LOCKUP (com o wordmark desenhado) foi
+              testado aqui e não serve — nesta caixa cabem ~38px de altura, e
+              abaixo de ~60px o nome vira borrão. A coroa+bigode é silhueta
+              simples e continua legível pequena. */}
+          <img
+            src="/brand/bigods-club-marca-ink.svg"
+            alt="Bigod's Club"
+            style={{ display: 'block', height: 26, width: 'auto', margin: '0 auto 8px' }}
+          />
           Corta com frequência? Um{' '}
           {/* `?pacote=1`: o funil pula a tela inicial (que só fala de agendar
               horário) e entra já onde os pacotes vivem, com uma faixa dizendo

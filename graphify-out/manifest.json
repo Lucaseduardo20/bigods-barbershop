@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "apps/account/src/screens/Home.tsx": {
-    "mtime": 1787262245.2945108,
-    "seen": 1787263283.9802713,
-    "ast_hash": "7def2a5c7dc655be6dec57c988f101d4",
+    "mtime": 1787266790.1885407,
+    "seen": 1787267546.4918272,
+    "ast_hash": "22b4368cf22ba9a75c9b55ea743eafc9",
     "semantic_hash": ""
   },
   "apps/account/src/screens/UsarSaldoResidual.tsx": {
@@ -1926,16 +1926,16 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1787262224.0823226,
-    "seen": 1787263284.0174577,
-    "ast_hash": "30feae01eec5c2a08f9dbc52f65a392c",
+    "mtime": 1787266065.5826051,
+    "seen": 1787267546.564787,
+    "ast_hash": "d3677f641e122f9c3dd006dab9696784",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
-    "mtime": 1787077644.7604775,
-    "seen": 1787165206.9807127,
-    "ast_hash": "4617b814b4867e2e9ffb2666542ab746",
-    "semantic_hash": "4617b814b4867e2e9ffb2666542ab746"
+    "mtime": 1787266065.578605,
+    "seen": 1787267546.5647945,
+    "ast_hash": "c80a77c4e22312b0b618dfddd5ce4bde",
+    "semantic_hash": ""
   },
   "apps/booking/src/components/IconesDeMarca.tsx": {
     "mtime": 1787077644.7604775,
@@ -1944,10 +1944,10 @@
     "semantic_hash": "6d8108d52137a3f3c9be3e22499a7f21"
   },
   "apps/booking/src/components/Onboarding.tsx": {
-    "mtime": 1787077644.7604775,
-    "seen": 1787165206.9807227,
-    "ast_hash": "4abc3f6d9702e32edc6268d138177ebc",
-    "semantic_hash": "4abc3f6d9702e32edc6268d138177ebc"
+    "mtime": 1787265888.157034,
+    "seen": 1787267546.5650632,
+    "ast_hash": "de9e359bceaef065cf8cf8312aebc277",
+    "semantic_hash": ""
   },
   "apps/booking/src/components/OrderBump.tsx": {
     "mtime": 1787157382.836545,
@@ -1956,9 +1956,9 @@
     "semantic_hash": "83f7a9c7d92ed61980723c56c27d4a6c"
   },
   "apps/booking/src/components/OtpVerificacao.tsx": {
-    "mtime": 1787262191.2740293,
-    "seen": 1787263284.0179408,
-    "ast_hash": "b642c1e5ae6c27c31390ca5f160475e5",
+    "mtime": 1787265917.181296,
+    "seen": 1787267546.565279,
+    "ast_hash": "939087531caf94eae5cdfd96ba9fa1da",
     "semantic_hash": ""
   },
   "apps/booking/src/components/PagamentoManualAguardando.tsx": {
@@ -2106,9 +2106,9 @@
     "semantic_hash": "2945f516e85f929ee5c0c7d803b593be"
   },
   "apps/booking/src/steps/Landing.tsx": {
-    "mtime": 1787259018.00014,
-    "seen": 1787263284.020464,
-    "ast_hash": "9cf42bf4c118239dca4ce14301c36df5",
+    "mtime": 1787266065.5826051,
+    "seen": 1787267546.5708032,
+    "ast_hash": "a6028de1075478be94d6d97cac365a56",
     "semantic_hash": ""
   },
   "apps/booking/src/steps/Servicos.tsx": {
@@ -2118,10 +2118,10 @@
     "semantic_hash": "fac66c00dfbb2badcea26e60be3e1255"
   },
   "apps/booking/src/steps/Sucesso.tsx": {
-    "mtime": 1787077644.784478,
-    "seen": 1787165206.9809103,
-    "ast_hash": "87ea045efbdfe88b7452acd3ef53e53a",
-    "semantic_hash": "87ea045efbdfe88b7452acd3ef53e53a"
+    "mtime": 1787265888.157034,
+    "seen": 1787267546.5711267,
+    "ast_hash": "a9bf6532a0e573c2e4a8a096415ec7b3",
+    "semantic_hash": ""
   },
   "apps/booking/tailwind.config.js": {
     "mtime": 1784070864.0933592,
@@ -2829,6 +2829,246 @@
     "mtime": 1742078647.397814,
     "seen": 1787199839.3580756,
     "ast_hash": "d3fb57c73304b475df9c7343b05b4c0d",
+    "semantic_hash": ""
+  },
+  "apps/booking/src/components/LogoBigodsClub.tsx": {
+    "mtime": 1787266065.462604,
+    "seen": 1787267546.5650513,
+    "ast_hash": "b44c5ef8f0099da46a8672c841459bd5",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/LEIA-ME.txt": {
+    "mtime": 1787265378.7881782,
+    "seen": 1787267546.5822446,
+    "ast_hash": "8bc7d33c9549ef8a8060d2efbb393b27",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-marca-ink.svg": {
+    "mtime": 1787266065.458604,
+    "seen": 1787267546.584267,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-marca-ouro.svg": {
+    "mtime": 1787266065.454604,
+    "seen": 1787267546.5842748,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "apps/booking/public/brand/bigods-club-marca-ink.svg": {
+    "mtime": 1787266065.4466038,
+    "seen": 1787267546.5883203,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "apps/booking/public/brand/bigods-club-marca-ouro.svg": {
+    "mtime": 1787266065.4426038,
+    "seen": 1787267546.5883343,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-grande-1024x1024.png": {
+    "mtime": 1787265378.7921782,
+    "seen": 1787267546.5915318,
+    "ast_hash": "91bacdce1d66a6bc57c095534c2738a3",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-medio-512x512.png": {
+    "mtime": 1787265378.7921782,
+    "seen": 1787267546.5915384,
+    "ast_hash": "718746c76a3f9a0d1f262a3608d21aeb",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-micro-64x64.png": {
+    "mtime": 1787265378.796178,
+    "seen": 1787267546.5915432,
+    "ast_hash": "d7e83bab8b19a8d100c539ccb1709402",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-mini-128x128.png": {
+    "mtime": 1787265378.796178,
+    "seen": 1787267546.5915477,
+    "ast_hash": "abce5536f208716c43fbcc016a120080",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-nano-32x32.png": {
+    "mtime": 1787265378.8001783,
+    "seen": 1787267546.5915518,
+    "ast_hash": "2dca3c3d09ccfa35494d242fba55d29e",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-pequeno-256x256.png": {
+    "mtime": 1787265378.8001783,
+    "seen": 1787267546.5915573,
+    "ast_hash": "9d0a011b271ebfd257527b0dd0e702d9",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-grande-2000x1054.png": {
+    "mtime": 1787265378.8041782,
+    "seen": 1787267546.5915616,
+    "ast_hash": "96765858a37ca15d96826e24d02a1b64",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-medio-1000x527.png": {
+    "mtime": 1787265378.8081782,
+    "seen": 1787267546.5915658,
+    "ast_hash": "41e5add9b25ebf31a9aac4e92b293fe9",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-pequeno-500x263.png": {
+    "mtime": 1787265378.8081782,
+    "seen": 1787267546.5915694,
+    "ast_hash": "7de224672b15ec5f2dfe51142290c9e6",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-grande-1200x1432.png": {
+    "mtime": 1787265378.8121784,
+    "seen": 1787267546.5915728,
+    "ast_hash": "a19115143597cad17c31c3921401d2a0",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-medio-600x716.png": {
+    "mtime": 1787265378.8121784,
+    "seen": 1787267546.5915768,
+    "ast_hash": "6f7d32b4b88b2fa78ed2ce22677539f0",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-pequeno-300x358.png": {
+    "mtime": 1787265378.8681788,
+    "seen": 1787267546.591581,
+    "ast_hash": "593bfc1d567f3f6baa9ab87464b2b2e1",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-grande-1024x471.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.591585,
+    "ast_hash": "b2a7dc789870dc56f8692a087bb83d50",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-medio-512x235.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.5915895,
+    "ast_hash": "b30dd5d55b0613fc128fd4d1136dd098",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-pequeno-256x118.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.5915935,
+    "ast_hash": "368070d1d48947ca690c85b8e91967c4",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-grande-1024x471.png": {
+    "mtime": 1787265378.8761787,
+    "seen": 1787267546.5915978,
+    "ast_hash": "605e4aa170af88f8886adeac95483b30",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-medio-512x235.png": {
+    "mtime": 1787265378.880179,
+    "seen": 1787267546.5916014,
+    "ast_hash": "fa695c02d4364e3f29f673ff136b9c12",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-pequeno-256x118.png": {
+    "mtime": 1787265378.8841789,
+    "seen": 1787267546.5916057,
+    "ast_hash": "520911ed6b97576f64a004be89342cfd",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-grande-1024x1024.png": {
+    "mtime": 1787265378.8881788,
+    "seen": 1787267546.5916097,
+    "ast_hash": "61724565c03c6705428b60e052cc4a50",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-medio-512x512.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916135,
+    "ast_hash": "14519e9a26e09abb0fbbe73443bd30cf",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-micro-64x64.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916178,
+    "ast_hash": "f37f6dea3573e053da3e282258960e38",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-mini-128x128.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916219,
+    "ast_hash": "45690320e1d08cef933967b4a65b8b86",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-nano-32x32.png": {
+    "mtime": 1787265378.896179,
+    "seen": 1787267546.5916262,
+    "ast_hash": "5d390758d95c9ec178cfae39d64d2547",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-pequeno-256x256.png": {
+    "mtime": 1787265378.896179,
+    "seen": 1787267546.59163,
+    "ast_hash": "d0c192e6908f52f3a790903570bbba30",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-grande-1600x240.png": {
+    "mtime": 1787265378.900179,
+    "seen": 1787267546.5916336,
+    "ast_hash": "d4487ff6b7857d20a2ac5edb388cec48",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-medio-800x120.png": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.591638,
+    "ast_hash": "a183520f7072515a78be6cbe0e7bfde6",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-pequeno-400x60.png": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.5916426,
+    "ast_hash": "8c2f2761dd1143cbd842ef3fac13f7fb",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/app-icon.svg": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.5916476,
+    "ast_hash": "51ed66f7665700e2d8bfcb381c7f7893",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/lockup-horizontal.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.5916526,
+    "ast_hash": "62dd9d95bdab22f0b9d72c0f23ee2ea7",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/lockup-vertical.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.5916567,
+    "ast_hash": "04297feac01507a2e985f6ac57be10d4",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/marca-coroa-bigode-ink.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.59166,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/marca-coroa-bigode-ouro.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916636,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/medalha.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916677,
+    "ast_hash": "e2842662e003bcc7b14489a37473a700",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/wordmark.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916715,
+    "ast_hash": "d30a2a22c1fd62374450e299c0c20c7c",
     "semantic_hash": ""
   }
 }

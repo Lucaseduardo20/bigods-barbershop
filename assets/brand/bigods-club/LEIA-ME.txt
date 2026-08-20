@@ -1,0 +1,23 @@
+BIGOD'S CLUB — pacote de logo (variação 2a)
+
+PNG/  fundo transparente, exportado em 4x e reduzido com reamostragem de alta qualidade
+  app-icon/          tile maroon com cantos arredondados — 1024, 512, 256, 128, 64, 32 px
+  medalha/           só a medalha (círculo ink + aro ouro) — 1024, 512, 256, 128, 64, 32 px
+  marca-ouro/        coroa + bigode em ouro (para fundos escuros) — 1024, 512, 256 px
+  marca-ink/         coroa + bigode em ink (para fundos claros) — 1024, 512, 256 px
+  lockup-vertical/   medalha + wordmark abaixo — 1200, 600, 300 px de largura
+  lockup-horizontal/ medalha à esquerda + wordmark à direita — 2000, 1000, 500 px
+  wordmark/          só BIGOD'S | CLUB — 1600, 800, 400 px
+
+SVG/  vetorial e escalável (um arquivo por variação — redimensione livremente)
+  app-icon.svg, medalha.svg, marca-coroa-bigode-ouro.svg,
+  marca-coroa-bigode-ink.svg, lockup-vertical.svg, lockup-horizontal.svg, wordmark.svg
+
+Observações
+- O bigode é o desenho original da marca (bitmap em alta resolução) embutido dentro do SVG;
+  todo o resto (coroa, medalha, aro, faixa CLUB) é vetor puro.
+- Os textos usam Rye e Manrope carregados do Google Fonts. Para impressão, converta o texto
+  em curvas (Illustrator/Figma: Criar contornos) antes de enviar à gráfica.
+
+Cores
+  ink #342414 · ouro #b88e42 · creme #ffecb9 · maroon #4c351e · bege #c4b58e

@@ -50,6 +50,7 @@ import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
 import { BigodsClub } from './components/BigodsClub';
+import { MarcaBigodsClub } from './components/LogoBigodsClub';
 import { Barbeiro } from './steps/Barbeiro';
 import { DataHora } from './steps/DataHora';
 import { Dados } from './steps/Dados';
@@ -729,6 +730,7 @@ function Funil() {
         <BigodsClub
           ofertaId={estado.ofertaId}
           onSelect={escolherOferta}
+          abertoInicialmente={veioPorPacote}
         />
         <Servicos
           servicos={servicosDoBarbeiroReq.dados ?? []}
@@ -844,8 +846,8 @@ function Funil() {
         {/* Contexto de quem chegou pelo convite de pacote: sem isto ele lê uma
             tela de agendamento e não entende por que está aqui. */}
         {veioPorPacote && estado.step === PASSO.SERVICOS && !estado.ofertaId && (
-          <div className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
-            <span aria-hidden>🎟️</span>
+          <div className="flex items-start gap-2.5 mb-3 px-3 py-2.5 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
+            <MarcaBigodsClub tom="ink" altura={24} />
             <span>
               Os pacotes do <strong>Bigod's Club</strong> estão logo abaixo — escolha um para pagar
               adiantado e deixar cada visita mais barata. Prefere marcar só um horário? Os serviços

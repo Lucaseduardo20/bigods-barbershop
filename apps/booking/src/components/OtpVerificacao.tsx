@@ -218,22 +218,24 @@ export function OtpVerificacao({
         {/* Saída para gente presa aqui (go-live 2026-08-20). Fica FORA dos
             blocos por fase de propósito: SMS que não chega é justamente o caso
             em que o cliente não avança de fase nenhuma, e é aí que ele mais
-            precisa de um humano. Mesmo padrão de link do rodapé da Landing e do
-            Sucesso — `BARBEARIA.whatsapp` + `IconeDeMarca`. */}
-        <div
-          className="text-[12.5px] mt-5 pt-4 text-center"
-          style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)' }}
-        >
-          Em caso de qualquer problema, entre em contato conosco pelo{' '}
+            precisa de um humano.
+            O contato é um BOTÃO, não um link no meio da frase: quem está
+            travado precisa reconhecer a saída de relance, e um trecho
+            sublinhado no meio do texto não se anuncia como algo em que clicar. */}
+        <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="text-[12.5px] text-center" style={{ color: 'var(--text-muted)' }}>
+            Em caso de qualquer problema, entre em contato conosco pelo WhatsApp clicando no botão
+            abaixo
+          </div>
           <a
             href={`https://wa.me/${BARBEARIA.whatsapp}`}
             target="_blank"
             rel="noreferrer"
-            className="font-bold"
-            style={{ color: 'var(--text-link)', display: 'inline-flex', alignItems: 'center', gap: 4, verticalAlign: 'middle' }}
+            className="btn btn-ghost btn-block mt-2.5"
+            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
-            <IconeDeMarca chave="whatsapp" tamanho={14} />
-            WhatsApp
+            <IconeDeMarca chave="whatsapp" tamanho={17} />
+            Falar com a barbearia
           </a>
         </div>
       </div>

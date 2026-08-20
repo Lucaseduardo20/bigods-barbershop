@@ -13,11 +13,19 @@ const N = 6;
 /**
  * Onboarding suave pós-compra de pacote (Fase 4): o cliente que acabou de pagar
  * já pode "criar seu acesso" ali mesmo, sem descobrir depois como logar. Reusa o
- * MESMO fluxo de OTP da área do cliente (POST /conta/login/iniciar + confirmar) —
- * a provisão do usuário já foi disparada pelo PacoteVendido/PagamentoConfirmado.
+ * MESMO fluxo de OTP da área do cliente (POST /conta/login/iniciar + confirmar).
  * Opcional: dá pra pular.
+ *
+ * 2026-08-20: passou a aparecer TAMBÉM no sucesso do avulso, e mesmo com o
+ * pacote ainda não pago. Antes o comentário aqui dizia que só fazia sentido
+ * depois de pago, porque a provisão do usuário vinha do evento de pagamento —
+ * isso mudou: `IniciarLoginClienteUseCase` provisiona a identidade na hora do
+ * login, para qualquer telefone, e `ConfirmarLoginClienteUseCase` cria o
+ * `Cliente` se não existir. Ou seja: TODO cliente tem conta, tenha ele comprado
+ * pacote, agendado avulso ou nada. O `contexto` só muda a frase — o fluxo é o
+ * mesmo.
  */
-export function Onboarding({ telefone }: { telefone: string }) {
+export function Onboarding({ telefone, contexto = 'pacote' }: { telefone: string; contexto?: 'pacote' | 'agendamento' }) {
   const [fase, setFase] = useState<'oferta' | 'codigo' | 'pronto'>('oferta');
   const [desafio, setDesafio] = useState('');
   const [codigoDemo, setCodigoDemo] = useState<string | null>(null);
@@ -79,7 +87,9 @@ export function Onboarding({ telefone }: { telefone: string }) {
       <div className="rounded-2xl p-4 text-center" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
         <div className="text-[15px] font-extrabold">Acesso criado! 🎉</div>
         <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
-          Agora é só entrar na sua conta para usar os créditos quando quiser.
+          {contexto === 'pacote'
+            ? 'Agora é só entrar na sua conta para usar os créditos quando quiser.'
+            : 'Agora é só entrar na sua conta para ver e gerenciar seus horários.'}
         </div>
         <a
           href={sessao ? linkDeContaComSessao(ACCOUNT_URL, sessao) : ACCOUNT_URL}
@@ -94,9 +104,11 @@ export function Onboarding({ telefone }: { telefone: string }) {
 
   return (
     <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
-      <div className="text-[15px] font-extrabold">Crie seu acesso agora</div>
+      <div className="text-[15px] font-extrabold">Acessar minha conta</div>
       <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
-        Confirme seu telefone e use seus créditos direto pela sua conta, quando quiser.
+        {contexto === 'pacote'
+          ? 'Confirme seu telefone e use seus créditos direto pela sua conta, quando quiser.'
+          : 'Confirme seu telefone para acompanhar seus horários, remarcar e ver seu histórico.'}
       </div>
 
       {fase === 'oferta' && (
