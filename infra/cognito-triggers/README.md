@@ -284,17 +284,55 @@ mensagem fica pendente e ninguém recebe nada, sem erro nenhum do nosso lado.
 
 Onde olhar, em ordem:
 
-1. **CloudWatch Logs da `create-auth`** — se o envio falhou de verdade
-   (credencial errada, timeout, 5xx), o erro aparece aqui e o login foi
-   recusado com erro. Se não há erro, o cloud aceitou.
-2. **App do SMS Gate no celular** — precisa estar rodando, com internet e com o
-   chip ativo. É a causa mais comum.
-3. **Painel do SMS Gate Cloud** — mostra as mensagens e em que estado pararam.
+1. **CloudWatch Logs da `create-auth`** — todo envio aceito deixa uma linha:
+   `{"evento":"sms_enviado","destino":"••••7777","mensagemId":"...","estadoInicial":"Pending"}`.
+   Ela responde duas perguntas que antes ficavam no ar: **pra qual número** foi
+   (se o final não é o do aparelho que você está olhando, o problema é o
+   cadastro do cliente, não o SMS) e **qual id procurar** no painel. Se o envio
+   falhou de verdade (credencial errada, timeout, 5xx), aqui aparece o erro e o
+   login foi recusado. Sem erro e sem a linha de `sms_enviado`, o código foi
+   reaproveitado de uma tentativa anterior — nenhum SMS novo foi pedido, por
+   design.
+   O código do OTP **nunca** entra no log (há teste garantindo isso).
+2. **Painel do SMS Gate Cloud** — busque pelo `mensagemId`. `Pending` parado
+   significa que o cloud tem a mensagem e o aparelho nunca a buscou: é o
+   celular, vá para o item 3. `Sent`/`Delivered` significa que saiu do aparelho
+   — aí é operadora ou número errado.
+3. **App do SMS Gate no celular** — a causa mais comum. Checklist no fim desta
+   seção.
 
 > Não implementei health check automático do device: não consegui confirmar na
 > documentação oficial o caminho exato do endpoint de health, e chutar uma rota
 > seria pior que não ter (um health check que aponta para o lugar errado mente
 > nas duas direções). Está registrado em DECISOES_PENDENTES.
+
+### Como o celular tem que estar
+
+O aparelho é a última perna da entrega — o cloud só empurra pra ele. Em ordem
+do que mais quebra:
+
+- **App aberto e em modo cloud.** O SMS Gate tem modos local/cloud/privado;
+  como usamos `api.sms-gate.app`, o app tem que estar registrado no **cloud**, e
+  as credenciais do `SMS_GATE_USER`/`SMS_GATE_PASSWORD` são as que **o próprio
+  app mostra** — reinstalar o app gera credenciais novas e invalida as antigas
+  (isso daria 401 no CloudWatch, então não é o caso quando o log está limpo).
+- **Otimização de bateria DESLIGADA para o app.** É o que mais mata em uso
+  real: o Android suspende o serviço em background depois de horas parado, o
+  aparelho fica "online" pra você e mudo pro cloud. Em Configurações → Apps →
+  SMS Gate → Bateria, marque **Sem restrição**. Em Xiaomi/Samsung/Motorola há
+  ainda uma permissão separada de **autostart**/"iniciar automaticamente".
+- **Permissão de SMS concedida.** Sem `SEND_SMS` o app não envia, e o cloud não
+  tem como saber disso.
+- **Internet no aparelho.** Wi-Fi da barbearia serve; só lembre que Wi-Fi que
+  cai à noite = OTP que não chega de manhã.
+- **Chip ativo e habilitado para SMS.** Plano só-dados não manda SMS. Se o
+  aparelho tem dois chips, confirme qual está selecionado para envio.
+- **Bateria e tomada.** Celular de recado que fica sem carga é indistinguível
+  de app quebrado, do ponto de vista do cloud.
+
+Teste rápido, sem passar pelo Cognito: envie uma mensagem pelo **painel do SMS
+Gate** para o seu próprio número. Se ela não chegar, o problema é 100% do
+aparelho e não há nada a depurar do lado da AWS.
 
 ## Custo e abuso
 

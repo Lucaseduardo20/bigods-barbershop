@@ -52,7 +52,7 @@ exports.handler = async (event) => {
     }
     // Deixa o erro SUBIR: o Cognito recusa o InitiateAuth e a nossa API devolve
     // erro pro funil. Nunca existe desafio sem código entregue.
-    await enviarSms(
+    const aceito = await enviarSms(
       {
         usuario: process.env.SMS_GATE_USER,
         senha: process.env.SMS_GATE_PASSWORD,
@@ -60,6 +60,22 @@ exports.handler = async (event) => {
         timeoutMs: process.env.SMS_GATE_TIMEOUT_MS ? Number(process.env.SMS_GATE_TIMEOUT_MS) : undefined,
       },
       { telefone, texto: textoDoSms(codigo) },
+    );
+    // Rastro do envio (2026-08-20). Sem isto, "o SMS não chegou" era um beco
+    // sem saída: o sucesso não deixava marca nenhuma no CloudWatch, então não
+    // havia como saber pra qual número foi nem qual mensagem procurar no painel
+    // do SMS Gate. `state` costuma sair como "Pending" — o cloud ACEITOU;
+    // entrega é outra coisa, e é justamente essa a distinção que faltava ver.
+    //
+    // ⚠️ O CÓDIGO NUNCA ENTRA NO LOG. CloudWatch é lido por mais gente do que
+    // se imagina, e um OTP em texto claro ali vale tanto quanto a senha.
+    console.log(
+      JSON.stringify({
+        evento: 'sms_enviado',
+        destino: mascarar(telefone),
+        mensagemId: aceito.id,
+        estadoInicial: aceito.state,
+      }),
     );
   }
 
