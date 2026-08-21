@@ -20,6 +20,8 @@ import { Telefone } from '../../src/shared/domain/telefone';
 import { diaCivilChave } from '../../src/shared/domain/calendario';
 // eslint-disable-next-line import/first
 import { somarDias } from '../../src/modules/scheduling/domain/regra-janela-agendamento';
+// eslint-disable-next-line import/first
+import { Timezone } from '../../src/shared/domain/timezone';
 
 /**
  * Ajustes do funil público: validações de entrada na BORDA (a que vale — a do
@@ -30,7 +32,9 @@ import { somarDias } from '../../src/modules/scheduling/domain/regra-janela-agen
 const companyId = `co-funil-${randomUUID()}`;
 const barbeiroId = `bar-funil-${randomUUID()}`;
 const corteId = `svc-funil-${randomUUID()}`;
-const TZ = 'America/Sao_Paulo';
+// Objeto `Timezone`, não string: `diaCivilChave` lê `tz.iana`, e com string ele
+// fica `undefined` — o Intl cai no fuso do SISTEMA em vez do da empresa.
+const TZ = Timezone.de('America/Sao_Paulo');
 
 const sufixo = String(Date.now()).slice(-6);
 const foneCliente = `11 95${sufixo}0`;
@@ -61,7 +65,7 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   http = request(app.getHttpServer());
 
-  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Funil', timezone: TZ } });
+  await prisma.company.create({ data: { id: companyId, nome: 'Bigod Funil', timezone: TZ.iana } });
   await prisma.servico.create({
     data: { id: corteId, companyId, nome: 'Corte', precoAvulsoCentavos: 4000, duracaoMinutos: 30 },
   });
@@ -104,6 +108,8 @@ afterAll(async () => {
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });
