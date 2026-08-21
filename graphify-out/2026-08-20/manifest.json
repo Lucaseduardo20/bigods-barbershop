@@ -114,10 +114,10 @@
     "semantic_hash": "5a57d5d21c0ac260ecd4d4c0353136aa"
   },
   "apps/account/src/screens/BookCredit.tsx": {
-    "mtime": 1787157382.7525442,
-    "seen": 1787165206.9795847,
-    "ast_hash": "237a06d91275900f7164203ce021790d",
-    "semantic_hash": "237a06d91275900f7164203ce021790d"
+    "mtime": 1787268798.8515825,
+    "seen": 1787269968.7052379,
+    "ast_hash": "e18ac31fe48deaea36c7b8c87df87ea6",
+    "semantic_hash": ""
   },
   "apps/account/src/screens/Header.tsx": {
     "mtime": 1786678275.5630162,
@@ -630,10 +630,10 @@
     "semantic_hash": "648d445446f2614c50574b2f214cb1f1"
   },
   "apps/api/src/modules/identity/presentation/conta-cliente.controller.ts": {
-    "mtime": 1787077644.7044773,
-    "seen": 1787165206.979899,
-    "ast_hash": "1a45276abf91149d727dbb9102a31f30",
-    "semantic_hash": "1a45276abf91149d727dbb9102a31f30"
+    "mtime": 1787268159.8148117,
+    "seen": 1787269968.7209404,
+    "ast_hash": "f7e04aebc61204d906f2ce234e49a4f5",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/identity/presentation/envia-otp.decorator.ts": {
     "mtime": 1787077644.7044773,
@@ -762,10 +762,10 @@
     "semantic_hash": "b7ffe1b587d2546942458a8ab9d58490"
   },
   "apps/api/src/modules/packages/infrastructure/pacotes-query.service.ts": {
-    "mtime": 1787078043.6435807,
-    "seen": 1787165206.9799752,
-    "ast_hash": "ea0276673298c8eb570a61db3a9b5263",
-    "semantic_hash": "ea0276673298c8eb570a61db3a9b5263"
+    "mtime": 1787268653.6504922,
+    "seen": 1787269968.7248666,
+    "ast_hash": "7d72964152ebd03bfdb7072a2d4ff836",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/prisma-pacote-oferta.repository.ts": {
     "mtime": 1787077644.7164774,
@@ -1188,10 +1188,10 @@
     "semantic_hash": "c7cb0a09f993a48a9b89db5ca4f49452"
   },
   "apps/api/src/modules/scheduling/application/agendar-com-credito.usecase.ts": {
-    "mtime": 1787077644.7244773,
-    "seen": 1787165206.9802196,
-    "ast_hash": "0380901033d0426d2895b969d44001eb",
-    "semantic_hash": "0380901033d0426d2895b969d44001eb"
+    "mtime": 1787268140.362668,
+    "seen": 1787269968.742308,
+    "ast_hash": "255bde0ad619d05bde29bfa379029fb9",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/cancelar-atendimento-cliente.usecase.ts": {
     "mtime": 1785502536.3156471,
@@ -1218,10 +1218,10 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/reagendar-atendimento-cliente.usecase.ts": {
-    "mtime": 1786661365.0665095,
-    "seen": 1787165206.980235,
-    "ast_hash": "04fc03bed1236068384426762fec1362",
-    "semantic_hash": "04fc03bed1236068384426762fec1362"
+    "mtime": 1787268159.8148117,
+    "seen": 1787269968.7432327,
+    "ast_hash": "dd7f3d430bd955dbc32863351a37de53",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/registrar-nao-comparecimento.usecase.ts": {
     "mtime": 1784051804.7687457,
@@ -1248,9 +1248,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/domain/atendimento.spec.ts": {
-    "mtime": 1787199330.8887255,
-    "seen": 1787199839.3336868,
-    "ast_hash": "a607ff4cde36e8da18257db41134b08b",
+    "mtime": 1787268615.3142047,
+    "seen": 1787269968.744169,
+    "ast_hash": "630335d22e7f437e4077e74f361106d1",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/domain/regra-atribuicao-de-barbeiro.spec.ts": {
@@ -1320,9 +1320,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/presentation/atendimentos.controller.ts": {
-    "mtime": 1787198400.2024028,
-    "seen": 1787199839.3353164,
-    "ast_hash": "252897d52866892e92f5a71176a0adeb",
+    "mtime": 1787268140.3666682,
+    "seen": 1787269968.7463439,
+    "ast_hash": "0146e4fe6e779c125abd7cdf64cf3def",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/presentation/booking-publico.controller.ts": {
@@ -2226,9 +2226,9 @@
     "semantic_hash": "5baac680da5b6ccf8c2fcae1b1dbafd9"
   },
   "packages/contracts/src/dto.ts": {
-    "mtime": 1787262566.3892639,
-    "seen": 1787263284.0221455,
-    "ast_hash": "0e887653b48f1e5a61c26774a2602091",
+    "mtime": 1787268653.6464922,
+    "seen": 1787269968.7732098,
+    "ast_hash": "b48651e6659eb1019e953d6cacc5b4fd",
     "semantic_hash": ""
   },
   "packages/contracts/src/enums.ts": {
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "DECISOES_PENDENTES.md": {
-    "mtime": 1787199292.18443,
-    "seen": 1787199839.3579295,
-    "ast_hash": "c9a5106630f70430db432ce14a7861c6",
+    "mtime": 1787269303.4593859,
+    "seen": 1787269968.7774787,
+    "ast_hash": "0dca6591f143e1f62dc73dec954fe4eb",
     "semantic_hash": ""
   },
   "DEPLOY.md": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787200159.6908743,
-    "seen": 1787263284.0247185,
-    "ast_hash": "519f60718c7355471f645780cf022b0d",
+    "mtime": 1787269348.8957288,
+    "seen": 1787269968.7778075,
+    "ast_hash": "f6fa90b5924e666376b249d6340265c8",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -2538,9 +2538,9 @@
     "semantic_hash": ""
   },
   "docs/DOMAIN.md": {
-    "mtime": 1787199392.4811933,
-    "seen": 1787199839.3579657,
-    "ast_hash": "f195596cc0b76a9431287131e13ef851",
+    "mtime": 1787269303.4393857,
+    "seen": 1787269968.7793326,
+    "ast_hash": "d8083647f6565633b9ddf39b3bbbbf9e",
     "semantic_hash": ""
   },
   "docs/QA_GO_LIVE.md": {
@@ -3069,6 +3069,12 @@
     "mtime": 1787265378.912179,
     "seen": 1787267546.5916715,
     "ast_hash": "d30a2a22c1fd62374450e299c0c20c7c",
+    "semantic_hash": ""
+  },
+  "apps/api/test/integration/visita-multiplos-creditos.e2e.spec.ts": {
+    "mtime": 1787268560.729796,
+    "seen": 1787269968.7637584,
+    "ast_hash": "98f7a4f77b893c0029223762e36836be",
     "semantic_hash": ""
   }
 }

@@ -70,6 +70,14 @@ enum OrigemComissao {
 }
 
 // Workflow de aprovação de PacoteOferta (sessão-B, Fase 3).
+// Transições do Bigod's Club (2026-08-21) — log append-only, ver EventoDoClube.
+enum TipoEventoClube {
+  ENTROU_CLUBE
+  VIROU_INATIVO
+  SAIU_CLUBE
+  RENOVOU
+}
+
 enum StatusAprovacaoPacoteOferta {
   RASCUNHO
   PENDENTE_APROVACAO
@@ -78,26 +86,26 @@ enum StatusAprovacaoPacoteOferta {
 }
 
 model Company {
-  id                     String @id
-  nome                   String
+  id                       String @id
+  nome                     String
   // ParametrosDaEmpresa: prazo da segunda chance (§4.2), ajustável pelo admin
-  prazoReagendamentoDias Int    @default(10)
+  prazoReagendamentoDias   Int    @default(10)
   // ParametrosDaEmpresa (sessão-E, §8.6): até quantas horas antes do horário
   // marcado o CLIENTE pode cancelar sozinho pelo cockpit — depois disso, o
   // app recusa e orienta a falar por WhatsApp. Ajustável pelo admin.
-  janelaCancelamentoHoras Int  @default(2)
+  janelaCancelamentoHoras  Int    @default(2)
   // ParametrosDaEmpresa (sessão-E, §8.6): até quantas horas antes o CLIENTE
   // pode reagendar sozinho pelo cockpit (mover pra outra data/hora,
   // preservando serviço/barbeiro/crédito). Ajustável pelo admin.
-  janelaReagendamentoHoras Int @default(12)
+  janelaReagendamentoHoras Int    @default(12)
   // Fuso IANA da empresa (ex: "America/Sao_Paulo"). Propriedade da Company,
   // não constante global — outras barbearias em outros fusos usarão o sistema.
   // Validado como IANA válido na borda (VO Timezone), não por constraint de banco.
-  timezone               String @default("America/Sao_Paulo")
+  timezone                 String @default("America/Sao_Paulo")
   // Desconto progressivo dos avulsos (substituiu os combos fixos): teto do
   // desconto acumulado, por mais serviços que o cliente some. null = sem teto.
   // Os degraus por posição ficam em DegrauDeDesconto.
-  descontoTetoCentavos   Int?
+  descontoTetoCentavos     Int?
   // Comissão de PRODUTO (2026-08-19, decisão dos sócios): taxa ÚNICA da empresa,
   // em pontos-base, aplicada a todo produto vendido por qualquer barbeiro.
   // Substitui a taxa por barbeiro (`Barbeiro.comissaoProdutosBp`, agora
@@ -105,27 +113,27 @@ model Company {
   // remunera habilidade e tempo. Incide sobre o PREÇO DE VENDA — o sistema não
   // cadastra custo de produto, então não há como calcular sobre margem.
   // Default 0: nenhuma comissão até o admin configurar (nunca paga sozinho).
-  comissaoProdutosBp     Int @default(0)
+  comissaoProdutosBp       Int    @default(0)
 
-  servicos      Servico[]
-  produtos      Produto[]
+  servicos        Servico[]
+  produtos        Produto[]
   degrausDesconto DegrauDeDesconto[]
-  barbeiros     Barbeiro[]
-  clientes      Cliente[]
-  atendimentos  Atendimento[]
-  vendasPacote  VendaDePacote[]
-  vendasProduto VendaDeProduto[]
-  lancamentos   LancamentoComissao[]
-  intencoes     IntencaoDePagamento[]
-  pacoteOfertas PacoteOferta[]
-  vales         Vale[]
-  itensOrderBump ItemDeOrderBump[]
+  barbeiros       Barbeiro[]
+  clientes        Cliente[]
+  atendimentos    Atendimento[]
+  vendasPacote    VendaDePacote[]
+  vendasProduto   VendaDeProduto[]
+  lancamentos     LancamentoComissao[]
+  intencoes       IntencaoDePagamento[]
+  pacoteOfertas   PacoteOferta[]
+  vales           Vale[]
+  itensOrderBump  ItemDeOrderBump[]
+  eventosDoClube  EventoDoClube[]
 }
 
 /**
  * ItemDeOrderBump (raiz, sessão 2026-08-17 Parte 2): a PARAMETRIZAÇÃO de um
  * item na vitrine "Adicione à sua visita" do funil (DOMAIN.md §8.13).
- *
  * Por que tabela própria em vez de mais colunas em Servico/Produto: a
  * configuração é a MESMA para os dois tipos (aparece? por quanto? com que
  * chamada? em que ordem?), e as invariantes também — duplicar isso nos dois
@@ -133,29 +141,28 @@ model Company {
  * merchandising do funil, não cadastro de catálogo: quem decide "o que a casa
  * oferece e por quanto no geral" é Servico/Produto; quem decide "o que é
  * empurrado no fechamento do pedido, com que oferta" é este agregado.
- *
  * Relação polimórfica proposital (`tipo` + `referenciaId`, sem FK): apontar
  * para duas tabelas distintas com FK exigiria duas colunas nuláveis e uma
  * checagem de "exatamente uma preenchida". A existência é validada na camada
  * de aplicação, que já carrega o catálogo de qualquer forma.
  */
 model ItemDeOrderBump {
-  id        String              @id
-  companyId String
-  tipo      TipoItemDeOrderBump
+  id                       String              @id
+  companyId                String
+  tipo                     TipoItemDeOrderBump
   /// Servico.id ou Produto.id, conforme `tipo`.
-  referenciaId String
+  referenciaId             String
   /// Aparece no funil? (o "sim/não" que antes era Servico/Produto.sugeridoNoBump)
-  ativo     Boolean @default(true)
+  ativo                    Boolean             @default(true)
   /// Preço FINAL do item quando adicionado pelo bump. null = sem promoção,
   /// cobra o preço normal. Persistimos o preço em centavos, nunca o
   /// percentual — o percentual exibido é sempre DERIVADO (mesma disciplina do
   /// preço de PacoteOferta).
   precoPromocionalCentavos Int?
   /// Chamada customizável ("Leve pra casa por só R$X"). null = sem mensagem.
-  mensagem  String?
+  mensagem                 String?
   /// Ordem de exibição na vitrine (menor primeiro; empate desempata por nome).
-  ordem     Int     @default(0)
+  ordem                    Int                 @default(0)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -190,7 +197,6 @@ model DegrauDeDesconto {
  * cliente. O mesmo cliente pode ser da casa do Gabriel e não ser do Lucas: a
  * marca vale só na agenda de quem marcou, porque é uma relação de confiança
  * pessoal, não um atributo do cliente.
- *
  * Chave composta = a própria relação. Não há status nem soft-delete: ou existe
  * a linha (é da casa) ou não existe (não é).
  */
@@ -255,16 +261,16 @@ model Produto {
 // continua passando por VendaDePacote/rateio (§3.6) — este agregado só
 // define O QUE está à venda e por quanto, não o rateio.
 model PacoteOferta {
-  id             String                      @id
-  companyId      String
+  id              String                      @id
+  companyId       String
   // ⚠️ DEPRECADO em 2026-08-18 — a oferta é da EMPRESA, não de um barbeiro
   // (decisão do dono). Ninguém lê nem escreve esta coluna desde então;
   // mantida nulável só para rollback seguro (sistema em produção), remover
   // numa migration futura — ver DECISOES_PENDENTES.
-  barbeiroId     String?
-  nome           String
-  precoCentavos  Int
-  ativo          Boolean                     @default(true)
+  barbeiroId      String?
+  nome            String
+  precoCentavos   Int
+  ativo           Boolean                     @default(true)
   // Workflow de aprovação (Fase 3): só APROVADO aparece no funil público.
   // Default APROVADO — ofertas semeadas antes desta sessão continuam visíveis.
   statusAprovacao StatusAprovacaoPacoteOferta @default(APROVADO)
@@ -412,47 +418,54 @@ model Cliente {
   // atendimento no painel.
   sobreVoce  String?
 
-  company Company @relation(fields: [companyId], references: [id])
+  company  Company         @relation(fields: [companyId], references: [id])
   daCasaDe ClienteDaCasa[]
 
   @@unique([companyId, telefone])
 }
 
 model Atendimento {
-  id                 String            @id
-  companyId          String
-  clienteId          String
-  barbeiroId         String
-  inicio             DateTime          @db.Timestamptz(3)
-  fim                DateTime          @db.Timestamptz(3)
-  status             StatusAtendimento
-  origem             OrigemAtendimento
-  formaPagamento     FormaPagamento?
-  motivoCancelamento String?
+  id                        String            @id
+  companyId                 String
+  clienteId                 String
+  barbeiroId                String
+  inicio                    DateTime          @db.Timestamptz(3)
+  fim                       DateTime          @db.Timestamptz(3)
+  status                    StatusAtendimento
+  origem                    OrigemAtendimento
+  formaPagamento            FormaPagamento?
+  motivoCancelamento        String?
   // Fase 4c: registro de que o agendamento veio do link pessoal de um
   // barbeiro (marketing individual) — barbeiroId de quem divulgou, ou null se
   // veio do funil genérico. SÓ registro nesta sessão, sem tela de relatório.
-  origemLinkBarbeiroId String?
+  origemLinkBarbeiroId      String?
   // FASE 4a (sessão-E, §8.7): quanto do total deste atendimento foi abatido
   // com saldo residual de um pacote (0 = nenhum abatimento). `vendaAbatidaId`
   // aponta pra QUAL pacote — auditoria (§ regra "não é coluna de saldo
   // mutável sem lastro": aqui é rastro de UM atendimento específico, não um
   // acumulador solto).
-  valorAbatidoSaldoCentavos Int    @default(0)
+  // Quando o atendimento foi MARCADO — distinto de `inicio`, que é quando ele
+  // acontece. O status do Bigod's Club precisa desta data: um avulso marcado por
+  // quem TINHA crédito não pode rebaixá-lo depois, e usar `inicio` faria
+  // exatamente isso quando o avulso estivesse agendado pra frente.
+  // Linhas anteriores a 2026-08-21 foram preenchidas com `inicio` — melhor
+  // aproximação disponível, já que a informação real não existia.
+  criadoEm                  DateTime          @default(now()) @db.Timestamptz(3)
+  valorAbatidoSaldoCentavos Int               @default(0)
   vendaAbatidaId            String?
   // Sessão de OTP+reserva: prazo da reserva TEMPORÁRIA (status RESERVADO,
   // canal online) — depois de confirmada (RESERVADO→AGENDADO) o campo
   // permanece preenchido como marca permanente de "veio do canal online"
   // (usado pela cota de presenciais pra excluir corretamente atendimentos
   // online da contagem). Null em qualquer atendimento presencial.
-  reservaOnlineExpiraEm DateTime? @db.Timestamptz(3)
+  reservaOnlineExpiraEm     DateTime?         @db.Timestamptz(3)
   // Conclusão antecipada (2026-08-20): o barbeiro concluiu antes do horário e
   // justificou. Guardamos o motivo, quem pediu, quando, e a forma de pagamento
   // que ele informou — a forma precisa sobreviver até a aprovação, senão o
   // admin teria que adivinhar como o cliente pagou.
   conclusaoAntecipadaMotivo String?
   conclusaoSolicitadaPorId  String?
-  conclusaoSolicitadaEm     DateTime? @db.Timestamptz(3)
+  conclusaoSolicitadaEm     DateTime?         @db.Timestamptz(3)
   conclusaoFormaPagamento   FormaPagamento?
 
   company  Company               @relation(fields: [companyId], references: [id])
@@ -493,45 +506,45 @@ model ItemProdutoAtendido {
 }
 
 model VendaDePacote {
-  id                    String          @id
-  companyId             String
-  clienteId             String
+  id                              String          @id
+  companyId                       String
+  clienteId                       String
   // Barbeiro ESCOLHIDO PELO CLIENTE na compra (2026-08-18). Não é "dono" do
   // pacote — a oferta é da empresa —, é a única regra que sobrou: se o cliente
   // comprou com um barbeiro selecionado, só ele atende os serviços daquele
   // pacote. `null` = comprou sem escolher ("não tenho preferência"): qualquer
   // barbeiro ativo que atenda o serviço pode consumir o crédito (§8.2).
-  barbeiroId            String?
-  valorPagoCentavos     Int
-  saldoResidualCentavos Int             @default(0)
+  barbeiroId                      String?
+  valorPagoCentavos               Int
+  saldoResidualCentavos           Int             @default(0)
   // FASE 4a (sessão-E, §8.7): quanto do saldo residual já foi GASTO
   // (abatido em algum avulso) historicamente — só cresce. Existe pra manter
   // a invariante de conservação de dinheiro auditável mesmo depois que o
   // saldo é usado: Σvalorrateado(ativos) + saldoResidual + saldoUtilizado
   // == valorPago, sempre.
-  saldoUtilizadoCentavos Int            @default(0)
+  saldoUtilizadoCentavos          Int             @default(0)
   // FASE 4b (sessão-E, §8.7): saldo RESERVADO pra uma SolicitacaoDeReembolso
   // PENDENTE — sai de saldoResidual assim que a solicitação é criada (não
   // espera o admin confirmar), exatamente pra impedir abater (FASE 4a) e
   // reembolsar (FASE 4b) o MESMO dinheiro ao mesmo tempo: o abatimento só
   // enxerga `saldoResidual`, então dinheiro reservado já está fora do
   // alcance dele estruturalmente, não por uma checagem solta.
-  saldoReservadoReembolsoCentavos Int   @default(0)
+  saldoReservadoReembolsoCentavos Int             @default(0)
   // Saldo efetivamente devolvido (reembolso CONFIRMADO pelo admin) — só cresce.
-  saldoReembolsadoCentavos Int          @default(0)
+  saldoReembolsadoCentavos        Int             @default(0)
   // Instante da expiração mais recente que alimentou saldoResidual — âncora
   // do prazo de 45 dias pra pedir reembolso (§8.7). Null enquanto nunca
   // houve expiração nesta venda.
-  saldoResidualDesde    DateTime?       @db.Timestamptz(3)
-  compradoEm            DateTime        @db.Timestamptz(3)
-  statusPagamento       StatusPagamento
+  saldoResidualDesde              DateTime?       @db.Timestamptz(3)
+  compradoEm                      DateTime        @db.Timestamptz(3)
+  statusPagamento                 StatusPagamento
   // Fase 4c: registro do link pessoal de barbeiro que originou a compra — só
   // registro, sem tela de relatório nesta sessão.
-  origemLinkBarbeiroId  String?
+  origemLinkBarbeiroId            String?
 
-  company              Company                  @relation(fields: [companyId], references: [id])
-  barbeiro             Barbeiro?                @relation(fields: [barbeiroId], references: [id])
-  itens                ItemDoPacote[]
+  company               Company                  @relation(fields: [companyId], references: [id])
+  barbeiro              Barbeiro?                @relation(fields: [barbeiroId], references: [id])
+  itens                 ItemDoPacote[]
   solicitacoesReembolso SolicitacaoDeReembolso[]
 
   @@index([clienteId])
@@ -583,6 +596,36 @@ model ItemDoPacote {
 
   @@index([vendaId])
   @@index([status, prazoReagendamentoAte])
+}
+
+/// Log APPEND-ONLY das transições de status no Bigod's Club (2026-08-21).
+///
+/// Nunca atualizado, nunca apagado: cada linha é um fato que aconteceu. O status
+/// ATUAL do cliente NÃO é lido daqui — é sempre calculado (`statusDoClube`).
+/// Este log existe para auditoria e para as métricas de retenção que virão
+/// (quantos inativos renovam vs. viram avulso). Sem relatório ainda, por decisão.
+///
+/// Consequência do desenho: o log pode ATRASAR (se nenhum evento de domínio
+/// disparar a reconciliação, a linha só aparece na próxima), mas o status
+/// mostrado ao cliente nunca fica errado, porque não depende daqui.
+model EventoDoClube {
+  id             String          @id
+  companyId      String
+  clienteId      String
+  tipo           TipoEventoClube
+  /// Status antes e depois — redundante com `tipo` de propósito: o log tem que
+  /// ser legível sozinho, sem reimplementar a máquina de estados pra interpretá-lo.
+  statusAnterior String
+  statusNovo     String
+  /// O que causou, em texto curto ("pacote pago", "último crédito consumido",
+  /// "avulso marcado sem crédito") — para auditoria humana.
+  causa          String
+  ocorridoEm     DateTime        @db.Timestamptz(3)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([clienteId, ocorridoEm])
+  @@index([companyId, tipo])
 }
 
 // Venda AVULSA de produto (item 4b — "alguém entrou só pra comprar", sem

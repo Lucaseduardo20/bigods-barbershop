@@ -1329,6 +1329,67 @@ nada; depois, expira exatamente o que deveria). Não é um trigger em tempo real
 
 ---
 
+### 4.5 Status no Bigod's Club — DERIVADO, não armazenado (2026-08-21)
+
+```
+                        compra pacote pago
+   ┌──────────────┐  ────────────────────────►  ┌───────────────┐
+   │  NAO_MEMBRO  │      ENTROU_CLUBE /         │ MEMBRO_ATIVO  │
+   │              │  ◄──────  RENOVOU  ─────────│ (crédito vivo)│
+   └──────────────┘                             └───────┬───────┘
+          ▲                                             │ acabou o crédito
+          │ marcou avulso                               │ (consumido/expirado)
+          │ estando sem crédito                         ▼
+          │  SAIU_CLUBE                         ┌────────────────┐
+          └─────────────────────────────────────│ MEMBRO_INATIVO │
+                                                │ (sem crédito,  │
+                    compra de novo (RENOVOU)    │  ainda membro) │
+                    ◄───────────────────────────└────────────────┘
+```
+
+**★ O status NUNCA é uma coluna.** É calculado a cada leitura por `statusDoClube()` (função
+pura), a partir dos pacotes e dos avulsos do cliente. Um campo `status` divergiria do cálculo na
+primeira vez que alguém esquecesse de atualizá-lo; um cálculo não tem com o que divergir.
+
+Regras, e o que cada uma protege:
+
+- **`MEMBRO_ATIVO`** — tem crédito VIVO em pacote **PAGO**. Vivo = `DISPONIVEL`,
+  `SEGUNDA_CHANCE` **ou `AGENDADO`**. A regra falada é "crédito disponível", e `AGENDADO`
+  literalmente não está disponível — mas quem tem visita de pacote marcada é o oposto de
+  esgotado, e rebaixá-lo (com "renove!" na tela) enquanto o crédito está em voo seria errado. O
+  crédito volta a `DISPONIVEL` se ele cancelar.
+- **Esgotar ou expirar NÃO expulsa:** vai para `MEMBRO_INATIVO` e **continua no clube** — inclusive
+  visualmente, mantendo o tema.
+- **Pacote ativo PROTEGE:** um avulso marcado por quem tem crédito não muda nada, **nem mais
+  tarde**. É por isso que a comparação usa `Atendimento.criadoEm` (quando foi MARCADO) e não
+  `inicio` (quando acontece): com `inicio`, um avulso marcado sob proteção e agendado pra frente
+  passaria a rebaixar o cliente assim que os créditos acabassem.
+- **O avulso só rebaixa quem já estava sem crédito:** `MEMBRO_INATIVO` + avulso marcado depois do
+  instante em que o último crédito morreu → `NAO_MEMBRO`. Esse instante é derivado: `fim` do
+  atendimento que consumiu o crédito, ou `prazoReagendamentoAte` que o expirou.
+- **Renovar** (comprar pacote) de `INATIVO` ou `NAO_MEMBRO` → `MEMBRO_ATIVO`.
+- **Pacote não pago não faz membro:** crédito de pacote `AGUARDANDO` ainda não existe.
+- Sem rastro de quando o crédito morreu (dado antigo), fica `MEMBRO_INATIVO`: o erro de manter um
+  membro é menor que o de expulsar quem não pediu para sair.
+
+#### Log de eventos (`EventoDoClube`) — append-only
+
+Cada transição REAL grava uma linha: `ENTROU_CLUBE`, `VIROU_INATIVO`, `SAIU_CLUBE`, `RENOVOU`, com
+data, status anterior/novo e a causa em texto. **Nunca é atualizado nem apagado.**
+
+O log é **histórico e auditoria** — base para as métricas de retenção que virão (quantos inativos
+renovam vs. viram avulso). **Não há relatório ainda**, por decisão. E o status atual **não é lido
+daqui**.
+
+A gravação é feita por um **reconciliador** (`SincronizarStatusDoClubeUseCase`), chamado depois de
+qualquer fato que possa mudar o status: calcula o status, compara com o último registrado e grava
+só se mudou. Isso dá **idempotência de graça** — rodar duas vezes não grava duas linhas.
+
+**Consequência a dizer em voz alta:** se nenhum evento disparar a reconciliação, o log **atrasa**
+(a linha aparece no próximo fato daquele cliente), mas o status mostrado nunca fica errado, porque
+é calculado na leitura. Falha ao gravar o log é logada e engolida: derrubar a compra de um pacote
+porque a linha de histórico não entrou seria pior que um log incompleto.
+
 ### 4.4 `Vale` (sessão de vale/pagamento)
 
 ```

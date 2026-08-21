@@ -7,6 +7,7 @@ import {
   Papel,
   StatusAprovacaoPacoteOferta,
   StatusAtendimento,
+  StatusDoClube,
   StatusItemPacote,
   StatusPagamento,
   StatusSolicitacaoReembolso,
@@ -799,10 +800,27 @@ export interface AgendamentoClienteDTO {
   origem: OrigemAtendimento;
   status: StatusAtendimento;
 }
+/** Estado do cliente no Bigod's Club (2026-08-21) — calculado, nunca armazenado. */
+export interface ClubeDoClienteDTO {
+  status: StatusDoClube;
+  /**
+   * Quando entrou no status atual (ISO), do log de eventos. `null` quando nunca
+   * houve transição registrada — cliente que nunca teve pacote, ou pacote
+   * anterior ao log existir. A UI não depende disto pra decidir nada; é texto.
+   */
+  desde: string | null;
+  /**
+   * Créditos vivos agora: DISPONIVEL, SEGUNDA_CHANCE ou AGENDADO, em pacote
+   * PAGO. Zero é o que caracteriza o inativo.
+   */
+  creditosVivos: number;
+}
 export interface PerfilClienteDTO {
   cliente: ClienteSessaoDTO;
   /** Pacotes do cliente (reusa o read model de pacotes). */
   pacotes: VendaDePacoteDTO[];
+  /** Estado no Bigod's Club — decide o tema visual e o convite/incentivo. */
+  clube: ClubeDoClienteDTO;
   /**
    * O que ainda vai acontecer, do mais próximo ao mais distante: AGENDADO,
    * CONCLUSAO_PENDENTE e RESERVADO (reserva de avulso online cujo prazo de

@@ -9,6 +9,7 @@ import { BOOKING_URL } from '../lib/config';
 import { diasCivisRestantes, dinheiro } from '../lib/format';
 import { fraseSaldoResidual, fraseSegundaChance } from '../lib/textos';
 import { Icon } from '../components/ui';
+import { ChamadoDoClube, FaixaDoClube } from '../components/Clube';
 
 /** Item ainda utilizável para marcar um novo horário. */
 function bookavel(i: ItemDoPacoteDTO): boolean {
@@ -67,6 +68,9 @@ export function Home({
 
   return (
     <div style={{ padding: '18px 20px 40px' }}>
+      {/* Selo de membro no topo — é a primeira coisa que um membro vê. */}
+      <FaixaDoClube clube={perfil.clube} />
+
       {emPrazo.map(({ item }) => {
         const frase = fraseSegundaChance(diasCivisRestantes(item.prazoReagendamentoAte!, tz), item.servicoNome);
         return (
@@ -141,28 +145,11 @@ export function Home({
           </div>
         </div>
       )}
-      {perfil.pacotes.length === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '6px 10px', marginBottom: 24 }}>
-          {/* Marca em INK: fundo claro. O LOCKUP (com o wordmark desenhado) foi
-              testado aqui e não serve — nesta caixa cabem ~38px de altura, e
-              abaixo de ~60px o nome vira borrão. A coroa+bigode é silhueta
-              simples e continua legível pequena. */}
-          <img
-            src="/brand/bigods-club-marca-ink.svg"
-            alt="Bigod's Club"
-            style={{ display: 'block', height: 26, width: 'auto', margin: '0 auto 8px' }}
-          />
-          Corta com frequência? Um{' '}
-          {/* `?pacote=1`: o funil pula a tela inicial (que só fala de agendar
-              horário) e entra já onde os pacotes vivem, com uma faixa dizendo
-              por que o cliente está ali. Sem o parâmetro ele caía na Landing e
-              achava que ia marcar mais um corte (go-live 2026-08-20). */}
-          <a href={`${BOOKING_URL}?pacote=1`} style={{ fontWeight: 700, color: 'var(--text-link)' }}>
-            pacote
-          </a>{' '}
-          deixa cada visita mais barata.
-        </div>
-      )}
+      {/* Renovar (inativo) ou conhecer (não-membro). Substituiu o convite
+          textual solto de 2026-08-20: aquele aparecia por "não tem pacote", que
+          não distingue quem esgotou de quem nunca entrou — e são conversas
+          diferentes. Nada aparece pra quem tem crédito. */}
+      <ChamadoDoClube clube={perfil.clube} />
 
       {/* 4) Ver histórico completo — leva pra tela dedicada (FASE 1) */}
       <button

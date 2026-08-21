@@ -4178,6 +4178,116 @@ Conta do cliente → um pacote com dois serviços diferentes → "Usar um crédi
 5. cancele uma visita dupla (antecipado) e confira que **os dois** créditos voltaram;
 6. com dois pacotes diferentes, tente misturar → as opções do outro pacote ficam apagadas.
 
+## Status de membro do Bigod's Club (2026-08-21) ✅
+
+Três estados, calculados: `MEMBRO_ATIVO`, `MEMBRO_INATIVO`, `NAO_MEMBRO`. Tema visual próprio para
+membros, e convite pra renovar quem esgotou.
+
+### A função de cálculo
+
+`statusDoClube()` (`packages/domain/status-do-clube.ts`) é pura e recebe dois conjuntos: os
+créditos do cliente (status do item + status de pagamento da venda + quando o crédito morreu) e os
+avulsos (só a data de MARCAÇÃO). Devolve o estado:
+
+```
+tem crédito vivo em pacote PAGO?          → MEMBRO_ATIVO
+nunca teve pacote pago?                   → NAO_MEMBRO
+marcou avulso depois do último crédito
+morrer?                                   → NAO_MEMBRO
+senão                                      → MEMBRO_INATIVO
+```
+
+**Nenhuma coluna de status.** Cada leitura de `/conta/perfil` recalcula. Custa duas queries por
+cliente e compra a garantia de nunca mostrar um status que divergiu do mundo real.
+
+Duas decisões que não eram óbvias, e que valem mais que o resto do código:
+
+**Crédito `AGENDADO` conta como vivo.** A regra falada é "crédito disponível", e `AGENDADO`
+literalmente não está. Mas quem tem visita de pacote marcada é o oposto de esgotado — rebaixá-lo,
+com "renove!" na tela, enquanto o crédito está em voo, seria errado. E o crédito volta a
+`DISPONIVEL` se ele cancelar.
+
+**★ O avulso é datado pela MARCAÇÃO, não pelo atendimento.** Foi o que exigiu a coluna nova
+`Atendimento.criadoEm`. Comparando pelo `inicio`, um avulso marcado por quem TINHA crédito (e que
+por regra "não muda nada") passaria a rebaixá-lo mais tarde, bastando estar agendado pra frente. A
+regra "pacote ativo protege" tem que valer pra sempre, não só no instante do clique. Há teste
+dedicado a isso.
+
+Backfill do `criadoEm` nas linhas antigas: `inicio`. É a melhor aproximação possível, porque o
+instante do clique nunca foi gravado — `now()` seria pior, diria que todo atendimento passado foi
+marcado hoje e mudaria o status de quem já é membro.
+
+### Quando cada evento é gravado
+
+Log append-only `EventoDoClube`: `ENTROU_CLUBE`, `VIROU_INATIVO`, `SAIU_CLUBE`, `RENOVOU`.
+
+A gravação é por **reconciliação**, não por detecção no ponto de origem:
+`SincronizarStatusDoClubeUseCase` calcula o status, compara com o último registrado e grava **só se
+mudou**. Idempotência sai de graça — rodar duas vezes não grava duas linhas.
+
+| Fato de domínio | Por que dispara |
+|---|---|
+| `PacoteVendido` | pode ser a entrada no clube (se já vem pago) |
+| `PagamentoConfirmado` (ref. pacote) | é aqui que o crédito passa a existir, no caminho PIX/balcão |
+| `ItemDoPacoteConsumido` / `...Expirado` | pode ter sido o último crédito |
+| `AtendimentoAgendado` | avulso de quem está sem crédito = saída |
+| `ClienteFaltou` | a 2ª falta expira o crédito |
+| `AtendimentoCancelado` | devolve crédito: quem esgotou pode voltar |
+
+**A propriedade que importa:** se nenhum evento disparar a reconciliação, o log **atrasa** — a
+linha aparece no próximo fato daquele cliente. O status mostrado **nunca fica errado**, porque é
+calculado na leitura e não sai do log. Falha ao gravar o log é logada e engolida: derrubar a compra
+de um pacote porque a linha de histórico não entrou seria pior.
+
+### Como o account muda por estado
+
+O tema é uma **classe no wrapper** (`.tema-clube`) que redefine tokens de superfície — os tokens
+fazem o resto, e nenhuma tela sabe que existe tema.
+
+| Estado | Tema | Faixa | Chamado |
+|---|---|---|---|
+| `MEMBRO_ATIVO` | clube | selo + "N créditos" + badge ATIVO | nenhum — quem comprou não precisa ser convencido |
+| `MEMBRO_INATIVO` | clube (mantém: esgotar não expulsa) | selo + "seus créditos acabaram" | "Continue no Bigod's Club" → Renovar |
+| `NAO_MEMBRO` | normal | — | convite discreto "Conheça o Bigod's Club" |
+
+Os dois gatilhos de conversão (esgotar e o estado inativo contínuo) são a **mesma superfície**, de
+propósito: `INATIVO` *é* o estado logo depois de esgotar. Duas mensagens exigiriam inventar um
+limite de tempo ("recém-esgotado" é até quando?) que ninguém decidiu.
+
+Tom conferido por teste: o texto do inativo não contém "perder", "última chance", "expira". O
+objetivo é recuperar, e ameaça não recupera ninguém.
+
+**Contraste medido antes de escolher a paleta**, porque o tom quente empurra tudo pra baixo: o
+`--surface-sunken` do tema é `#ece3d0` e não `#e8dcc4` (que dava 4,32 e reprovava no
+`--text-muted`), e o tema redefine `--text-link` para `#7d5e2a` porque o global (`#8f6c30`) reprova
+em qualquer fundo quente — 3,78 no `--surface-brand-tint`, o que **já é verdade hoje** fora do
+clube.
+
+### Testes
+
+**21 novos** (15 de domínio puro, 6 e2e) + 5 no account, suíte em **819 verdes** nos 3 fusos.
+
+O e2e percorre o ciclo inteiro por endpoints reais — `NAO_MEMBRO → ATIVO → INATIVO → NAO_MEMBRO →
+ATIVO` — conferindo um evento por transição, e prova que o log não duplica (vários fatos sem
+transição → nenhuma linha nova) e que a primeira linha continua idêntica depois da segunda.
+
+A renderização por estado foi verificada **no navegador**, não por teste: este app não tem
+infraestrutura de teste de DOM, e instalar testing-library é decisão do dono. O que é regra de
+produto (quem vê tema, quem recebe qual chamado, o tom do texto) virou função pura testada.
+
+### Smoke test manual — percorrer os 3 estados
+
+1. Cliente **sem pacote**: conta em paleta normal, sem faixa, com o convite discreto "Conheça o
+   Bigod's Club".
+2. Venda um pacote pra ele e recarregue: **paleta muda**, faixa com o selo e badge ATIVO, nenhum
+   chamado de renovação.
+3. Consuma todos os créditos (agendar com crédito + concluir): a faixa **permanece** (ele continua
+   membro), o badge ATIVO sai, e aparece "Continue no Bigod's Club → Renovar meu pacote".
+4. Marque um **avulso** pra ele agora: recarregue e a conta volta ao normal, com o convite de
+   não-membro.
+5. Venda outro pacote: volta a ATIVO. No banco, `EventoDoClube` do cliente deve ter exatamente
+   `ENTROU_CLUBE, VIROU_INATIVO, SAIU_CLUBE, RENOVOU`.
+
 ## Como rodar localmente
 
 ```bash

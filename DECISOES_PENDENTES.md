@@ -885,3 +885,43 @@ item** antes de a trava sair — nesta ordem, não na inversa.
 
 **Nota:** o mesmo buraco existe hoje, latente, para o avulso: `/public/horarios?servicoIds=a,a`
 devolveria a duração de um único serviço. Nenhuma UI manda duplicata, então nunca apareceu.
+
+## 50. Bigod's Club como membership/assinatura recorrente (2026-08-21)
+
+O status de membro (§4.5) deriva de **ter pacote**, não de uma assinatura. Não existe
+mensalidade, cobrança recorrente, nível de membro, nem benefício fora dos créditos comprados —
+"Bigod's Club" continua sendo o rótulo de marca sobre os pacotes que já existiam (ver #30).
+
+O que a feature de hoje adiciona é a **leitura social** disso: o cliente se reconhece como membro,
+e quem esgotou recebe um convite pra voltar em vez de simplesmente sumir do clube.
+
+**O que falta decidir:** se o clube vira assinatura de verdade (cobrança recorrente, benefício
+contínuo, talvez níveis). Isso mudaria o status de derivado para atributo de um contrato — e aí a
+função `statusDoClube` deixa de ser a fonte, porque passaria a existir um fato ("assinatura ativa")
+que não se deriva de crédito nenhum. É evolução futura, não dívida.
+
+## 51. Quando o crédito "morreu" é aproximado por `fim`/prazo (2026-08-21)
+
+Para decidir se um avulso é posterior ao esgotamento, o cálculo usa o instante em que o último
+crédito deixou de existir: o `fim` do atendimento que o consumiu, ou o `prazoReagendamentoAte` que
+o expirou. Nenhum dos dois é o instante do FATO — não existe `consumidoEm` no `ItemDoPacote` nem
+`concluidoEm` no `Atendimento`.
+
+Na prática coincide: um atendimento é concluído quando acontece. Onde diverge é na **conclusão
+antecipada** (§4.1): ali o crédito é consumido antes do `fim`, então o cálculo considera o crédito
+vivo por algumas horas a mais do que foi. O erro é conservador — mantém o cliente no clube.
+
+**O que falta decidir:** se vale uma coluna `consumidoEm` no item. Só passa a importar se a
+diferença de horas mudar a leitura de algum caso real, ou se as métricas de retenção precisarem do
+instante exato.
+
+## 52. Log do clube não tem relatório, e pode atrasar (2026-08-21)
+
+O `EventoDoClube` é gravado por reconciliação em cima de eventos de domínio. Se um caminho novo
+mudar o status sem passar por nenhum dos eventos ouvidos (`clube.handlers.ts`), a linha do log só
+aparece no próximo fato daquele cliente. O status mostrado ao cliente não é afetado — ele é
+calculado.
+
+**O que falta decidir:** (a) se vale um job de reconciliação periódica pra fechar essa janela; (b)
+o relatório de retenção em si (quantos inativos renovam vs. viram avulso), que é o motivo do log
+existir e foi explicitamente deixado pra depois.

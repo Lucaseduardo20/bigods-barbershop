@@ -147,6 +147,8 @@ afterAll(async () => {
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
   vi.unstubAllGlobals();

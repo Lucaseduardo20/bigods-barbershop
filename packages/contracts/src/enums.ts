@@ -112,3 +112,38 @@ export enum StatusVale {
   PAGO = 'PAGO',
   NEGADO = 'NEGADO',
 }
+
+/**
+ * Estado do cliente no Bigod's Club (2026-08-21).
+ *
+ * ★ SEMPRE CALCULADO a partir dos pacotes e dos avulsos do cliente — nunca um
+ * campo armazenado. Campo e cálculo divergem com o tempo; um só cálculo não
+ * divergia de nada. O log `EventoDoClube` é histórico/auditoria, não a fonte do
+ * status atual.
+ */
+export enum StatusDoClube {
+  /** Tem crédito vivo em pacote pago (disponível, segunda chance ou já agendado). */
+  MEMBRO_ATIVO = 'MEMBRO_ATIVO',
+  /**
+   * Sem crédito vivo, mas ainda não sinalizou saída: esgotar ou expirar o
+   * pacote NÃO expulsa ninguém do clube.
+   */
+  MEMBRO_INATIVO = 'MEMBRO_INATIVO',
+  /** Nunca teve pacote pago, ou estava inativo e marcou um avulso depois disso. */
+  NAO_MEMBRO = 'NAO_MEMBRO',
+}
+
+/**
+ * Transições registradas no log append-only do clube. O log NUNCA é atualizado
+ * nem apagado — cada linha é um fato que aconteceu.
+ */
+export enum TipoEventoClube {
+  /** NÃO-MEMBRO (primeira vez na vida) → ATIVO. */
+  ENTROU_CLUBE = 'ENTROU_CLUBE',
+  /** ATIVO → INATIVO: acabaram os créditos (consumidos ou expirados). */
+  VIROU_INATIVO = 'VIROU_INATIVO',
+  /** INATIVO → NÃO-MEMBRO: marcou avulso estando sem crédito. */
+  SAIU_CLUBE = 'SAIU_CLUBE',
+  /** INATIVO ou NÃO-MEMBRO que já foi membro antes → ATIVO (comprou de novo). */
+  RENOVOU = 'RENOVOU',
+}

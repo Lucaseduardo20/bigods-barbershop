@@ -62,6 +62,37 @@
   --font-ui: 'Manrope', -apple-system, 'Segoe UI', sans-serif;
 }
 
+/* ==== Tema do Bigod's Club (2026-08-21) ====================================
+   Variação de PALETA, não um app novo: só os tokens de superfície e de link
+   mudam, e todo o resto do design system continua valendo. Aplicado por classe
+   num wrapper (`.tema-clube`), então tudo que já lê os tokens herda o tema sem
+   uma linha de mudança.
+
+   Quem vê: MEMBRO_ATIVO e MEMBRO_INATIVO. Esgotar o pacote não tira o tema —
+   esgotar não expulsa ninguém do clube.
+
+   ⚠️ CONTRASTE conferido antes de escolher os tons (WCAG AA, 4,5:1 pro texto
+   normal), porque o tom "quente" empurra tudo pra baixo:
+     --text-muted (#70634c)  → 4,78 no app / 5,77 no card / 4,60 no sunken
+     --text-secondary        → 5,73 / 6,92 / 5,52
+   O `--surface-sunken` do tema é #ece3d0 e NÃO #e8dcc4 (que dava 4,32 e
+   reprovava). E o `--text-link` global (#8f6c30) reprova em qualquer fundo
+   quente (3,55–3,96) — por isso o tema usa #7d5e2a, que passa nos três
+   (4,70–5,89). */
+.tema-clube {
+  --surface-app: #f0e7d6;
+  --surface-card: #fffdf8;
+  --surface-sunken: #ece3d0;
+  --border-subtle: #ddd0b4;
+  --border-default: #cbb994;
+  --text-link: #7d5e2a;
+  --accent-primary-hover: #7d5e2a;
+}
+/* O fundo do body é pintado fora do wrapper, então o tema precisa alcançá-lo. */
+body:has(.tema-clube) {
+  background: #f0e7d6;
+}
+
 * { box-sizing: border-box; }
 
 body {

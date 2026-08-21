@@ -23,6 +23,7 @@ import { Historico } from './screens/Historico';
 import { AtendimentoDetalhe } from './screens/AtendimentoDetalhe';
 import { UsarSaldoResidual } from './screens/UsarSaldoResidual';
 import { Header } from './screens/Header';
+import { ehMembro } from './components/Clube';
 
 type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo';
 
@@ -195,6 +196,13 @@ function CockpitOuBook({
     return <ErroEstado erro={perfil.erro ?? 'Falha ao carregar'} aoTentar={perfil.recarregar} />;
   }
 
+  /**
+   * Tema do clube (2026-08-21): membro ATIVO e INATIVO veem a paleta do clube.
+   * É uma classe no wrapper — os tokens CSS fazem o resto, e nenhuma tela
+   * precisa saber que existe tema. Ver `.tema-clube` no index.css.
+   */
+  const classeDoTema = ehMembro(perfil.dados.clube) ? 'tema-clube' : undefined;
+
   let corpo;
   if (tela === 'book') {
     corpo = (
@@ -239,7 +247,7 @@ function CockpitOuBook({
   }
 
   return (
-    <>
+    <div className={classeDoTema}>
       {corpo}
       {atendimentoAbertoId && (
         <AtendimentoDetalhe
@@ -254,7 +262,7 @@ function CockpitOuBook({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 

@@ -138,6 +138,8 @@ afterAll(async () => {
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.produto.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });
@@ -206,6 +208,8 @@ describe('A taxa que vale é a da EMPRESA', () => {
     await prisma.vendaDeProduto.deleteMany({ where: { companyId: outraCompany } });
     await prisma.barbeiro.deleteMany({ where: { companyId: outraCompany } });
     await prisma.produto.deleteMany({ where: { companyId: outraCompany } });
+    // O log do clube tem FK pra Company — sai antes dela.
+    await prisma.eventoDoClube.deleteMany({ where: { companyId: outraCompany } });
     await prisma.company.delete({ where: { id: outraCompany } });
   });
 });

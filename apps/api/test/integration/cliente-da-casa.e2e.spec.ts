@@ -107,6 +107,8 @@ afterAll(async () => {
   await prisma.clienteDaCasa.deleteMany({ where: { clienteId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });
@@ -240,6 +242,8 @@ describe('★ Autorização no BACKEND — não é só esconder botão', () => {
       .expect(404);
 
     await prisma.cliente.delete({ where: { id: outroCliente } });
+    // O log do clube tem FK pra Company — sai antes dela.
+    await prisma.eventoDoClube.deleteMany({ where: { companyId: outraCompany } });
     await prisma.company.delete({ where: { id: outraCompany } });
   });
 });

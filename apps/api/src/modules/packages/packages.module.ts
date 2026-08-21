@@ -12,6 +12,9 @@ import { ExpirarItensJob } from './infrastructure/expirar-itens.job';
 import { PacotesQueryService } from './infrastructure/pacotes-query.service';
 import { PacoteOfertasQueryService } from './infrastructure/pacote-ofertas-query.service';
 import { PaymentsModule } from '../payments/payments.module';
+import { ClubeQueryService } from './infrastructure/clube-query.service';
+import { SincronizarStatusDoClubeUseCase } from './application/sincronizar-status-do-clube.usecase';
+import { ClubeHandlers } from './application/clube.handlers';
 
 @Module({
   imports: [PaymentsModule],
@@ -25,8 +28,11 @@ import { PaymentsModule } from '../payments/payments.module';
     ExpirarItensJob,
     PacotesQueryService,
     PacoteOfertasQueryService,
+    ClubeQueryService,
+    SincronizarStatusDoClubeUseCase,
+    ClubeHandlers,
   ],
   // Exportado para a área logada do cliente (identity) reusar o read model de pacotes / caso de uso de reembolso.
-  exports: [PacotesQueryService, SolicitarReembolsoUseCase],
+  exports: [PacotesQueryService, SolicitarReembolsoUseCase, ClubeQueryService],
 })
 export class PackagesModule {}
