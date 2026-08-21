@@ -34,6 +34,7 @@ function paraDominio(row: Row): VendaDePacote {
       status: StatusItemPacote[i.status],
       faltasComputadas: i.faltasComputadas as 0 | 1,
       prazoReagendamentoAte: i.prazoReagendamentoAte,
+      deixouDeExistirEm: i.deixouDeExistirEm,
       atendimentoId: i.atendimentoId,
     })),
   });
@@ -108,6 +109,7 @@ export class PrismaVendaDePacoteRepository implements VendaDePacoteRepository {
         status: item.status,
         faltasComputadas: item.faltasComputadas,
         prazoReagendamentoAte: item.prazoReagendamentoAte,
+        deixouDeExistirEm: item.deixouDeExistirEm,
         atendimentoId: item.atendimentoId,
       };
       await this.db.itemDoPacote.upsert({

@@ -900,7 +900,7 @@ contínuo, talvez níveis). Isso mudaria o status de derivado para atributo de u
 função `statusDoClube` deixa de ser a fonte, porque passaria a existir um fato ("assinatura ativa")
 que não se deriva de crédito nenhum. É evolução futura, não dívida.
 
-## 51. Quando o crédito "morreu" é aproximado por `fim`/prazo (2026-08-21)
+## 51. Quando o crédito "morreu" era aproximado por `fim`/prazo (2026-08-21) — ✅ RESOLVIDO NO MESMO DIA
 
 Para decidir se um avulso é posterior ao esgotamento, o cálculo usa o instante em que o último
 crédito deixou de existir: o `fim` do atendimento que o consumiu, ou o `prazoReagendamentoAte` que
@@ -911,9 +911,24 @@ Na prática coincide: um atendimento é concluído quando acontece. Onde diverge
 antecipada** (§4.1): ali o crédito é consumido antes do `fim`, então o cálculo considera o crédito
 vivo por algumas horas a mais do que foi. O erro é conservador — mantém o cliente no clube.
 
-**O que falta decidir:** se vale uma coluna `consumidoEm` no item. Só passa a importar se a
-diferença de horas mudar a leitura de algum caso real, ou se as métricas de retenção precisarem do
-instante exato.
+**O que aconteceu:** não era "diferença de horas", era bug. O dono reportou no mesmo dia um
+cliente que esgotou o pacote, marcou avulso e continuava membro. Causa: os quatro créditos foram
+consumidos numa tarde, para atendimentos marcados em 24, 26 e 27 de agosto — então o "instante da
+morte" derivado do `fim` ficou **no futuro**, e o avulso marcado no meio parecia anterior a ele.
+Não era um caso de borda: concluir antes do horário é rotina desde a trava de conclusão
+antecipada, e o admin sempre pôde concluir qualquer atendimento.
+
+**Resolvido** com `ItemDoPacote.deixouDeExistirEm` (migration aditiva), gravado no consumo e na
+expiração, com o instante recebido de fora — nunca `new Date()` dentro do agregado.
+
+Backfill em duas etapas, porque a primeira era grosseira: `LEAST(fim, now())` gravava "agora" para
+todo crédito com atendimento futuro, o que fazia qualquer avulso ANTERIOR à migration parecer
+anterior à morte do crédito. A segunda etapa usa `LancamentoComissao.ocorridoEm` — o lançamento é
+criado NA CONCLUSÃO, então é o instante real, e já estava no banco.
+
+**O que ainda falta decidir:** se o `Atendimento` também deveria guardar `concluidoEm`. Hoje o
+instante da conclusão é recuperável indiretamente (pelo lançamento de comissão) e nada mais precisa
+dele — mas a comissão é um caminho torto para uma pergunta simples.
 
 ## 52. Log do clube não tem relatório, e pode atrasar (2026-08-21)
 

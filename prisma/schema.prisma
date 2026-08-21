@@ -590,6 +590,13 @@ model ItemDoPacote {
   // Fim do dia civil local (§4.2) — já um instante absoluto correto; o job de
   // expiração compara em UTC puro, sem precisar reconhecer o fuso de novo.
   prazoReagendamentoAte DateTime?        @db.Timestamptz(3)
+  // Instante em que o crédito deixou de existir — consumido ou expirado
+  // (2026-08-21). Antes o status do clube derivava isso do `fim` do atendimento
+  // que consumiu, e isso QUEBRA quando a conclusão não acontece no horário
+  // marcado: concluir hoje um atendimento de sexta fazia o crédito "morrer" na
+  // sexta, e um avulso marcado no meio não rebaixava ninguém. Concluir antes do
+  // horário é rotina (§4.1), então o proxy não servia.
+  deixouDeExistirEm    DateTime?        @db.Timestamptz(3)
   atendimentoId         String?
 
   venda VendaDePacote @relation(fields: [vendaId], references: [id])

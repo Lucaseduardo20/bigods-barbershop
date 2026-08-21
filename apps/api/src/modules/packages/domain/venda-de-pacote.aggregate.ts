@@ -27,6 +27,8 @@ export interface ItemDoPacote {
   status: StatusItemPacote;
   faltasComputadas: 0 | 1;
   prazoReagendamentoAte: Date | null;
+  /** Quando o crédito deixou de existir (consumido/expirado); null se vivo. */
+  deixouDeExistirEm: Date | null;
   atendimentoId: AtendimentoId | null;
 }
 
@@ -134,6 +136,7 @@ export class VendaDePacote extends AggregateRoot {
         status: StatusItemPacote.DISPONIVEL,
         faltasComputadas: 0,
         prazoReagendamentoAte: null,
+        deixouDeExistirEm: null,
         atendimentoId: null,
       };
     });
@@ -239,7 +242,16 @@ export class VendaDePacote extends AggregateRoot {
   }
 
   /** AGENDADO → CONSUMIDO (final). */
-  consumirItem(itemId: ItemDoPacoteId): void {
+  /**
+   * AGENDADO → CONSUMIDO (final).
+   *
+   * `agora` é o instante REAL do consumo, e é recebido de fora como todo
+   * instante neste agregado. Ele não é decorativo: o status do Bigod's Club
+   * (§4.5) precisa saber QUANDO o crédito deixou de existir, e o `fim` do
+   * atendimento não serve — concluir antes do horário marcado é rotina, e aí o
+   * crédito "morreria" no futuro.
+   */
+  consumirItem(itemId: ItemDoPacoteId, agora: Date): void {
     this.exigirPago();
     const item = this.item(itemId);
     if (item.status !== StatusItemPacote.AGENDADO) {
@@ -248,6 +260,7 @@ export class VendaDePacote extends AggregateRoot {
       );
     }
     item.status = StatusItemPacote.CONSUMIDO;
+    item.deixouDeExistirEm = agora;
     this.adicionarEvento(new ItemDoPacoteConsumido(this.props.id, itemId));
   }
 
@@ -296,6 +309,7 @@ export class VendaDePacote extends AggregateRoot {
 
   private expirarItem(item: ItemDoPacote, hoje: Date): void {
     item.status = StatusItemPacote.EXPIRADO;
+    item.deixouDeExistirEm = hoje;
     this.props.saldoResidual = this.props.saldoResidual.somar(item.valorRateado);
     // FASE 4b (sessão-E, §8.7): âncora do prazo de 45 dias pra reembolso —
     // sempre a expiração mais RECENTE (o pool de saldo é fungível; usar a

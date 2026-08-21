@@ -37,6 +37,13 @@ describe('statusDoClube — os três estados', () => {
     ).toBe(StatusDoClube.MEMBRO_INATIVO);
   });
 
+  /**
+   * Este caso já existia e sempre passou — a função pura nunca errou. O bug de
+   * produção de 2026-08-21 estava em QUEM ALIMENTA `deixouDeViverEm`: a query
+   * derivava o instante do `fim` do atendimento, que fica no futuro quando a
+   * conclusão é antecipada. A regressão é coberta no e2e do clube, onde o
+   * mapeamento participa.
+   */
   it('sem crédito e COM avulso posterior = NAO_MEMBRO', () => {
     expect(
       statusDoClube({

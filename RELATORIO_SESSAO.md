@@ -4275,6 +4275,35 @@ A renderização por estado foi verificada **no navegador**, não por teste: est
 infraestrutura de teste de DOM, e instalar testing-library é decisão do dono. O que é regra de
 produto (quem vê tema, quem recebe qual chamado, o tom do texto) virou função pura testada.
 
+### ★ Bug em produção no mesmo dia: "esgotei, marquei avulso, e continuo membro"
+
+Reportado poucas horas depois de subir. O cliente tinha os 4 créditos consumidos, um avulso
+marcado, e a conta insistia em `MEMBRO_INATIVO`.
+
+**Causa.** O cálculo precisa saber quando o cliente ficou sem crédito, e eu derivei esse instante
+do `fim` do ATENDIMENTO que consumiu o crédito. Nos dados reais, os 4 créditos foram consumidos
+numa tarde, para atendimentos marcados em **24, 26 e 27 de agosto** — então o "instante da morte"
+saiu **no futuro**, e o avulso marcado no meio parecia anterior a ele. Nunca rebaixava.
+
+Não era caso de borda: concluir antes do horário é rotina desde a trava de conclusão antecipada, e
+o admin sempre pôde concluir qualquer atendimento. Eu tinha registrado isso como limitação
+aceitável (DECISOES #51) — estava errado, era bug.
+
+**Correção.** `ItemDoPacote.deixouDeExistirEm`, gravado no consumo e na expiração, com o instante
+recebido de fora (`consumirItem(itemId, agora)`) como todo instante naquele agregado.
+
+**O backfill precisou de duas etapas**, e a primeira foi grosseira: `LEAST(fim, now())` gravou "o
+instante da migration" para todo crédito com atendimento futuro — o que fazia qualquer avulso
+**anterior** à migration parecer anterior à morte do crédito. Ou seja, o cliente do bug continuaria
+inativo. A segunda etapa usa `LancamentoComissao.ocorridoEm`: o lançamento é criado NA CONCLUSÃO,
+então é o instante real, e já estava no banco desde sempre. Depois dela, o cliente reportado passou
+a `NAO_MEMBRO` — conferido pela API e na tela.
+
+**Onde a regressão mora:** no e2e do clube, não no domínio. A função pura `statusDoClube` sempre
+esteve correta — o caso "sem crédito e COM avulso posterior = NAO_MEMBRO" já passava. O bug estava
+em QUEM ALIMENTA o parâmetro, e um teste de domínio novo não teria pegado nada. O teste que pega é
+o que agenda pro futuro, conclui agora e marca avulso.
+
 ### Smoke test manual — percorrer os 3 estados
 
 1. Cliente **sem pacote**: conta em paleta normal, sem faixa, com o convite discreto "Conheça o

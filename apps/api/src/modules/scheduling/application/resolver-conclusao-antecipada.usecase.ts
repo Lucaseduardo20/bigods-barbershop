@@ -38,7 +38,10 @@ export class AprovarConclusaoAntecipadaUseCase {
       atendimento.aprovarConclusaoAntecipada();
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
-      eventos.push(...(await consumirCreditosDePacote(atendimento, repos)));
+      // A aprovação é AGORA — é este o instante em que o crédito deixa de
+      // existir, não o horário marcado do atendimento (que pode estar dias à
+      // frente: é a definição de conclusão antecipada).
+      eventos.push(...(await consumirCreditosDePacote(atendimento, repos, new Date())));
     });
 
     await this.publisher.publicar(eventos);

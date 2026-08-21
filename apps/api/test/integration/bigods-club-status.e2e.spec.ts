@@ -284,6 +284,57 @@ describe("★ O ciclo de vida de um membro do Bigod's Club", () => {
   });
 });
 
+describe('★ Crédito consumido para atendimento FUTURO (bug de produção 2026-08-21)', () => {
+  it('conclui hoje um atendimento de semana que vem, depois marca avulso → NAO_MEMBRO', async () => {
+    const telefone = novoFone();
+    const token = await tokenCliente(telefone);
+    const venda = await venderPacote(telefone, 1);
+    const item = await prisma.itemDoPacote.findFirstOrThrow({ where: { vendaId: venda.vendaId } });
+
+    // Agenda pro DIA (+20 dias) e conclui AGORA — é o que o admin faz, e é o
+    // que a conclusão antecipada (§4.1) tornou rotina. NÃO empurramos a visita
+    // pro passado: o cenário do bug é justamente a visita ficar no futuro.
+    const hora = proximaHora++;
+    const criado = await http
+      .post('/atendimentos/com-credito')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({
+        vendaId: venda.vendaId,
+        itemIds: [item.id],
+        barbeiroId,
+        data: DIA,
+        horaInicio: `${String(hora).padStart(2, '0')}:00`,
+      })
+      .expect(201);
+    await http
+      .post(`/atendimentos/${criado.body.atendimentoId}/concluir`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .send({})
+      .expect(201);
+
+    // ★ O crédito morreu AGORA, não no dia da visita — é isto que o bug errava.
+    const visita = await prisma.atendimento.findUniqueOrThrow({
+      where: { id: criado.body.atendimentoId },
+    });
+    const consumido = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: item.id } });
+    expect(consumido.status).toBe('CONSUMIDO');
+    expect(consumido.deixouDeExistirEm).toBeTruthy();
+    expect(consumido.deixouDeExistirEm!.getTime()).toBeLessThan(visita.inicio.getTime());
+    expect((await clubeDe(token)).status).toBe('MEMBRO_INATIVO');
+
+    // E aí o avulso rebaixa, como tem que rebaixar.
+    await marcarAvulso(telefone);
+    expect((await clubeDe(token)).status).toBe('NAO_MEMBRO');
+
+    const cliente = await clienteDoFone(telefone);
+    expect((await eventosDe(cliente.id)).map((e) => e.tipo)).toEqual([
+      'ENTROU_CLUBE',
+      'VIROU_INATIVO',
+      'SAIU_CLUBE',
+    ]);
+  });
+});
+
 describe('★ O log é append-only e não duplica', () => {
   it('reconciliar de novo sem mudança não grava linha nova', async () => {
     const telefone = novoFone();

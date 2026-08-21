@@ -1365,8 +1365,13 @@ Regras, e o que cada uma protege:
   `inicio` (quando acontece): com `inicio`, um avulso marcado sob proteção e agendado pra frente
   passaria a rebaixar o cliente assim que os créditos acabassem.
 - **O avulso só rebaixa quem já estava sem crédito:** `MEMBRO_INATIVO` + avulso marcado depois do
-  instante em que o último crédito morreu → `NAO_MEMBRO`. Esse instante é derivado: `fim` do
-  atendimento que consumiu o crédito, ou `prazoReagendamentoAte` que o expirou.
+  instante em que o último crédito morreu → `NAO_MEMBRO`. Esse instante é **gravado**
+  (`ItemDoPacote.deixouDeExistirEm`), no consumo ou na expiração.
+  Ele já foi derivado do `fim` do atendimento que consumiu, e isso deu bug em produção
+  (2026-08-21): concluir hoje quatro atendimentos marcados pra semana que vem fazia os créditos
+  "morrerem" na semana que vem, então nenhum avulso marcado no meio rebaixava o cliente — ele
+  ficava membro para sempre. Concluir antes do horário é rotina (§4.1), então o `fim` nunca foi um
+  proxy aceitável do instante do consumo.
 - **Renovar** (comprar pacote) de `INATIVO` ou `NAO_MEMBRO` → `MEMBRO_ATIVO`.
 - **Pacote não pago não faz membro:** crédito de pacote `AGUARDANDO` ainda não existe.
 - Sem rastro de quando o crédito morreu (dado antigo), fica `MEMBRO_INATIVO`: o erro de manter um

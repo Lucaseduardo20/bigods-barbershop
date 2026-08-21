@@ -726,10 +726,10 @@
     "semantic_hash": "18c97c15ff9db1b47b46abef7d68b3b3"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.aggregate.ts": {
-    "mtime": 1787287864.5660567,
-    "seen": 1787289082.4943042,
-    "ast_hash": "e165361114abd1112ecbf608225ba69c",
-    "semantic_hash": ""
+    "mtime": 1787077644.7124772,
+    "seen": 1787165206.9799547,
+    "ast_hash": "786bc0c29bb668c0e9b800afef7499aa",
+    "semantic_hash": "786bc0c29bb668c0e9b800afef7499aa"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.events.ts": {
     "mtime": 1784009113.4865327,
@@ -744,10 +744,10 @@
     "semantic_hash": "e5f37239e01d9c9069209911a8f0bb9e"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.spec.ts": {
-    "mtime": 1787287975.566807,
-    "seen": 1787289082.4946353,
-    "ast_hash": "60c9ffaac9c2a74e55b433ff5a196b6a",
-    "semantic_hash": ""
+    "mtime": 1787077644.7164774,
+    "seen": 1787165206.9799647,
+    "ast_hash": "a7be846ffc3249735c992a59e3de574b",
+    "semantic_hash": "a7be846ffc3249735c992a59e3de574b"
   },
   "apps/api/src/modules/packages/infrastructure/expirar-itens.job.ts": {
     "mtime": 1784056785.5661952,
@@ -786,10 +786,10 @@
     "semantic_hash": "29efbc5eb3e519839acab13d56688797"
   },
   "apps/api/src/modules/packages/infrastructure/prisma-venda-de-pacote.repository.ts": {
-    "mtime": 1787287919.4664278,
-    "seen": 1787289082.4956126,
-    "ast_hash": "2ccb67bc903a28dd548bf15974593439",
-    "semantic_hash": ""
+    "mtime": 1785507446.6545362,
+    "seen": 1787165206.979989,
+    "ast_hash": "a2c1cc929efabcf630a02889a793dc49",
+    "semantic_hash": "a2c1cc929efabcf630a02889a793dc49"
   },
   "apps/api/src/modules/packages/packages.module.ts": {
     "mtime": 1787272333.6330633,
@@ -1212,9 +1212,9 @@
     "semantic_hash": "737f8902653989e7dbcdd67dba1a435a"
   },
   "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts": {
-    "mtime": 1787287933.7945247,
-    "seen": 1787289082.5088239,
-    "ast_hash": "0f44211d1cdaea70bf7f6405b8ae59bf",
+    "mtime": 1787199922.1011348,
+    "seen": 1787200049.3398228,
+    "ast_hash": "67a20cb7b89824c2b0f8579fc8396333",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/reagendar-atendimento-cliente.usecase.ts": {
@@ -2358,9 +2358,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/resolver-conclusao-antecipada.usecase.ts": {
-    "mtime": 1787287933.7945247,
-    "seen": 1787289082.5091321,
-    "ast_hash": "64c6dcceafcfcce545a8f8da7c80ceef",
+    "mtime": 1787198358.770174,
+    "seen": 1787199839.3334224,
+    "ast_hash": "14a6e358c3be4070ec7a5a8500e5dd78",
     "semantic_hash": ""
   },
   "apps/api/test/integration/comissao-produto-global.e2e.spec.ts": {
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "DECISOES_PENDENTES.md": {
-    "mtime": 1787288282.7169173,
-    "seen": 1787289082.5471218,
-    "ast_hash": "a96660734bec74bef463c4f7acfa8e64",
+    "mtime": 1787273872.7116194,
+    "seen": 1787274574.8816335,
+    "ast_hash": "09cd6d0ae14e4f6839f85899cb113ff3",
     "semantic_hash": ""
   },
   "DEPLOY.md": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787288500.0664036,
-    "seen": 1787289082.5474772,
-    "ast_hash": "ca8583ea8f62e9a1eeddbc639633b2ab",
+    "mtime": 1787273917.0799193,
+    "seen": 1787274574.88178,
+    "ast_hash": "260bcaa7fc39b058c0ce991b2f9e80a8",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -2538,9 +2538,9 @@
     "semantic_hash": ""
   },
   "docs/DOMAIN.md": {
-    "mtime": 1787288282.7169173,
-    "seen": 1787289082.5498273,
-    "ast_hash": "482b9476d1e4a859316f40e07f54c0bf",
+    "mtime": 1787273872.6956193,
+    "seen": 1787274574.882741,
+    "ast_hash": "0a1b0500d9183013bcc305d910af7b98",
     "semantic_hash": ""
   },
   "docs/QA_GO_LIVE.md": {
@@ -3102,9 +3102,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/domain/status-do-clube.spec.ts": {
-    "mtime": 1787288065.1314237,
-    "seen": 1787289082.4941294,
-    "ast_hash": "cdd0edd6456517ab68a5871fb7dbf6c4",
+    "mtime": 1787272146.8519106,
+    "seen": 1787274574.8467534,
+    "ast_hash": "93af8f3a0bd6ea98fcecb56c32de528c",
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/domain/status-do-clube.ts": {
@@ -3114,15 +3114,15 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/clube-query.service.ts": {
-    "mtime": 1787287919.4704278,
-    "seen": 1787289082.4946408,
-    "ast_hash": "2ed3ae4f57cb2d026a8b017241abb11f",
+    "mtime": 1787272263.3406212,
+    "seen": 1787274574.8476474,
+    "ast_hash": "12596f74e739d684297574d801695c3c",
     "semantic_hash": ""
   },
   "apps/api/test/integration/bigods-club-status.e2e.spec.ts": {
-    "mtime": 1787288065.1314237,
-    "seen": 1787289082.5206144,
-    "ast_hash": "f45e750334d427e1945becf00a0a2102",
+    "mtime": 1787273218.0750766,
+    "seen": 1787274574.8730383,
+    "ast_hash": "bee183eee9581b83bbb98b78f16642ca",
     "semantic_hash": ""
   }
 }

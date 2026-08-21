@@ -55,6 +55,7 @@ export class ClubeQueryService {
         select: {
           status: true,
           prazoReagendamentoAte: true,
+          deixouDeExistirEm: true,
           atendimentoId: true,
           venda: { select: { statusPagamento: true } },
         },
@@ -65,33 +66,21 @@ export class ClubeQueryService {
       }),
     ]);
 
-    // O instante em que um crédito morreu: para CONSUMIDO, o `fim` do
-    // atendimento que o consumiu; para EXPIRADO, o prazo que o matou.
-    const fimPorAtendimento = await this.fimDosAtendimentos(
-      itens.map((i) => i.atendimentoId).filter((id): id is string => id !== null),
-    );
-
+    // O instante em que o crédito morreu vem GRAVADO (`deixouDeExistirEm`).
+    //
+    // O fallback abaixo é só para linha que o backfill não alcançou (item
+    // CONSUMIDO sem atendimento vinculado, por exemplo). E ele NÃO usa mais o
+    // `fim` do atendimento como antes: aquilo produzia data no futuro quando a
+    // conclusão acontecia adiantada, e um avulso marcado no meio deixava de
+    // rebaixar o cliente — o bug que trouxe esta coluna.
     const creditos: CreditoParaStatus[] = itens.map((i) => ({
       statusPagamentoDaVenda: StatusPagamento[i.venda.statusPagamento],
       statusDoItem: StatusItemPacote[i.status],
-      deixouDeViverEm:
-        i.status === 'CONSUMIDO'
-          ? (i.atendimentoId ? fimPorAtendimento.get(i.atendimentoId) ?? null : null)
-          : i.status === 'EXPIRADO'
-            ? i.prazoReagendamentoAte
-            : null,
+      deixouDeViverEm: i.deixouDeExistirEm ?? (i.status === 'EXPIRADO' ? i.prazoReagendamentoAte : null),
     }));
     const paraStatus: AvulsoParaStatus[] = avulsos.map((a) => ({ criadoEm: a.criadoEm }));
 
     return statusDoClube({ creditos, avulsos: paraStatus });
   }
 
-  private async fimDosAtendimentos(ids: string[]): Promise<Map<string, Date>> {
-    if (ids.length === 0) return new Map();
-    const rows = await this.prisma.atendimento.findMany({
-      where: { id: { in: [...new Set(ids)] } },
-      select: { id: true, fim: true },
-    });
-    return new Map(rows.map((r) => [r.id, r.fim]));
-  }
 }

@@ -101,7 +101,7 @@ describe('ItemDoPacote — transições legais', () => {
     v.agendarItem('i1', 'at-1', 'bar-1');
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.AGENDADO);
     expect(v.obterItem('i1').atendimentoId).toBe('at-1');
-    v.consumirItem('i1');
+    v.consumirItem('i1', new Date());
     expect(v.obterItem('i1').status).toBe(StatusItemPacote.CONSUMIDO);
     expect(v.puxarEventos().map((e) => e.nome)).toEqual(['PacoteVendido', 'ItemDoPacoteConsumido']);
   });
@@ -314,7 +314,7 @@ describe('ItemDoPacote — transições ilegais', () => {
 
   it('não consome item DISPONIVEL (precisa estar AGENDADO)', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
-    expect(() => v.consumirItem('i1')).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => v.consumirItem('i1', new Date())).toThrow(TransicaoDeEstadoInvalidaError);
   });
 
   it('não consome item EXPIRADO', () => {
@@ -324,13 +324,13 @@ describe('ItemDoPacote — transições ilegais', () => {
     v.agendarItem('i1', 'at-2', 'bar-1');
     v.computarFalta('i1', 10, hoje, tz); // expira
     expect(() => v.agendarItem('i1', 'at-3', 'bar-1')).toThrow(TransicaoDeEstadoInvalidaError);
-    expect(() => v.consumirItem('i1')).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => v.consumirItem('i1', new Date())).toThrow(TransicaoDeEstadoInvalidaError);
   });
 
   it('não agenda item CONSUMIDO (final)', () => {
     const v = venderPago(4000, [item('i1', 'corte', 4000)]);
     v.agendarItem('i1', 'at-1', 'bar-1');
-    v.consumirItem('i1');
+    v.consumirItem('i1', new Date());
     expect(() => v.agendarItem('i1', 'at-2', 'bar-1')).toThrow(TransicaoDeEstadoInvalidaError);
   });
 
