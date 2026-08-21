@@ -56,6 +56,8 @@ afterAll(async () => {
   await prisma.demoDesafioLogin.deleteMany({ where: { companyId } });
   await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });

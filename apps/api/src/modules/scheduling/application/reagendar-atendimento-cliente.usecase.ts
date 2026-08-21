@@ -83,15 +83,23 @@ export class ReagendarAtendimentoClienteUseCase {
     const servicoIds = antigo.itens.map((i) => i.servicoId);
 
     if (antigo.origem === OrigemAtendimento.CREDITO_PACOTE) {
-      const itemDoPacoteId = antigo.itens[0]?.itemDoPacoteId;
-      if (!itemDoPacoteId) {
+      // A visita se move INTEIRA (2026-08-21): uma visita de vários créditos
+      // (corte + barba) reagenda os dois juntos, no novo horário, com o mesmo
+      // barbeiro. Mover metade deixaria o cliente com dois agendamentos onde
+      // ele fez um — e o outro crédito preso a um atendimento cancelado.
+      const itemIds = antigo.itens
+        .map((i) => i.itemDoPacoteId)
+        .filter((id): id is string => id !== null);
+      if (itemIds.length === 0) {
         throw new InvarianteVioladaError('Agendamento de crédito sem item de pacote associado');
       }
-      const venda = await this.vendas.porItemId(itemDoPacoteId);
+      const venda = await this.vendas.porItemId(itemIds[0]!);
       if (!venda) {
         throw new NotFoundException('Pacote do crédito não encontrado');
       }
-      // Cancela primeiro — libera o item (sem falta, cancelamento antecipado) pra poder reagendar.
+      // Cancela primeiro — libera TODOS os itens da visita (sem falta,
+      // cancelamento antecipado; o handler de §4.2 já itera sobre a lista de
+      // itens do evento) pra poder reagendar.
       await this.cancelarCliente.executar({
         atendimentoId: input.atendimentoId,
         companyId: input.companyId,
@@ -100,7 +108,7 @@ export class ReagendarAtendimentoClienteUseCase {
       const resultado = await this.agendarComCredito.executar({
         companyId: input.companyId,
         vendaId: venda.id,
-        itemId: itemDoPacoteId,
+        itemIds,
         barbeiroId,
         inicio: input.novoInicio,
       });

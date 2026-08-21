@@ -50,6 +50,7 @@ import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
 import { BigodsClub } from './components/BigodsClub';
+import { MarcaBigodsClub } from './components/LogoBigodsClub';
 import { Barbeiro } from './steps/Barbeiro';
 import { DataHora } from './steps/DataHora';
 import { Dados } from './steps/Dados';
@@ -79,6 +80,37 @@ function limparParametroDeLinkNaUrl(): void {
   try {
     const url = new URL(window.location.href);
     url.searchParams.delete('barbeiro');
+    window.history.replaceState({}, '', url.toString());
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * "/?pacote=1" — o cliente clicou em algo que fala de PACOTE (hoje: o convite
+ * na conta dele, "um pacote deixa cada visita mais barata").
+ *
+ * Sem isso ele caía na Landing, que só fala de agendar horário: perdia o
+ * contexto e achava que ia marcar mais um corte (go-live 2026-08-20). Com o
+ * parâmetro, o funil pula a Landing e entra direto onde o Bigod's Club vive,
+ * com uma faixa dizendo por que ele está ali.
+ *
+ * Não é um passo novo nem um fluxo separado: é exatamente o que o botão
+ * "Agendar" faz, só sem a tela intermediária — os pacotes e os serviços moram
+ * na mesma tela desde o funil unificado.
+ */
+function veioPorPacoteNaUrl(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('pacote') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function limparParametroDePacoteNaUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('pacote');
     window.history.replaceState({}, '', url.toString());
   } catch {
     /* ignore */
@@ -127,6 +159,23 @@ function Funil() {
   useEffect(() => {
     salvarEstado(estado);
   }, [estado]);
+
+  // Veio pelo convite de pacote: guarda a intenção pra explicar na tela.
+  // `useState` com inicializador (não efeito) porque a decisão é lida da URL
+  // uma única vez e não muda depois.
+  const [veioPorPacote] = useState(veioPorPacoteNaUrl);
+
+  useEffect(() => {
+    if (!veioPorPacote) return;
+    limparParametroDePacoteNaUrl();
+    // Pula a Landing: quem clicou "quero um pacote" já decidiu entrar.
+    setEstado((e) =>
+      e.step === PASSO.LANDING
+        ? { ...e, modo: 'avulso', step: e.barbeiroId && (e.barbeiroFixadoPorLink || e.barbeiroAuto) ? PASSO.SERVICOS : PASSO.BARBEIRO }
+        : e,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [veioPorPacote]);
 
   // §4b: link pessoal do barbeiro SEMPRE vence o estado salvo — roda uma vez,
   // no mount; slug inválido/inexistente simplesmente não faz nada (o funil
@@ -681,6 +730,7 @@ function Funil() {
         <BigodsClub
           ofertaId={estado.ofertaId}
           onSelect={escolherOferta}
+          abertoInicialmente={veioPorPacote}
         />
         <Servicos
           servicos={servicosDoBarbeiroReq.dados ?? []}
@@ -793,6 +843,18 @@ function Funil() {
       {/* `espaco-para-barra`: a barra de resumo é sticky e cobre o fim da lista
           enquanto o cliente não rolou até embaixo — ver a nota no index.css. */}
       <main className="flex-1 px-5 py-4 espaco-para-barra">
+        {/* Contexto de quem chegou pelo convite de pacote: sem isto ele lê uma
+            tela de agendamento e não entende por que está aqui. */}
+        {veioPorPacote && estado.step === PASSO.SERVICOS && !estado.ofertaId && (
+          <div className="flex items-start gap-2.5 mb-3 px-3 py-2.5 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
+            <MarcaBigodsClub tom="ink" altura={24} />
+            <span>
+              Os pacotes do <strong>Bigod's Club</strong> estão logo abaixo — escolha um para pagar
+              adiantado e deixar cada visita mais barata. Prefere marcar só um horário? Os serviços
+              avulsos seguem na mesma tela.
+            </span>
+          </div>
+        )}
         {mostrarBannerBarbeiro && (
           <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
             <span>
@@ -941,9 +1003,17 @@ function SummaryBar({
           </span>
         </div>
       )}
-      {descontoCentavos === 0 && proximoGanhoCentavos > 0 && (
+      {/* O degrau SEGUINTE, sempre que existir — inclusive quando já há desconto
+          (go-live 2026-08-20). Antes esta linha só aparecia com desconto zero:
+          ao selecionar o segundo serviço ela sumia junto com a informação de
+          que dava pra ganhar mais, exatamente no momento em que o cliente
+          acabou de provar que responde ao incentivo. As duas linhas convivem: a
+          de cima diz o que ele JÁ ganhou, esta diz o que ainda dá pra ganhar. */}
+      {proximoGanhoCentavos > 0 && (
         <div className="text-[12px] font-semibold mb-2.5" style={{ color: 'var(--brand-gold-700)' }}>
-          Adicione mais um serviço e ganhe {dinheiro(proximoGanhoCentavos)} de desconto.
+          {descontoCentavos > 0
+            ? `Adicione mais um serviço e ganhe ${dinheiro(proximoGanhoCentavos)} a mais de desconto.`
+            : `Adicione mais um serviço e ganhe ${dinheiro(proximoGanhoCentavos)} de desconto.`}
         </div>
       )}
       <button className="btn btn-block" disabled={cta.disabled} onClick={cta.onClick}>

@@ -7,6 +7,7 @@ import {
   Papel,
   StatusAprovacaoPacoteOferta,
   StatusAtendimento,
+  StatusDoClube,
   StatusItemPacote,
   StatusPagamento,
   StatusSolicitacaoReembolso,
@@ -248,7 +249,23 @@ export interface AgendarAvulsoRequest {
 }
 export interface AgendarComCreditoRequest {
   vendaId: string;
-  itemId: string;
+  /**
+   * Créditos consumidos NESTA visita (2026-08-21). Vários créditos do MESMO
+   * pacote formam UM atendimento, com o mesmo barbeiro, no mesmo horário — o
+   * bloco na agenda é a SOMA das durações. Um pacote "2 cortes + 2 barbas"
+   * atende corte+barba numa visita só, em vez de exigir dois agendamentos.
+   *
+   * Cada crédito continua individual por baixo: seu `valorRateado` congelado,
+   * seu lançamento de comissão, seu serviço. Agendar junto é experiência, não
+   * um "item combo".
+   */
+  itemIds: string[];
+  /**
+   * ⚠️ DEPRECADO em 2026-08-21 — use `itemIds`. Continua aceito porque a API
+   * sobe antes dos frontends: durante a janela de deploy, o app publicado ainda
+   * manda este campo. Ignorado quando `itemIds` vem preenchido.
+   */
+  itemId?: string;
   barbeiroId: string;
   data: string; // YYYY-MM-DD, dia civil local
   horaInicio: string; // "HH:mm", horário de parede LOCAL
@@ -307,6 +324,12 @@ export interface ItemDoPacoteDTO {
   id: string;
   servicoId: string;
   servicoNome: string;
+  /**
+   * Duração do serviço deste crédito (2026-08-21). A conta do cliente precisa
+   * disto pra somar o bloco da visita quando ele junta vários créditos — é a
+   * MESMA soma que o domínio faz ao agendar, mostrada antes de confirmar.
+   */
+  servicoDuracaoMinutos: number;
   valorRateadoCentavos: number;
   status: StatusItemPacote;
   faltasComputadas: number;
@@ -777,11 +800,33 @@ export interface AgendamentoClienteDTO {
   origem: OrigemAtendimento;
   status: StatusAtendimento;
 }
+/** Estado do cliente no Bigod's Club (2026-08-21) — calculado, nunca armazenado. */
+export interface ClubeDoClienteDTO {
+  status: StatusDoClube;
+  /**
+   * Quando entrou no status atual (ISO), do log de eventos. `null` quando nunca
+   * houve transição registrada — cliente que nunca teve pacote, ou pacote
+   * anterior ao log existir. A UI não depende disto pra decidir nada; é texto.
+   */
+  desde: string | null;
+  /**
+   * Créditos vivos agora: DISPONIVEL, SEGUNDA_CHANCE ou AGENDADO, em pacote
+   * PAGO. Zero é o que caracteriza o inativo.
+   */
+  creditosVivos: number;
+}
 export interface PerfilClienteDTO {
   cliente: ClienteSessaoDTO;
   /** Pacotes do cliente (reusa o read model de pacotes). */
   pacotes: VendaDePacoteDTO[];
-  /** Próximos atendimentos AGENDADOS do cliente, do mais próximo ao mais distante. */
+  /** Estado no Bigod's Club — decide o tema visual e o convite/incentivo. */
+  clube: ClubeDoClienteDTO;
+  /**
+   * O que ainda vai acontecer, do mais próximo ao mais distante: AGENDADO,
+   * CONCLUSAO_PENDENTE e RESERVADO (reserva de avulso online cujo prazo de
+   * pagamento não venceu — o front usa `status` pra dizer "aguardando
+   * confirmação"). Nada daqui aparece no histórico, e vice-versa.
+   */
   proximosAgendamentos: AgendamentoClienteDTO[];
 }
 

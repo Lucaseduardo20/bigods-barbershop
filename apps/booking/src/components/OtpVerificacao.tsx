@@ -6,6 +6,8 @@ import type {
 import { api, ApiError } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
 import { AlertaErro } from './ui';
+import { BARBEARIA } from '../lib/barbearia';
+import { IconeDeMarca } from './IconesDeMarca';
 
 const N = 6;
 
@@ -124,8 +126,8 @@ export function OtpVerificacao({
         </div>
 
         <div className="text-[13.5px] mb-5" style={{ color: 'var(--text-secondary)' }}>
-          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> no WhatsApp. Ele
-          prova que o horário é seu — ninguém mais consegue reservar ou pagar em seu nome.
+          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> via SMS. Ele
+          prova que o horário é seu, com isso ninguém mais consegue reservar ou pagar em seu nome.
         </div>
 
         {fase === 'enviando-codigo' && !erro && (
@@ -212,6 +214,30 @@ export function OtpVerificacao({
             </button>
           </>
         )}
+
+        {/* Saída para gente presa aqui (go-live 2026-08-20). Fica FORA dos
+            blocos por fase de propósito: SMS que não chega é justamente o caso
+            em que o cliente não avança de fase nenhuma, e é aí que ele mais
+            precisa de um humano.
+            O contato é um BOTÃO, não um link no meio da frase: quem está
+            travado precisa reconhecer a saída de relance, e um trecho
+            sublinhado no meio do texto não se anuncia como algo em que clicar. */}
+        <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="text-[12.5px] text-center" style={{ color: 'var(--text-muted)' }}>
+            Em caso de qualquer problema, entre em contato conosco pelo WhatsApp clicando no botão
+            abaixo
+          </div>
+          <a
+            href={`https://wa.me/${BARBEARIA.whatsapp}`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-ghost btn-block mt-2.5"
+            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            <IconeDeMarca chave="whatsapp" tamanho={17} />
+            Falar com a barbearia
+          </a>
+        </div>
       </div>
     </div>
   );

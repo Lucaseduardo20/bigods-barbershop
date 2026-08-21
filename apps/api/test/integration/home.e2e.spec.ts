@@ -15,6 +15,10 @@ import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 // eslint-disable-next-line import/first
 import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
+// eslint-disable-next-line import/first
+import { diaCivilChave } from '../../src/shared/domain/calendario';
+// eslint-disable-next-line import/first
+import { Timezone } from '../../src/shared/domain/timezone';
 
 /**
  * Home do painel (2026-08-19).
@@ -148,10 +152,22 @@ beforeAll(async () => {
   });
 
   // "Hoje" às 12:00 no fuso da empresa (America/Sao_Paulo = UTC-3) → 15:00 UTC.
-  const agora = new Date();
-  hojeMeioDia = new Date(
-    Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate(), 15, 0, 0),
-  );
+  //
+  // O dia tem que ser o dia civil LOCAL, e é por isso que ele vem de
+  // `diaCivilChave` — a mesma função que a home usa pra decidir o que é "hoje".
+  // Antes este trecho montava a data a partir dos componentes UTC
+  // (`getUTCDate()`), e aí, entre 21:00 e meia-noite local (= depois de 00:00
+  // UTC), o teste gravava movimento de AMANHÃ e perguntava pelo faturamento de
+  // HOJE: dava 0 e falhava por três horas todo dia. Produção estava certa; o
+  // teste é que olhava pro fuso errado.
+  // `Timezone.de(...)`, não a string: `diaCivilChave` lê `tz.iana`, e passando
+  // string ele fica `undefined` — o Intl cai no fuso do SISTEMA, que "funciona"
+  // sob TZ=America/Sao_Paulo e devolve o dia UTC sob TZ=UTC. Foi assim que a
+  // primeira tentativa de corrigir este trecho passou local e falhou no multitz.
+  const [ano, mes, dia] = diaCivilChave(new Date(), Timezone.de('America/Sao_Paulo'))
+    .split('-')
+    .map(Number) as [number, number, number];
+  hojeMeioDia = new Date(Date.UTC(ano, mes - 1, dia, 15, 0, 0));
 
   const [a, b] = await Promise.all([
     http.post('/auth/login').send({ login: adminLogin, senha: SENHA }).expect(201),
@@ -175,6 +191,8 @@ afterAll(async () => {
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.produto.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });
@@ -407,6 +425,8 @@ describe('Home de GESTÃO — dinheiro do dia e do mês', () => {
     expect(res.body.pendencias).toEqual([]);
 
     await prisma.barbeiro.deleteMany({ where: { companyId: vazia } });
+    // O log do clube tem FK pra Company — sai antes dela.
+    await prisma.eventoDoClube.deleteMany({ where: { companyId: vazia } });
     await prisma.company.delete({ where: { id: vazia } });
   });
 });

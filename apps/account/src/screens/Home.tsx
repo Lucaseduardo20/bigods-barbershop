@@ -4,11 +4,12 @@ import type {
   PerfilClienteDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
-import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import { StatusAtendimento, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { BOOKING_URL } from '../lib/config';
 import { diasCivisRestantes, dinheiro } from '../lib/format';
 import { fraseSaldoResidual, fraseSegundaChance } from '../lib/textos';
 import { Icon } from '../components/ui';
+import { ChamadoDoClube, FaixaDoClube } from '../components/Clube';
 
 /** Item ainda utilizável para marcar um novo horário. */
 function bookavel(i: ItemDoPacoteDTO): boolean {
@@ -19,6 +20,14 @@ function vendaPaga(v: VendaDePacoteDTO): boolean {
 }
 function temCreditoLivre(v: VendaDePacoteDTO): boolean {
   return vendaPaga(v) && v.itens.some(bookavel);
+}
+
+/**
+ * Reserva de avulso online esperando o pagamento confirmar. Vale um aviso na
+ * tela: o horário está guardado, mas ainda não é firme (go-live 2026-08-20).
+ */
+function aguardandoPagamento(a: AgendamentoClienteDTO): boolean {
+  return a.status === StatusAtendimento.RESERVADO;
 }
 
 function rotuloDataHora(iso: string, tz: string): { dia: string; hora: string } {
@@ -59,6 +68,9 @@ export function Home({
 
   return (
     <div style={{ padding: '18px 20px 40px' }}>
+      {/* Selo de membro no topo — é a primeira coisa que um membro vê. */}
+      <FaixaDoClube clube={perfil.clube} />
+
       {emPrazo.map(({ item }) => {
         const frase = fraseSegundaChance(diasCivisRestantes(item.prazoReagendamentoAte!, tz), item.servicoNome);
         return (
@@ -92,6 +104,21 @@ export function Home({
         />
       </div>
 
+      {/* 2a) Os OUTROS horários marcados. Antes só o primeiro aparecia, e os
+              demais existiam apenas dentro do card de pacote — então um avulso
+              que não fosse o próximo simplesmente não aparecia em lugar nenhum
+              (go-live 2026-08-20). */}
+      {perfil.proximosAgendamentos.length > 1 && (
+        <div style={{ marginBottom: 24 }}>
+          <div className="section-label">Também marcados</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {perfil.proximosAgendamentos.slice(1).map((a) => (
+              <LinhaAgendamento key={a.atendimentoId} agendamento={a} tz={tz} onAbrir={onAbrirAtendimento} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 2b) Saldo residual disponível (FASE 4a, sessão-E) */}
       {temSaldoResidual && (
         <button
@@ -118,15 +145,11 @@ export function Home({
           </div>
         </div>
       )}
-      {perfil.pacotes.length === 0 && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '6px 10px', marginBottom: 24 }}>
-          Corta com frequência? Um{' '}
-          <a href={BOOKING_URL} style={{ fontWeight: 700, color: 'var(--text-link)' }}>
-            pacote
-          </a>{' '}
-          deixa cada visita mais barata.
-        </div>
-      )}
+      {/* Renovar (inativo) ou conhecer (não-membro). Substituiu o convite
+          textual solto de 2026-08-20: aquele aparecia por "não tem pacote", que
+          não distingue quem esgotou de quem nunca entrou — e são conversas
+          diferentes. Nada aparece pra quem tem crédito. */}
+      <ChamadoDoClube clube={perfil.clube} />
 
       {/* 4) Ver histórico completo — leva pra tela dedicada (FASE 1) */}
       <button
@@ -137,6 +160,41 @@ export function Home({
         Ver histórico completo <Icon name="arrow-right" size={16} />
       </button>
     </div>
+  );
+}
+
+function LinhaAgendamento({
+  agendamento,
+  tz,
+  onAbrir,
+}: {
+  agendamento: AgendamentoClienteDTO;
+  tz: string;
+  onAbrir: (atendimentoId: string) => void;
+}) {
+  const { dia, hora } = rotuloDataHora(agendamento.inicioIso, tz);
+  return (
+    <button
+      onClick={() => onAbrir(agendamento.atendimentoId)}
+      className="card"
+      style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 14 }}>
+          {dia} · {hora}
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {agendamento.servicoNomes.join(' + ')} com {agendamento.barbeiroNome}
+          {agendamento.origem === 'CREDITO_PACOTE' && ' · crédito do pacote'}
+        </div>
+        {aguardandoPagamento(agendamento) && (
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--state-warning)', marginTop: 2 }}>
+            Aguardando confirmação do pagamento
+          </div>
+        )}
+      </div>
+      <Icon name="arrow-right" size={16} />
+    </button>
   );
 }
 
@@ -170,6 +228,14 @@ function ProximoBloco({
           {proximo.servicoNomes.join(' + ')} com {proximo.barbeiroNome}
           {proximo.origem === 'CREDITO_PACOTE' && ' · crédito do pacote'}
         </div>
+        {/* O horário está guardado, mas não é firme até o pagamento confirmar —
+            dizer isso aqui evita o cliente aparecer confiando num horário que
+            ainda pode expirar. */}
+        {aguardandoPagamento(proximo) && (
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8, color: 'var(--state-warning)' }}>
+            Aguardando confirmação do pagamento
+          </div>
+        )}
       </button>
     );
   }

@@ -1329,6 +1329,72 @@ nada; depois, expira exatamente o que deveria). Não é um trigger em tempo real
 
 ---
 
+### 4.5 Status no Bigod's Club — DERIVADO, não armazenado (2026-08-21)
+
+```
+                        compra pacote pago
+   ┌──────────────┐  ────────────────────────►  ┌───────────────┐
+   │  NAO_MEMBRO  │      ENTROU_CLUBE /         │ MEMBRO_ATIVO  │
+   │              │  ◄──────  RENOVOU  ─────────│ (crédito vivo)│
+   └──────────────┘                             └───────┬───────┘
+          ▲                                             │ acabou o crédito
+          │ marcou avulso                               │ (consumido/expirado)
+          │ estando sem crédito                         ▼
+          │  SAIU_CLUBE                         ┌────────────────┐
+          └─────────────────────────────────────│ MEMBRO_INATIVO │
+                                                │ (sem crédito,  │
+                    compra de novo (RENOVOU)    │  ainda membro) │
+                    ◄───────────────────────────└────────────────┘
+```
+
+**★ O status NUNCA é uma coluna.** É calculado a cada leitura por `statusDoClube()` (função
+pura), a partir dos pacotes e dos avulsos do cliente. Um campo `status` divergiria do cálculo na
+primeira vez que alguém esquecesse de atualizá-lo; um cálculo não tem com o que divergir.
+
+Regras, e o que cada uma protege:
+
+- **`MEMBRO_ATIVO`** — tem crédito VIVO em pacote **PAGO**. Vivo = `DISPONIVEL`,
+  `SEGUNDA_CHANCE` **ou `AGENDADO`**. A regra falada é "crédito disponível", e `AGENDADO`
+  literalmente não está disponível — mas quem tem visita de pacote marcada é o oposto de
+  esgotado, e rebaixá-lo (com "renove!" na tela) enquanto o crédito está em voo seria errado. O
+  crédito volta a `DISPONIVEL` se ele cancelar.
+- **Esgotar ou expirar NÃO expulsa:** vai para `MEMBRO_INATIVO` e **continua no clube** — inclusive
+  visualmente, mantendo o tema.
+- **Pacote ativo PROTEGE:** um avulso marcado por quem tem crédito não muda nada, **nem mais
+  tarde**. É por isso que a comparação usa `Atendimento.criadoEm` (quando foi MARCADO) e não
+  `inicio` (quando acontece): com `inicio`, um avulso marcado sob proteção e agendado pra frente
+  passaria a rebaixar o cliente assim que os créditos acabassem.
+- **O avulso só rebaixa quem já estava sem crédito:** `MEMBRO_INATIVO` + avulso marcado depois do
+  instante em que o último crédito morreu → `NAO_MEMBRO`. Esse instante é **gravado**
+  (`ItemDoPacote.deixouDeExistirEm`), no consumo ou na expiração.
+  Ele já foi derivado do `fim` do atendimento que consumiu, e isso deu bug em produção
+  (2026-08-21): concluir hoje quatro atendimentos marcados pra semana que vem fazia os créditos
+  "morrerem" na semana que vem, então nenhum avulso marcado no meio rebaixava o cliente — ele
+  ficava membro para sempre. Concluir antes do horário é rotina (§4.1), então o `fim` nunca foi um
+  proxy aceitável do instante do consumo.
+- **Renovar** (comprar pacote) de `INATIVO` ou `NAO_MEMBRO` → `MEMBRO_ATIVO`.
+- **Pacote não pago não faz membro:** crédito de pacote `AGUARDANDO` ainda não existe.
+- Sem rastro de quando o crédito morreu (dado antigo), fica `MEMBRO_INATIVO`: o erro de manter um
+  membro é menor que o de expulsar quem não pediu para sair.
+
+#### Log de eventos (`EventoDoClube`) — append-only
+
+Cada transição REAL grava uma linha: `ENTROU_CLUBE`, `VIROU_INATIVO`, `SAIU_CLUBE`, `RENOVOU`, com
+data, status anterior/novo e a causa em texto. **Nunca é atualizado nem apagado.**
+
+O log é **histórico e auditoria** — base para as métricas de retenção que virão (quantos inativos
+renovam vs. viram avulso). **Não há relatório ainda**, por decisão. E o status atual **não é lido
+daqui**.
+
+A gravação é feita por um **reconciliador** (`SincronizarStatusDoClubeUseCase`), chamado depois de
+qualquer fato que possa mudar o status: calcula o status, compara com o último registrado e grava
+só se mudou. Isso dá **idempotência de graça** — rodar duas vezes não grava duas linhas.
+
+**Consequência a dizer em voz alta:** se nenhum evento disparar a reconciliação, o log **atrasa**
+(a linha aparece no próximo fato daquele cliente), mas o status mostrado nunca fica errado, porque
+é calculado na leitura. Falha ao gravar o log é logada e engolida: derrubar a compra de um pacote
+porque a linha de histórico não entrou seria pior que um log incompleto.
+
 ### 4.4 `Vale` (sessão de vale/pagamento)
 
 ```
@@ -1532,15 +1598,44 @@ Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou,
 ```
 1. Autenticar (Cognito)
 2. Carregar VendaDePacote do cliente
-3. Selecionar ItemDoPacote (status DISPONIVEL ou SEGUNDA_CHANCE)
+3. Selecionar UM OU MAIS ItemDoPacote (status DISPONIVEL ou SEGUNDA_CHANCE),
+   todos do MESMO pacote  ← "monte sua visita" (2026-08-21)
 4. Validar disponibilidade e conflito de horário
+   → contra o intervalo TOTAL: soma das durações dos serviços escolhidos
    → mesma regra de dia civil local do §8.1 (§2.6)
 5. TRANSAÇÃO:
-   a. VendaDePacote.consumirItem(itemId, atendimentoId)  → item vira AGENDADO
-   b. Criar Atendimento (origem=CREDITO_PACOTE,
-      valorCobrado = item.valorRateado ← NÃO o preço avulso)
+   a. Para CADA crédito: VendaDePacote.agendarItem(itemId, atendimentoId)
+      → todos viram AGENDADO, apontando para o MESMO atendimento
+   b. Criar Atendimento (origem=CREDITO_PACOTE) com UM ItemAtendido POR CRÉDITO,
+      cada um com valorCobrado = item.valorRateado ← NÃO o preço avulso,
+      NÃO um total combinado
 6. Sem pagamento. Confirmar explicitamente ao cliente que nada será cobrado.
 ```
+
+**Vários créditos numa visita (2026-08-21).** Um pacote "2 cortes + 2 barbas" tem quatro créditos
+individuais. Fazer corte+barba numa ida exigia DOIS agendamentos — para o cliente foi UMA visita.
+Agora um agendamento consome vários créditos: um atendimento, mesmo barbeiro, mesmo horário.
+
+A solução ficou no AGENDAMENTO, não no catálogo: criar um serviço "corte+barba" reviveria os combos
+removidos na Onda 1, proliferaria catálogo e destruiria a granularidade de rateio e comissão.
+
+- **Só créditos do MESMO pacote** numa visita (decisão do dono). Misturar pacotes evolui depois, se
+  surgir necessidade.
+- **★ A duração é a SOMA.** Corte (30) + barba (20) = bloco de 50 min. Quem calcula é
+  `Atendimento.agendar()`, que já somava as durações dos itens — a invariante de sobreposição e a
+  constraint `EXCLUDE` do Postgres validam contra o intervalo TOTAL, então uma visita de 50 min não
+  cabe num vão de 30 min nem atropela o próximo cliente. A projeção pública de horários (§2.1) só
+  oferece o horário onde o bloco inteiro cabe.
+- **★ Rateio e comissão continuam INDIVIDUAIS.** Um `ItemAtendido` por crédito, com o `valorRateado`
+  congelado daquele item; a conclusão gera um `LancamentoComissao` por crédito, cada um pelo seu
+  valor rateado. **Nunca existe "item combo"** — agendar junto é experiência, o ledger não muda.
+- **Um crédito por serviço na visita.** Dois créditos do mesmo serviço são recusados: além de não
+  fazer sentido operacional, a projeção de horários calcula a duração sobre os serviços DISTINTOS,
+  e aceitar produziria silenciosamente um bloco maior que o oferecido. Ver DECISOES_PENDENTES.
+- **Os créditos da visita andam JUNTOS.** Cancelar devolve todos (a regra de falta/segunda-chance do
+  §4.2 é a mesma, aplicada a cada crédito — os eventos `AtendimentoCancelado`/`ClienteFaltou` já
+  carregam a lista de itens). Reagendar move a visita inteira. Cancelar só um crédito da visita não
+  existe — ver DECISOES_PENDENTES.
 
 ### 8.3 Concluir atendimento (painel)
 

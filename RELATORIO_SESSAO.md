@@ -4069,6 +4069,254 @@ comissão** apareceu. Logado como **admin**: Home → "Esperando você" mostra a
 motivo; Agenda → aba "A aprovar" → abra e **aprove** → agora a comissão aparece no extrato do
 barbeiro, e o detalhe do atendimento mostra o motivo registrado.
 
+## Vários créditos numa visita (2026-08-21) ✅
+
+Origem: usar crédito de pacote era trabalhoso. Um pacote "2 cortes + 2 barbas" tem quatro créditos
+individuais, e fazer corte+barba numa ida exigia **dois agendamentos**. Na cabeça do cliente foi
+UMA visita.
+
+A solução ficou no **agendamento**, não no catálogo — de propósito. Um serviço "corte+barba"
+reviveria os combos removidos na Onda 1, proliferaria catálogo e destruiria a granularidade de
+rateio e comissão.
+
+### O que mudou de fato
+
+`AgendarComCreditoUseCase` passou de `itemId` para `itemIds`. É quase tudo — porque
+`Atendimento.agendar()` **já** somava as durações dos itens e já validava disponibilidade e
+conflito contra o intervalo total. Nada de duração foi reimplementado; o que mudou é quantos itens
+o use case monta.
+
+Isso é a parte importante de dizer em voz alta: a área crítica (conflito de agenda) não ganhou
+código novo. Ela ganhou **cobertura** — o caminho de crédito passou a exercitar um caminho de
+domínio que só o avulso exercitava.
+
+### ★ Duração total no conflito — como é calculada e validada
+
+| Camada | Onde | O que garante |
+|---|---|---|
+| Domínio | `Atendimento.agendar()` | `itens.map(duracao).reduce(somar)` → intervalo total; recusa se não cabe na disponibilidade ou se sobrepõe atendimento ativo |
+| Banco | constraint `atendimento_sem_sobreposicao` (`EXCLUDE USING gist`) | recusa fisicamente sobreposição de `tstzrange(inicio, fim)`, mesmo sob concorrência e mesmo para escrita crua |
+| Leitura | `horarios-disponiveis-query.service.ts` | só oferece horário onde o bloco INTEIRO cabe (projeção, não fonte de verdade) |
+
+Testado explicitamente: uma visita de 50 min é recusada num vão de 30 min, **e** o mesmo crédito
+sozinho (30 min) entra naquele mesmo vão — é a prova de que a recusa é sobre duração, não sobre o
+horário estar tomado. A projeção pública oferece 16:00 para `servicoIds=corte` e **não** oferece
+para `corte,barba` quando só há 30 min livres. E uma escrita crua no banco, por dentro do bloco de
+50 min, bate na constraint.
+
+### ★ Rateio e comissão continuam individuais — a prova
+
+Um pacote corte (R$40) + barba (R$30) pago R$63,00 rateia 3600 / 2700. A visita com os dois
+créditos gera:
+
+- **dois** `ItemAtendido`, com `valorCobradoCentavos` 3600 e 2700 (soma = 6300, o valor pago);
+- na conclusão, **dois** `LancamentoComissao`: 1800 e 1350 a 50% — cada um sobre o **seu**
+  `valorBase` rateado, nunca sobre o preço avulso nem sobre um total combinado;
+- os snapshots dos itens não mudam com a conclusão.
+
+Nunca existe "item combo". Agendar junto é experiência; o ledger não sabe que houve visita única.
+
+Detalhe encontrado ao escrever o teste: `PrismaAtendimentoRepository.salvar` faz **replace
+completo** das linhas de `ItemAtendido` (delete + createMany), então as PKs mudam a cada save. Um
+teste de snapshot tem que comparar os VALORES congelados, não as linhas — comparar linha inteira
+testa identidade de linha, que o desenho não promete.
+
+### Cancelar e reagendar: os créditos andam juntos
+
+Nenhuma regra nova de falta foi inventada. Os eventos `AtendimentoCancelado` e `ClienteFaltou` já
+carregavam a **lista** de itens do pacote, e `PacoteAtendimentoHandlers` já iterava sobre ela — o
+suporte a N créditos existia antes de haver N créditos.
+
+- cancelamento antecipado → todos os créditos voltam a DISPONIVEL;
+- falta / cancelamento tardio → a regra de segunda-chance do §4.2 aplicada a **cada** crédito
+  (1ª falta → SEGUNDA_CHANCE com prazo, nos dois);
+- reagendar → move a visita inteira. `ReagendarAtendimentoClienteUseCase` coletava
+  `itens[0].itemDoPacoteId`; agora coleta todos.
+
+### Ordem de deploy (importa)
+
+A API sobe antes dos frontends, então `itemId` (campo antigo) **continua aceito** durante a janela —
+`creditosDaRequisicao()` traduz os dois formatos, compartilhado pelas três bordas que agendam
+crédito. Há teste para isso. Sem essa compatibilidade, agendar com crédito quebraria em produção
+entre um deploy e o outro.
+
+**Nenhuma migration.** `ItemDoPacote.atendimentoId` não tem constraint de unicidade, então vários
+créditos apontando para o mesmo atendimento já era possível no schema.
+
+### UI
+
+Conta do cliente → "Usar crédito do pacote" virou **"O que vai fazer nesta visita?"**: checkboxes
+por serviço do pacote, e um resumo *"Sua visita: Corte + Barba · 50 min — consome 2 créditos"*. As
+duas travas do backend estão espelhadas na tela (um pacote por visita, um crédito por serviço), com
+a linha que explica por que uma opção ficou apagada — sem isso o cliente clica, nada acontece, e
+ele não descobre a regra. A lista de barbeiros passa a filtrar por TODOS os serviços da visita:
+quem não atende os dois não aparece.
+
+`ItemDoPacoteDTO` ganhou `servicoDuracaoMinutos` (aditivo) para a tela somar o bloco — a mesma soma
+que o domínio faz.
+
+### Testes
+
+**18 novos** (14 e2e + 4 de domínio), suíte em **798 verdes** nos 3 fusos.
+
+### Verificado no navegador e no banco
+
+Cliente com pacote "2 cortes + 1 barba" (R$100 → 3750/3750/2500): marquei corte + barba, a tela
+mostrou **50 min / 2 créditos**, confirmei, e no banco saiu **um** atendimento de 50 min com dois
+`ItemAtendido` (3750 e 2500) e apenas os dois créditos escolhidos em AGENDADO — o segundo corte
+ficou DISPONIVEL.
+
+### Smoke test manual
+
+Conta do cliente → um pacote com dois serviços diferentes → "Usar um crédito · Agendar":
+
+1. marque **dois** serviços → o resumo mostra a soma das durações e "consome 2 créditos";
+2. confira que a lista de horários some/reduz em relação a marcar um só — o bloco é maior;
+3. confirme, e no painel veja **um** atendimento com os dois serviços;
+4. conclua e confira no Financeiro **dois** lançamentos de comissão, um por serviço, cada um pelo
+   valor rateado;
+5. cancele uma visita dupla (antecipado) e confira que **os dois** créditos voltaram;
+6. com dois pacotes diferentes, tente misturar → as opções do outro pacote ficam apagadas.
+
+## Status de membro do Bigod's Club (2026-08-21) ✅
+
+Três estados, calculados: `MEMBRO_ATIVO`, `MEMBRO_INATIVO`, `NAO_MEMBRO`. Tema visual próprio para
+membros, e convite pra renovar quem esgotou.
+
+### A função de cálculo
+
+`statusDoClube()` (`packages/domain/status-do-clube.ts`) é pura e recebe dois conjuntos: os
+créditos do cliente (status do item + status de pagamento da venda + quando o crédito morreu) e os
+avulsos (só a data de MARCAÇÃO). Devolve o estado:
+
+```
+tem crédito vivo em pacote PAGO?          → MEMBRO_ATIVO
+nunca teve pacote pago?                   → NAO_MEMBRO
+marcou avulso depois do último crédito
+morrer?                                   → NAO_MEMBRO
+senão                                      → MEMBRO_INATIVO
+```
+
+**Nenhuma coluna de status.** Cada leitura de `/conta/perfil` recalcula. Custa duas queries por
+cliente e compra a garantia de nunca mostrar um status que divergiu do mundo real.
+
+Duas decisões que não eram óbvias, e que valem mais que o resto do código:
+
+**Crédito `AGENDADO` conta como vivo.** A regra falada é "crédito disponível", e `AGENDADO`
+literalmente não está. Mas quem tem visita de pacote marcada é o oposto de esgotado — rebaixá-lo,
+com "renove!" na tela, enquanto o crédito está em voo, seria errado. E o crédito volta a
+`DISPONIVEL` se ele cancelar.
+
+**★ O avulso é datado pela MARCAÇÃO, não pelo atendimento.** Foi o que exigiu a coluna nova
+`Atendimento.criadoEm`. Comparando pelo `inicio`, um avulso marcado por quem TINHA crédito (e que
+por regra "não muda nada") passaria a rebaixá-lo mais tarde, bastando estar agendado pra frente. A
+regra "pacote ativo protege" tem que valer pra sempre, não só no instante do clique. Há teste
+dedicado a isso.
+
+Backfill do `criadoEm` nas linhas antigas: `inicio`. É a melhor aproximação possível, porque o
+instante do clique nunca foi gravado — `now()` seria pior, diria que todo atendimento passado foi
+marcado hoje e mudaria o status de quem já é membro.
+
+### Quando cada evento é gravado
+
+Log append-only `EventoDoClube`: `ENTROU_CLUBE`, `VIROU_INATIVO`, `SAIU_CLUBE`, `RENOVOU`.
+
+A gravação é por **reconciliação**, não por detecção no ponto de origem:
+`SincronizarStatusDoClubeUseCase` calcula o status, compara com o último registrado e grava **só se
+mudou**. Idempotência sai de graça — rodar duas vezes não grava duas linhas.
+
+| Fato de domínio | Por que dispara |
+|---|---|
+| `PacoteVendido` | pode ser a entrada no clube (se já vem pago) |
+| `PagamentoConfirmado` (ref. pacote) | é aqui que o crédito passa a existir, no caminho PIX/balcão |
+| `ItemDoPacoteConsumido` / `...Expirado` | pode ter sido o último crédito |
+| `AtendimentoAgendado` | avulso de quem está sem crédito = saída |
+| `ClienteFaltou` | a 2ª falta expira o crédito |
+| `AtendimentoCancelado` | devolve crédito: quem esgotou pode voltar |
+
+**A propriedade que importa:** se nenhum evento disparar a reconciliação, o log **atrasa** — a
+linha aparece no próximo fato daquele cliente. O status mostrado **nunca fica errado**, porque é
+calculado na leitura e não sai do log. Falha ao gravar o log é logada e engolida: derrubar a compra
+de um pacote porque a linha de histórico não entrou seria pior.
+
+### Como o account muda por estado
+
+O tema é uma **classe no wrapper** (`.tema-clube`) que redefine tokens de superfície — os tokens
+fazem o resto, e nenhuma tela sabe que existe tema.
+
+| Estado | Tema | Faixa | Chamado |
+|---|---|---|---|
+| `MEMBRO_ATIVO` | clube | selo + "N créditos" + badge ATIVO | nenhum — quem comprou não precisa ser convencido |
+| `MEMBRO_INATIVO` | clube (mantém: esgotar não expulsa) | selo + "seus créditos acabaram" | "Continue no Bigod's Club" → Renovar |
+| `NAO_MEMBRO` | normal | — | convite discreto "Conheça o Bigod's Club" |
+
+Os dois gatilhos de conversão (esgotar e o estado inativo contínuo) são a **mesma superfície**, de
+propósito: `INATIVO` *é* o estado logo depois de esgotar. Duas mensagens exigiriam inventar um
+limite de tempo ("recém-esgotado" é até quando?) que ninguém decidiu.
+
+Tom conferido por teste: o texto do inativo não contém "perder", "última chance", "expira". O
+objetivo é recuperar, e ameaça não recupera ninguém.
+
+**Contraste medido antes de escolher a paleta**, porque o tom quente empurra tudo pra baixo: o
+`--surface-sunken` do tema é `#ece3d0` e não `#e8dcc4` (que dava 4,32 e reprovava no
+`--text-muted`), e o tema redefine `--text-link` para `#7d5e2a` porque o global (`#8f6c30`) reprova
+em qualquer fundo quente — 3,78 no `--surface-brand-tint`, o que **já é verdade hoje** fora do
+clube.
+
+### Testes
+
+**21 novos** (15 de domínio puro, 6 e2e) + 5 no account, suíte em **819 verdes** nos 3 fusos.
+
+O e2e percorre o ciclo inteiro por endpoints reais — `NAO_MEMBRO → ATIVO → INATIVO → NAO_MEMBRO →
+ATIVO` — conferindo um evento por transição, e prova que o log não duplica (vários fatos sem
+transição → nenhuma linha nova) e que a primeira linha continua idêntica depois da segunda.
+
+A renderização por estado foi verificada **no navegador**, não por teste: este app não tem
+infraestrutura de teste de DOM, e instalar testing-library é decisão do dono. O que é regra de
+produto (quem vê tema, quem recebe qual chamado, o tom do texto) virou função pura testada.
+
+### ★ Bug em produção no mesmo dia: "esgotei, marquei avulso, e continuo membro"
+
+Reportado poucas horas depois de subir. O cliente tinha os 4 créditos consumidos, um avulso
+marcado, e a conta insistia em `MEMBRO_INATIVO`.
+
+**Causa.** O cálculo precisa saber quando o cliente ficou sem crédito, e eu derivei esse instante
+do `fim` do ATENDIMENTO que consumiu o crédito. Nos dados reais, os 4 créditos foram consumidos
+numa tarde, para atendimentos marcados em **24, 26 e 27 de agosto** — então o "instante da morte"
+saiu **no futuro**, e o avulso marcado no meio parecia anterior a ele. Nunca rebaixava.
+
+Não era caso de borda: concluir antes do horário é rotina desde a trava de conclusão antecipada, e
+o admin sempre pôde concluir qualquer atendimento. Eu tinha registrado isso como limitação
+aceitável (DECISOES #51) — estava errado, era bug.
+
+**Correção.** `ItemDoPacote.deixouDeExistirEm`, gravado no consumo e na expiração, com o instante
+recebido de fora (`consumirItem(itemId, agora)`) como todo instante naquele agregado.
+
+**O backfill precisou de duas etapas**, e a primeira foi grosseira: `LEAST(fim, now())` gravou "o
+instante da migration" para todo crédito com atendimento futuro — o que fazia qualquer avulso
+**anterior** à migration parecer anterior à morte do crédito. Ou seja, o cliente do bug continuaria
+inativo. A segunda etapa usa `LancamentoComissao.ocorridoEm`: o lançamento é criado NA CONCLUSÃO,
+então é o instante real, e já estava no banco desde sempre. Depois dela, o cliente reportado passou
+a `NAO_MEMBRO` — conferido pela API e na tela.
+
+**Onde a regressão mora:** no e2e do clube, não no domínio. A função pura `statusDoClube` sempre
+esteve correta — o caso "sem crédito e COM avulso posterior = NAO_MEMBRO" já passava. O bug estava
+em QUEM ALIMENTA o parâmetro, e um teste de domínio novo não teria pegado nada. O teste que pega é
+o que agenda pro futuro, conclui agora e marca avulso.
+
+### Smoke test manual — percorrer os 3 estados
+
+1. Cliente **sem pacote**: conta em paleta normal, sem faixa, com o convite discreto "Conheça o
+   Bigod's Club".
+2. Venda um pacote pra ele e recarregue: **paleta muda**, faixa com o selo e badge ATIVO, nenhum
+   chamado de renovação.
+3. Consuma todos os créditos (agendar com crédito + concluir): a faixa **permanece** (ele continua
+   membro), o badge ATIVO sai, e aparece "Continue no Bigod's Club → Renovar meu pacote".
+4. Marque um **avulso** pra ele agora: recarregue e a conta volta ao normal, com o convite de
+   não-membro.
+5. Venda outro pacote: volta a ATIVO. No banco, `EventoDoClube` do cliente deve ter exatamente
+   `ENTROU_CLUBE, VIROU_INATIVO, SAIU_CLUBE, RENOVOU`.
+
 ## Como rodar localmente
 
 ```bash

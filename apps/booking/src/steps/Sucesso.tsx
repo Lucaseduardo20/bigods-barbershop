@@ -65,6 +65,15 @@ export function Sucesso({
           />
         )}
 
+        {/* Conta do cliente: SEMPRE, em qualquer fluxo (2026-08-20). Todo cliente
+            tem conta — o login provisiona a identidade na hora, para qualquer
+            telefone (ver Onboarding.tsx). Deixar isto só no fluxo de pacote fazia
+            quem agendou avulso terminar o funil sem saber que existe uma área
+            onde ele acompanha, remarca e vê o histórico. */}
+        <div className="mt-6 text-left">
+          <Onboarding telefone={estado.telefone} contexto="agendamento" />
+        </div>
+
         <InfoDaBarbearia />
 
         {/* "incluir também na confirmação do atendimento, depois de tudo,
@@ -216,13 +225,13 @@ function SucessoPacote({
           )}
         </div>
 
-        {/* Onboarding suave: criar acesso só faz sentido depois de pago (a provisão
-            do usuário é disparada na confirmação do pagamento). */}
-        {pago && (
-          <div className="mt-6 text-left">
-            <Onboarding telefone={estado.telefone} />
-          </div>
-        )}
+        {/* Sem depender de `pago`: o pacote não pago ainda não liberou crédito,
+            mas a conta existe e é justamente onde o cliente vai acompanhar a
+            liberação. Esconder aqui deixava quem vai pagar na barbearia sem
+            caminho nenhum para a própria conta. */}
+        <div className="mt-6 text-left">
+          <Onboarding telefone={estado.telefone} contexto="pacote" />
+        </div>
 
         <InfoDaBarbearia />
 

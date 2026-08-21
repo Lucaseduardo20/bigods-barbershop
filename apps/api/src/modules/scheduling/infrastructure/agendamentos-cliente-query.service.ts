@@ -12,15 +12,32 @@ export class AgendamentosClienteQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async proximos(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
+    const agora = new Date();
     const atendimentos = await this.prisma.atendimento.findMany({
-      // CONCLUSAO_PENDENTE conta como próximo (2026-08-20): para o cliente o
-      // atendimento não aconteceu — a aprovação do admin é assunto interno, e
-      // sumir da lista antes da hora deixaria o cliente sem seu agendamento.
+      // Três estados são "ainda vai acontecer" para o cliente:
+      //
+      // - AGENDADO: firme.
+      // - CONCLUSAO_PENDENTE (2026-08-20): o barbeiro concluiu antes da hora e
+      //   espera aprovação. Assunto interno — sumir da lista deixaria o cliente
+      //   sem o agendamento dele.
+      // - RESERVADO (go-live 2026-08-20): avulso ONLINE nasce assim e só vira
+      //   firme quando o pagamento confirma. Com o pagamento manual por
+      //   WhatsApp esse intervalo passou a durar MINUTOS OU HORAS (alguém
+      //   precisa olhar o WhatsApp e confirmar), e neste meio-tempo o cliente
+      //   via sua reserva no HISTÓRICO — um agendamento futuro listado como
+      //   coisa passada. É o bug que fez os avulsos "não aparecerem".
+      //
+      //   Só conta enquanto o prazo da reserva não venceu, mesmo que ninguém
+      //   tenha lazy-expirado o registro ainda — mesmo critério da projeção de
+      //   horários livres (`horarios-disponiveis-query.service.ts`).
       where: {
         companyId,
         clienteId,
-        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
-        inicio: { gte: new Date() },
+        inicio: { gte: agora },
+        OR: [
+          { status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] } },
+          { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
+        ],
       },
       include: { itens: true },
       orderBy: { inicio: 'asc' },
@@ -36,7 +53,15 @@ export class AgendamentosClienteQueryService {
    */
   async historico(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
     const atendimentos = await this.prisma.atendimento.findMany({
-      where: { companyId, clienteId, status: { notIn: ['AGENDADO', 'CONCLUSAO_PENDENTE'] } },
+      // O espelho de `proximos`: o que ainda vai acontecer não é histórico.
+      // RESERVADO sai daqui junto — uma reserva esperando pagamento é futuro,
+      // não passado. Reserva que VENCEU virou RESERVA_EXPIRADA e continua no
+      // histórico do banco (nada é apagado), só não é exibida pelo app.
+      where: {
+        companyId,
+        clienteId,
+        status: { notIn: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'RESERVADO'] },
+      },
       include: { itens: true },
       orderBy: { inicio: 'desc' },
     });

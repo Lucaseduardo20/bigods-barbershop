@@ -43,6 +43,8 @@ import {
   ParametrosDaEmpresaRepository,
 } from '../../packages/domain/parametros-da-empresa.repository';
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
+import { creditosDaRequisicao } from '../../scheduling/application/agendar-com-credito.usecase';
+import { ClubeQueryService } from '../../packages/infrastructure/clube-query.service';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -77,7 +79,10 @@ class ConfirmarLoginDto {
 
 class AgendarComCreditoContaDto {
   @IsString() @MinLength(1) vendaId!: string;
-  @IsString() @MinLength(1) itemId!: string;
+  /** Vários créditos do mesmo pacote = uma visita só (2026-08-21). */
+  @IsOptional() @IsArray() @ArrayNotEmpty() @IsString({ each: true }) itemIds?: string[];
+  /** DEPRECADO — compatibilidade com o app publicado durante o deploy. */
+  @IsOptional() @IsString() @MinLength(1) itemId?: string;
   @IsString() @MinLength(1) barbeiroId!: string;
   @Matches(DATA_ISO) data!: string;
   @Matches(HORA_HHMM) horaInicio!: string;
@@ -109,6 +114,7 @@ export class ContaClienteController {
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
+    private readonly clube: ClubeQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
     private readonly cancelarAtendimento: CancelarAtendimentoClienteUseCase,
@@ -148,12 +154,16 @@ export class ContaClienteController {
     if (!cliente || cliente.companyId !== atual.companyId) {
       throw new NotFoundException('Cliente não encontrado');
     }
-    const [pacotes, proximosAgendamentos] = await Promise.all([
+    const [pacotes, proximosAgendamentos, clube] = await Promise.all([
       this.pacotes.listar(atual.companyId, atual.clienteId),
       this.agendamentosCliente.proximos(atual.companyId, atual.clienteId),
+      // Recalculado a cada leitura, de propósito (§Bigod's Club) — não existe
+      // coluna de status pra divergir do mundo real.
+      this.clube.doCliente(atual.companyId, atual.clienteId),
     ]);
     return {
       cliente: { id: cliente.id, nome: cliente.nome, telefone: cliente.telefone.e164 },
+      clube,
       pacotes,
       proximosAgendamentos,
     };
@@ -279,7 +289,7 @@ export class ContaClienteController {
     const resultado = await this.agendarComCredito.executar({
       companyId: atual.companyId,
       vendaId: body.vendaId,
-      itemId: body.itemId,
+      itemIds: creditosDaRequisicao(body),
       barbeiroId: body.barbeiroId,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
     });

@@ -12,9 +12,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/account/src/App.tsx": {
-    "mtime": 1787173471.687911,
-    "seen": 1787199839.28768,
-    "ast_hash": "f862c4b7a331eeb8d5535cba8494b658",
+    "mtime": 1787273319.9597967,
+    "seen": 1787274574.8230934,
+    "ast_hash": "92ed3f92226d27634fe0b1c8467fc75b",
     "semantic_hash": ""
   },
   "apps/account/src/components/QuandoBloco.tsx": {
@@ -114,10 +114,10 @@
     "semantic_hash": "5a57d5d21c0ac260ecd4d4c0353136aa"
   },
   "apps/account/src/screens/BookCredit.tsx": {
-    "mtime": 1787157382.7525442,
-    "seen": 1787165206.9795847,
-    "ast_hash": "237a06d91275900f7164203ce021790d",
-    "semantic_hash": "237a06d91275900f7164203ce021790d"
+    "mtime": 1787268798.8515825,
+    "seen": 1787269968.7052379,
+    "ast_hash": "e18ac31fe48deaea36c7b8c87df87ea6",
+    "semantic_hash": ""
   },
   "apps/account/src/screens/Header.tsx": {
     "mtime": 1786678275.5630162,
@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "apps/account/src/screens/Home.tsx": {
-    "mtime": 1787173282.7788217,
-    "seen": 1787199839.2916648,
-    "ast_hash": "c22eaad789ea90695a45a449dfc3cf33",
+    "mtime": 1787273307.3597076,
+    "seen": 1787274574.8269887,
+    "ast_hash": "fda393e89da5930e9dee23d7861a86cc",
     "semantic_hash": ""
   },
   "apps/account/src/screens/UsarSaldoResidual.tsx": {
@@ -630,10 +630,10 @@
     "semantic_hash": "648d445446f2614c50574b2f214cb1f1"
   },
   "apps/api/src/modules/identity/presentation/conta-cliente.controller.ts": {
-    "mtime": 1787077644.7044773,
-    "seen": 1787165206.979899,
-    "ast_hash": "1a45276abf91149d727dbb9102a31f30",
-    "semantic_hash": "1a45276abf91149d727dbb9102a31f30"
+    "mtime": 1787272333.6370633,
+    "seen": 1787274574.843407,
+    "ast_hash": "2f21f8a02c46e27352170258b1b85767",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/identity/presentation/envia-otp.decorator.ts": {
     "mtime": 1787077644.7044773,
@@ -726,10 +726,10 @@
     "semantic_hash": "18c97c15ff9db1b47b46abef7d68b3b3"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.aggregate.ts": {
-    "mtime": 1787077644.7124772,
-    "seen": 1787165206.9799547,
-    "ast_hash": "786bc0c29bb668c0e9b800afef7499aa",
-    "semantic_hash": "786bc0c29bb668c0e9b800afef7499aa"
+    "mtime": 1787287864.5660567,
+    "seen": 1787289082.4943042,
+    "ast_hash": "e165361114abd1112ecbf608225ba69c",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.events.ts": {
     "mtime": 1784009113.4865327,
@@ -744,10 +744,10 @@
     "semantic_hash": "e5f37239e01d9c9069209911a8f0bb9e"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.spec.ts": {
-    "mtime": 1787077644.7164774,
-    "seen": 1787165206.9799647,
-    "ast_hash": "a7be846ffc3249735c992a59e3de574b",
-    "semantic_hash": "a7be846ffc3249735c992a59e3de574b"
+    "mtime": 1787287975.566807,
+    "seen": 1787289082.4946353,
+    "ast_hash": "60c9ffaac9c2a74e55b433ff5a196b6a",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/expirar-itens.job.ts": {
     "mtime": 1784056785.5661952,
@@ -762,10 +762,10 @@
     "semantic_hash": "b7ffe1b587d2546942458a8ab9d58490"
   },
   "apps/api/src/modules/packages/infrastructure/pacotes-query.service.ts": {
-    "mtime": 1787078043.6435807,
-    "seen": 1787165206.9799752,
-    "ast_hash": "ea0276673298c8eb570a61db3a9b5263",
-    "semantic_hash": "ea0276673298c8eb570a61db3a9b5263"
+    "mtime": 1787268653.6504922,
+    "seen": 1787269968.7248666,
+    "ast_hash": "7d72964152ebd03bfdb7072a2d4ff836",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/prisma-pacote-oferta.repository.ts": {
     "mtime": 1787077644.7164774,
@@ -786,16 +786,16 @@
     "semantic_hash": "29efbc5eb3e519839acab13d56688797"
   },
   "apps/api/src/modules/packages/infrastructure/prisma-venda-de-pacote.repository.ts": {
-    "mtime": 1785507446.6545362,
-    "seen": 1787165206.979989,
-    "ast_hash": "a2c1cc929efabcf630a02889a793dc49",
-    "semantic_hash": "a2c1cc929efabcf630a02889a793dc49"
+    "mtime": 1787287919.4664278,
+    "seen": 1787289082.4956126,
+    "ast_hash": "2ccb67bc903a28dd548bf15974593439",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/packages.module.ts": {
-    "mtime": 1785507739.3865685,
-    "seen": 1787165206.9799924,
-    "ast_hash": "927ef680eef0b19756737d1e7de4eef3",
-    "semantic_hash": "927ef680eef0b19756737d1e7de4eef3"
+    "mtime": 1787272333.6330633,
+    "seen": 1787274574.8492098,
+    "ast_hash": "ce4e328a9c8b34caff90d65f59a8bfa3",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/presentation/pacote-ofertas.controller.ts": {
     "mtime": 1787077644.7204773,
@@ -1188,10 +1188,10 @@
     "semantic_hash": "c7cb0a09f993a48a9b89db5ca4f49452"
   },
   "apps/api/src/modules/scheduling/application/agendar-com-credito.usecase.ts": {
-    "mtime": 1787077644.7244773,
-    "seen": 1787165206.9802196,
-    "ast_hash": "0380901033d0426d2895b969d44001eb",
-    "semantic_hash": "0380901033d0426d2895b969d44001eb"
+    "mtime": 1787268140.362668,
+    "seen": 1787269968.742308,
+    "ast_hash": "255bde0ad619d05bde29bfa379029fb9",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/cancelar-atendimento-cliente.usecase.ts": {
     "mtime": 1785502536.3156471,
@@ -1212,16 +1212,16 @@
     "semantic_hash": "737f8902653989e7dbcdd67dba1a435a"
   },
   "apps/api/src/modules/scheduling/application/concluir-atendimento.usecase.ts": {
-    "mtime": 1787199922.1011348,
-    "seen": 1787200049.3398228,
-    "ast_hash": "67a20cb7b89824c2b0f8579fc8396333",
+    "mtime": 1787287933.7945247,
+    "seen": 1787289082.5088239,
+    "ast_hash": "0f44211d1cdaea70bf7f6405b8ae59bf",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/reagendar-atendimento-cliente.usecase.ts": {
-    "mtime": 1786661365.0665095,
-    "seen": 1787165206.980235,
-    "ast_hash": "04fc03bed1236068384426762fec1362",
-    "semantic_hash": "04fc03bed1236068384426762fec1362"
+    "mtime": 1787268159.8148117,
+    "seen": 1787269968.7432327,
+    "ast_hash": "dd7f3d430bd955dbc32863351a37de53",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/registrar-nao-comparecimento.usecase.ts": {
     "mtime": 1784051804.7687457,
@@ -1248,9 +1248,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/domain/atendimento.spec.ts": {
-    "mtime": 1787199330.8887255,
-    "seen": 1787199839.3336868,
-    "ast_hash": "a607ff4cde36e8da18257db41134b08b",
+    "mtime": 1787268615.3142047,
+    "seen": 1787269968.744169,
+    "ast_hash": "630335d22e7f437e4077e74f361106d1",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/domain/regra-atribuicao-de-barbeiro.spec.ts": {
@@ -1296,9 +1296,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/infrastructure/agendamentos-cliente-query.service.ts": {
-    "mtime": 1787198465.714785,
-    "seen": 1787199839.335067,
-    "ast_hash": "69e85b803be0f0739f8c3c6bc0940c50",
+    "mtime": 1787262549.0211186,
+    "seen": 1787263284.0052068,
+    "ast_hash": "eda23f71e1a92052b36dbfe5340741ba",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/infrastructure/empresa-publica-query.service.ts": {
@@ -1320,9 +1320,9 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/presentation/atendimentos.controller.ts": {
-    "mtime": 1787198400.2024028,
-    "seen": 1787199839.3353164,
-    "ast_hash": "252897d52866892e92f5a71176a0adeb",
+    "mtime": 1787268140.3666682,
+    "seen": 1787269968.7463439,
+    "ast_hash": "0146e4fe6e779c125abd7cdf64cf3def",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/presentation/booking-publico.controller.ts": {
@@ -1536,10 +1536,10 @@
     "semantic_hash": "d56ff50796637672063f0b171b9cb95f"
   },
   "apps/api/src/shared/config/config-seguranca.ts": {
-    "mtime": 1787157382.824545,
-    "seen": 1787165206.9804056,
-    "ast_hash": "73526b19af82bd5d43d517a68cb233e7",
-    "semantic_hash": "73526b19af82bd5d43d517a68cb233e7"
+    "mtime": 1787202128.4003005,
+    "seen": 1787263284.0104487,
+    "ast_hash": "428a412458505f54202fe21e8e79a27c",
+    "semantic_hash": ""
   },
   "apps/api/src/shared/config/pagamento-manual.ts": {
     "mtime": 1787157382.8285449,
@@ -1680,190 +1680,190 @@
     "semantic_hash": "4c8c1b52951b6d0433057774de81ca59"
   },
   "apps/api/test/integration/acl-barbeiro-pacotes.e2e.spec.ts": {
-    "mtime": 1787078314.933698,
-    "seen": 1787165206.980483,
-    "ast_hash": "1e447901b950d6acfa7c2817c28b6087",
-    "semantic_hash": "1e447901b950d6acfa7c2817c28b6087"
+    "mtime": 1787272804.0361896,
+    "seen": 1787274574.8730195,
+    "ast_hash": "99ea44c2891c336b6678a65a3989c4d9",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/avulso-online-sem-otp.e2e.spec.ts": {
-    "mtime": 1787077644.7404776,
-    "seen": 1787165206.9804864,
-    "ast_hash": "ec8ac3f876de10ef7ab6ea058b84879b",
-    "semantic_hash": "ec8ac3f876de10ef7ab6ea058b84879b"
+    "mtime": 1787272804.0361896,
+    "seen": 1787274574.873026,
+    "ast_hash": "eece7b294fb88a4655654393670fd4d0",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/barbeiro-link.e2e.spec.ts": {
-    "mtime": 1787157382.8285449,
-    "seen": 1787165206.9804895,
-    "ast_hash": "070690df38b568f903fc1c2d392c96c0",
-    "semantic_hash": "070690df38b568f903fc1c2d392c96c0"
+    "mtime": 1787272804.0361896,
+    "seen": 1787274574.873031,
+    "ast_hash": "045259ce9b66543e75632356fd5a344f",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/booking-publico.e2e.spec.ts": {
-    "mtime": 1787077644.7404776,
-    "seen": 1787165206.980493,
-    "ast_hash": "4ae84b6c43a939c4be603d3d8691b1c3",
-    "semantic_hash": "4ae84b6c43a939c4be603d3d8691b1c3"
+    "mtime": 1787272804.0361896,
+    "seen": 1787274574.8730447,
+    "ast_hash": "59455f49146973f9d6b964348eeb01c1",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/catalogo-crud.e2e.spec.ts": {
-    "mtime": 1787077644.7404776,
-    "seen": 1787165206.9804962,
-    "ast_hash": "9aa30f35d839af84608071172a85f8e1",
-    "semantic_hash": "9aa30f35d839af84608071172a85f8e1"
+    "mtime": 1787272804.0401895,
+    "seen": 1787274574.873049,
+    "ast_hash": "d83233e7219f21dc50ec87dade73bbc9",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/cliente-da-casa.e2e.spec.ts": {
-    "mtime": 1787077644.7444775,
-    "seen": 1787165206.9804993,
-    "ast_hash": "99292fb4a48be767fa0674989c0542d7",
-    "semantic_hash": "99292fb4a48be767fa0674989c0542d7"
+    "mtime": 1787272804.0401895,
+    "seen": 1787274574.8730538,
+    "ast_hash": "8560c8ed4888ddab765f9ac9223fa65c",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/cockpit-cliente-autonomia.e2e.spec.ts": {
-    "mtime": 1787077644.7444775,
-    "seen": 1787165206.9805024,
-    "ast_hash": "7b95c3c15bec1e3282bab0f51bf1bc31",
-    "semantic_hash": "7b95c3c15bec1e3282bab0f51bf1bc31"
+    "mtime": 1787272804.0401895,
+    "seen": 1787274574.8730583,
+    "ast_hash": "20a811e2bb869fcd746092e83dc58807",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/cognito-triggers.spec.ts": {
-    "mtime": 1787157382.8285449,
-    "seen": 1787165206.9805057,
-    "ast_hash": "2e2d34ffea5c5c6c5e161a3f003f24eb",
-    "semantic_hash": "2e2d34ffea5c5c6c5e161a3f003f24eb"
+    "mtime": 1787205129.8786623,
+    "seen": 1787263284.0138037,
+    "ast_hash": "404d2ffb85367350677ad6e53fe9322c",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/conclusao-avancada.e2e.spec.ts": {
-    "mtime": 1787178713.5647933,
-    "seen": 1787199839.349179,
-    "ast_hash": "a06cc541dda2fee5831ae59273228de6",
+    "mtime": 1787272804.0481896,
+    "seen": 1787274574.8732622,
+    "ast_hash": "9cbb7580d0c6f124c010bd102bf78c63",
     "semantic_hash": ""
   },
   "apps/api/test/integration/conta-cliente.e2e.spec.ts": {
-    "mtime": 1787077644.7444775,
-    "seen": 1787165206.980512,
-    "ast_hash": "7f52209b865835d75c16ce88f4c431b5",
-    "semantic_hash": "7f52209b865835d75c16ce88f4c431b5"
+    "mtime": 1787272804.0481896,
+    "seen": 1787274574.8732665,
+    "ast_hash": "3f43e8f6069d207905e4fa1cc417d775",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/conta-cockpit.e2e.spec.ts": {
-    "mtime": 1787077644.7484775,
-    "seen": 1787165206.9805155,
-    "ast_hash": "01732eada20861100fe74c5fa6038ee1",
-    "semantic_hash": "01732eada20861100fe74c5fa6038ee1"
+    "mtime": 1787272804.0481896,
+    "seen": 1787274574.8732715,
+    "ast_hash": "8440ea0555d20dcf77a88c71b9fc5c7d",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/desconto-progressivo.e2e.spec.ts": {
-    "mtime": 1787077644.7484775,
-    "seen": 1787165206.9805207,
-    "ast_hash": "9b33a793467d2888fb35766f0bb50154",
-    "semantic_hash": "9b33a793467d2888fb35766f0bb50154"
+    "mtime": 1787272804.0481896,
+    "seen": 1787274574.873276,
+    "ast_hash": "f4785358ba98a5a185ce2fcbd48396ae",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/expediente.e2e.spec.ts": {
-    "mtime": 1784603277.3052726,
-    "seen": 1787165206.9805264,
-    "ast_hash": "7aa4ffc46aacc778fb0c1c672773522c",
-    "semantic_hash": "7aa4ffc46aacc778fb0c1c672773522c"
+    "mtime": 1787272804.0521896,
+    "seen": 1787274574.8732805,
+    "ast_hash": "1235a1add23c1b32625d6077798a6492",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/foto-upload.e2e.spec.ts": {
-    "mtime": 1787157382.8285449,
-    "seen": 1787165206.9805326,
-    "ast_hash": "b7df83e84610cfaf06a69f8679af0795",
-    "semantic_hash": "b7df83e84610cfaf06a69f8679af0795"
+    "mtime": 1787272804.0521896,
+    "seen": 1787274574.8732855,
+    "ast_hash": "b28510d47e50f6084ce4843c5532aaf0",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/funil-ajustes.e2e.spec.ts": {
-    "mtime": 1787077644.7484775,
-    "seen": 1787165206.980541,
-    "ast_hash": "5feb08b23078d41d002ec31d4719fe99",
-    "semantic_hash": "5feb08b23078d41d002ec31d4719fe99"
+    "mtime": 1787274373.6830678,
+    "seen": 1787274574.8732905,
+    "ast_hash": "a7849e872af259f14e93b5b796de7f1a",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/fuso-horario.spec.ts": {
-    "mtime": 1784603277.3092728,
-    "seen": 1787165206.9805498,
-    "ast_hash": "f63755887f8ea4909f0cb7ff99fc430d",
-    "semantic_hash": "f63755887f8ea4909f0cb7ff99fc430d"
+    "mtime": 1787272804.0521896,
+    "seen": 1787274574.8732958,
+    "ast_hash": "9971009bdef02cbe89deb327d42fccb9",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/gestao-de-usuarios.e2e.spec.ts": {
-    "mtime": 1786662612.7712471,
-    "seen": 1787165206.9805565,
-    "ast_hash": "9f529f01ad0a0f199c600fd269b95cd0",
-    "semantic_hash": "9f529f01ad0a0f199c600fd269b95cd0"
+    "mtime": 1787272804.0521896,
+    "seen": 1787274574.8733008,
+    "ast_hash": "c361bb7ec0bcc774c1ee3db195194117",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/integration.spec.ts": {
-    "mtime": 1784603277.3092728,
-    "seen": 1787165206.9805622,
-    "ast_hash": "77d345676e8e5944a0dc03cbccd40827",
-    "semantic_hash": "77d345676e8e5944a0dc03cbccd40827"
+    "mtime": 1787272804.0561898,
+    "seen": 1787274574.8733113,
+    "ast_hash": "35d64d69dabe803a5aff5c49a8ee3723",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/order-bump-rico.e2e.spec.ts": {
-    "mtime": 1787178713.5647933,
-    "seen": 1787199839.350431,
-    "ast_hash": "cc5234064d71e49f6d5cbf47020bdde9",
+    "mtime": 1787272804.0561898,
+    "seen": 1787274574.8733163,
+    "ast_hash": "7053854e5108bf26fcd3789c0d614f37",
     "semantic_hash": ""
   },
   "apps/api/test/integration/order-bump.e2e.spec.ts": {
-    "mtime": 1787178713.5647933,
-    "seen": 1787199839.3504357,
-    "ast_hash": "46c3654c462c1983c85efcbbc702e60f",
+    "mtime": 1787272804.0601897,
+    "seen": 1787274574.873321,
+    "ast_hash": "d630417097eb8080a01e9e85fffa26b4",
     "semantic_hash": ""
   },
   "apps/api/test/integration/otp-limite-por-origem.e2e.spec.ts": {
-    "mtime": 1787077644.7484775,
-    "seen": 1787165206.9805803,
-    "ast_hash": "aea7edef535a6e29185625fc94d33693",
-    "semantic_hash": "aea7edef535a6e29185625fc94d33693"
+    "mtime": 1787272804.0601897,
+    "seen": 1787274574.8733256,
+    "ast_hash": "83d423c0b273e632cc30fb4fcf930b9b",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/otp-reserva.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.9805858,
-    "ast_hash": "a6c8d9a123e66f92da91e73875df812e",
-    "semantic_hash": "a6c8d9a123e66f92da91e73875df812e"
+    "mtime": 1787272804.0601897,
+    "seen": 1787274574.87333,
+    "ast_hash": "51e06ae5e9055c14cb357ef2068f1727",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/otp-sem-conta.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.9805915,
-    "ast_hash": "c774798785c919986f83287b864e0b8e",
-    "semantic_hash": "c774798785c919986f83287b864e0b8e"
+    "mtime": 1787272804.0601897,
+    "seen": 1787274574.8733351,
+    "ast_hash": "2e28f3740468bf6aea7cf066dce7c0ad",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/pacote-empresa.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.9805982,
-    "ast_hash": "210668f205348fcdce0e7c4808cee414",
-    "semantic_hash": "210668f205348fcdce0e7c4808cee414"
+    "mtime": 1787272804.0601897,
+    "seen": 1787274574.8733394,
+    "ast_hash": "ee4b08635b182edf6a6a168082d76ac8",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/pacote-oferta.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.9806051,
-    "ast_hash": "74f0060f93cb405e6d6908805374bba7",
-    "semantic_hash": "74f0060f93cb405e6d6908805374bba7"
+    "mtime": 1787272804.0641897,
+    "seen": 1787274574.8733454,
+    "ast_hash": "ab61fbb5f2c3f418284f324ce0552aa9",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/pacote-publico.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.980612,
-    "ast_hash": "56d7a4ec6f776da2bb79f75519469739",
-    "semantic_hash": "56d7a4ec6f776da2bb79f75519469739"
+    "mtime": 1787272804.0681899,
+    "seen": 1787274574.8733504,
+    "ast_hash": "61653323014e5f4489fbfd26744534eb",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/pagamento-manual-whatsapp.e2e.spec.ts": {
-    "mtime": 1787157382.8325448,
-    "seen": 1787165206.9806178,
-    "ast_hash": "dfc5172e0a1fe62ae3082d37ce8bea7d",
-    "semantic_hash": "dfc5172e0a1fe62ae3082d37ce8bea7d"
+    "mtime": 1787272804.0681899,
+    "seen": 1787274574.873355,
+    "ast_hash": "fddc188a4b04d689ca20a457c84dcf62",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/preco-por-barbeiro.e2e.spec.ts": {
-    "mtime": 1787077644.7524776,
-    "seen": 1787165206.980624,
-    "ast_hash": "4874093e3cae54ccaf5390bd89c6b0f1",
-    "semantic_hash": "4874093e3cae54ccaf5390bd89c6b0f1"
+    "mtime": 1787272804.0681899,
+    "seen": 1787274574.87336,
+    "ast_hash": "de413586a91b316e432a793026cd7be6",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/produtos.e2e.spec.ts": {
-    "mtime": 1787176954.0341597,
-    "seen": 1787199839.3512473,
-    "ast_hash": "e49812d986dc8e570d5d634cc71ffc52",
+    "mtime": 1787272804.0721898,
+    "seen": 1787274574.8733652,
+    "ast_hash": "485ec0e303153ab2349f92a79da1a131",
     "semantic_hash": ""
   },
   "apps/api/test/integration/sem-preferencia.e2e.spec.ts": {
-    "mtime": 1787077644.7564776,
-    "seen": 1787165206.9806356,
-    "ast_hash": "c13029ebcc58f292b45324a5ddc811ed",
-    "semantic_hash": "c13029ebcc58f292b45324a5ddc811ed"
+    "mtime": 1787272804.0721898,
+    "seen": 1787274574.8733704,
+    "ast_hash": "58f5ef1013a840048a72a1589b1b8a98",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/sessao-de-cliente-orfa.e2e.spec.ts": {
-    "mtime": 1787077644.7564776,
-    "seen": 1787165206.9806406,
-    "ast_hash": "2e6d56d781336a1d9a88611ad976ac89",
-    "semantic_hash": "2e6d56d781336a1d9a88611ad976ac89"
+    "mtime": 1787272804.0721898,
+    "seen": 1787274574.8733757,
+    "ast_hash": "89a236cf44be2b8452a4cebee9594a84",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/sms-gate.spec.ts": {
     "mtime": 1787157382.8325448,
@@ -1872,16 +1872,16 @@
     "semantic_hash": "7079acfd6754f6c0b047525e6c7817a1"
   },
   "apps/api/test/integration/vale-e-pagamento.e2e.spec.ts": {
-    "mtime": 1786594151.0928698,
-    "seen": 1787165206.9806523,
-    "ast_hash": "c6141e23a646a8db8bde5dc50338839c",
-    "semantic_hash": "c6141e23a646a8db8bde5dc50338839c"
+    "mtime": 1787272804.0761898,
+    "seen": 1787274574.8735585,
+    "ast_hash": "f7a07324602fccf1b9851d831bf08b0b",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/webhook-abacatepay.e2e.spec.ts": {
-    "mtime": 1786645378.0460012,
-    "seen": 1787165206.9806588,
-    "ast_hash": "97e53754d559a06ce46ccc51b7ec6b21",
-    "semantic_hash": "97e53754d559a06ce46ccc51b7ec6b21"
+    "mtime": 1787272804.0761898,
+    "seen": 1787274574.8735645,
+    "ast_hash": "7aa5fc63e7b92982306badb5eaaa6e22",
+    "semantic_hash": ""
   },
   "apps/api/test/integration/whatsapp-identity-provider.e2e.spec.ts": {
     "mtime": 1787077644.7564776,
@@ -1890,10 +1890,10 @@
     "semantic_hash": "919abd7ea6e796756fa3027a8c02167a"
   },
   "apps/api/test/integration/whatsapp-otp-boot.e2e.spec.ts": {
-    "mtime": 1787077644.7564776,
-    "seen": 1787165206.980671,
-    "ast_hash": "8a2d383cab070ef0121cb7520a55be5d",
-    "semantic_hash": "8a2d383cab070ef0121cb7520a55be5d"
+    "mtime": 1787272804.08019,
+    "seen": 1787274574.8736768,
+    "ast_hash": "6e77c9479fc337932f53042f87506706",
+    "semantic_hash": ""
   },
   "apps/api/tsconfig.build.json": {
     "mtime": 1784008680.2066495,
@@ -1926,16 +1926,16 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1787173423.843629,
-    "seen": 1787199839.3522637,
-    "ast_hash": "da8c983f06739e7a9e384a9526b1cfc2",
+    "mtime": 1787266065.5826051,
+    "seen": 1787267546.564787,
+    "ast_hash": "d3677f641e122f9c3dd006dab9696784",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
-    "mtime": 1787077644.7604775,
-    "seen": 1787165206.9807127,
-    "ast_hash": "4617b814b4867e2e9ffb2666542ab746",
-    "semantic_hash": "4617b814b4867e2e9ffb2666542ab746"
+    "mtime": 1787266065.578605,
+    "seen": 1787267546.5647945,
+    "ast_hash": "c80a77c4e22312b0b618dfddd5ce4bde",
+    "semantic_hash": ""
   },
   "apps/booking/src/components/IconesDeMarca.tsx": {
     "mtime": 1787077644.7604775,
@@ -1944,10 +1944,10 @@
     "semantic_hash": "6d8108d52137a3f3c9be3e22499a7f21"
   },
   "apps/booking/src/components/Onboarding.tsx": {
-    "mtime": 1787077644.7604775,
-    "seen": 1787165206.9807227,
-    "ast_hash": "4abc3f6d9702e32edc6268d138177ebc",
-    "semantic_hash": "4abc3f6d9702e32edc6268d138177ebc"
+    "mtime": 1787265888.157034,
+    "seen": 1787267546.5650632,
+    "ast_hash": "de9e359bceaef065cf8cf8312aebc277",
+    "semantic_hash": ""
   },
   "apps/booking/src/components/OrderBump.tsx": {
     "mtime": 1787157382.836545,
@@ -1956,10 +1956,10 @@
     "semantic_hash": "83f7a9c7d92ed61980723c56c27d4a6c"
   },
   "apps/booking/src/components/OtpVerificacao.tsx": {
-    "mtime": 1787077644.7604775,
-    "seen": 1787165206.9807343,
-    "ast_hash": "fe82e8b3b8c0f47b29fac3aba0ca4e1a",
-    "semantic_hash": "fe82e8b3b8c0f47b29fac3aba0ca4e1a"
+    "mtime": 1787265917.181296,
+    "seen": 1787267546.565279,
+    "ast_hash": "939087531caf94eae5cdfd96ba9fa1da",
+    "semantic_hash": ""
   },
   "apps/booking/src/components/PagamentoManualAguardando.tsx": {
     "mtime": 1787157382.836545,
@@ -2094,10 +2094,10 @@
     "semantic_hash": "b377755b05440af12d94e1751e2248c6"
   },
   "apps/booking/src/steps/Dados.tsx": {
-    "mtime": 1787077644.7804778,
-    "seen": 1787165206.9808881,
-    "ast_hash": "e61eacf2df326e365310d6cc927afa3a",
-    "semantic_hash": "e61eacf2df326e365310d6cc927afa3a"
+    "mtime": 1787262155.317705,
+    "seen": 1787263284.020353,
+    "ast_hash": "a5a901fc34d74245e6e00ca707d2470b",
+    "semantic_hash": ""
   },
   "apps/booking/src/steps/DataHora.tsx": {
     "mtime": 1787077644.784478,
@@ -2106,9 +2106,9 @@
     "semantic_hash": "2945f516e85f929ee5c0c7d803b593be"
   },
   "apps/booking/src/steps/Landing.tsx": {
-    "mtime": 1787173423.9836297,
-    "seen": 1787199839.3550758,
-    "ast_hash": "fb866887e6012801d2fdcd71dcbf5fa8",
+    "mtime": 1787266065.5826051,
+    "seen": 1787267546.5708032,
+    "ast_hash": "a6028de1075478be94d6d97cac365a56",
     "semantic_hash": ""
   },
   "apps/booking/src/steps/Servicos.tsx": {
@@ -2118,10 +2118,10 @@
     "semantic_hash": "fac66c00dfbb2badcea26e60be3e1255"
   },
   "apps/booking/src/steps/Sucesso.tsx": {
-    "mtime": 1787077644.784478,
-    "seen": 1787165206.9809103,
-    "ast_hash": "87ea045efbdfe88b7452acd3ef53e53a",
-    "semantic_hash": "87ea045efbdfe88b7452acd3ef53e53a"
+    "mtime": 1787265888.157034,
+    "seen": 1787267546.5711267,
+    "ast_hash": "a9bf6532a0e573c2e4a8a096415ec7b3",
+    "semantic_hash": ""
   },
   "apps/booking/tailwind.config.js": {
     "mtime": 1784070864.0933592,
@@ -2160,10 +2160,10 @@
     "semantic_hash": "025ba16a5c245744a69d269aa54353e2"
   },
   "infra/cognito-triggers/create-auth-challenge.js": {
-    "mtime": 1787157382.8445451,
-    "seen": 1787165206.98095,
-    "ast_hash": "f3838778466f5cbd0c3419d0989bb0dc",
-    "semantic_hash": "f3838778466f5cbd0c3419d0989bb0dc"
+    "mtime": 1787205105.1265025,
+    "seen": 1787263284.0212579,
+    "ast_hash": "f426aeff71239b09411d4d7307579047",
+    "semantic_hash": ""
   },
   "infra/cognito-triggers/define-auth-challenge.js": {
     "mtime": 1784087961.1238909,
@@ -2226,15 +2226,15 @@
     "semantic_hash": "5baac680da5b6ccf8c2fcae1b1dbafd9"
   },
   "packages/contracts/src/dto.ts": {
-    "mtime": 1787199330.8887255,
-    "seen": 1787199839.3566325,
-    "ast_hash": "6b85ea1237cf62c9c654cf2102a51ec0",
+    "mtime": 1787272074.1114829,
+    "seen": 1787274574.8793476,
+    "ast_hash": "213c38c9c193222eafa93343b305465a",
     "semantic_hash": ""
   },
   "packages/contracts/src/enums.ts": {
-    "mtime": 1787197920.5673907,
-    "seen": 1787199839.3566358,
-    "ast_hash": "a236a92d68be2cd0117c8beb859043ec",
+    "mtime": 1787272074.107483,
+    "seen": 1787274574.8793514,
+    "ast_hash": "aaa88d2cae665c3957edf984c69dc192",
     "semantic_hash": ""
   },
   "packages/contracts/src/index.ts": {
@@ -2274,16 +2274,16 @@
     "semantic_hash": "971dcdc11359fbae9f6418e50f1c569a"
   },
   "scripts/deploy-frontends.sh": {
-    "mtime": 1786420735.8125117,
-    "seen": 1787165206.9810584,
-    "ast_hash": "29c8d6ec9559946964fd9571ad943f53",
-    "semantic_hash": "29c8d6ec9559946964fd9571ad943f53"
+    "mtime": 1787254254.271884,
+    "seen": 1787263284.0227745,
+    "ast_hash": "121d8e21c7107bc4a0bcba6599897691",
+    "semantic_hash": ""
   },
   "scripts/deploy.sh": {
-    "mtime": 1786656775.658645,
-    "seen": 1787165206.981064,
-    "ast_hash": "1fa26f45ba16ce35c2be1c2ef56bc295",
-    "semantic_hash": "1fa26f45ba16ce35c2be1c2ef56bc295"
+    "mtime": 1787202110.5961816,
+    "seen": 1787263284.022779,
+    "ast_hash": "b04ea4e0c4ba92b7087058be42bf4a18",
+    "semantic_hash": ""
   },
   "scripts/env-down.sh": {
     "mtime": 1787077644.8524783,
@@ -2358,27 +2358,27 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/resolver-conclusao-antecipada.usecase.ts": {
-    "mtime": 1787198358.770174,
-    "seen": 1787199839.3334224,
-    "ast_hash": "14a6e358c3be4070ec7a5a8500e5dd78",
+    "mtime": 1787287933.7945247,
+    "seen": 1787289082.5091321,
+    "ast_hash": "64c6dcceafcfcce545a8f8da7c80ceef",
     "semantic_hash": ""
   },
   "apps/api/test/integration/comissao-produto-global.e2e.spec.ts": {
-    "mtime": 1787176954.05416,
-    "seen": 1787199839.3491704,
-    "ast_hash": "cbf414c209480ff00500750db640c36b",
+    "mtime": 1787272804.0441897,
+    "seen": 1787274574.873251,
+    "ast_hash": "7a91d957091ebd994c845e12b6e15402",
     "semantic_hash": ""
   },
   "apps/api/test/integration/conclusao-antecipada.e2e.spec.ts": {
-    "mtime": 1787199947.6973228,
-    "seen": 1787200049.349187,
-    "ast_hash": "ba64907c0d2720407865d4a00bb17d0d",
+    "mtime": 1787272804.0441897,
+    "seen": 1787274574.873257,
+    "ast_hash": "79408ceaf1696b3d4fcdc874754d8891",
     "semantic_hash": ""
   },
   "apps/api/test/integration/home.e2e.spec.ts": {
-    "mtime": 1787180897.8505323,
-    "seen": 1787199839.3503282,
-    "ast_hash": "6c5df7ce291eefbda064034766465c98",
+    "mtime": 1787274221.5340087,
+    "seen": 1787274574.873306,
+    "ast_hash": "05ce60640a5884028816af968c6cd854",
     "semantic_hash": ""
   },
   "apps/api/test/setup-env.ts": {
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "DECISOES_PENDENTES.md": {
-    "mtime": 1787199292.18443,
-    "seen": 1787199839.3579295,
-    "ast_hash": "c9a5106630f70430db432ce14a7861c6",
+    "mtime": 1787288282.7169173,
+    "seen": 1787289082.5471218,
+    "ast_hash": "a96660734bec74bef463c4f7acfa8e64",
     "semantic_hash": ""
   },
   "DEPLOY.md": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787200010.8377857,
-    "seen": 1787200049.3600743,
-    "ast_hash": "33e8600c2a8aeedd0344900005f3b163",
+    "mtime": 1787288500.0664036,
+    "seen": 1787289082.5474772,
+    "ast_hash": "ca8583ea8f62e9a1eeddbc639633b2ab",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -2538,9 +2538,9 @@
     "semantic_hash": ""
   },
   "docs/DOMAIN.md": {
-    "mtime": 1787199392.4811933,
-    "seen": 1787199839.3579657,
-    "ast_hash": "f195596cc0b76a9431287131e13ef851",
+    "mtime": 1787288282.7169173,
+    "seen": 1787289082.5498273,
+    "ast_hash": "482b9476d1e4a859316f40e07f54c0bf",
     "semantic_hash": ""
   },
   "docs/QA_GO_LIVE.md": {
@@ -2574,9 +2574,9 @@
     "semantic_hash": ""
   },
   "infra/cognito-triggers/README.md": {
-    "mtime": 1787157382.8445451,
-    "seen": 1787199839.35798,
-    "ast_hash": "c90a2fb19d0054d92174089693b879a3",
+    "mtime": 1787205179.1789808,
+    "seen": 1787263284.0260413,
+    "ast_hash": "a700ebf62ef2d3285af352533b3f2ec6",
     "semantic_hash": ""
   },
   "prompts/prompt-sessao-B.md": {
@@ -2829,6 +2829,300 @@
     "mtime": 1742078647.397814,
     "seen": 1787199839.3580756,
     "ast_hash": "d3fb57c73304b475df9c7343b05b4c0d",
+    "semantic_hash": ""
+  },
+  "apps/booking/src/components/LogoBigodsClub.tsx": {
+    "mtime": 1787266065.462604,
+    "seen": 1787267546.5650513,
+    "ast_hash": "b44c5ef8f0099da46a8672c841459bd5",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/LEIA-ME.txt": {
+    "mtime": 1787265378.7881782,
+    "seen": 1787267546.5822446,
+    "ast_hash": "8bc7d33c9549ef8a8060d2efbb393b27",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-marca-ink.svg": {
+    "mtime": 1787266065.458604,
+    "seen": 1787267546.584267,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-marca-ouro.svg": {
+    "mtime": 1787266065.454604,
+    "seen": 1787267546.5842748,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "apps/booking/public/brand/bigods-club-marca-ink.svg": {
+    "mtime": 1787266065.4466038,
+    "seen": 1787267546.5883203,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "apps/booking/public/brand/bigods-club-marca-ouro.svg": {
+    "mtime": 1787266065.4426038,
+    "seen": 1787267546.5883343,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-grande-1024x1024.png": {
+    "mtime": 1787265378.7921782,
+    "seen": 1787267546.5915318,
+    "ast_hash": "91bacdce1d66a6bc57c095534c2738a3",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-medio-512x512.png": {
+    "mtime": 1787265378.7921782,
+    "seen": 1787267546.5915384,
+    "ast_hash": "718746c76a3f9a0d1f262a3608d21aeb",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-micro-64x64.png": {
+    "mtime": 1787265378.796178,
+    "seen": 1787267546.5915432,
+    "ast_hash": "d7e83bab8b19a8d100c539ccb1709402",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-mini-128x128.png": {
+    "mtime": 1787265378.796178,
+    "seen": 1787267546.5915477,
+    "ast_hash": "abce5536f208716c43fbcc016a120080",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-nano-32x32.png": {
+    "mtime": 1787265378.8001783,
+    "seen": 1787267546.5915518,
+    "ast_hash": "2dca3c3d09ccfa35494d242fba55d29e",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/app-icon/app-icon-pequeno-256x256.png": {
+    "mtime": 1787265378.8001783,
+    "seen": 1787267546.5915573,
+    "ast_hash": "9d0a011b271ebfd257527b0dd0e702d9",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-grande-2000x1054.png": {
+    "mtime": 1787265378.8041782,
+    "seen": 1787267546.5915616,
+    "ast_hash": "96765858a37ca15d96826e24d02a1b64",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-medio-1000x527.png": {
+    "mtime": 1787265378.8081782,
+    "seen": 1787267546.5915658,
+    "ast_hash": "41e5add9b25ebf31a9aac4e92b293fe9",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-horizontal/lockup-horizontal-pequeno-500x263.png": {
+    "mtime": 1787265378.8081782,
+    "seen": 1787267546.5915694,
+    "ast_hash": "7de224672b15ec5f2dfe51142290c9e6",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-grande-1200x1432.png": {
+    "mtime": 1787265378.8121784,
+    "seen": 1787267546.5915728,
+    "ast_hash": "a19115143597cad17c31c3921401d2a0",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-medio-600x716.png": {
+    "mtime": 1787265378.8121784,
+    "seen": 1787267546.5915768,
+    "ast_hash": "6f7d32b4b88b2fa78ed2ce22677539f0",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/lockup-vertical/lockup-vertical-pequeno-300x358.png": {
+    "mtime": 1787265378.8681788,
+    "seen": 1787267546.591581,
+    "ast_hash": "593bfc1d567f3f6baa9ab87464b2b2e1",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-grande-1024x471.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.591585,
+    "ast_hash": "b2a7dc789870dc56f8692a087bb83d50",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-medio-512x235.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.5915895,
+    "ast_hash": "b30dd5d55b0613fc128fd4d1136dd098",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ink/marca-ink-pequeno-256x118.png": {
+    "mtime": 1787265378.8721788,
+    "seen": 1787267546.5915935,
+    "ast_hash": "368070d1d48947ca690c85b8e91967c4",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-grande-1024x471.png": {
+    "mtime": 1787265378.8761787,
+    "seen": 1787267546.5915978,
+    "ast_hash": "605e4aa170af88f8886adeac95483b30",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-medio-512x235.png": {
+    "mtime": 1787265378.880179,
+    "seen": 1787267546.5916014,
+    "ast_hash": "fa695c02d4364e3f29f673ff136b9c12",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/marca-ouro/marca-ouro-pequeno-256x118.png": {
+    "mtime": 1787265378.8841789,
+    "seen": 1787267546.5916057,
+    "ast_hash": "520911ed6b97576f64a004be89342cfd",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-grande-1024x1024.png": {
+    "mtime": 1787265378.8881788,
+    "seen": 1787267546.5916097,
+    "ast_hash": "61724565c03c6705428b60e052cc4a50",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-medio-512x512.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916135,
+    "ast_hash": "14519e9a26e09abb0fbbe73443bd30cf",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-micro-64x64.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916178,
+    "ast_hash": "f37f6dea3573e053da3e282258960e38",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-mini-128x128.png": {
+    "mtime": 1787265378.892179,
+    "seen": 1787267546.5916219,
+    "ast_hash": "45690320e1d08cef933967b4a65b8b86",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-nano-32x32.png": {
+    "mtime": 1787265378.896179,
+    "seen": 1787267546.5916262,
+    "ast_hash": "5d390758d95c9ec178cfae39d64d2547",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/medalha/medalha-pequeno-256x256.png": {
+    "mtime": 1787265378.896179,
+    "seen": 1787267546.59163,
+    "ast_hash": "d0c192e6908f52f3a790903570bbba30",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-grande-1600x240.png": {
+    "mtime": 1787265378.900179,
+    "seen": 1787267546.5916336,
+    "ast_hash": "d4487ff6b7857d20a2ac5edb388cec48",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-medio-800x120.png": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.591638,
+    "ast_hash": "a183520f7072515a78be6cbe0e7bfde6",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/PNG/wordmark/wordmark-pequeno-400x60.png": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.5916426,
+    "ast_hash": "8c2f2761dd1143cbd842ef3fac13f7fb",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/app-icon.svg": {
+    "mtime": 1787265378.904179,
+    "seen": 1787267546.5916476,
+    "ast_hash": "51ed66f7665700e2d8bfcb381c7f7893",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/lockup-horizontal.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.5916526,
+    "ast_hash": "62dd9d95bdab22f0b9d72c0f23ee2ea7",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/lockup-vertical.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.5916567,
+    "ast_hash": "04297feac01507a2e985f6ac57be10d4",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/marca-coroa-bigode-ink.svg": {
+    "mtime": 1787265378.908179,
+    "seen": 1787267546.59166,
+    "ast_hash": "a4b62265b382145d29df5280934fc815",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/marca-coroa-bigode-ouro.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916636,
+    "ast_hash": "7744dae24ddb969dc7946ebb10b4dd62",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/medalha.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916677,
+    "ast_hash": "e2842662e003bcc7b14489a37473a700",
+    "semantic_hash": ""
+  },
+  "assets/brand/bigods-club/SVG/wordmark.svg": {
+    "mtime": 1787265378.912179,
+    "seen": 1787267546.5916715,
+    "ast_hash": "d30a2a22c1fd62374450e299c0c20c7c",
+    "semantic_hash": ""
+  },
+  "apps/api/test/integration/visita-multiplos-creditos.e2e.spec.ts": {
+    "mtime": 1787272804.0761898,
+    "seen": 1787274574.8735616,
+    "ast_hash": "ceb14b5949d543dd430492cf4afe73c1",
+    "semantic_hash": ""
+  },
+  "apps/account/src/components/Clube.tsx": {
+    "mtime": 1787274499.7239504,
+    "seen": 1787274574.8231025,
+    "ast_hash": "033936b243403292c3948c026cd4c9fc",
+    "semantic_hash": ""
+  },
+  "apps/account/src/components/clube.spec.ts": {
+    "mtime": 1787273628.3459904,
+    "seen": 1787274574.8233268,
+    "ast_hash": "17db5079aa8b7f8196a65f481743f6f9",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/packages/application/clube.handlers.ts": {
+    "mtime": 1787272318.3249662,
+    "seen": 1787274574.8440602,
+    "ast_hash": "125fefb9d6d112642c8b8d6fd6e8ffca",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/packages/application/sincronizar-status-do-clube.usecase.ts": {
+    "mtime": 1787272318.3209662,
+    "seen": 1787274574.8447385,
+    "ast_hash": "768e83f5f996012663d90f153c9b64d0",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/packages/domain/status-do-clube.spec.ts": {
+    "mtime": 1787288065.1314237,
+    "seen": 1787289082.4941294,
+    "ast_hash": "cdd0edd6456517ab68a5871fb7dbf6c4",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/packages/domain/status-do-clube.ts": {
+    "mtime": 1787272146.8479104,
+    "seen": 1787274574.84676,
+    "ast_hash": "8ef5c6ab278a28c45301eef6b1e4ddf2",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/packages/infrastructure/clube-query.service.ts": {
+    "mtime": 1787287919.4704278,
+    "seen": 1787289082.4946408,
+    "ast_hash": "2ed3ae4f57cb2d026a8b017241abb11f",
+    "semantic_hash": ""
+  },
+  "apps/api/test/integration/bigods-club-status.e2e.spec.ts": {
+    "mtime": 1787288065.1314237,
+    "seen": 1787289082.5206144,
+    "ast_hash": "f45e750334d427e1945becf00a0a2102",
     "semantic_hash": ""
   }
 }

@@ -65,6 +65,26 @@ describe('CreateAuthChallenge — gera o código e manda o SMS', () => {
     expect(ev.response.publicChallengeParameters).toEqual({ telefone: '••••7777' });
   });
 
+  it('★ loga o rastro do envio (id, estado, destino mascarado) e NUNCA o código', async () => {
+    mockarEnvioOk();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const ev = await create.handler(eventoCreate());
+    const codigo = (ev.response.privateChallengeParameters as { codigo: string }).codigo;
+
+    const linha = log.mock.calls.map((c) => String(c[0])).join('\n');
+    // O que o rastro precisa dar: qual mensagem procurar no painel do SMS Gate,
+    // em que estado ela saiu, e pra que número foi (mascarado).
+    expect(linha).toContain('sms_enviado');
+    expect(linha).toContain('msg-1');
+    expect(linha).toContain('Pending');
+    expect(linha).toContain('••••7777');
+    // ★ CloudWatch é lido por muita gente: OTP em texto claro ali vale tanto
+    // quanto senha. Nem o código, nem o telefone inteiro.
+    expect(linha).not.toContain(codigo);
+    expect(linha).not.toContain(TELEFONE);
+  });
+
   it('★ errar o código NÃO dispara outro SMS — reaproveita o mesmo código da tentativa anterior', async () => {
     const fetchMock = mockarEnvioOk();
     const primeiro = await create.handler(eventoCreate());

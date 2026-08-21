@@ -28,7 +28,8 @@ import {
 export interface AgendarComCreditoInput {
   companyId: string;
   vendaId: string;
-  itemId: string;
+  /** Créditos consumidos nesta visita — todos do MESMO pacote (`vendaId`). */
+  itemIds: string[];
   barbeiroId: string;
   inicio: Date;
 }
@@ -36,6 +37,24 @@ export interface AgendarComCreditoInput {
 /**
  * §8.2: agendar consumindo crédito de pacote — os dois agregados
  * (VendaDePacote e Atendimento) na MESMA transação (§2.2).
+ *
+ * ## Vários créditos numa visita (2026-08-21)
+ *
+ * Um pacote "2 cortes + 2 barbas" tem quatro créditos individuais. Fazer
+ * corte+barba numa ida à barbearia exigia DOIS agendamentos, o que não
+ * corresponde à cabeça do cliente: pra ele foi UMA visita. Agora `itemIds`
+ * aceita vários créditos e sai UM atendimento, mesmo barbeiro, mesmo horário.
+ *
+ * A duração é a SOMA — quem calcula é `Atendimento.agendar()`, que já somava as
+ * durações dos itens e valida disponibilidade e conflito contra o intervalo
+ * TOTAL. Nada de duração foi reimplementado aqui; o que mudou é só quantos itens
+ * o use case monta.
+ *
+ * ★ O que NÃO muda: cada crédito segue individual por baixo. Um `ItemAtendido`
+ * por crédito, com o `valorRateado` congelado daquele item, e um
+ * `LancamentoComissao` por item na conclusão. Nunca existe "item combo" — foi
+ * exatamente pra não reviver os combos removidos na Onda 1 que a solução ficou
+ * no agendamento, e não no catálogo.
  */
 @Injectable()
 export class AgendarComCreditoUseCase {
@@ -51,13 +70,39 @@ export class AgendarComCreditoUseCase {
   ) {}
 
   async executar(input: AgendarComCreditoInput): Promise<{ atendimentoId: string }> {
+    if (input.itemIds.length === 0) {
+      throw new BadRequestException('Informe ao menos um crédito para usar nesta visita');
+    }
+    if (new Set(input.itemIds).size !== input.itemIds.length) {
+      throw new BadRequestException('O mesmo crédito não pode ser usado duas vezes na visita');
+    }
+
     const vendaLeitura = await this.vendas.porId(input.vendaId);
     if (!vendaLeitura || vendaLeitura.companyId !== input.companyId) {
       throw new NotFoundException('Pacote não encontrado');
     }
-    const item = vendaLeitura.obterItem(input.itemId);
-    const servico = await this.servicos.porId(item.servicoId);
-    if (!servico) {
+
+    // Todos os créditos vêm do MESMO pacote: é o `vendaId` único desta chamada,
+    // e `obterItem` recusa id que não seja dele. Misturar pacotes numa visita
+    // ficou de fora por decisão do dono.
+    const itens = input.itemIds.map((id) => vendaLeitura.obterItem(id));
+
+    // Dois créditos do MESMO serviço na mesma visita não passam (2026-08-21).
+    // Não é capricho: ninguém corta o cabelo duas vezes numa sentada, e a
+    // projeção pública de horários calcula a duração sobre os serviços DISTINTOS
+    // (`horarios-disponiveis-query.service.ts`) — aceitar aqui produziria um
+    // bloco de 60min oferecido em vão de 30min, silenciosamente.
+    // DECISAO_PENDENTE: se algum dia dois créditos do mesmo serviço fizerem
+    // sentido, a projeção precisa somar por ITEM antes disso ser liberado.
+    const servicoIds = itens.map((i) => i.servicoId);
+    if (new Set(servicoIds).size !== servicoIds.length) {
+      throw new BadRequestException(
+        'Não é possível usar dois créditos do mesmo serviço na mesma visita — agende um por vez',
+      );
+    }
+
+    const servicos = await Promise.all(itens.map((i) => this.servicos.porId(i.servicoId)));
+    if (servicos.some((s) => !s)) {
       throw new BadRequestException('Serviço do item não existe mais');
     }
     const barbeiro = await this.barbeiros.porId(input.barbeiroId);
@@ -86,27 +131,31 @@ export class AgendarComCreditoUseCase {
       const venda = await repos.vendasDePacote.porId(input.vendaId);
       if (!venda) throw new NotFoundException('Pacote não encontrado');
 
-      // (a) item vira AGENDADO — valida status do item, pagamento do pacote e,
-      // quando o cliente comprou COM um barbeiro escolhido, que é ele mesmo
-      // quem vai atender (2026-08-18). "Barbeiro atende o serviço" é validado
-      // logo abaixo, pelo `Atendimento.agendar()` — a mesma invariante de
-      // qualquer atendimento, sem duplicar aqui.
-      venda.agendarItem(input.itemId, atendimentoId, input.barbeiroId);
+      // (a) cada crédito vira AGENDADO, todos apontando para o MESMO
+      // atendimento — valida status do item, pagamento do pacote e, quando o
+      // cliente comprou COM um barbeiro escolhido, que é ele mesmo quem vai
+      // atender (2026-08-18). "Barbeiro atende o serviço" é validado logo
+      // abaixo, pelo `Atendimento.agendar()` — a mesma invariante de qualquer
+      // atendimento, sem duplicar aqui. Se QUALQUER crédito recusar, a
+      // transação inteira volta: nunca sobra visita com metade dos créditos.
+      for (const itemId of input.itemIds) {
+        venda.agendarItem(itemId, atendimentoId, input.barbeiroId);
+      }
 
-      // (b) Atendimento com valorCobrado = valor RATEADO (nunca o preço avulso)
+      // (b) UM ItemAtendido por crédito, cada um com o valorCobrado = valor
+      // RATEADO daquele item (nunca o preço avulso, nunca um total combinado).
+      // É isso que mantém rateio e comissão individuais.
       const atendimento = Atendimento.agendar({
         id: atendimentoId,
         companyId: input.companyId,
         clienteId: venda.clienteId,
         barbeiro,
-        itens: [
-          {
-            servicoId: servico.id,
-            valorCobrado: venda.obterItem(input.itemId).valorRateado,
-            duracao: servico.duracao,
-            itemDoPacoteId: input.itemId,
-          },
-        ],
+        itens: input.itemIds.map((itemId, i) => ({
+          servicoId: servicos[i]!.id,
+          valorCobrado: venda.obterItem(itemId).valorRateado,
+          duracao: servicos[i]!.duracao,
+          itemDoPacoteId: itemId,
+        })),
         inicio: input.inicio,
         origem: OrigemAtendimento.CREDITO_PACOTE,
         disponibilidades,
@@ -121,4 +170,21 @@ export class AgendarComCreditoUseCase {
     await this.publisher.publicar(eventos);
     return { atendimentoId };
   }
+}
+
+/**
+ * Lê os créditos da requisição aceitando o campo NOVO (`itemIds`) e o ANTIGO
+ * (`itemId`), nesta ordem de precedência.
+ *
+ * Existe por causa da ordem de deploy: a API sobe antes dos frontends, então
+ * durante a janela o app publicado ainda manda `itemId`. Sem isto, agendar com
+ * crédito quebraria em produção entre um deploy e o outro — e o cliente veria
+ * erro num fluxo que estava funcionando.
+ *
+ * Compartilhado pelas três bordas que agendam crédito para não existirem três
+ * traduções ligeiramente diferentes da mesma coisa.
+ */
+export function creditosDaRequisicao(body: { itemIds?: string[]; itemId?: string }): string[] {
+  if (body.itemIds && body.itemIds.length > 0) return body.itemIds;
+  return body.itemId ? [body.itemId] : [];
 }

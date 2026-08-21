@@ -22,11 +22,39 @@ set -a; source "$ENV_FILE"; set +a
 
 info() { echo "==> $1"; }
 
+# Variáveis que ENTRAM NO BUNDLE de cada app (`import.meta.env.VITE_*`), e que
+# por isso só existem em build-time. Se uma faltar, o código cai num fallback de
+# desenvolvimento — hoje `http://localhost:5175` no link "entrar na minha conta"
+# do booking — e o deploy passa liso: publica, a página abre, e o defeito só
+# aparece quando alguém clica. Aconteceu em produção em 2026-08-20.
+#
+# Falhar aqui, ANTES de buildar, é a diferença entre um erro de uma linha e uma
+# caça ao bug em produção. Manter em sincronia com o que cada app importa
+# (`grep -rho "VITE_[A-Z_]*" apps/<app>/src | sort -u`).
+vars_do_bundle() {
+  case "$1" in
+    admin)   echo "VITE_API_URL VITE_BOOKING_URL" ;;
+    booking) echo "VITE_API_URL VITE_ACCOUNT_URL VITE_COMPANY_ID" ;;
+    account) echo "VITE_API_URL VITE_BOOKING_URL VITE_COMPANY_ID" ;;
+  esac
+}
+
 deploy_app() {
   local app="$1" bucket_var="$2" cf_var="$3"
   local bucket="${!bucket_var:-}" cf_id="${!cf_var:-}"
   [[ -n "$bucket" ]] || { echo "✗ $bucket_var vazio em $ENV_FILE" >&2; exit 1; }
   [[ -n "$cf_id" ]] || { echo "✗ $cf_var vazio em $ENV_FILE" >&2; exit 1; }
+
+  local faltando=()
+  for v in $(vars_do_bundle "$app"); do
+    [[ -n "${!v:-}" ]] || faltando+=("$v")
+  done
+  if (( ${#faltando[@]} > 0 )); then
+    echo "✗ $app: ${faltando[*]} sem valor em $ENV_FILE." >&2
+    echo "  Estas variáveis são gravadas DENTRO do bundle no build; sem elas o app" >&2
+    echo "  publicado cai no fallback de desenvolvimento (ex.: localhost) e nada falha." >&2
+    exit 1
+  fi
 
   info "Buildando @bigods/$app (VITE_API_URL=$VITE_API_URL)"
   npx turbo run build --filter="@bigods/$app"

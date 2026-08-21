@@ -128,7 +128,7 @@ export class ConcluirAtendimentoUseCase {
       atendimento.concluir(forma);
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
-      eventos.push(...(await consumirCreditosDePacote(atendimento, repos)));
+      eventos.push(...(await consumirCreditosDePacote(atendimento, repos, agora)));
       return true;
     });
 
@@ -165,6 +165,12 @@ export function autorizarDonoOuAdmin(barbeiroId: string, usuario: UsuarioAutenti
 export async function consumirCreditosDePacote(
   atendimento: Atendimento,
   repos: RepositoriosTransacionais,
+  /**
+   * Instante REAL do consumo — não o `fim` do atendimento. Concluir antes do
+   * horário marcado é rotina, e o status do Bigod's Club (§4.5) depende de saber
+   * quando o crédito deixou de existir de fato.
+   */
+  agora: Date = new Date(),
 ): Promise<DomainEvent[]> {
   if (atendimento.origem !== OrigemAtendimento.CREDITO_PACOTE) return [];
   const eventos: DomainEvent[] = [];
@@ -174,7 +180,7 @@ export async function consumirCreditosDePacote(
     if (!venda) {
       throw new NotFoundException(`Pacote do item ${item.itemDoPacoteId} não encontrado`);
     }
-    venda.consumirItem(item.itemDoPacoteId);
+    venda.consumirItem(item.itemDoPacoteId, agora);
     await repos.vendasDePacote.salvar(venda);
     eventos.push(...venda.puxarEventos());
   }

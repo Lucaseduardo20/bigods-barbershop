@@ -102,6 +102,8 @@ afterAll(async () => {
   await prisma.barbeiroServico.deleteMany({ where: { barbeiroId: { in: [barbeiroId, outroBarbeiroId] } } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
 });

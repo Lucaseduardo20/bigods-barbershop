@@ -1,5 +1,6 @@
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
 import { IconeDeMarca } from '../components/IconesDeMarca';
+import { MarcaBigodsClub } from '../components/LogoBigodsClub';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
 
@@ -30,10 +31,16 @@ export function Landing({
         Agende em menos de um minuto. Sem conta, sem complicação.
       </div>
       <button className="btn btn-lg btn-block" style={{ maxWidth: 360 }} onClick={onAgendar}>
-        Agendar horário →
+        Agendar atendimento →
       </button>
-      <div className="text-[12.5px] mt-3" style={{ color: 'var(--brand-beige)', maxWidth: 320 }}>
-        Pacotes do Bigod's Club aparecem junto dos serviços, no próximo passo.
+      {/* Fundo escuro: a medalha carrega o próprio disco e lê aqui; o wordmark
+          oficial é ink e sumiria (ver LogoBigodsClub.tsx). */}
+      <div
+        className="flex items-center justify-center gap-2 text-[12.5px] mt-3"
+        style={{ color: 'var(--brand-beige)', maxWidth: 320 }}
+      >
+        <MarcaBigodsClub tom="ouro" altura={22} />
+        <span>Pacotes do Bigod's Club aparecem junto dos serviços, no próximo passo.</span>
       </div>
       <a href={ACCOUNT_URL} className="text-[13px] mt-6 font-semibold" style={{ color: 'var(--brand-beige)' }}>
         Já é cliente? Entrar na minha conta →

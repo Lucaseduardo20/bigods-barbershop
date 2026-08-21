@@ -183,6 +183,8 @@ afterAll(async () => {
   await prisma.pacoteOferta.deleteMany({ where: { companyId } });
   await prisma.barbeiro.deleteMany({ where: { companyId } });
   await prisma.servico.deleteMany({ where: { companyId } });
+  // O log do clube tem FK pra Company — sai antes dela.
+  await prisma.eventoDoClube.deleteMany({ where: { companyId: companyId } });
   await prisma.company.delete({ where: { id: companyId } });
   await app.close();
   delete process.env.IDENTITY_PROVIDER;
@@ -232,6 +234,70 @@ describe('Cockpit do cliente', () => {
     expect(item.status).toBe('AGENDADO');
     expect(perfil.body.proximosAgendamentos.length).toBeGreaterThanOrEqual(1);
     expect(perfil.body.proximosAgendamentos[0].origem).toBe('CREDITO_PACOTE');
+  });
+
+  /**
+   * Go-live 2026-08-20: o avulso ONLINE nasce RESERVADO e só vira firme quando
+   * o pagamento confirma. Com o pagamento manual por WhatsApp esse intervalo
+   * passou a durar minutos ou horas — e nele o cliente via a própria reserva no
+   * HISTÓRICO, como se fosse coisa passada, enquanto "próximos" ficava vazio.
+   */
+  describe('★ reserva aguardando pagamento é FUTURO, não histórico', () => {
+    /**
+     * Cria direto no banco um avulso RESERVADO — o estado em que o "pagar
+     * online" deixa o atendimento. Inserção direta porque o que está sob teste
+     * é a PROJEÇÃO DE LEITURA (uma query), não o caminho de escrita, que tem
+     * cobertura própria; passar pelo funil aqui só traria disponibilidade e
+     * cobrança para dentro de um teste que não é sobre isso.
+     */
+    async function reservaAvulsa(horaUtc: number, expiraEm: Date) {
+      const id = `at-reserva-${randomUUID()}`;
+      await prisma.atendimento.create({
+        data: {
+          id,
+          companyId,
+          clienteId: clientePrincipalId,
+          barbeiroId,
+          inicio: new Date(`${DIA}T${String(horaUtc).padStart(2, '0')}:00:00.000Z`),
+          fim: new Date(`${DIA}T${String(horaUtc).padStart(2, '0')}:30:00.000Z`),
+          status: 'RESERVADO',
+          origem: 'AVULSO',
+          reservaOnlineExpiraEm: expiraEm,
+          itens: {
+            create: [
+              { id: `item-${randomUUID()}`, servicoId: corteId, valorCobradoCentavos: 4000, duracaoMinutos: 30 },
+            ],
+          },
+        },
+      });
+      return id;
+    }
+
+    it('aparece em proximosAgendamentos e NÃO no histórico', async () => {
+      const id = await reservaAvulsa(17, new Date(Date.now() + 3_600_000));
+      const token = await loginToken(foneMain);
+
+      const perfil = await http.get('/conta/perfil').set('Authorization', `Bearer ${token}`).expect(200);
+      const naLista = perfil.body.proximosAgendamentos.find(
+        (a: { atendimentoId: string }) => a.atendimentoId === id,
+      );
+      expect(naLista).toBeTruthy();
+      // O front precisa do status pra dizer "aguardando confirmação".
+      expect(naLista.status).toBe('RESERVADO');
+
+      const historico = await http.get('/conta/historico').set('Authorization', `Bearer ${token}`).expect(200);
+      expect(historico.body.some((a: { atendimentoId: string }) => a.atendimentoId === id)).toBe(false);
+    });
+
+    it('reserva com prazo VENCIDO não conta como próximo — mesmo sem ter sido expirada ainda', async () => {
+      const id = await reservaAvulsa(18, new Date(Date.now() - 60_000));
+      const token = await loginToken(foneMain);
+
+      const perfil = await http.get('/conta/perfil').set('Authorization', `Bearer ${token}`).expect(200);
+      expect(
+        perfil.body.proximosAgendamentos.some((a: { atendimentoId: string }) => a.atendimentoId === id),
+      ).toBe(false);
+    });
   });
 
   it('confirmar-demo (modo demo) confirma o PIX e libera créditos; idempotente', async () => {

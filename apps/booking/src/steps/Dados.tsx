@@ -73,7 +73,13 @@ export function Dados({
       </div>
 
       <div>
-        <label className="label">Celular com WhatsApp</label>
+        <label className="label">Celular válido</label>
+        {/* O código do OTP vai por SMS: se o número estiver errado, o cliente
+            não recebe nada e não tem como concluir. Dizer isso ANTES de digitar
+            evita o erro; o alerta abaixo só age depois que já errou. */}
+        <div className="text-[12px] mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+          O celular informado deve ser válido para receber o SMS de confirmação.
+        </div>
         <input
           className="input"
           placeholder="(11) 99999-9999"
@@ -85,7 +91,7 @@ export function Dados({
         />
         {telefoneInvalido && (
           <div className="mt-2">
-            <AlertaErro texto="Informe um celular válido com WhatsApp — é nele que enviamos seu código." />
+            <AlertaErro texto="Informe um celular válido, é nele que enviamos seu código via SMS." />
           </div>
         )}
       </div>
