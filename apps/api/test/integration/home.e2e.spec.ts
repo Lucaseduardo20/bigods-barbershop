@@ -15,6 +15,8 @@ import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 // eslint-disable-next-line import/first
 import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
+// eslint-disable-next-line import/first
+import { diaCivilChave } from '../../src/shared/domain/calendario';
 
 /**
  * Home do painel (2026-08-19).
@@ -148,10 +150,18 @@ beforeAll(async () => {
   });
 
   // "Hoje" às 12:00 no fuso da empresa (America/Sao_Paulo = UTC-3) → 15:00 UTC.
-  const agora = new Date();
-  hojeMeioDia = new Date(
-    Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate(), 15, 0, 0),
-  );
+  //
+  // O dia tem que ser o dia civil LOCAL, e é por isso que ele vem de
+  // `diaCivilChave` — a mesma função que a home usa pra decidir o que é "hoje".
+  // Antes este trecho montava a data a partir dos componentes UTC
+  // (`getUTCDate()`), e aí, entre 21:00 e meia-noite local (= depois de 00:00
+  // UTC), o teste gravava movimento de AMANHÃ e perguntava pelo faturamento de
+  // HOJE: dava 0 e falhava por três horas todo dia. Produção estava certa; o
+  // teste é que olhava pro fuso errado.
+  const [ano, mes, dia] = diaCivilChave(new Date(), 'America/Sao_Paulo')
+    .split('-')
+    .map(Number) as [number, number, number];
+  hojeMeioDia = new Date(Date.UTC(ano, mes - 1, dia, 15, 0, 0));
 
   const [a, b] = await Promise.all([
     http.post('/auth/login').send({ login: adminLogin, senha: SENHA }).expect(201),
