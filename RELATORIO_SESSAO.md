@@ -4317,6 +4317,291 @@ o que agenda pro futuro, conclui agora e marca avulso.
 5. Venda outro pacote: volta a ATIVO. No banco, `EventoDoClube` do cliente deve ter exatamente
    `ENTROU_CLUBE, VIROU_INATIVO, SAIU_CLUBE, RENOVOU`.
 
+## Um OTP, não dois (2026-08-21) ✅
+
+Reportado testando como cliente: confirmar o telefone pra fechar o agendamento e, na tela de
+sucesso, ter que confirmar **de novo** pra entrar na conta.
+
+O funil já tinha a sessão na mão. O OTP da confirmação chama `/conta/login/confirmar` — o MESMO
+endpoint da área do cliente — e o token era guardado em `sessaoAtiva`/`localStorage`. O
+`Onboarding` da tela de sucesso simplesmente ignorava isso e começava do zero.
+
+Pior: o funil **já prometia** o contrário. Nas telas de dados e confirmação ele mostra "Número
+verificado nesta sessão — não vamos pedir o código de novo", e a tela seguinte pedia.
+
+**Correção.** `App` → `Sucesso` → `Onboarding` passam a sessão (`sessaoDoFunil`). Com ela, a caixa
+nasce no estado final, com o link de handoff pronto (`linkDeContaComSessao`, que já existia
+exatamente pra atravessar as duas origens). O texto muda também: "Sua conta está pronta / Seu
+telefone já está confirmado" em vez de "Acesso criado! 🎉" — nada foi criado agora, e anunciar um
+passo que o cliente não deu é mentira pequena mas é mentira.
+
+Vale nos dois fluxos (avulso e pacote) e nos dois caminhos de pagamento, porque os dois passam pelo
+mesmo OTP. Quem cai no funil sem OTP (há caminhos assim) continua vendo o pedido de código —
+correto, ele não confirmou nada.
+
+**Zero mudança de backend.** O token é o mesmo, a validação é a mesma, a sessão é a mesma.
+
+Verificado no navegador, ponta a ponta e com storage limpo: agendar com "pagar na barbearia" →
+**um** código → sucesso mostra "Sua conta está pronta" → clicar em "Ir para minha conta" abre a
+conta **logada**, com o agendamento na tela. Nenhum segundo código em nenhum ponto.
+
+### Smoke test manual
+
+Navegador anônimo (pra não ter sessão salva): agende com "pagar na barbearia", confirme o código
+UMA vez, e na tela de sucesso clique em "Ir para minha conta" — tem que abrir logado. Depois repita
+com "pagar agora": mesmo comportamento. Por fim, em "Trocar número" no banner de sessão ativa, o
+funil volta a pedir código no próximo agendamento (é o escape hatch, e continua funcionando).
+
+## Rosto do barbeiro no funil, e foto para admin (2026-08-21) ✅
+
+Dois pedidos do dono, verificados no navegador.
+
+### 1. Nome + foto em todo lugar que mostra o barbeiro
+
+Três lugares mostravam só o nome: a faixa "Agendando com X", a linha "Barbeiro" da confirmação, e
+o "X te espera…" do sucesso. Agora os três mostram o avatar ao lado.
+
+O funil já tinha o componente (`Avatar`, com fallback pra iniciais quando a foto quebra ou não
+existe) e a foto já vinha em `BarbeiroPublicoDTO`. O que faltava era **carregar a foto no estado do
+funil**: `barbeiroFotoUrl` entrou como snapshot ao lado de `barbeiroNome`, preenchido nos quatro
+caminhos que resolvem barbeiro — escolha manual, auto-seleção (casa com um barbeiro só), link
+pessoal (`?barbeiro=slug`) e atribuição do servidor.
+
+O quarto caminho exigiu backend: no **"não tenho preferência"** o funil nunca escolheu esse
+barbeiro, então não tem a foto de onde tirar — ela só pode vir na resposta da confirmação.
+`AgendarPublicoResponse.barbeiro` ganhou `fotoUrl` (aditivo). Há asserção no e2e de
+`sem-preferencia` garantindo que o campo EXISTE: sem ele o front recebe `undefined` e nunca mostra
+rosto, silenciosamente.
+
+### 2. Admin também tem foto de perfil
+
+Era um gate no front — `{ehBarbeiro && (<FotoUpload …>)}` — com o comentário "só barbeiro, porque a
+foto aparece no funil e admin puro não é escolhido por ninguém".
+
+O raciocínio estava desatualizado: a foto já aparecia em dois lugares que não são o funil — a lista
+desta própria tela e o cabeçalho da home. **O backend nunca restringiu**: `exigirPodeEditar` olha
+QUEM edita, não o papel de quem é editado, e a rota `/barbeiros/:id/foto` opera sobre a entidade
+`Barbeiro`, que é o que um admin também é.
+
+Gate removido, e o texto de ajuda passou a depender do papel: barbeiro lê "aparece no funil, nesta
+lista e na home"; admin puro lê "aparece nesta lista e na home do painel".
+
+### Smoke test manual
+
+**Funil:** entre por um link pessoal de barbeiro com foto (`/?barbeiro=slug`) e siga até o fim — a
+foto tem que aparecer na faixa, na linha "Barbeiro" da confirmação e no sucesso. Depois repita
+escolhendo "não tenho preferência": no sucesso, a foto é do barbeiro que o servidor atribuiu.
+Por fim, um barbeiro SEM foto: os três lugares mostram as iniciais, nunca imagem quebrada.
+
+**Admin:** Usuários → um usuário só ADMIN (sem o papel de barbeiro) → a seção "Foto de perfil"
+aparece, e a foto enviada passa a aparecer na lista de usuários.
+
+## Telefone primeiro: o funil para de reescrever o cadastro (2026-08-21) ✅
+
+Reportado pelo dono: todo agendamento sobrescrevia o nome do cliente com o que estivesse digitado
+no funil. Bastava um apelido, um erro de digitação, ou alguém marcando pra outra pessoa, e o
+cadastro de quem já era cliente ia junto.
+
+### A causa
+
+`cliente.renomear(input.cliente.nome)` rodava SEMPRE para cliente existente, no avulso e na venda de
+pacote. O comentário assumia isso: *"o funil é a única fonte da verdade sobre o nome, então ele
+sempre vence"*. Fazia sentido quando o objetivo era corrigir o placeholder do login OTP; não fazia
+sentido como política geral.
+
+### A correção, em duas camadas
+
+**No domínio:** `Cliente.adotarNomeSeAusente(nome)` só preenche quem ainda tem o placeholder — e
+devolve `false` quando não mudou nada. `renomear()` continua existindo, sem chamador no funil: é o
+que uma futura edição de perfil vai usar. A constante `NOME_PLACEHOLDER` saiu do use case de login
+e virou domínio, porque duas coisas dependem de reconhecê-la: quem a cria e quem pode substituí-la.
+
+**No funil:** o passo de dados virou DUAS FASES. Telefone primeiro; ele decide o resto.
+
+```
+   telefone  ─→  GET /public/clientes/conhecido  ─→  { conhecido: boolean }
+                        │                                     │
+             conhecido ─┘                                     └─ não conhecido
+                  │                                                  │
+             OTP  │  "Confirme que é você"                           │
+                  ▼                                                  ▼
+        nome vem do CADASTRO                              pede nome + opcionais
+```
+
+### As três decisões que definem a segurança disso
+
+**O endpoint devolve booleano, nunca o nome.** O nome só aparece depois do OTP. Sem essa regra,
+qualquer um digitaria números para descobrir quem está por trás deles — o vazamento sério não é
+"este número é cliente", é "este número é o Fulano". Há teste garantindo que a resposta inteira não
+contém o nome.
+
+**Quem só fez login não conta como conhecido.** O login por OTP cria o `Cliente` com placeholder;
+responder "conhecido" ali faria o funil pular o campo de nome e cristalizar "Cliente" para sempre.
+
+**Cliente conhecido faz OTP mesmo no fluxo online**, que hoje dispensa OTP. Não é contradição: a
+dispensa vale para quem está criando cadastro novo (o pagamento é a trava contra agenda falsa);
+usar a identidade de alguém que já existe exige provar que é essa pessoa. Na prática isso AUMENTA a
+segurança do online, que hoje agenda em nome de qualquer número sem prova nenhuma.
+
+E como o OTP agora acontece no passo de dados, ele substitui o da confirmação — o cliente
+identificado faz UM código na jornada inteira, não dois (compõe com a correção de ontem).
+
+### O que isso custa, e está registrado
+
+- **DECISOES #53** — o endpoint é um oráculo de enumeração ("este número é cliente daqui"). Mitigado
+  (booleano, 20 consultas/10min por origem, placeholder responde `false`), não eliminado. A
+  alternativa sem oráculo seria OTP para todo mundo ao digitar o telefone — descartada porque
+  adicionaria atrito a todo cliente NOVO no fluxo online.
+- **DECISOES #54** — sem edição de perfil, quem está com o nome errado não corrige sozinho; só o
+  admin. Antes ele "corrigia" reagendando, que era o próprio mecanismo do problema. O lugar natural
+  da edição é a conta do cliente, que já autentica por OTP.
+
+### Testes
+
+**20 novos** (4 de domínio, 13 e2e, 3 do `mesmoTelefone`), suíte em **839 verdes** nos 3 fusos.
+
+O teste que trava a regressão de ordem é o mais específico: faz o login com nome, tenta um
+agendamento em horário FORA da disponibilidade (422), e confirma que o cadastro continua com o nome
+de verdade. Antes, ali ficava "Cliente".
+
+O e2e cobre o que importa: agendar duas vezes com nomes diferentes não troca o cadastro; cliente
+identificado agenda SEM mandar nome; sem sessão e sem nome o funil recusa; e a consulta não vaza
+nome, responde `false` pra placeholder, e recusa telefone mal formado (que não é "desconhecido", é
+entrada inválida).
+
+### ★ A regressão: o placeholder voltou a ser gravado
+
+Reportado logo depois: "aquele bug onde todos os clientes estão sendo salvos com o nome de
+'Cliente' voltou". Era meu, e o mecanismo é instrutivo.
+
+O atalho de sessão que eu escrevi confiava em `sessaoAtiva.cliente.nome` para saber o nome do
+cliente. Mas esse valor é um **retrato tirado no instante do login por OTP** e guardado no
+`localStorage`: para um cliente novo, no momento do login o nome dele ainda é o placeholder
+"Cliente" — e o retrato nunca se atualiza. Resultado: o funil se convencia de que já sabia o nome,
+**pulava o campo**, mandava `nome: "Cliente"`, e `adotarNomeSeAusente("Cliente")` virava no-op. O
+placeholder cristalizava.
+
+Ou seja: a primeira correção protegeu o cadastro de ser sobrescrito, e o atalho de sessão criou uma
+porta nova para o mesmo estrago, por outro caminho.
+
+**A correção fecha os dois pedidos de uma vez:** `GET /conta/cadastro` (autenticado) devolve
+`{ nome, email }`, com **`nome: null` quando ainda é o placeholder**. O funil passou a ler dali —
+nunca da sessão — e pergunta exatamente o que falta:
+
+| Cadastro | O que o funil mostra |
+|---|---|
+| sem nome (placeholder) | nome + e-mail + sobre você — mesmo com sessão válida |
+| com nome, sem e-mail | e-mail + sobre você |
+| com nome e e-mail | **só "Fale sobre você"** |
+
+E o que não é perguntado também não é ENVIADO — então não sobrescreve. A proteção passa a ser dupla:
+o front não manda, e o backend não aceita.
+
+### ★ A terceira camada: o cliente nascia sem nome
+
+O dono insistiu, e a leitura dele estava certa: *"o sistema não salva o nome do cliente ao criar o
+cliente no banco, ele só tem a informação depois do OTP — é pela sequência das ações"*.
+
+Reproduzindo o fluxo completo no navegador, o caminho feliz salvava certo. Mas na primeira tentativa
+**o agendamento falhou** (horário fora da disponibilidade) — e ali estava: o `Cliente` nasce na
+confirmação do OTP, com placeholder, e o nome só chegava no agendamento seguinte. Agendamento que
+falha, cliente que desiste, conflito de horário: fica "Cliente" para sempre.
+
+Não era o mesmo bug das duas correções anteriores; era a fragilidade de ORDEM por baixo delas.
+
+**A correção:** `/conta/login/confirmar` aceita `nome` opcional, usado **só na criação**, e o funil
+manda o nome que o cliente já digitou. O `Cliente` nasce certo, antes de qualquer agendamento — e
+como bônus a sessão já guarda o nome certo desde o início.
+
+Três camadas, agora, para o mesmo dado:
+
+| Camada | O que garante |
+|---|---|
+| nasce certo | o login cria o `Cliente` com o nome que o funil já tem |
+| não sobrescreve | `adotarNomeSeAusente` só completa quem está sem nome |
+| não pergunta de novo | `GET /conta/cadastro` diz o que já existe (com `nome: null` no placeholder) |
+
+### Smoke test manual
+
+Navegador anônimo, funil:
+0. **Cliente que só fez login e nunca agendou** (nome ainda é o placeholder): mesmo com sessão
+   válida, o funil PRECISA pedir o nome. É a regressão de 2026-08-21.
+1. **Número novo** → "Continuar" → aparecem nome + opcionais, e o telefone trava com "usar outro
+   número".
+2. **Número que já é cliente** → "Continuar" → modal *"Confirme que é você"*, sem nome à vista →
+   confirme → "Olá, {nome}", sem campo de nome, e o resto do funil segue.
+3. Feche o agendamento e confira no painel que o **nome do cadastro não mudou**.
+4. **Sem tocar em nada**, repita o passo 2 no mesmo navegador: a sessão já está ativa, e nem o
+   código é pedido.
+
+## Provedor de SMS do OTP vira plugável — GTI SMS (2026-08-21) ✅
+
+Pedido do dono: o SMS Gate está instável e o OTP precisa ficar estável rápido. O SMS Gate entrega
+pelo **celular Android pareado** da barbearia, e é essa perna final que falha — aparelho suspenso
+pelo Android, sem bateria, sem Wi-Fi. O GTI SMS entrega da nuvem, sem aparelho no meio.
+
+### O que mudou
+
+Nada na API, nada no frontend, **nenhuma migration**. O envio do OTP vive na Lambda
+`create-auth-challenge` (trigger do Cognito), e é só lá que se mexe.
+
+`infra/cognito-triggers/gti-sms.js` — cliente novo, mesma forma do `sms-gate.js`: zero
+dependências, `fetch` nativo do Node 20, erro limpo em vez de exceção crua. E
+`SMS_PROVIDER` escolhe quem envia:
+
+| `SMS_PROVIDER` | Entrega | Variáveis |
+|---|---|---|
+| `smsgate` (**default**) | celular Android pareado | `SMS_GATE_USER`, `SMS_GATE_PASSWORD` |
+| `gtisms` | GTI SMS, nuvem | `GTISMS_TOKEN` |
+
+**Default `smsgate` de propósito:** subir o código não muda o comportamento de quem está em
+produção. Virar a chave é um ato explícito — e voltar atrás é mudar a mesma variável no console,
+em segundos, sem redeploy. Mesmo padrão reversível do pagamento manual por WhatsApp.
+
+Valor desconhecido **falha alto** em vez de cair no default: um OTP que não sai por causa de um typo
+na variável é caro de diagnosticar.
+
+### As duas diferenças que quebram uma migração dessas
+
+**O destino vai sem o `+`.** O SMS Gate exige `+5511...` e recusa sem; o GTI quer `5511...` e não
+entende com. É a diferença mais fácil de errar, e tem teste dedicado.
+
+**★ Erro pode vir com HTTP 200.** O provedor sinaliza falha no CORPO (`{"status":"error"}`) — saldo
+esgotado e número inválido chegam assim. Um cliente que olhasse só `response.ok` trataria isso como
+sucesso, o Cognito apresentaria o desafio, e o cliente ficaria esperando um código que nunca saiu. O
+cliente novo checa o corpo; há teste para isso, e para o caso de o corpo não ser JSON.
+
+### O contrato veio da documentação, não de um envio real
+
+Registrado no código e no README: o `sms-gate.js` foi validado por PoC do dono antes de virar
+produção, e este merece o mesmo. `scripts/testar-sms-gtisms.mjs` faz **um** envio real e imprime a
+resposta crua — exige `--confirmo` porque gasta crédito, e diz explicitamente como o cliente de
+produção trataria aquela resposta.
+
+### Observabilidade
+
+A linha do CloudWatch ganhou o provedor:
+`{"evento":"sms_enviado","provedor":"gtisms","destino":"••••7777","mensagemId":"...","estadoInicial":"Delivered"}`.
+Numa troca de provedor, é o que diz de onde veio (ou não veio) cada mensagem sem depender de lembrar
+quando a variável mudou. O código do OTP continua **fora** do log.
+
+### Testes
+
+**14 novos** (10 do cliente GTI, 4 da seleção de provedor), suíte em **853 verdes** nos 3 fusos.
+
+### Como virar a chave
+
+```bash
+cd infra/cognito-triggers
+zip -q create.zip create-auth-challenge.js sms-gate.js gti-sms.js
+aws lambda update-function-code --function-name bigods-cognito-create-auth --zip-file fileb://create.zip
+```
+Depois, no console da Lambda: `GTISMS_TOKEN=<token>` e `SMS_PROVIDER=gtisms`. Rollback: `SMS_PROVIDER=smsgate`.
+
+⚠️ O OTP passa a depender de saldo no provedor. Sem crédito, o login é **recusado** — corretamente
+(melhor recusar que apresentar um código que não saiu), mas é uma parada dura. Colocar saldo e ligar
+o alerta de saldo baixo antes de virar a chave em produção.
+
 ## Como rodar localmente
 
 ```bash

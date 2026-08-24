@@ -4,9 +4,14 @@ import { Telefone } from '../../../shared/domain/telefone';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { IDENTITY_PROVIDER, IdentityProvider } from '../domain/identity-provider';
 import { ClienteSessaoService } from '../infrastructure/cliente-sessao.service';
-import { Cliente } from '../../customers/domain/cliente.aggregate';
+import { Cliente, NOME_PLACEHOLDER } from '../../customers/domain/cliente.aggregate';
 
 export interface ConfirmarLoginClienteInput {
+  /**
+   * Nome para o caso de o `Cliente` ainda não existir. Ignorado quando já
+   * existe — este caso de uso nunca renomeia ninguém.
+   */
+  nome?: string;
   companyId: string;
   telefone: string;
   codigo: string;
@@ -52,11 +57,21 @@ export class ConfirmarLoginClienteUseCase {
         // barrar quem nunca comprou nada (nem pacote, nem avulso). Cria o
         // Cliente aqui; a área logada mostra a home vazia normal ("sem pacotes
         // ainda, agende seu primeiro horário") em vez de travar num erro.
-        // DECISAO_PENDENTE: nome placeholder até existir edição de perfil.
+        //
+        // ★ `nome` (2026-08-21): o funil JÁ perguntou o nome antes de pedir o
+        // código, então ele manda junto e o Cliente nasce com nome de verdade.
+        // Sem isto, o cliente nascia com o placeholder e só era corrigido pelo
+        // agendamento seguinte — se esse agendamento falhasse (horário
+        // indisponível, conflito, desistência), ficava "Cliente" pra sempre.
+        // Era uma dependência de ORDEM, e foi assim que o placeholder continuou
+        // aparecendo no banco mesmo depois das correções anteriores.
+        //
+        // Só vale na CRIAÇÃO: cliente que já existe não é tocado aqui, e o
+        // login não é caminho para renomear ninguém.
         cliente = Cliente.criar({
           id: randomUUID(),
           companyId: input.companyId,
-          nome: 'Cliente',
+          nome: input.nome?.trim() || NOME_PLACEHOLDER,
           telefone,
         });
         await repos.clientes.salvar(cliente);

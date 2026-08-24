@@ -1593,6 +1593,67 @@ TUDO em UMA transação (passos 4-6b).
 Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou, órfão no banco.
 ```
 
+### 8.1.1 O nome do cliente é do CLIENTE, não do funil (2026-08-21)
+
+Todo agendamento reescrevia o nome do `Cliente` com o que estivesse digitado no funil. O argumento
+era que "o funil é a única fonte da verdade sobre o nome, então ele sempre vence" — na prática isso
+deixava o cadastro à mercê de qualquer agendamento: um apelido, um erro de digitação, ou alguém
+marcando pra outra pessoa, e o registro de quem já era cliente ia junto. Reportado como problema
+real pelo dono.
+
+**Regra atual:** `Cliente.adotarNomeSeAusente(nome)` — o funil **completa** quem ainda tem o
+placeholder que o login por OTP deixa (§8.9), e **nunca sobrescreve** quem já tem nome.
+`renomear()` continua existindo, mas sem chamador no funil: é o que uma futura edição de perfil vai
+usar.
+
+**Consequência a dizer em voz alta:** enquanto não existir edição de perfil, um cliente cadastrado
+com o nome errado não consegue corrigir sozinho — só o admin, pelo painel. Antes ele "corrigia"
+reagendando; era esse mesmo mecanismo que permitia a bagunça.
+
+#### O passo de dados, em duas fases
+
+O funil pergunta o **telefone primeiro**, e é ele que decide o resto:
+
+```
+   telefone  ─→  GET /public/clientes/conhecido  ─→  { conhecido: boolean }
+                                │                              │
+                   conhecido ───┘                              └─── não conhecido
+                        │                                              │
+                   OTP  │  "Confirme que é você"                       │
+                        ▼                                              ▼
+              nome vem do CADASTRO                          pede nome + opcionais
+           (não é perguntado nem sobrescrito)
+```
+
+**★ O `Cliente` nasce no OTP — então o nome vai junto do código.** A confirmação do login
+(`/conta/login/confirmar`) aceita um `nome` OPCIONAL, usado **só na criação**. Sem isso o cliente
+nascia com o placeholder e só era corrigido pelo agendamento seguinte: se esse agendamento falhasse
+(horário indisponível, conflito, desistência), ficava "Cliente" para sempre. Era uma dependência de
+ORDEM, e foi por ela que o placeholder continuou aparecendo mesmo depois das correções anteriores.
+O login **nunca renomeia** quem já existe — não é caminho de edição de perfil.
+
+**O funil pergunta só o que falta.** Depois de identificado (sessão ou OTP), ele lê
+`GET /conta/cadastro` — autenticado — e recebe `{ nome, email }`, com **`nome: null` quando ainda é
+o placeholder**. Quem já tem nome não redigita nome; quem já tem e-mail não redigita e-mail; o que
+não é perguntado também não é enviado, então não sobrescreve.
+
+⚠️ **Nunca use o nome guardado na sessão do funil para isto.** `SessaoBooking.cliente.nome` é um
+retrato tirado no instante do login por OTP e persistido no `localStorage`: para um cliente novo ele
+diz "Cliente" (o placeholder) e nunca se atualiza. Confiar nesse retrato fazia o funil pular o campo
+de nome e gravar "Cliente" para sempre — o bug voltou por esse atalho depois da primeira correção, e
+é por isso que o cadastro vem sempre da API.
+
+- **★ O endpoint público devolve um BOOLEANO, nunca o nome.** O nome só aparece depois que o cliente prova
+  posse do telefone pelo OTP — senão qualquer um digitaria números para descobrir quem está por
+  trás deles.
+- **Quem só fez login (placeholder) NÃO conta como conhecido.** Dizer "conhecido" ali faria o funil
+  pular o campo de nome e cristalizar o placeholder.
+- **Cliente conhecido faz OTP mesmo no fluxo online**, que hoje dispensa OTP (§8.1). Não é
+  contradição: a dispensa vale para quem está criando um cadastro novo; usar a identidade de alguém
+  que já existe exige provar que é essa pessoa.
+- O endpoint continua sendo um oráculo de "este número é cliente da casa", e tem limite agressivo
+  por origem. Registrado em DECISOES_PENDENTES.
+
 ### 8.2 Agendar consumindo crédito (área logada)
 
 ```

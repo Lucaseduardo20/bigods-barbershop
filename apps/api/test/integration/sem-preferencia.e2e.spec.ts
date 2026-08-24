@@ -165,6 +165,13 @@ describe('Atribuição na confirmação', () => {
 
     expect(res.body.barbeiro.id).toBe(baratoId);
     expect(res.body.barbeiro.nome).toBe('Barato');
+    // A foto vem na resposta (2026-08-21) porque a tela de sucesso mostra rosto
+    // e nome — e no "sem preferência" este é o ÚNICO lugar de onde ela pode
+    // vir: o funil nunca escolheu este barbeiro, então não tem a foto guardada.
+    // `null` aqui é o valor certo: o fixture não tem foto. O que importa é o
+    // campo EXISTIR, senão o front recebe `undefined` e nunca mostra rosto.
+    expect(res.body.barbeiro).toHaveProperty('fotoUrl');
+    expect(res.body.barbeiro.fotoUrl).toBeNull();
   });
 
   it('quem não atende TODOS os serviços fica fora, mesmo com comissão menor', async () => {

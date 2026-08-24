@@ -24,10 +24,31 @@ const N = 6;
  */
 export function OtpVerificacao({
   telefone,
+  motivo = 'confirmar',
+  nome,
   onVerificado,
   onCancelar,
 }: {
   telefone: string;
+  /**
+   * Nome que o cliente já digitou no funil (2026-08-21). Vai junto do código
+   * porque o `Cliente` NASCE aqui, na confirmação do OTP: sem mandar o nome, ele
+   * nasce com placeholder e só seria corrigido pelo agendamento seguinte — e se
+   * esse agendamento falhasse, ficava "Cliente" pra sempre.
+   *
+   * Só é usado na CRIAÇÃO. Cliente que já existe não é renomeado por aqui.
+   */
+  nome?: string;
+  /**
+   * Por que estamos pedindo o código (2026-08-21). O mecanismo é idêntico; o
+   * que muda é a explicação, e explicar errado custa confiança:
+   *
+   * - `confirmar`: antes de reservar/cobrar — "o horário é seu".
+   * - `identificar`: no passo de dados, quando o telefone JÁ tem cadastro —
+   *   antes de usar (e mostrar) o nome de alguém, essa pessoa prova que o
+   *   número é dela.
+   */
+  motivo?: 'confirmar' | 'identificar';
   onVerificado: (sessao: ConfirmarLoginClienteResponse) => void;
   onCancelar: () => void;
 }) {
@@ -80,7 +101,13 @@ export function OtpVerificacao({
     try {
       const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
         method: 'POST',
-        body: { companyId: COMPANY_ID, telefone, codigo, desafio },
+        body: {
+          companyId: COMPANY_ID,
+          telefone,
+          codigo,
+          desafio,
+          ...(nome?.trim() ? { nome: nome.trim() } : {}),
+        },
       });
       onVerificado(r);
     } catch (e) {
@@ -114,7 +141,9 @@ export function OtpVerificacao({
               🔒
             </div>
             <div>
-              <div className="text-[18px] font-extrabold leading-tight">Confirme seu telefone</div>
+              <div className="text-[18px] font-extrabold leading-tight">
+                {motivo === 'identificar' ? 'Confirme que é você' : 'Confirme seu telefone'}
+              </div>
               <div className="text-[12.5px]" style={{ color: 'var(--text-muted)' }}>
                 Leva só alguns segundos
               </div>
@@ -126,8 +155,10 @@ export function OtpVerificacao({
         </div>
 
         <div className="text-[13.5px] mb-5" style={{ color: 'var(--text-secondary)' }}>
-          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> via SMS. Ele
-          prova que o horário é seu, com isso ninguém mais consegue reservar ou pagar em seu nome.
+          Enviamos um código para <strong style={{ color: 'var(--text-primary)' }}>{telefone}</strong> via SMS.{' '}
+          {motivo === 'identificar'
+            ? 'Vimos que este número já tem cadastro na barbearia — confirme o código para seguirmos com os seus dados.'
+            : 'Ele prova que o horário é seu, com isso ninguém mais consegue reservar ou pagar em seu nome.'}
         </div>
 
         {fase === 'enviando-codigo' && !erro && (

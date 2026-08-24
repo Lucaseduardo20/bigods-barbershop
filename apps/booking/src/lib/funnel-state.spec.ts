@@ -72,7 +72,7 @@ describe('sanitizarEstadoCarregado', () => {
 describe('barbeiroParaAutoSelecionar', () => {
   it('BUG "loading eterno" (sessão-D): com um único barbeiro na casa, resolve ele mesmo sem nenhuma escolha manual', () => {
     const barbeiros = [{ id: 'bar-gabriel', nome: 'Gabriel', fotoUrl: null }];
-    expect(barbeiroParaAutoSelecionar(barbeiros, null)).toEqual({ id: 'bar-gabriel', nome: 'Gabriel' });
+    expect(barbeiroParaAutoSelecionar(barbeiros, null)).toEqual({ id: 'bar-gabriel', nome: 'Gabriel', fotoUrl: null });
   });
 
   it('não repete a resolução se o barbeiro já é o mesmo (evita loop de re-aplicação)', () => {
@@ -120,9 +120,11 @@ describe('aplicarBarbeiroDoLink', () => {
   it('§4b: um link de barbeiro descarta progresso salvo de outro barbeiro, não só sobrescreve o campo', () => {
     // não recebe o estado salvo como entrada de propósito — o link sempre
     // vence por completo, nunca faz merge parcial com progresso anterior.
-    const estado = aplicarBarbeiroDoLink('bar-gabriel', 'Gabriel');
+    const estado = aplicarBarbeiroDoLink('bar-gabriel', 'Gabriel', 'https://cdn/gabriel.webp');
     expect(estado.barbeiroId).toBe('bar-gabriel');
     expect(estado.barbeiroNome).toBe('Gabriel');
+    // A foto vem junto do nome: rosto e nome aparecem juntos no funil (2026-08-21).
+    expect(estado.barbeiroFotoUrl).toBe('https://cdn/gabriel.webp');
     expect(estado.barbeiroFixadoPorLink).toBe(true);
     expect(estado.step).toBe(PASSO.LANDING); // só a etapa de ESCOLHER é pulada, não a landing
     expect(estado.servicoIds).toEqual([]); // nada de seleção antiga de um barbeiro diferente sobrevive

@@ -119,7 +119,9 @@ export class VenderPacoteUseCase {
         // Mesmo critério do agendamento (agendar-avulso.usecase.ts): complementa
         // sem apagar o que já havia, e corrige o placeholder "Cliente" deixado
         // por um login OTP anterior sem cadastro (§8.9) com o nome real.
-        cliente.renomear(input.cliente.nome);
+        // Mesma regra do avulso (2026-08-21): completa quem não tem nome,
+        // nunca sobrescreve quem já tem.
+        cliente.adotarNomeSeAusente(input.cliente.nome);
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }

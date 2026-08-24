@@ -622,6 +622,15 @@ export interface BarbeiroPublicoDTO {
   /** Foto de perfil (2026-08-19) — URL pública, ou `null` (cai no avatar de iniciais). */
   fotoUrl: string | null;
 }
+/**
+ * "Este telefone já é cliente da casa?" (2026-08-21). Booleano e só: o NOME
+ * nunca vem aqui — ele só aparece depois que o cliente prova posse do telefone
+ * pelo OTP. Sem essa regra, qualquer um descobriria o nome por trás de um
+ * número só digitando números.
+ */
+export interface ClienteConhecidoDTO {
+  conhecido: boolean;
+}
 export interface HorarioDisponivelDTO {
   horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
   inicioIso: string; // instante absoluto UTC (ISO 8601) correspondente
@@ -664,8 +673,12 @@ export interface AgendarPublicoResponse {
    * Barbeiro que vai atender. Sempre presente — inclusive (e principalmente)
    * quando o cliente escolheu "não tenho preferência" e a atribuição foi do
    * servidor: ele precisa saber com quem ficou.
+   *
+   * `fotoUrl` (2026-08-21) porque a tela de sucesso mostra rosto e nome. No
+   * "sem preferência" é o único lugar de onde a foto pode vir: o funil nunca
+   * escolheu esse barbeiro, então não tem a foto guardada.
    */
-  barbeiro: { id: string; nome: string };
+  barbeiro: { id: string; nome: string; fotoUrl: string | null };
   /**
    * Total efetivamente cobrado, em centavos. Importa no "sem preferência":
    * preço é por barbeiro, então só dá para saber o valor final depois de
@@ -779,6 +792,21 @@ export interface ConfirmarLoginClienteRequest {
   telefone: string;
   codigo: string;
   desafio: string;
+}
+/**
+ * O que o cadastro do cliente JÁ tem preenchido (2026-08-21) — lido com sessão,
+ * depois que a identidade foi provada. É o que o funil usa pra perguntar só o
+ * que falta.
+ *
+ * `nome: null` significa "ainda não tem nome de verdade": o `Cliente` nasceu de
+ * um login por OTP e está com o placeholder. A API não devolve o placeholder
+ * como se fosse nome — devolver "Cliente" faria o funil achar que já sabe o
+ * nome, pular o campo, e cristalizar o placeholder pra sempre. Foi exatamente
+ * esse o bug de 2026-08-21.
+ */
+export interface CadastroDoClienteDTO {
+  nome: string | null;
+  email: string | null;
 }
 export interface ClienteSessaoDTO {
   id: string;

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
+  CadastroDoClienteDTO,
+  ClienteConhecidoDTO,
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
   CobrancaDTO,
@@ -11,6 +13,7 @@ import type {
   VenderPacotePublicoResponse,
 } from '@bigods/contracts';
 import { api, ApiError } from './lib/api';
+import { mesmoTelefone } from './lib/telefone';
 import { COMPANY_ID } from './lib/config';
 import { carregarSessaoBooking, salvarSessaoBooking, limparSessaoBooking } from './lib/session';
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
@@ -43,7 +46,7 @@ import {
   type FormaPagamento,
   type FunnelState,
 } from './lib/funnel-state';
-import { ErroEstado, Loading, useApi } from './components/ui';
+import { Avatar, ErroEstado, Loading, useApi } from './components/ui';
 import { PixAguardando } from './components/PixAguardando';
 import { PagamentoManualAguardando } from './components/PagamentoManualAguardando';
 import { OtpVerificacao } from './components/OtpVerificacao';
@@ -146,7 +149,15 @@ function Funil() {
   const [intencaoId, setIntencaoId] = useState<string | null>(null);
   // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
   // pausa aqui até o telefone ser verificado.
-  const [mostrandoOtp, setMostrandoOtp] = useState(false);
+  /**
+   * `null` = fechado. `identificar` = OTP do passo de dados, pra provar que o
+   * telefone é de quem diz ser antes de usar o cadastro dele. `confirmar` = o
+   * OTP de sempre, antes de reservar/cobrar.
+   */
+  const [otp, setOtp] = useState<null | 'identificar' | 'confirmar'>(null);
+  const setMostrandoOtp = (v: boolean) => setOtp(v ? 'confirmar' : null);
+  const [identificando, setIdentificando] = useState(false);
+  const [erroIdentificacao, setErroIdentificacao] = useState<string | null>(null);
   // Sessão já verificada NESTE navegador (localStorage) — enquanto existir, o
   // cliente não é obrigado a repetir o OTP em nenhum agendamento/compra
   // (comportamento intencional, ver lib/session.ts). Sem um aviso explícito
@@ -185,7 +196,7 @@ function Funil() {
     if (!slug) return;
     limparParametroDeLinkNaUrl();
     api<BarbeiroPublicoDTO>(`/public/barbeiro-por-slug?companyId=${encodeURIComponent(COMPANY_ID)}&slug=${encodeURIComponent(slug)}`)
-      .then((b) => setEstado(aplicarBarbeiroDoLink(b.id, b.nome)))
+      .then((b) => setEstado(aplicarBarbeiroDoLink(b.id, b.nome, b.fotoUrl)))
       .catch(() => {
         /* slug inválido/inexistente → cai no funil normal, de propósito */
       });
@@ -203,7 +214,14 @@ function Funil() {
   useEffect(() => {
     const alvo = barbeiroParaAutoSelecionar(barbeirosReq.dados, estado.barbeiroId);
     if (alvo) {
-      setEstado((e) => ({ ...e, barbeiroId: alvo.id, barbeiroNome: alvo.nome, barbeiroAuto: true, barbeiroFixadoPorLink: false }));
+      setEstado((e) => ({
+        ...e,
+        barbeiroId: alvo.id,
+        barbeiroNome: alvo.nome,
+        barbeiroFotoUrl: alvo.fotoUrl,
+        barbeiroAuto: true,
+        barbeiroFixadoPorLink: false,
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barbeirosReq.dados]);
@@ -307,6 +325,9 @@ function Funil() {
         pago={pago}
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
+        // Um OTP, não dois: o telefone confirmado na confirmação do agendamento
+        // vale pra entrar na conta (2026-08-21).
+        sessaoDoFunil={sessaoAtiva}
         onNovo={reset}
         onComprarPacote={comprarPacoteDoClub}
       />
@@ -496,10 +517,11 @@ function Funil() {
       step: PASSO.DADOS,
     });
 
-  const escolherBarbeiro = (id: string, nome: string, auto: boolean) => {
+  const escolherBarbeiro = (id: string, nome: string, auto: boolean, fotoUrl: string | null) => {
     patch({
       barbeiroId: id,
       barbeiroNome: nome,
+      barbeiroFotoUrl: fotoUrl,
       barbeiroAuto: auto,
       barbeiroFixadoPorLink: false,
       semPreferencia: false,
@@ -520,6 +542,7 @@ function Funil() {
     patch({
       barbeiroId: null,
       barbeiroNome: null,
+      barbeiroFotoUrl: null,
       barbeiroAuto: false,
       barbeiroFixadoPorLink: false,
       semPreferencia: true,
@@ -532,6 +555,7 @@ function Funil() {
     patch({
       barbeiroId: null,
       barbeiroNome: null,
+      barbeiroFotoUrl: null,
       barbeiroAuto: false,
       barbeiroFixadoPorLink: false,
       servicoIds: [],
@@ -549,6 +573,9 @@ function Funil() {
   const trocarNumero = () => {
     limparSessaoBooking();
     setSessaoAtiva(null);
+    // A identificação era daquele número: some junto com a sessão, senão o
+    // funil seguiria dizendo "Olá, Fulano" pra quem acabou de trocar de dono.
+    patch({ clienteConhecido: null, nome: '', telefone: '', email: '', emailJaCadastrado: false });
   };
 
   const avancar = () => {
@@ -587,6 +614,90 @@ function Funil() {
     }
   };
 
+  /**
+   * Passo de dados, fase 1 (2026-08-21): o cliente digitou o telefone e mandou
+   * continuar. Perguntamos à API se aquele número já é cliente da casa —
+   * booleano, nunca o nome.
+   *
+   * - **já é cliente** → OTP AGORA. É o que protege o cadastro dele: sem provar
+   *   posse do telefone, ninguém usa (nem vê) o nome de outra pessoa. O nome só
+   *   aparece depois que o código confirma.
+   * - **não é** → segue pro formulário normal, com nome e opcionais.
+   *
+   * Com sessão ativa do MESMO telefone, nada disso acontece: já sabemos quem é.
+   */
+  /**
+   * Aplica o que o cadastro JÁ tem, lido com sessão. É daqui que sai o que o
+   * funil ainda precisa perguntar.
+   *
+   * ★ Nunca use `sessaoAtiva.cliente.nome` para isto. Aquilo é um retrato
+   * tirado no momento do OTP e guardado no localStorage: para um cliente novo,
+   * o retrato diz "Cliente" (o placeholder) e nunca é atualizado. Confiar nele
+   * fazia o funil pular o campo de nome e gravar "Cliente" pra sempre — o bug
+   * de 2026-08-21, que voltou justamente por esse atalho.
+   */
+  const aplicarCadastro = (cadastro: CadastroDoClienteDTO) => {
+    patch({
+      // Sem nome de verdade (só placeholder), o cliente é tratado como novo:
+      // ele PRECISA digitar o nome. A sessão continua valendo — o que falta é
+      // o cadastro, não a identidade.
+      clienteConhecido: cadastro.nome !== null,
+      ...(cadastro.nome !== null ? { nome: cadastro.nome } : {}),
+      emailJaCadastrado: cadastro.email !== null,
+      ...(cadastro.email !== null ? { email: cadastro.email } : {}),
+    });
+  };
+
+  const identificarTelefone = async () => {
+    setErroIdentificacao(null);
+    setIdentificando(true);
+    try {
+      // Sessão do MESMO telefone: identidade já provada, não se pede código de
+      // novo. Mas o cadastro vem da API, nunca do retrato guardado na sessão.
+      const daSessao = sessaoAtiva?.cliente.telefone;
+      if (daSessao && mesmoTelefone(daSessao, estado.telefone)) {
+        try {
+          aplicarCadastro(
+            await api<CadastroDoClienteDTO>('/conta/cadastro', { token: sessaoAtiva!.token }),
+          );
+          return;
+        } catch (e) {
+          // Token vencido/inválido: cai no caminho normal (consulta + OTP).
+          if (!(e instanceof ApiError && e.status === 401)) throw e;
+          limparSessaoBooking();
+          setSessaoAtiva(null);
+        }
+      }
+
+      const r = await api<ClienteConhecidoDTO>(
+        `/public/clientes/conhecido?companyId=${encodeURIComponent(COMPANY_ID)}&telefone=${encodeURIComponent(estado.telefone)}`,
+      );
+      if (r.conhecido) {
+        setOtp('identificar');
+      } else {
+        patch({ clienteConhecido: false });
+      }
+    } catch (e) {
+      // Se a consulta falhar, o funil NÃO trava: segue pelo caminho de
+      // cadastro. O pior que acontece é pedir o nome a quem já tem — e o
+      // backend continua não sobrescrevendo, então nada se perde.
+      setErroIdentificacao(
+        e instanceof ApiError && e.status === 400
+          ? e.message
+          : 'Não deu pra verificar seu número agora — siga preenchendo seus dados.',
+      );
+      if (!(e instanceof ApiError && e.status === 400)) patch({ clienteConhecido: false });
+    } finally {
+      setIdentificando(false);
+    }
+  };
+
+  /** Volta pra fase do telefone: a identificação anterior era de outro número. */
+  const trocarTelefoneNoFunil = () => {
+    setErroIdentificacao(null);
+    patch({ clienteConhecido: null, nome: '', email: '', emailJaCadastrado: false });
+  };
+
   // Sessão de OTP+reserva (Problema 1): telefone verificado ANTES de reservar
   // ou cobrar. Com sessão local válida, envia direto (sem OTP de novo); sem
   // sessão, pausa em `mostrandoOtp` até o cliente confirmar o código. Um
@@ -598,12 +709,18 @@ function Funil() {
     // Opcionais só vão quando preenchidos: mandar string vazia faria a borda
     // recusar (`@EhEmail` não aceita vazio) um campo que é OPCIONAL.
     const cliente = {
-      nome: estado.nome.trim(),
+      // Cliente já cadastrado não manda nome: quem manda é o cadastro dele. O
+      // backend também protege (`adotarNomeSeAusente`), mas não mandar deixa a
+      // intenção explícita — e evita mandar um placeholder de volta.
+      ...(estado.clienteConhecido ? {} : { nome: estado.nome.trim() }),
       // Sem sessão (avulso online anônimo), o telefone precisa ir no corpo —
       // é a única forma de a barbearia saber com quem falar. Havendo sessão, a
       // API IGNORA este campo e usa o telefone verificado dela.
       ...(token ? {} : { telefone: estado.telefone }),
-      ...(preenchido(estado.email) ? { email: estado.email.trim() } : {}),
+      // E-mail idem: já cadastrado não vai no corpo, então não é sobrescrito.
+      ...(!estado.emailJaCadastrado && preenchido(estado.email)
+        ? { email: estado.email.trim() }
+        : {}),
       ...(preenchido(estado.sobreVoce) ? { sobreVoce: estado.sobreVoce.trim() } : {}),
     };
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
@@ -662,6 +779,9 @@ function Funil() {
         // (e a de pagamento) mostram. Nada de preço prometido antes da hora.
         const atribuido = {
           barbeiroNome: r.barbeiro.nome,
+          // No "sem preferência" a foto só existe aqui: o funil não escolheu
+          // esse barbeiro, então nunca teve a foto dele.
+          barbeiroFotoUrl: r.barbeiro.fotoUrl,
           valorFinalCentavos: r.valorTotalCentavos,
         };
         if (online && (r.pagamentoManual || r.cobranca)) {
@@ -760,10 +880,15 @@ function Funil() {
         telefone={estado.telefone}
         email={estado.email}
         sobreVoce={estado.sobreVoce}
+        clienteConhecido={estado.clienteConhecido}
+        emailJaCadastrado={estado.emailJaCadastrado}
+        identificando={identificando}
+        erroIdentificacao={erroIdentificacao}
         onNome={(v) => patch({ nome: v })}
         onTelefone={(v) => patch({ telefone: mascararTelefone(v) })}
         onEmail={(v) => patch({ email: v })}
         onSobreVoce={(v) => patch({ sobreVoce: v })}
+        onTrocarTelefone={trocarTelefoneNoFunil}
       />
     );
   } else if (estado.step === PASSO.CONFIRMACAO) {
@@ -797,12 +922,21 @@ function Funil() {
       case PASSO.DATA_HORA:
         return { label: 'Continuar', disabled: !estado.horaInicio, onClick: avancar };
       case PASSO.DADOS:
+        // Fase 1: só o telefone. O botão leva à identificação, não à revisão.
+        if (estado.clienteConhecido === null) {
+          return {
+            label: identificando ? 'Verificando' : 'Continuar',
+            disabled: identificando || !celularBrasileiroValido(estado.telefone),
+            onClick: () => void identificarTelefone(),
+          };
+        }
         return {
           label: estado.modo === 'pacote' ? 'Revisar compra' : 'Revisar agendamento',
           // Mesmas regras da borda da API (@bigods/contracts) — o botão nunca
-          // habilita para algo que o backend vai recusar.
+          // habilita para algo que o backend vai recusar. Cliente identificado
+          // não precisa de nome: ele vem do cadastro.
           disabled:
-            !nomeDeClienteValido(estado.nome) ||
+            (!estado.clienteConhecido && !nomeDeClienteValido(estado.nome)) ||
             !celularBrasileiroValido(estado.telefone) ||
             (preenchido(estado.email) && !emailValido(estado.email)),
           onClick: avancar,
@@ -857,8 +991,12 @@ function Funil() {
         )}
         {mostrarBannerBarbeiro && (
           <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
-            <span>
-              Agendando com <strong>{estado.barbeiroNome}</strong>
+            <span className="flex items-center gap-2">
+              {/* Rosto + nome: o cliente confirma de relance com quem escolheu. */}
+              <Avatar nome={estado.barbeiroNome!} fotoUrl={estado.barbeiroFotoUrl} size={26} />
+              <span>
+                Agendando com <strong>{estado.barbeiroNome}</strong>
+              </span>
             </span>
             {estado.barbeiroFixadoPorLink && (
               <button
@@ -906,16 +1044,29 @@ function Funil() {
       )}
       {/* Sessão de OTP+reserva: modal sobre a Confirmação — sem sessão local válida, pausa
           o envio aqui até o telefone ser verificado. Não é passo próprio do funil. */}
-      {mostrandoOtp && (
+      {otp && (
         <OtpVerificacao
           telefone={estado.telefone}
+          motivo={otp}
+          // Só faz sentido no cliente NOVO: identificar já pressupõe cadastro.
+          nome={otp === 'confirmar' && !estado.clienteConhecido ? estado.nome : undefined}
           onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
             salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
             setSessaoAtiva({ token: sessao.token, cliente: sessao.cliente });
-            setMostrandoOtp(false);
+            const motivo = otp;
+            setOtp(null);
+            if (motivo === 'identificar') {
+              // Identidade provada: agora dá pra ler o cadastro e perguntar só
+              // o que falta. Lido da API, não do `sessao.cliente` — este também
+              // é um retrato do instante do login (ver `aplicarCadastro`).
+              void api<CadastroDoClienteDTO>('/conta/cadastro', { token: sessao.token })
+                .then(aplicarCadastro)
+                .catch(() => patch({ clienteConhecido: false }));
+              return;
+            }
             void enviarComSessao(sessao.token);
           }}
-          onCancelar={() => setMostrandoOtp(false)}
+          onCancelar={() => setOtp(null)}
         />
       )}
     </div>

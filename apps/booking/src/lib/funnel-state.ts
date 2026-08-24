@@ -41,6 +41,29 @@ export interface FunnelState {
   servicoIds: string[];
   barbeiroId: string | null;
   barbeiroNome: string | null; // snapshot para exibir na confirmação/sucesso
+  /**
+   * Foto do barbeiro escolhido (2026-08-21) — snapshot, igual ao nome: o
+   * cliente vê rosto e nome de quem escolheu na faixa do funil, na confirmação
+   * e no sucesso. `null` = sem foto, e o avatar cai nas iniciais.
+   */
+  barbeiroFotoUrl: string | null;
+  /**
+   * Reorganização do passo de dados (2026-08-21). O cliente informa o TELEFONE
+   * primeiro; só depois o funil sabe o que perguntar:
+   *
+   * - `null`  → ainda não perguntamos. Só o campo de telefone aparece.
+   * - `true`  → já é cliente da casa E confirmou identidade por OTP. O nome vem
+   *             do cadastro; o funil não pergunta de novo e não sobrescreve.
+   * - `false` → não tem cadastro. Aí sim aparecem nome e os opcionais.
+   *
+   * Trocar o telefone volta pra `null`: a resposta era sobre o outro número.
+   */
+  clienteConhecido: boolean | null;
+  /**
+   * O cadastro já tem e-mail (2026-08-21). Aí o funil não pergunta — e não
+   * manda nada, então não sobrescreve. Mesma política do nome.
+   */
+  emailJaCadastrado: boolean;
   /** true quando o barbeiro foi pré-selecionado por ser o único da casa. */
   barbeiroAuto: boolean;
   /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
@@ -99,6 +122,9 @@ export const estadoInicial: FunnelState = {
   servicoIds: [],
   barbeiroId: null,
   barbeiroNome: null,
+  barbeiroFotoUrl: null,
+  clienteConhecido: null,
+  emailJaCadastrado: false,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,
   semPreferencia: false,
@@ -145,11 +171,16 @@ export function sanitizarEstadoCarregado(bruto: Partial<FunnelState>): FunnelSta
  * sentido). Fica só em LANDING — a escolha avulso/pacote continua acontecendo
  * normalmente, só a etapa de ESCOLHER barbeiro é que é pulada depois.
  */
-export function aplicarBarbeiroDoLink(barbeiroId: string, barbeiroNome: string): FunnelState {
+export function aplicarBarbeiroDoLink(
+  barbeiroId: string,
+  barbeiroNome: string,
+  barbeiroFotoUrl: string | null,
+): FunnelState {
   return {
     ...estadoInicial,
     barbeiroId,
     barbeiroNome,
+    barbeiroFotoUrl,
     barbeiroFixadoPorLink: true,
   };
 }
@@ -196,11 +227,11 @@ export function limparEstado(): void {
 export function barbeiroParaAutoSelecionar(
   barbeiros: BarbeiroPublicoDTO[] | null,
   barbeiroIdAtual: string | null,
-): { id: string; nome: string } | null {
+): { id: string; nome: string; fotoUrl: string | null } | null {
   if (!barbeiros || barbeiros.length !== 1) return null;
   const unico = barbeiros[0]!;
   if (barbeiroIdAtual === unico.id) return null; // já resolvido — evita reaplicar em loop
-  return { id: unico.id, nome: unico.nome };
+  return { id: unico.id, nome: unico.nome, fotoUrl: unico.fotoUrl };
 }
 
 export function servicosSelecionados(servicos: ServicoDTO[], ids: string[]): ServicoDTO[] {

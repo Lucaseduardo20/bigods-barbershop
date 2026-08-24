@@ -11,6 +11,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
 import {
+  CadastroDoClienteDTO,
   AgendamentoClienteDTO,
   AgendarComCreditoContaResponse,
   AtendimentoDTO,
@@ -21,7 +22,7 @@ import {
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
 import { Publico } from './auth.decorators';
-import { EhCelularBrasileiro } from '../../../shared/presentation/validadores';
+import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
 import { ClienteAtual, ContaCliente } from './cliente.guard';
 import { ClienteAutenticado } from '../infrastructure/cliente-sessao.service';
@@ -45,6 +46,7 @@ import {
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { creditosDaRequisicao } from '../../scheduling/application/agendar-com-credito.usecase';
 import { ClubeQueryService } from '../../packages/infrastructure/clube-query.service';
+
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -75,6 +77,12 @@ class ConfirmarLoginDto {
   @EhCelularBrasileiro() telefone!: string;
   @Matches(/^\d{6}$/) codigo!: string;
   @IsString() @Length(0, 4096) desafio!: string;
+  /**
+   * Opcional (2026-08-21): o funil já perguntou o nome antes do código e manda
+   * junto, pra que o `Cliente` nasça com nome de verdade em vez do placeholder.
+   * Usado SÓ na criação — nunca renomeia quem já existe.
+   */
+  @IsOptional() @EhNomeDeCliente() nome?: string;
 }
 
 class AgendarComCreditoContaDto {
@@ -144,6 +152,7 @@ export class ContaClienteController {
       telefone: body.telefone,
       codigo: body.codigo,
       desafio: body.desafio,
+      nome: body.nome,
     });
   }
 
@@ -166,6 +175,32 @@ export class ContaClienteController {
       clube,
       pacotes,
       proximosAgendamentos,
+    };
+  }
+
+  /**
+   * O que o cadastro já tem (2026-08-21) — o funil pergunta isto DEPOIS de
+   * identificar o cliente, pra só pedir o que falta: quem já tem nome não
+   * redigita nome, quem já tem e-mail não redigita e-mail.
+   *
+   * ★ `nome` vem `null` quando ainda é o placeholder do login por OTP. Devolver
+   * "Cliente" como se fosse nome faria o funil pular o campo e cristalizar o
+   * placeholder — foi assim que o bug voltou depois da primeira correção.
+   *
+   * Exige sessão: aqui já se sabe QUEM está perguntando, então devolver os
+   * dados é seguro. É a diferença entre este endpoint e o
+   * `/public/clientes/conhecido`, que responde só um booleano.
+   */
+  @ContaCliente()
+  @Get('cadastro')
+  async cadastro(@ClienteAtual() atual: ClienteAutenticado): Promise<CadastroDoClienteDTO> {
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== atual.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+    return {
+      nome: cliente.nomeEhPlaceholder ? null : cliente.nome,
+      email: cliente.email,
     };
   }
 

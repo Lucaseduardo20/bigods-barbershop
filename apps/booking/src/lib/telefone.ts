@@ -24,3 +24,18 @@ export function mascararE164(e164: string): string {
   const semPais = digitos.length > 11 && digitos.startsWith('55') ? digitos.slice(2) : digitos;
   return mascararTelefone(semPais);
 }
+
+/**
+ * Dois telefones são o MESMO número? Compara só os dígitos, porque a mesma
+ * pessoa aparece em formatos diferentes na mesma tela: E.164 vindo da sessão
+ * (`+5511998887777`) e o mascarado que ela digita (`(11) 99888-7777`).
+ */
+export function mesmoTelefone(a: string, b: string): boolean {
+  const so = (t: string) => t.replace(/\D/g, '');
+  const x = so(a);
+  const y = so(b);
+  if (!x || !y) return false;
+  // Um dos lados pode ter o DDI e o outro não — compara pelo fim.
+  const n = Math.min(x.length, y.length, 11);
+  return x.slice(-n) === y.slice(-n);
+}
