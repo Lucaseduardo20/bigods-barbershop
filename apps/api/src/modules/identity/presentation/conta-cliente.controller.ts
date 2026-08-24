@@ -22,7 +22,7 @@ import {
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
 import { Publico } from './auth.decorators';
-import { EhCelularBrasileiro } from '../../../shared/presentation/validadores';
+import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
 import { ClienteAtual, ContaCliente } from './cliente.guard';
 import { ClienteAutenticado } from '../infrastructure/cliente-sessao.service';
@@ -46,6 +46,7 @@ import {
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { creditosDaRequisicao } from '../../scheduling/application/agendar-com-credito.usecase';
 import { ClubeQueryService } from '../../packages/infrastructure/clube-query.service';
+
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -76,6 +77,12 @@ class ConfirmarLoginDto {
   @EhCelularBrasileiro() telefone!: string;
   @Matches(/^\d{6}$/) codigo!: string;
   @IsString() @Length(0, 4096) desafio!: string;
+  /**
+   * Opcional (2026-08-21): o funil já perguntou o nome antes do código e manda
+   * junto, pra que o `Cliente` nasça com nome de verdade em vez do placeholder.
+   * Usado SÓ na criação — nunca renomeia quem já existe.
+   */
+  @IsOptional() @EhNomeDeCliente() nome?: string;
 }
 
 class AgendarComCreditoContaDto {
@@ -145,6 +152,7 @@ export class ContaClienteController {
       telefone: body.telefone,
       codigo: body.codigo,
       desafio: body.desafio,
+      nome: body.nome,
     });
   }
 

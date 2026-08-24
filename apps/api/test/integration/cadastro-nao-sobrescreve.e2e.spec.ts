@@ -170,6 +170,70 @@ describe('★ O funil não reescreve o cadastro de quem já é cliente', () => {
   });
 });
 
+describe('★ O cliente NASCE com nome, não com placeholder', () => {
+  /** Login OTP mandando o nome junto — é o que o funil faz (2026-08-21). */
+  async function loginComNome(telefone: string, nome?: string) {
+    const iniciar = await http.post('/conta/login/iniciar').send({ companyId, telefone }).expect(201);
+    const r = await http
+      .post('/conta/login/confirmar')
+      .send({
+        companyId,
+        telefone,
+        codigo: iniciar.body.codigoDemo,
+        desafio: iniciar.body.desafio,
+        ...(nome ? { nome } : {}),
+      })
+      .expect(201);
+    return r.body.token as string;
+  }
+
+  it('★ o nome vai junto do código, então o cliente já nasce certo', async () => {
+    const telefone = novoFone();
+    await loginComNome(telefone, 'Marcos Vinicius');
+    expect(await nomeDe(telefone)).toBe('Marcos Vinicius');
+  });
+
+  it('★ e SOBREVIVE a um agendamento que falha depois — era aqui que o placeholder ficava', async () => {
+    // A sequência que o dono descreveu: o Cliente nasce no OTP, e o nome só
+    // chegava no agendamento seguinte. Se esse agendamento falhasse (horário
+    // indisponível, conflito, desistência), ficava "Cliente" pra sempre.
+    const telefone = novoFone();
+    const token = await loginComNome(telefone, 'Julia Prado');
+
+    // Agendamento em horário FORA da disponibilidade → recusado.
+    await http
+      .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: '03:00',
+        formaPagamento: 'presencial',
+        cliente: { nome: 'Julia Prado' },
+      })
+      .expect(422);
+
+    // O agendamento não entrou, mas o cadastro está certo.
+    expect(await nomeDe(telefone)).toBe('Julia Prado');
+  });
+
+  it('sem nome no login, nasce com placeholder — e o cadastro reporta `nome: null`', async () => {
+    const telefone = novoFone();
+    const token = await loginComNome(telefone);
+    const r = await http.get('/conta/cadastro').set('Authorization', `Bearer ${token}`).expect(200);
+    expect(r.body.nome).toBeNull();
+  });
+
+  it('★ login NUNCA renomeia quem já existe — não é caminho de edição de perfil', async () => {
+    const telefone = novoFone();
+    await loginComNome(telefone, 'Nome Original');
+    await loginComNome(telefone, 'Nome Intruso');
+    expect(await nomeDe(telefone)).toBe('Nome Original');
+  });
+});
+
 describe('★ GET /conta/cadastro — o que o funil ainda precisa perguntar', () => {
   const cadastroCom = (token: string) =>
     http.get('/conta/cadastro').set('Authorization', `Bearer ${token}`);

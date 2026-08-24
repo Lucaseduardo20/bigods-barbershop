@@ -1048,6 +1048,8 @@ function Funil() {
         <OtpVerificacao
           telefone={estado.telefone}
           motivo={otp}
+          // Só faz sentido no cliente NOVO: identificar já pressupõe cadastro.
+          nome={otp === 'confirmar' && !estado.clienteConhecido ? estado.nome : undefined}
           onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
             salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
             setSessaoAtiva({ token: sessao.token, cliente: sessao.cliente });

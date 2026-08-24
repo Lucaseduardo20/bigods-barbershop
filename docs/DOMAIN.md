@@ -1625,6 +1625,13 @@ O funil pergunta o **telefone primeiro**, e é ele que decide o resto:
            (não é perguntado nem sobrescrito)
 ```
 
+**★ O `Cliente` nasce no OTP — então o nome vai junto do código.** A confirmação do login
+(`/conta/login/confirmar`) aceita um `nome` OPCIONAL, usado **só na criação**. Sem isso o cliente
+nascia com o placeholder e só era corrigido pelo agendamento seguinte: se esse agendamento falhasse
+(horário indisponível, conflito, desistência), ficava "Cliente" para sempre. Era uma dependência de
+ORDEM, e foi por ela que o placeholder continuou aparecendo mesmo depois das correções anteriores.
+O login **nunca renomeia** quem já existe — não é caminho de edição de perfil.
+
 **O funil pergunta só o que falta.** Depois de identificado (sessão ou OTP), ele lê
 `GET /conta/cadastro` — autenticado — e recebe `{ nome, email }`, com **`nome: null` quando ainda é
 o placeholder**. Quem já tem nome não redigita nome; quem já tem e-mail não redigita e-mail; o que

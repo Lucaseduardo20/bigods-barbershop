@@ -4458,7 +4458,11 @@ identificado faz UM código na jornada inteira, não dois (compõe com a correç
 
 ### Testes
 
-**16 novos** (4 de domínio, 9 e2e, 3 do `mesmoTelefone`), suíte em **835 verdes** nos 3 fusos.
+**20 novos** (4 de domínio, 13 e2e, 3 do `mesmoTelefone`), suíte em **839 verdes** nos 3 fusos.
+
+O teste que trava a regressão de ordem é o mais específico: faz o login com nome, tenta um
+agendamento em horário FORA da disponibilidade (422), e confirma que o cadastro continua com o nome
+de verdade. Antes, ali ficava "Cliente".
 
 O e2e cobre o que importa: agendar duas vezes com nomes diferentes não troca o cadastro; cliente
 identificado agenda SEM mandar nome; sem sessão e sem nome o funil recusa; e a consulta não vaza
@@ -4492,6 +4496,30 @@ nunca da sessão — e pergunta exatamente o que falta:
 
 E o que não é perguntado também não é ENVIADO — então não sobrescreve. A proteção passa a ser dupla:
 o front não manda, e o backend não aceita.
+
+### ★ A terceira camada: o cliente nascia sem nome
+
+O dono insistiu, e a leitura dele estava certa: *"o sistema não salva o nome do cliente ao criar o
+cliente no banco, ele só tem a informação depois do OTP — é pela sequência das ações"*.
+
+Reproduzindo o fluxo completo no navegador, o caminho feliz salvava certo. Mas na primeira tentativa
+**o agendamento falhou** (horário fora da disponibilidade) — e ali estava: o `Cliente` nasce na
+confirmação do OTP, com placeholder, e o nome só chegava no agendamento seguinte. Agendamento que
+falha, cliente que desiste, conflito de horário: fica "Cliente" para sempre.
+
+Não era o mesmo bug das duas correções anteriores; era a fragilidade de ORDEM por baixo delas.
+
+**A correção:** `/conta/login/confirmar` aceita `nome` opcional, usado **só na criação**, e o funil
+manda o nome que o cliente já digitou. O `Cliente` nasce certo, antes de qualquer agendamento — e
+como bônus a sessão já guarda o nome certo desde o início.
+
+Três camadas, agora, para o mesmo dado:
+
+| Camada | O que garante |
+|---|---|
+| nasce certo | o login cria o `Cliente` com o nome que o funil já tem |
+| não sobrescreve | `adotarNomeSeAusente` só completa quem está sem nome |
+| não pergunta de novo | `GET /conta/cadastro` diz o que já existe (com `nome: null` no placeholder) |
 
 ### Smoke test manual
 
