@@ -11,6 +11,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
 import {
+  CadastroDoClienteDTO,
   AgendamentoClienteDTO,
   AgendarComCreditoContaResponse,
   AtendimentoDTO,
@@ -166,6 +167,32 @@ export class ContaClienteController {
       clube,
       pacotes,
       proximosAgendamentos,
+    };
+  }
+
+  /**
+   * O que o cadastro já tem (2026-08-21) — o funil pergunta isto DEPOIS de
+   * identificar o cliente, pra só pedir o que falta: quem já tem nome não
+   * redigita nome, quem já tem e-mail não redigita e-mail.
+   *
+   * ★ `nome` vem `null` quando ainda é o placeholder do login por OTP. Devolver
+   * "Cliente" como se fosse nome faria o funil pular o campo e cristalizar o
+   * placeholder — foi assim que o bug voltou depois da primeira correção.
+   *
+   * Exige sessão: aqui já se sabe QUEM está perguntando, então devolver os
+   * dados é seguro. É a diferença entre este endpoint e o
+   * `/public/clientes/conhecido`, que responde só um booleano.
+   */
+  @ContaCliente()
+  @Get('cadastro')
+  async cadastro(@ClienteAtual() atual: ClienteAutenticado): Promise<CadastroDoClienteDTO> {
+    const cliente = await this.clientes.porId(atual.clienteId);
+    if (!cliente || cliente.companyId !== atual.companyId) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+    return {
+      nome: cliente.nomeEhPlaceholder ? null : cliente.nome,
+      email: cliente.email,
     };
   }
 

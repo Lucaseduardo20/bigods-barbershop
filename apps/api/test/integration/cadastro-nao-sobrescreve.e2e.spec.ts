@@ -170,6 +170,58 @@ describe('★ O funil não reescreve o cadastro de quem já é cliente', () => {
   });
 });
 
+describe('★ GET /conta/cadastro — o que o funil ainda precisa perguntar', () => {
+  const cadastroCom = (token: string) =>
+    http.get('/conta/cadastro').set('Authorization', `Bearer ${token}`);
+
+  it('★ quem só fez login vem com nome NULL — o placeholder não é nome', async () => {
+    // Esta é a regressão de 2026-08-21: devolver "Cliente" aqui fazia o funil
+    // achar que já sabia o nome, pular o campo, e cristalizar o placeholder.
+    const telefone = novoFone();
+    const token = await tokenCliente(telefone);
+
+    const r = await cadastroCom(token).expect(200);
+    expect(r.body).toEqual({ nome: null, email: null });
+    // E o placeholder não pode vazar em campo nenhum da resposta.
+    expect(JSON.stringify(r.body)).not.toContain('Cliente');
+  });
+
+  it('depois de agendar com nome, o cadastro devolve o nome de verdade', async () => {
+    const telefone = novoFone();
+    const token = await tokenCliente(telefone);
+    await agendarPresencial(token, 'Julio Cesar').expect(201);
+
+    const r = await cadastroCom(token).expect(200);
+    expect(r.body.nome).toBe('Julio Cesar');
+  });
+
+  it('e-mail já cadastrado volta preenchido — o funil não pergunta de novo', async () => {
+    const telefone = novoFone();
+    const token = await tokenCliente(telefone);
+    const hora = proximaHora++;
+    await http
+      .post('/public/agendamentos')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: `${String(hora).padStart(2, '0')}:00`,
+        formaPagamento: 'presencial',
+        cliente: { nome: 'Com Email', email: 'com.email@exemplo.com' },
+      })
+      .expect(201);
+
+    const r = await cadastroCom(token).expect(200);
+    expect(r.body).toEqual({ nome: 'Com Email', email: 'com.email@exemplo.com' });
+  });
+
+  it('sem sessão não responde nada — o cadastro é do dono do telefone', async () => {
+    await http.get('/conta/cadastro').expect(401);
+  });
+});
+
 describe('★ "Este telefone já é cliente?" não vaza nome', () => {
   const consultar = (telefone: string) =>
     http.get(`/public/clientes/conhecido?companyId=${companyId}&telefone=${encodeURIComponent(telefone)}`);

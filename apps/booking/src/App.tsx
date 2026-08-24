@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
+  CadastroDoClienteDTO,
   ClienteConhecidoDTO,
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
@@ -574,7 +575,7 @@ function Funil() {
     setSessaoAtiva(null);
     // A identificação era daquele número: some junto com a sessão, senão o
     // funil seguiria dizendo "Olá, Fulano" pra quem acabou de trocar de dono.
-    patch({ clienteConhecido: null, nome: '', telefone: '' });
+    patch({ clienteConhecido: null, nome: '', telefone: '', email: '', emailJaCadastrado: false });
   };
 
   const avancar = () => {
@@ -625,15 +626,49 @@ function Funil() {
    *
    * Com sessão ativa do MESMO telefone, nada disso acontece: já sabemos quem é.
    */
+  /**
+   * Aplica o que o cadastro JÁ tem, lido com sessão. É daqui que sai o que o
+   * funil ainda precisa perguntar.
+   *
+   * ★ Nunca use `sessaoAtiva.cliente.nome` para isto. Aquilo é um retrato
+   * tirado no momento do OTP e guardado no localStorage: para um cliente novo,
+   * o retrato diz "Cliente" (o placeholder) e nunca é atualizado. Confiar nele
+   * fazia o funil pular o campo de nome e gravar "Cliente" pra sempre — o bug
+   * de 2026-08-21, que voltou justamente por esse atalho.
+   */
+  const aplicarCadastro = (cadastro: CadastroDoClienteDTO) => {
+    patch({
+      // Sem nome de verdade (só placeholder), o cliente é tratado como novo:
+      // ele PRECISA digitar o nome. A sessão continua valendo — o que falta é
+      // o cadastro, não a identidade.
+      clienteConhecido: cadastro.nome !== null,
+      ...(cadastro.nome !== null ? { nome: cadastro.nome } : {}),
+      emailJaCadastrado: cadastro.email !== null,
+      ...(cadastro.email !== null ? { email: cadastro.email } : {}),
+    });
+  };
+
   const identificarTelefone = async () => {
     setErroIdentificacao(null);
-    const daSessao = sessaoAtiva?.cliente.telefone;
-    if (daSessao && mesmoTelefone(daSessao, estado.telefone)) {
-      patch({ clienteConhecido: true, nome: sessaoAtiva!.cliente.nome });
-      return;
-    }
     setIdentificando(true);
     try {
+      // Sessão do MESMO telefone: identidade já provada, não se pede código de
+      // novo. Mas o cadastro vem da API, nunca do retrato guardado na sessão.
+      const daSessao = sessaoAtiva?.cliente.telefone;
+      if (daSessao && mesmoTelefone(daSessao, estado.telefone)) {
+        try {
+          aplicarCadastro(
+            await api<CadastroDoClienteDTO>('/conta/cadastro', { token: sessaoAtiva!.token }),
+          );
+          return;
+        } catch (e) {
+          // Token vencido/inválido: cai no caminho normal (consulta + OTP).
+          if (!(e instanceof ApiError && e.status === 401)) throw e;
+          limparSessaoBooking();
+          setSessaoAtiva(null);
+        }
+      }
+
       const r = await api<ClienteConhecidoDTO>(
         `/public/clientes/conhecido?companyId=${encodeURIComponent(COMPANY_ID)}&telefone=${encodeURIComponent(estado.telefone)}`,
       );
@@ -660,7 +695,7 @@ function Funil() {
   /** Volta pra fase do telefone: a identificação anterior era de outro número. */
   const trocarTelefoneNoFunil = () => {
     setErroIdentificacao(null);
-    patch({ clienteConhecido: null, nome: '' });
+    patch({ clienteConhecido: null, nome: '', email: '', emailJaCadastrado: false });
   };
 
   // Sessão de OTP+reserva (Problema 1): telefone verificado ANTES de reservar
@@ -674,12 +709,18 @@ function Funil() {
     // Opcionais só vão quando preenchidos: mandar string vazia faria a borda
     // recusar (`@EhEmail` não aceita vazio) um campo que é OPCIONAL.
     const cliente = {
-      nome: estado.nome.trim(),
+      // Cliente já cadastrado não manda nome: quem manda é o cadastro dele. O
+      // backend também protege (`adotarNomeSeAusente`), mas não mandar deixa a
+      // intenção explícita — e evita mandar um placeholder de volta.
+      ...(estado.clienteConhecido ? {} : { nome: estado.nome.trim() }),
       // Sem sessão (avulso online anônimo), o telefone precisa ir no corpo —
       // é a única forma de a barbearia saber com quem falar. Havendo sessão, a
       // API IGNORA este campo e usa o telefone verificado dela.
       ...(token ? {} : { telefone: estado.telefone }),
-      ...(preenchido(estado.email) ? { email: estado.email.trim() } : {}),
+      // E-mail idem: já cadastrado não vai no corpo, então não é sobrescrito.
+      ...(!estado.emailJaCadastrado && preenchido(estado.email)
+        ? { email: estado.email.trim() }
+        : {}),
       ...(preenchido(estado.sobreVoce) ? { sobreVoce: estado.sobreVoce.trim() } : {}),
     };
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
@@ -840,6 +881,7 @@ function Funil() {
         email={estado.email}
         sobreVoce={estado.sobreVoce}
         clienteConhecido={estado.clienteConhecido}
+        emailJaCadastrado={estado.emailJaCadastrado}
         identificando={identificando}
         erroIdentificacao={erroIdentificacao}
         onNome={(v) => patch({ nome: v })}
@@ -1012,9 +1054,12 @@ function Funil() {
             const motivo = otp;
             setOtp(null);
             if (motivo === 'identificar') {
-              // Identidade provada: AGORA o nome do cadastro pode aparecer, e o
-              // funil segue sem perguntá-lo. Nada é enviado ainda.
-              patch({ clienteConhecido: true, nome: sessao.cliente.nome });
+              // Identidade provada: agora dá pra ler o cadastro e perguntar só
+              // o que falta. Lido da API, não do `sessao.cliente` — este também
+              // é um retrato do instante do login (ver `aplicarCadastro`).
+              void api<CadastroDoClienteDTO>('/conta/cadastro', { token: sessao.token })
+                .then(aplicarCadastro)
+                .catch(() => patch({ clienteConhecido: false }));
               return;
             }
             void enviarComSessao(sessao.token);

@@ -793,6 +793,21 @@ export interface ConfirmarLoginClienteRequest {
   codigo: string;
   desafio: string;
 }
+/**
+ * O que o cadastro do cliente JÁ tem preenchido (2026-08-21) — lido com sessão,
+ * depois que a identidade foi provada. É o que o funil usa pra perguntar só o
+ * que falta.
+ *
+ * `nome: null` significa "ainda não tem nome de verdade": o `Cliente` nasceu de
+ * um login por OTP e está com o placeholder. A API não devolve o placeholder
+ * como se fosse nome — devolver "Cliente" faria o funil achar que já sabe o
+ * nome, pular o campo, e cristalizar o placeholder pra sempre. Foi exatamente
+ * esse o bug de 2026-08-21.
+ */
+export interface CadastroDoClienteDTO {
+  nome: string | null;
+  email: string | null;
+}
 export interface ClienteSessaoDTO {
   id: string;
   nome: string;

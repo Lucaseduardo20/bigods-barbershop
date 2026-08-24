@@ -37,6 +37,7 @@ export function Dados({
   email,
   sobreVoce,
   clienteConhecido,
+  emailJaCadastrado,
   identificando,
   erroIdentificacao,
   onNome,
@@ -50,6 +51,8 @@ export function Dados({
   email: string;
   sobreVoce: string;
   clienteConhecido: boolean | null;
+  /** O cadastro já tem e-mail — o campo some, e nada é enviado (não sobrescreve). */
+  emailJaCadastrado: boolean;
   /** Consulta em andamento — o botão "Continuar" vira "Verificando…". */
   identificando: boolean;
   erroIdentificacao: string | null;
@@ -162,6 +165,10 @@ export function Dados({
 
       {decidido && (
         <>
+          {/* E-mail: só para quem ainda não tem. Quem já tem não redigita — e
+              não mandar é o que impede o funil de sobrescrever, mesma política
+              do nome (2026-08-21). */}
+          {!emailJaCadastrado && (
           <div>
             <label className="label">
               E-mail <span style={{ fontWeight: 500, textTransform: 'none' }}>(opcional)</span>
@@ -181,6 +188,7 @@ export function Dados({
               </div>
             )}
           </div>
+          )}
 
           <div>
             <label className="label">

@@ -59,6 +59,11 @@ export interface FunnelState {
    * Trocar o telefone volta pra `null`: a resposta era sobre o outro número.
    */
   clienteConhecido: boolean | null;
+  /**
+   * O cadastro já tem e-mail (2026-08-21). Aí o funil não pergunta — e não
+   * manda nada, então não sobrescreve. Mesma política do nome.
+   */
+  emailJaCadastrado: boolean;
   /** true quando o barbeiro foi pré-selecionado por ser o único da casa. */
   barbeiroAuto: boolean;
   /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
@@ -119,6 +124,7 @@ export const estadoInicial: FunnelState = {
   barbeiroNome: null,
   barbeiroFotoUrl: null,
   clienteConhecido: null,
+  emailJaCadastrado: false,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,
   semPreferencia: false,

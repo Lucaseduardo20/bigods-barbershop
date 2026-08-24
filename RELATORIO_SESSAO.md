@@ -4458,16 +4458,46 @@ identificado faz UM código na jornada inteira, não dois (compõe com a correç
 
 ### Testes
 
-**12 novos** (4 de domínio, 5 e2e, 3 do `mesmoTelefone`), suíte em **831 verdes** nos 3 fusos.
+**16 novos** (4 de domínio, 9 e2e, 3 do `mesmoTelefone`), suíte em **835 verdes** nos 3 fusos.
 
 O e2e cobre o que importa: agendar duas vezes com nomes diferentes não troca o cadastro; cliente
 identificado agenda SEM mandar nome; sem sessão e sem nome o funil recusa; e a consulta não vaza
 nome, responde `false` pra placeholder, e recusa telefone mal formado (que não é "desconhecido", é
 entrada inválida).
 
+### ★ A regressão: o placeholder voltou a ser gravado
+
+Reportado logo depois: "aquele bug onde todos os clientes estão sendo salvos com o nome de
+'Cliente' voltou". Era meu, e o mecanismo é instrutivo.
+
+O atalho de sessão que eu escrevi confiava em `sessaoAtiva.cliente.nome` para saber o nome do
+cliente. Mas esse valor é um **retrato tirado no instante do login por OTP** e guardado no
+`localStorage`: para um cliente novo, no momento do login o nome dele ainda é o placeholder
+"Cliente" — e o retrato nunca se atualiza. Resultado: o funil se convencia de que já sabia o nome,
+**pulava o campo**, mandava `nome: "Cliente"`, e `adotarNomeSeAusente("Cliente")` virava no-op. O
+placeholder cristalizava.
+
+Ou seja: a primeira correção protegeu o cadastro de ser sobrescrito, e o atalho de sessão criou uma
+porta nova para o mesmo estrago, por outro caminho.
+
+**A correção fecha os dois pedidos de uma vez:** `GET /conta/cadastro` (autenticado) devolve
+`{ nome, email }`, com **`nome: null` quando ainda é o placeholder**. O funil passou a ler dali —
+nunca da sessão — e pergunta exatamente o que falta:
+
+| Cadastro | O que o funil mostra |
+|---|---|
+| sem nome (placeholder) | nome + e-mail + sobre você — mesmo com sessão válida |
+| com nome, sem e-mail | e-mail + sobre você |
+| com nome e e-mail | **só "Fale sobre você"** |
+
+E o que não é perguntado também não é ENVIADO — então não sobrescreve. A proteção passa a ser dupla:
+o front não manda, e o backend não aceita.
+
 ### Smoke test manual
 
 Navegador anônimo, funil:
+0. **Cliente que só fez login e nunca agendou** (nome ainda é o placeholder): mesmo com sessão
+   válida, o funil PRECISA pedir o nome. É a regressão de 2026-08-21.
 1. **Número novo** → "Continuar" → aparecem nome + opcionais, e o telefone trava com "usar outro
    número".
 2. **Número que já é cliente** → "Continuar" → modal *"Confirme que é você"*, sem nome à vista →

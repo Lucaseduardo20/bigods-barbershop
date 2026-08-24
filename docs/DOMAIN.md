@@ -1625,7 +1625,18 @@ O funil pergunta o **telefone primeiro**, e é ele que decide o resto:
            (não é perguntado nem sobrescrito)
 ```
 
-- **★ O endpoint devolve um BOOLEANO, nunca o nome.** O nome só aparece depois que o cliente prova
+**O funil pergunta só o que falta.** Depois de identificado (sessão ou OTP), ele lê
+`GET /conta/cadastro` — autenticado — e recebe `{ nome, email }`, com **`nome: null` quando ainda é
+o placeholder**. Quem já tem nome não redigita nome; quem já tem e-mail não redigita e-mail; o que
+não é perguntado também não é enviado, então não sobrescreve.
+
+⚠️ **Nunca use o nome guardado na sessão do funil para isto.** `SessaoBooking.cliente.nome` é um
+retrato tirado no instante do login por OTP e persistido no `localStorage`: para um cliente novo ele
+diz "Cliente" (o placeholder) e nunca se atualiza. Confiar nesse retrato fazia o funil pular o campo
+de nome e gravar "Cliente" para sempre — o bug voltou por esse atalho depois da primeira correção, e
+é por isso que o cadastro vem sempre da API.
+
+- **★ O endpoint público devolve um BOOLEANO, nunca o nome.** O nome só aparece depois que o cliente prova
   posse do telefone pelo OTP — senão qualquer um digitaria números para descobrir quem está por
   trás deles.
 - **Quem só fez login (placeholder) NÃO conta como conhecido.** Dizer "conhecido" ali faria o funil
