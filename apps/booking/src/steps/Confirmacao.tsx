@@ -12,6 +12,7 @@ import { OrderBump } from '../components/OrderBump';
 import { AlertaErro } from '../components/ui';
 import { BARBEARIA } from '../lib/barbearia';
 import { useEmpresa } from '../lib/empresa-context';
+import { Avatar } from '../components/ui';
 
 export function Confirmacao({
   estado,
@@ -54,6 +55,17 @@ export function Confirmacao({
     <div className="flex justify-between text-[14px]">
       <span style={{ color: 'var(--text-muted)' }}>{rotulo}</span>
       <span className="font-bold text-right">{valor}</span>
+    </div>
+  );
+
+  /** Igual a `linha`, com o rosto do barbeiro antes do nome (2026-08-21). */
+  const linhaDoBarbeiro = (nome: string) => (
+    <div className="flex justify-between items-center text-[14px] gap-2">
+      <span style={{ color: 'var(--text-muted)' }}>Barbeiro</span>
+      <span className="flex items-center gap-2 min-w-0">
+        <Avatar nome={nome} fotoUrl={estado.barbeiroFotoUrl} size={24} />
+        <span className="font-bold text-right truncate">{nome}</span>
+      </span>
     </div>
   );
 
@@ -171,7 +183,7 @@ export function Confirmacao({
             )}
             <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
             {estado.barbeiroNome
-              ? linha('Barbeiro', estado.barbeiroNome)
+              ? linhaDoBarbeiro(estado.barbeiroNome)
               : estado.semPreferencia && linha('Barbeiro', 'A definir')}
             {linha('Quando', `${dia} · ${estado.horaInicio}`)}
           </>

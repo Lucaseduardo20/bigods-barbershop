@@ -4352,6 +4352,50 @@ UMA vez, e na tela de sucesso clique em "Ir para minha conta" — tem que abrir 
 com "pagar agora": mesmo comportamento. Por fim, em "Trocar número" no banner de sessão ativa, o
 funil volta a pedir código no próximo agendamento (é o escape hatch, e continua funcionando).
 
+## Rosto do barbeiro no funil, e foto para admin (2026-08-21) ✅
+
+Dois pedidos do dono, verificados no navegador.
+
+### 1. Nome + foto em todo lugar que mostra o barbeiro
+
+Três lugares mostravam só o nome: a faixa "Agendando com X", a linha "Barbeiro" da confirmação, e
+o "X te espera…" do sucesso. Agora os três mostram o avatar ao lado.
+
+O funil já tinha o componente (`Avatar`, com fallback pra iniciais quando a foto quebra ou não
+existe) e a foto já vinha em `BarbeiroPublicoDTO`. O que faltava era **carregar a foto no estado do
+funil**: `barbeiroFotoUrl` entrou como snapshot ao lado de `barbeiroNome`, preenchido nos quatro
+caminhos que resolvem barbeiro — escolha manual, auto-seleção (casa com um barbeiro só), link
+pessoal (`?barbeiro=slug`) e atribuição do servidor.
+
+O quarto caminho exigiu backend: no **"não tenho preferência"** o funil nunca escolheu esse
+barbeiro, então não tem a foto de onde tirar — ela só pode vir na resposta da confirmação.
+`AgendarPublicoResponse.barbeiro` ganhou `fotoUrl` (aditivo). Há asserção no e2e de
+`sem-preferencia` garantindo que o campo EXISTE: sem ele o front recebe `undefined` e nunca mostra
+rosto, silenciosamente.
+
+### 2. Admin também tem foto de perfil
+
+Era um gate no front — `{ehBarbeiro && (<FotoUpload …>)}` — com o comentário "só barbeiro, porque a
+foto aparece no funil e admin puro não é escolhido por ninguém".
+
+O raciocínio estava desatualizado: a foto já aparecia em dois lugares que não são o funil — a lista
+desta própria tela e o cabeçalho da home. **O backend nunca restringiu**: `exigirPodeEditar` olha
+QUEM edita, não o papel de quem é editado, e a rota `/barbeiros/:id/foto` opera sobre a entidade
+`Barbeiro`, que é o que um admin também é.
+
+Gate removido, e o texto de ajuda passou a depender do papel: barbeiro lê "aparece no funil, nesta
+lista e na home"; admin puro lê "aparece nesta lista e na home do painel".
+
+### Smoke test manual
+
+**Funil:** entre por um link pessoal de barbeiro com foto (`/?barbeiro=slug`) e siga até o fim — a
+foto tem que aparecer na faixa, na linha "Barbeiro" da confirmação e no sucesso. Depois repita
+escolhendo "não tenho preferência": no sucesso, a foto é do barbeiro que o servidor atribuiu.
+Por fim, um barbeiro SEM foto: os três lugares mostram as iniciais, nunca imagem quebrada.
+
+**Admin:** Usuários → um usuário só ADMIN (sem o papel de barbeiro) → a seção "Foto de perfil"
+aparece, e a foto enviada passa a aparecer na lista de usuários.
+
 ## Como rodar localmente
 
 ```bash

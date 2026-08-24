@@ -285,24 +285,26 @@ function DetalheDeUsuario({
         <Badge tone={usuario.ativo ? 'success' : 'neutral'}>{usuario.ativo ? 'Ativo' : 'Inativo'}</Badge>
       </div>
 
-      {/* Foto de perfil (2026-08-19). Fica só para quem é BARBEIRO: a foto
-          aparece no funil, na escolha de profissional — admin puro não é
-          escolhido por ninguém, então não teria onde aparecer. */}
-      {ehBarbeiro && (
-        <div className="card mb-3">
-          <div className="text-[13px] font-bold mb-2">Foto de perfil</div>
-          <FotoUpload
-            rotaBase={`/barbeiros/${usuario.id}`}
-            urlAtual={usuario.fotoUrl}
-            nome={usuario.nome}
-            aoMudar={aoMudar}
-          />
-          <div className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>
-            Aparece no funil, quando o cliente escolhe com quem quer se atender. Sem foto, o cliente
-            vê as iniciais.
-          </div>
+      {/* Foto de perfil (2026-08-19; liberada para TODO usuário em 2026-08-21).
+          A restrição original era "só barbeiro, porque a foto aparece no funil e
+          admin puro não é escolhido por ninguém" — mas a foto já aparecia em
+          outros lugares que não o funil: a lista de usuários desta tela e o
+          cabeçalho da home. O backend nunca restringiu (`exigirPodeEditar` olha
+          QUEM edita, não o papel de quem é editado). */}
+      <div className="card mb-3">
+        <div className="text-[13px] font-bold mb-2">Foto de perfil</div>
+        <FotoUpload
+          rotaBase={`/barbeiros/${usuario.id}`}
+          urlAtual={usuario.fotoUrl}
+          nome={usuario.nome}
+          aoMudar={aoMudar}
+        />
+        <div className="text-[11px] mt-2" style={{ color: 'var(--text-muted)' }}>
+          {ehBarbeiro
+            ? 'Aparece no funil (quando o cliente escolhe com quem se atender), nesta lista e na home. Sem foto, ficam as iniciais.'
+            : 'Aparece nesta lista e na home do painel. Sem foto, ficam as iniciais.'}
         </div>
-      )}
+      </div>
 
       <DadosBasicosSection usuario={usuario} aoSalvar={aoMudar} />
       <StatusSection usuario={usuario} aoSalvar={aoMudar} />

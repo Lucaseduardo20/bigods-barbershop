@@ -43,7 +43,7 @@ import {
   type FormaPagamento,
   type FunnelState,
 } from './lib/funnel-state';
-import { ErroEstado, Loading, useApi } from './components/ui';
+import { Avatar, ErroEstado, Loading, useApi } from './components/ui';
 import { PixAguardando } from './components/PixAguardando';
 import { PagamentoManualAguardando } from './components/PagamentoManualAguardando';
 import { OtpVerificacao } from './components/OtpVerificacao';
@@ -185,7 +185,7 @@ function Funil() {
     if (!slug) return;
     limparParametroDeLinkNaUrl();
     api<BarbeiroPublicoDTO>(`/public/barbeiro-por-slug?companyId=${encodeURIComponent(COMPANY_ID)}&slug=${encodeURIComponent(slug)}`)
-      .then((b) => setEstado(aplicarBarbeiroDoLink(b.id, b.nome)))
+      .then((b) => setEstado(aplicarBarbeiroDoLink(b.id, b.nome, b.fotoUrl)))
       .catch(() => {
         /* slug inválido/inexistente → cai no funil normal, de propósito */
       });
@@ -203,7 +203,14 @@ function Funil() {
   useEffect(() => {
     const alvo = barbeiroParaAutoSelecionar(barbeirosReq.dados, estado.barbeiroId);
     if (alvo) {
-      setEstado((e) => ({ ...e, barbeiroId: alvo.id, barbeiroNome: alvo.nome, barbeiroAuto: true, barbeiroFixadoPorLink: false }));
+      setEstado((e) => ({
+        ...e,
+        barbeiroId: alvo.id,
+        barbeiroNome: alvo.nome,
+        barbeiroFotoUrl: alvo.fotoUrl,
+        barbeiroAuto: true,
+        barbeiroFixadoPorLink: false,
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barbeirosReq.dados]);
@@ -499,10 +506,11 @@ function Funil() {
       step: PASSO.DADOS,
     });
 
-  const escolherBarbeiro = (id: string, nome: string, auto: boolean) => {
+  const escolherBarbeiro = (id: string, nome: string, auto: boolean, fotoUrl: string | null) => {
     patch({
       barbeiroId: id,
       barbeiroNome: nome,
+      barbeiroFotoUrl: fotoUrl,
       barbeiroAuto: auto,
       barbeiroFixadoPorLink: false,
       semPreferencia: false,
@@ -523,6 +531,7 @@ function Funil() {
     patch({
       barbeiroId: null,
       barbeiroNome: null,
+      barbeiroFotoUrl: null,
       barbeiroAuto: false,
       barbeiroFixadoPorLink: false,
       semPreferencia: true,
@@ -535,6 +544,7 @@ function Funil() {
     patch({
       barbeiroId: null,
       barbeiroNome: null,
+      barbeiroFotoUrl: null,
       barbeiroAuto: false,
       barbeiroFixadoPorLink: false,
       servicoIds: [],
@@ -665,6 +675,9 @@ function Funil() {
         // (e a de pagamento) mostram. Nada de preço prometido antes da hora.
         const atribuido = {
           barbeiroNome: r.barbeiro.nome,
+          // No "sem preferência" a foto só existe aqui: o funil não escolheu
+          // esse barbeiro, então nunca teve a foto dele.
+          barbeiroFotoUrl: r.barbeiro.fotoUrl,
           valorFinalCentavos: r.valorTotalCentavos,
         };
         if (online && (r.pagamentoManual || r.cobranca)) {
@@ -860,8 +873,12 @@ function Funil() {
         )}
         {mostrarBannerBarbeiro && (
           <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
-            <span>
-              Agendando com <strong>{estado.barbeiroNome}</strong>
+            <span className="flex items-center gap-2">
+              {/* Rosto + nome: o cliente confirma de relance com quem escolheu. */}
+              <Avatar nome={estado.barbeiroNome!} fotoUrl={estado.barbeiroFotoUrl} size={26} />
+              <span>
+                Agendando com <strong>{estado.barbeiroNome}</strong>
+              </span>
             </span>
             {estado.barbeiroFixadoPorLink && (
               <button

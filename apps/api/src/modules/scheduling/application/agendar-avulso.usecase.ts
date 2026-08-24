@@ -109,7 +109,7 @@ export interface AgendarAvulsoOutput {
   /** Ponte do WhatsApp quando o modo manual está ligado (no lugar do PIX). */
   pagamentoManual: PagamentoManualDTO | null;
   /** Quem vai atender — no "sem preferência" é a resposta da atribuição. */
-  barbeiro: { id: string; nome: string };
+  barbeiro: { id: string; nome: string; fotoUrl: string | null };
   /** Total cobrado (já com desconto progressivo), em centavos. */
   valorTotalCentavos: number;
 }
@@ -443,7 +443,7 @@ export class AgendarAvulsoUseCase {
       clienteId: resultado.clienteId,
       cobranca,
       pagamentoManual,
-      barbeiro: { id: barbeiro.id, nome: barbeiro.nome },
+      barbeiro: { id: barbeiro.id, nome: barbeiro.nome, fotoUrl: barbeiro.fotoUrl },
       // Serviços (com desconto progressivo) + produtos do bump — o "preço de
       // capa" mostrado ao cliente, sem descontar abatimento de saldo residual
       // (mesmo critério de sempre: quem abate é o cockpit, não o funil público).

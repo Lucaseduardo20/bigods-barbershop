@@ -29,7 +29,7 @@ export function Barbeiro({
   aoTentarDeNovo: () => void;
   selecionado: string | null;
   semPreferencia: boolean;
-  onSelect: (id: string, nome: string, auto: boolean) => void;
+  onSelect: (id: string, nome: string, auto: boolean, fotoUrl: string | null) => void;
   onSemPreferencia: () => void;
 }) {
   return (
@@ -69,7 +69,7 @@ export function Barbeiro({
       {barbeiros.map((b) => {
         const on = selecionado === b.id;
         return (
-          <button key={b.id} className={`selectable ${on ? 'selected' : ''}`} onClick={() => onSelect(b.id, b.nome, false)}>
+          <button key={b.id} className={`selectable ${on ? 'selected' : ''}`} onClick={() => onSelect(b.id, b.nome, false, b.fotoUrl)}>
             {/* Foto em 64px, não nos 44px do avatar padrão (2026-08-19): quem
                 escolhe o profissional escolhe pela cara dele, e a Onda 3 pediu
                 a foto mais visível. Sem foto, as iniciais ocupam o mesmo

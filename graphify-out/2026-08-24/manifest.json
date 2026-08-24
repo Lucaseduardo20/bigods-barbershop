@@ -1926,9 +1926,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1787266065.5826051,
-    "seen": 1787267546.564787,
-    "ast_hash": "d3677f641e122f9c3dd006dab9696784",
+    "mtime": 1787588717.3893282,
+    "seen": 1787589291.8728232,
+    "ast_hash": "64e07d21b695914622f0580cea33ab4b",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
@@ -1944,9 +1944,9 @@
     "semantic_hash": "6d8108d52137a3f3c9be3e22499a7f21"
   },
   "apps/booking/src/components/Onboarding.tsx": {
-    "mtime": 1787265888.157034,
-    "seen": 1787267546.5650632,
-    "ast_hash": "de9e359bceaef065cf8cf8312aebc277",
+    "mtime": 1787588691.981062,
+    "seen": 1787589291.872927,
+    "ast_hash": "fb2d1e3829e9cffbf213736d3021c87a",
     "semantic_hash": ""
   },
   "apps/booking/src/components/OrderBump.tsx": {
@@ -2118,9 +2118,9 @@
     "semantic_hash": "fac66c00dfbb2badcea26e60be3e1255"
   },
   "apps/booking/src/steps/Sucesso.tsx": {
-    "mtime": 1787265888.157034,
-    "seen": 1787267546.5711267,
-    "ast_hash": "a9bf6532a0e573c2e4a8a096415ec7b3",
+    "mtime": 1787588717.3893282,
+    "seen": 1787589291.8738658,
+    "ast_hash": "ad8842672ea64774e9f5457bbc2efdd0",
     "semantic_hash": ""
   },
   "apps/booking/tailwind.config.js": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787288500.0664036,
-    "seen": 1787289082.5474772,
-    "ast_hash": "ca8583ea8f62e9a1eeddbc639633b2ab",
+    "mtime": 1787589073.561587,
+    "seen": 1787589291.8754442,
+    "ast_hash": "27e633649c752bacef3dd86ea055c83e",
     "semantic_hash": ""
   },
   "apps/account/index.html": {

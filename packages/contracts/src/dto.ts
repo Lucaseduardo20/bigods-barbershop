@@ -664,8 +664,12 @@ export interface AgendarPublicoResponse {
    * Barbeiro que vai atender. Sempre presente — inclusive (e principalmente)
    * quando o cliente escolheu "não tenho preferência" e a atribuição foi do
    * servidor: ele precisa saber com quem ficou.
+   *
+   * `fotoUrl` (2026-08-21) porque a tela de sucesso mostra rosto e nome. No
+   * "sem preferência" é o único lugar de onde a foto pode vir: o funil nunca
+   * escolheu esse barbeiro, então não tem a foto guardada.
    */
-  barbeiro: { id: string; nome: string };
+  barbeiro: { id: string; nome: string; fotoUrl: string | null };
   /**
    * Total efetivamente cobrado, em centavos. Importa no "sem preferência":
    * preço é por barbeiro, então só dá para saber o valor final depois de

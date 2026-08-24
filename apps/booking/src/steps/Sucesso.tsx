@@ -7,6 +7,7 @@ import { BigodsClub } from '../components/BigodsClub';
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
 import { IconeDeMarca } from '../components/IconesDeMarca';
 import { baixarIcs, linkGoogleAgenda, type EventoDeAgenda } from '../lib/agenda';
+import { Avatar } from '../components/ui';
 
 export function Sucesso({
   estado,
@@ -52,12 +53,22 @@ export function Sucesso({
       <div className="w-full" style={{ maxWidth: 420 }}>
         <SuccessBadge />
         <div className="text-[24px] font-extrabold">Tudo certo, {primeiroNome}!</div>
-        <div className="text-[15px] mt-2" style={{ color: 'var(--text-secondary)' }}>
-          {estado.barbeiroNome ? estado.barbeiroNome : 'A gente'} te espera{' '}
-          <strong>
-            {dia} às {estado.horaInicio}
-          </strong>
-          .
+        {/* Rosto + nome de quem vai atender (2026-08-21): fecha o funil com a
+            mesma informação que abriu, e o cliente sai sabendo quem procurar. */}
+        <div
+          className="flex items-center justify-center gap-2 text-[15px] mt-2"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {estado.barbeiroNome && (
+            <Avatar nome={estado.barbeiroNome} fotoUrl={estado.barbeiroFotoUrl} size={28} />
+          )}
+          <span>
+            {estado.barbeiroNome ? estado.barbeiroNome : 'A gente'} te espera{' '}
+            <strong>
+              {dia} às {estado.horaInicio}
+            </strong>
+            .
+          </span>
         </div>
         {/* Sem preferência: o cliente não escolheu, então precisa saber quem
             ficou — e que o valor abaixo é o final, já do barbeiro atribuído. */}

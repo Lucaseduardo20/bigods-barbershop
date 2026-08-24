@@ -41,6 +41,12 @@ export interface FunnelState {
   servicoIds: string[];
   barbeiroId: string | null;
   barbeiroNome: string | null; // snapshot para exibir na confirmação/sucesso
+  /**
+   * Foto do barbeiro escolhido (2026-08-21) — snapshot, igual ao nome: o
+   * cliente vê rosto e nome de quem escolheu na faixa do funil, na confirmação
+   * e no sucesso. `null` = sem foto, e o avatar cai nas iniciais.
+   */
+  barbeiroFotoUrl: string | null;
   /** true quando o barbeiro foi pré-selecionado por ser o único da casa. */
   barbeiroAuto: boolean;
   /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
@@ -99,6 +105,7 @@ export const estadoInicial: FunnelState = {
   servicoIds: [],
   barbeiroId: null,
   barbeiroNome: null,
+  barbeiroFotoUrl: null,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,
   semPreferencia: false,
@@ -145,11 +152,16 @@ export function sanitizarEstadoCarregado(bruto: Partial<FunnelState>): FunnelSta
  * sentido). Fica só em LANDING — a escolha avulso/pacote continua acontecendo
  * normalmente, só a etapa de ESCOLHER barbeiro é que é pulada depois.
  */
-export function aplicarBarbeiroDoLink(barbeiroId: string, barbeiroNome: string): FunnelState {
+export function aplicarBarbeiroDoLink(
+  barbeiroId: string,
+  barbeiroNome: string,
+  barbeiroFotoUrl: string | null,
+): FunnelState {
   return {
     ...estadoInicial,
     barbeiroId,
     barbeiroNome,
+    barbeiroFotoUrl,
     barbeiroFixadoPorLink: true,
   };
 }
@@ -196,11 +208,11 @@ export function limparEstado(): void {
 export function barbeiroParaAutoSelecionar(
   barbeiros: BarbeiroPublicoDTO[] | null,
   barbeiroIdAtual: string | null,
-): { id: string; nome: string } | null {
+): { id: string; nome: string; fotoUrl: string | null } | null {
   if (!barbeiros || barbeiros.length !== 1) return null;
   const unico = barbeiros[0]!;
   if (barbeiroIdAtual === unico.id) return null; // já resolvido — evita reaplicar em loop
-  return { id: unico.id, nome: unico.nome };
+  return { id: unico.id, nome: unico.nome, fotoUrl: unico.fotoUrl };
 }
 
 export function servicosSelecionados(servicos: ServicoDTO[], ids: string[]): ServicoDTO[] {
