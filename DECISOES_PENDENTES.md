@@ -940,3 +940,40 @@ calculado.
 **O que falta decidir:** (a) se vale um job de reconciliação periódica pra fechar essa janela; (b)
 o relatório de retenção em si (quantos inativos renovam vs. viram avulso), que é o motivo do log
 existir e foi explicitamente deixado pra depois.
+
+
+## 53. O funil sabe se um telefone já é cliente — e isso é um oráculo (2026-08-21)
+
+`GET /public/clientes/conhecido` responde se um número já tem cadastro na casa. É o que permite não
+perguntar o nome a quem já é cliente (§8.1.1), e é a peça que fecha o buraco de o funil reescrever
+cadastro alheio.
+
+O custo: **enumeração**. Quem tiver paciência descobre quais telefones são clientes da barbearia.
+Mitigado, não eliminado:
+
+- devolve **booleano**, nunca o nome — o nome exige OTP;
+- limite de 20 consultas por 10 minutos por origem;
+- quem só fez login (placeholder) responde `false`, então nem "tem login aqui" vaza.
+
+Isso contraria, em espírito, a neutralidade deliberada de `/conta/login/iniciar`, que responde
+igual para todo mundo justamente para não revelar existência de conta.
+
+**A alternativa sem oráculo** seria mandar OTP para TODO MUNDO ao digitar o telefone, e descobrir o
+nome só depois de confirmar. Ela foi descartada porque adicionaria OTP ao avulso ONLINE, que hoje
+dispensa por decisão do dono (o pagamento já é a trava contra agenda falsa) — seria trocar um
+vazamento pequeno por atrito em todo cliente novo.
+
+**O que falta decidir:** se o vazamento incomoda. Se incomodar, o caminho é o OTP universal acima,
+aceitando o atrito.
+
+## 54. Cliente não consegue corrigir o próprio nome (2026-08-21)
+
+Com o funil parando de sobrescrever (§8.1.1), quem está cadastrado com o nome errado não tem como
+corrigir: não existe edição de perfil no app do cliente. Só o admin, pelo painel.
+
+Antes ele "corrigia" reagendando e digitando outro nome — e era exatamente esse mecanismo que
+permitia qualquer um bagunçar o cadastro. Trocamos um problema por um menor, de propósito.
+
+**O que falta decidir:** onde mora a edição de perfil. O lugar natural é a conta do cliente
+(`apps/account`), que já autentica por OTP — ali o próprio dono do telefone edita o próprio nome,
+que é a única pessoa que deveria poder.

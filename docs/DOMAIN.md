@@ -1593,6 +1593,49 @@ TUDO em UMA transação (passos 4-6b).
 Sem essa transação, repetimos o bug da v1: cliente criado, agendamento falhou, órfão no banco.
 ```
 
+### 8.1.1 O nome do cliente é do CLIENTE, não do funil (2026-08-21)
+
+Todo agendamento reescrevia o nome do `Cliente` com o que estivesse digitado no funil. O argumento
+era que "o funil é a única fonte da verdade sobre o nome, então ele sempre vence" — na prática isso
+deixava o cadastro à mercê de qualquer agendamento: um apelido, um erro de digitação, ou alguém
+marcando pra outra pessoa, e o registro de quem já era cliente ia junto. Reportado como problema
+real pelo dono.
+
+**Regra atual:** `Cliente.adotarNomeSeAusente(nome)` — o funil **completa** quem ainda tem o
+placeholder que o login por OTP deixa (§8.9), e **nunca sobrescreve** quem já tem nome.
+`renomear()` continua existindo, mas sem chamador no funil: é o que uma futura edição de perfil vai
+usar.
+
+**Consequência a dizer em voz alta:** enquanto não existir edição de perfil, um cliente cadastrado
+com o nome errado não consegue corrigir sozinho — só o admin, pelo painel. Antes ele "corrigia"
+reagendando; era esse mesmo mecanismo que permitia a bagunça.
+
+#### O passo de dados, em duas fases
+
+O funil pergunta o **telefone primeiro**, e é ele que decide o resto:
+
+```
+   telefone  ─→  GET /public/clientes/conhecido  ─→  { conhecido: boolean }
+                                │                              │
+                   conhecido ───┘                              └─── não conhecido
+                        │                                              │
+                   OTP  │  "Confirme que é você"                       │
+                        ▼                                              ▼
+              nome vem do CADASTRO                          pede nome + opcionais
+           (não é perguntado nem sobrescrito)
+```
+
+- **★ O endpoint devolve um BOOLEANO, nunca o nome.** O nome só aparece depois que o cliente prova
+  posse do telefone pelo OTP — senão qualquer um digitaria números para descobrir quem está por
+  trás deles.
+- **Quem só fez login (placeholder) NÃO conta como conhecido.** Dizer "conhecido" ali faria o funil
+  pular o campo de nome e cristalizar o placeholder.
+- **Cliente conhecido faz OTP mesmo no fluxo online**, que hoje dispensa OTP (§8.1). Não é
+  contradição: a dispensa vale para quem está criando um cadastro novo; usar a identidade de alguém
+  que já existe exige provar que é essa pessoa.
+- O endpoint continua sendo um oráculo de "este número é cliente da casa", e tem limite agressivo
+  por origem. Registrado em DECISOES_PENDENTES.
+
 ### 8.2 Agendar consumindo crédito (área logada)
 
 ```

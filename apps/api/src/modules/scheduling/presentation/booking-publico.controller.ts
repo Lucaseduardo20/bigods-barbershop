@@ -25,6 +25,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  ClienteConhecidoDTO,
   FormaPagamentoFunil,
   LIMITE_DIAS_AGENDAMENTO,
   MAX_SOBRE_VOCE,
@@ -73,6 +74,7 @@ import {
   ContaClienteOpcional,
 } from '../../identity/presentation/cliente.guard';
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
+import { Telefone } from '../../../shared/domain/telefone';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -83,7 +85,12 @@ class ProdutoBumpDto {
 }
 
 class ClientePublicoDto {
-  @EhNomeDeCliente() nome!: string;
+  /**
+   * Opcional desde 2026-08-21: cliente JÁ CADASTRADO não digita o nome de novo
+   * — o funil identifica pelo telefone (com OTP) e o nome vem do cadastro.
+   * Sem sessão, continua obrigatório: é a única forma de saber com quem falar.
+   */
+  @IsOptional() @EhNomeDeCliente() nome?: string;
   /**
    * Só usado quando NÃO há sessão (avulso online anônimo). Havendo sessão, o
    * telefone vem dela e este campo é ignorado — ver `agendar()`.
@@ -336,6 +343,39 @@ export class BookingPublicoController {
     return { id: barbeiro.id, nome: barbeiro.nome, fotoUrl: barbeiro.fotoUrl };
   }
 
+  /**
+   * "Este telefone já é cliente da casa?" (2026-08-21) — o funil pergunta ANTES
+   * de mostrar o formulário: quem já tem cadastro não redigita o nome, só
+   * confirma a identidade por OTP.
+   *
+   * ★ Devolve um BOOLEANO, nunca o nome. O nome só aparece depois que o cliente
+   * prova posse do telefone (OTP) — senão qualquer um digitaria números pra
+   * descobrir o nome de quem está por trás deles.
+   *
+   * Continua sendo um oráculo de "este número é cliente daqui", e é por isso
+   * que tem limite agressivo por origem. Registrado em DECISOES_PENDENTES.
+   */
+  @Publico()
+  @Throttle({ default: { limit: 20, ttl: 600_000 } })
+  @Get('clientes/conhecido')
+  async clienteConhecido(
+    @Query('companyId') companyId?: string,
+    @Query('telefone') telefone?: string,
+  ): Promise<ClienteConhecidoDTO> {
+    const id = this.exigirCompanyId(companyId);
+    if (!telefone) throw new BadRequestException('Parâmetro telefone obrigatório');
+    let normalizado: Telefone;
+    try {
+      normalizado = Telefone.de(telefone);
+    } catch {
+      // Número mal formado não é "não existe" — é entrada inválida, e dizer
+      // "não conhecido" faria o funil seguir pro cadastro com lixo.
+      throw new BadRequestException('Telefone inválido');
+    }
+    const cliente = await this.clientes.porTelefone(id, normalizado);
+    return { conhecido: !!cliente && !cliente.nomeEhPlaceholder };
+  }
+
   @Publico()
   @Get('horarios')
   async horarios(
@@ -439,6 +479,7 @@ export class BookingPublicoController {
     }
 
     let telefone: string;
+    let nome: string;
     if (atual) {
       const cliente = await this.clientes.porId(atual.clienteId);
       if (!cliente || cliente.companyId !== body.companyId) {
@@ -446,11 +487,20 @@ export class BookingPublicoController {
       }
       // Telefone da SESSÃO, nunca o do corpo — mesmo que o corpo mande outro.
       telefone = cliente.telefone.e164;
+      // Nome idem (2026-08-21): quem já tem cadastro não redigita o nome, e o
+      // que vier no corpo não pode reescrever o cadastro dele. O `nome` do
+      // corpo só serve pra completar quem ainda está com o placeholder do
+      // login OTP — quem decide isso é `Cliente.adotarNomeSeAusente`.
+      nome = cliente.nomeEhPlaceholder ? (body.cliente.nome ?? cliente.nome) : cliente.nome;
     } else {
       if (!body.cliente.telefone) {
         throw new BadRequestException('Informe seu celular com WhatsApp para agendar.');
       }
+      if (!body.cliente.nome) {
+        throw new BadRequestException('Informe seu nome para agendar.');
+      }
       telefone = body.cliente.telefone;
+      nome = body.cliente.nome;
     }
 
     const tz = await this.parametros.timezone(body.companyId);
@@ -460,7 +510,7 @@ export class BookingPublicoController {
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
       cliente: {
-        nome: body.cliente.nome,
+        nome,
         telefone,
         email: body.cliente.email ?? null,
         sobreVoce: body.cliente.sobreVoce ?? null,

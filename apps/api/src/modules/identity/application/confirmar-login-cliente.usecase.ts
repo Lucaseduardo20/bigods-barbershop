@@ -4,7 +4,7 @@ import { Telefone } from '../../../shared/domain/telefone';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { IDENTITY_PROVIDER, IdentityProvider } from '../domain/identity-provider';
 import { ClienteSessaoService } from '../infrastructure/cliente-sessao.service';
-import { Cliente } from '../../customers/domain/cliente.aggregate';
+import { Cliente, NOME_PLACEHOLDER } from '../../customers/domain/cliente.aggregate';
 
 export interface ConfirmarLoginClienteInput {
   companyId: string;
@@ -56,7 +56,7 @@ export class ConfirmarLoginClienteUseCase {
         cliente = Cliente.criar({
           id: randomUUID(),
           companyId: input.companyId,
-          nome: 'Cliente',
+          nome: NOME_PLACEHOLDER,
           telefone,
         });
         await repos.clientes.salvar(cliente);

@@ -622,6 +622,15 @@ export interface BarbeiroPublicoDTO {
   /** Foto de perfil (2026-08-19) — URL pública, ou `null` (cai no avatar de iniciais). */
   fotoUrl: string | null;
 }
+/**
+ * "Este telefone já é cliente da casa?" (2026-08-21). Booleano e só: o NOME
+ * nunca vem aqui — ele só aparece depois que o cliente prova posse do telefone
+ * pelo OTP. Sem essa regra, qualquer um descobriria o nome por trás de um
+ * número só digitando números.
+ */
+export interface ClienteConhecidoDTO {
+  conhecido: boolean;
+}
 export interface HorarioDisponivelDTO {
   horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)
   inicioIso: string; // instante absoluto UTC (ISO 8601) correspondente

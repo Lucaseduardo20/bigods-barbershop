@@ -330,9 +330,9 @@
     "semantic_hash": "ac9d64e381c7bf81e702b4accc3d02d2"
   },
   "apps/admin/src/screens/Usuarios.tsx": {
-    "mtime": 1787196850.4999597,
-    "seen": 1787199839.2978985,
-    "ast_hash": "29ee57e9f0cdc1ec28f067befb6fb7fe",
+    "mtime": 1787589650.245596,
+    "seen": 1787590564.379589,
+    "ast_hash": "42f9c9bcca06f31c04ea01891bfb9921",
     "semantic_hash": ""
   },
   "apps/admin/src/screens/Vales.tsx": {
@@ -1182,10 +1182,10 @@
     "semantic_hash": "c7a68fde91b3938c0db34cd4e650acc5"
   },
   "apps/api/src/modules/scheduling/application/agendar-avulso.usecase.ts": {
-    "mtime": 1787157382.7965446,
-    "seen": 1787165206.980216,
-    "ast_hash": "c7cb0a09f993a48a9b89db5ca4f49452",
-    "semantic_hash": "c7cb0a09f993a48a9b89db5ca4f49452"
+    "mtime": 1787589683.921198,
+    "seen": 1787590564.3858678,
+    "ast_hash": "ecb52beea5bf550d6e73936728c30aa3",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/application/agendar-com-credito.usecase.ts": {
     "mtime": 1787268140.362668,
@@ -1854,9 +1854,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/sem-preferencia.e2e.spec.ts": {
-    "mtime": 1787272804.0721898,
-    "seen": 1787274574.8733704,
-    "ast_hash": "58f5ef1013a840048a72a1589b1b8a98",
+    "mtime": 1787590313.0715628,
+    "seen": 1787590564.390757,
+    "ast_hash": "2d7418b97a97bc54b8b6a5c079eb57d9",
     "semantic_hash": ""
   },
   "apps/api/test/integration/sessao-de-cliente-orfa.e2e.spec.ts": {
@@ -1926,9 +1926,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1787588717.3893282,
-    "seen": 1787589291.8728232,
-    "ast_hash": "64e07d21b695914622f0580cea33ab4b",
+    "mtime": 1787589708.0529404,
+    "seen": 1787590564.3912878,
+    "ast_hash": "bcbd9728fd9e33acea0dd4a800a2cc1c",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
@@ -2034,16 +2034,16 @@
     "semantic_hash": "fad983889c0c6fe9b6cb9f23668b7b7a"
   },
   "apps/booking/src/lib/funnel-state.spec.ts": {
-    "mtime": 1787157382.836545,
-    "seen": 1787165206.9808154,
-    "ast_hash": "04d2522943abcf4c2fb262dee9787713",
-    "semantic_hash": "04d2522943abcf4c2fb262dee9787713"
+    "mtime": 1787589798.300163,
+    "seen": 1787590564.391904,
+    "ast_hash": "b8fab12c0abb89c37756fa4ae4ea30bc",
+    "semantic_hash": ""
   },
   "apps/booking/src/lib/funnel-state.ts": {
-    "mtime": 1787077644.7724776,
-    "seen": 1787165206.9808207,
-    "ast_hash": "4932874311b0227a7b43b329ef921e39",
-    "semantic_hash": "4932874311b0227a7b43b329ef921e39"
+    "mtime": 1787589736.292667,
+    "seen": 1787590564.3919053,
+    "ast_hash": "31d77c966501f5b77067150fbd4da18d",
+    "semantic_hash": ""
   },
   "apps/booking/src/lib/handoff.spec.ts": {
     "mtime": 1784329860.530008,
@@ -2082,16 +2082,16 @@
     "semantic_hash": "0aff5981518f1d407396a8d0929faec2"
   },
   "apps/booking/src/steps/Barbeiro.tsx": {
-    "mtime": 1787157382.836545,
-    "seen": 1787165206.9808767,
-    "ast_hash": "d8651e63fd69e9e096e84e73248ed15f",
-    "semantic_hash": "d8651e63fd69e9e096e84e73248ed15f"
+    "mtime": 1787589708.0529404,
+    "seen": 1787590564.392107,
+    "ast_hash": "b3f4cf608b21d1f4e9914034fdf8b648",
+    "semantic_hash": ""
   },
   "apps/booking/src/steps/Confirmacao.tsx": {
-    "mtime": 1787157382.840545,
-    "seen": 1787165206.9808824,
-    "ast_hash": "b377755b05440af12d94e1751e2248c6",
-    "semantic_hash": "b377755b05440af12d94e1751e2248c6"
+    "mtime": 1787589776.2043278,
+    "seen": 1787590564.3921082,
+    "ast_hash": "e8c24d4c9015dbfe55834f2a37819612",
+    "semantic_hash": ""
   },
   "apps/booking/src/steps/Dados.tsx": {
     "mtime": 1787262155.317705,
@@ -2118,9 +2118,9 @@
     "semantic_hash": "fac66c00dfbb2badcea26e60be3e1255"
   },
   "apps/booking/src/steps/Sucesso.tsx": {
-    "mtime": 1787588717.3893282,
-    "seen": 1787589291.8738658,
-    "ast_hash": "ad8842672ea64774e9f5457bbc2efdd0",
+    "mtime": 1787589776.2043278,
+    "seen": 1787590564.3922455,
+    "ast_hash": "750ee62bf95f3ccd1bef4a7ec4abed5a",
     "semantic_hash": ""
   },
   "apps/booking/tailwind.config.js": {
@@ -2226,9 +2226,9 @@
     "semantic_hash": "5baac680da5b6ccf8c2fcae1b1dbafd9"
   },
   "packages/contracts/src/dto.ts": {
-    "mtime": 1787272074.1114829,
-    "seen": 1787274574.8793476,
-    "ast_hash": "213c38c9c193222eafa93343b305465a",
+    "mtime": 1787589683.921198,
+    "seen": 1787590564.3927543,
+    "ast_hash": "40cbd36c99a4b33fad2fe697a004e8fc",
     "semantic_hash": ""
   },
   "packages/contracts/src/enums.ts": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787589073.561587,
-    "seen": 1787589291.8754442,
-    "ast_hash": "27e633649c752bacef3dd86ea055c83e",
+    "mtime": 1787590350.5156865,
+    "seen": 1787590564.3936543,
+    "ast_hash": "fafb043a7370c324d5dbb19787bc9e32",
     "semantic_hash": ""
   },
   "apps/account/index.html": {

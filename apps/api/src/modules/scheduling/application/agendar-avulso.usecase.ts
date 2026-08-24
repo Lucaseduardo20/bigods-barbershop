@@ -308,10 +308,13 @@ export class AgendarAvulsoUseCase {
         // Cliente que já existe: complementa o cadastro com o que ele informou
         // agora. `atualizarDadosOpcionais` ignora campo vazio, então voltar a
         // agendar sem preencher nada nunca apaga o que ele já tinha dito.
-        // `renomear` sempre roda — corrige o placeholder "Cliente" deixado por
-        // um login OTP anterior sem cadastro (§8.9), e mantém o nome digitado
-        // aqui como fonte da verdade (não há edição de perfil ainda).
-        cliente.renomear(input.cliente.nome);
+        //
+        // ★ O NOME não é sobrescrito (2026-08-21). `adotarNomeSeAusente` só
+        // preenche quem ainda tem o placeholder do login OTP. Antes o funil
+        // sempre vencia, e aí bastava um apelido, um erro de digitação, ou
+        // alguém marcando pra outra pessoa, pra reescrever o cadastro de quem
+        // já era cliente — reportado como problema real.
+        cliente.adotarNomeSeAusente(input.cliente.nome);
         cliente.atualizarDadosOpcionais(input.cliente);
         await repos.clientes.salvar(cliente);
       }

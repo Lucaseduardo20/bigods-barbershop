@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Cliente } from './cliente.aggregate';
+import { Cliente, NOME_PLACEHOLDER } from './cliente.aggregate';
 import { Telefone } from '../../../shared/domain/telefone';
 import { InvarianteVioladaError } from '../../../shared/errors/domain-error';
 
@@ -50,5 +50,41 @@ describe('Cliente', () => {
       c.renomear('  Pedro Souza  ');
       expect(c.nome).toBe('Pedro Souza');
     });
+  });
+});
+
+describe('Cliente — o funil não sobrescreve nome (2026-08-21)', () => {
+  const comNome = (nome: string) =>
+    Cliente.criar({
+      id: 'cli-1',
+      companyId: 'co-1',
+      nome,
+      telefone: Telefone.de('11 98888-7777'),
+    });
+
+  it('★ quem JÁ TEM nome não é renomeado pelo funil', () => {
+    const c = comNome('Rafael Grigio');
+    expect(c.adotarNomeSeAusente('Rafa')).toBe(false);
+    expect(c.nome).toBe('Rafael Grigio');
+  });
+
+  it('quem só tem o placeholder do login OTP recebe o nome digitado', () => {
+    const c = comNome(NOME_PLACEHOLDER);
+    expect(c.nomeEhPlaceholder).toBe(true);
+    expect(c.adotarNomeSeAusente('Rafael Grigio')).toBe(true);
+    expect(c.nome).toBe('Rafael Grigio');
+    expect(c.nomeEhPlaceholder).toBe(false);
+  });
+
+  it('nome vazio não apaga o placeholder — continua esperando um nome de verdade', () => {
+    const c = comNome(NOME_PLACEHOLDER);
+    expect(c.adotarNomeSeAusente('   ')).toBe(false);
+    expect(c.nomeEhPlaceholder).toBe(true);
+  });
+
+  it('renomear continua existindo para quem tiver direito de renomear', () => {
+    const c = comNome('Rafael Grigio');
+    c.renomear('Rafael G.');
+    expect(c.nome).toBe('Rafael G.');
   });
 });

@@ -4396,6 +4396,86 @@ Por fim, um barbeiro SEM foto: os três lugares mostram as iniciais, nunca image
 **Admin:** Usuários → um usuário só ADMIN (sem o papel de barbeiro) → a seção "Foto de perfil"
 aparece, e a foto enviada passa a aparecer na lista de usuários.
 
+## Telefone primeiro: o funil para de reescrever o cadastro (2026-08-21) ✅
+
+Reportado pelo dono: todo agendamento sobrescrevia o nome do cliente com o que estivesse digitado
+no funil. Bastava um apelido, um erro de digitação, ou alguém marcando pra outra pessoa, e o
+cadastro de quem já era cliente ia junto.
+
+### A causa
+
+`cliente.renomear(input.cliente.nome)` rodava SEMPRE para cliente existente, no avulso e na venda de
+pacote. O comentário assumia isso: *"o funil é a única fonte da verdade sobre o nome, então ele
+sempre vence"*. Fazia sentido quando o objetivo era corrigir o placeholder do login OTP; não fazia
+sentido como política geral.
+
+### A correção, em duas camadas
+
+**No domínio:** `Cliente.adotarNomeSeAusente(nome)` só preenche quem ainda tem o placeholder — e
+devolve `false` quando não mudou nada. `renomear()` continua existindo, sem chamador no funil: é o
+que uma futura edição de perfil vai usar. A constante `NOME_PLACEHOLDER` saiu do use case de login
+e virou domínio, porque duas coisas dependem de reconhecê-la: quem a cria e quem pode substituí-la.
+
+**No funil:** o passo de dados virou DUAS FASES. Telefone primeiro; ele decide o resto.
+
+```
+   telefone  ─→  GET /public/clientes/conhecido  ─→  { conhecido: boolean }
+                        │                                     │
+             conhecido ─┘                                     └─ não conhecido
+                  │                                                  │
+             OTP  │  "Confirme que é você"                           │
+                  ▼                                                  ▼
+        nome vem do CADASTRO                              pede nome + opcionais
+```
+
+### As três decisões que definem a segurança disso
+
+**O endpoint devolve booleano, nunca o nome.** O nome só aparece depois do OTP. Sem essa regra,
+qualquer um digitaria números para descobrir quem está por trás deles — o vazamento sério não é
+"este número é cliente", é "este número é o Fulano". Há teste garantindo que a resposta inteira não
+contém o nome.
+
+**Quem só fez login não conta como conhecido.** O login por OTP cria o `Cliente` com placeholder;
+responder "conhecido" ali faria o funil pular o campo de nome e cristalizar "Cliente" para sempre.
+
+**Cliente conhecido faz OTP mesmo no fluxo online**, que hoje dispensa OTP. Não é contradição: a
+dispensa vale para quem está criando cadastro novo (o pagamento é a trava contra agenda falsa);
+usar a identidade de alguém que já existe exige provar que é essa pessoa. Na prática isso AUMENTA a
+segurança do online, que hoje agenda em nome de qualquer número sem prova nenhuma.
+
+E como o OTP agora acontece no passo de dados, ele substitui o da confirmação — o cliente
+identificado faz UM código na jornada inteira, não dois (compõe com a correção de ontem).
+
+### O que isso custa, e está registrado
+
+- **DECISOES #53** — o endpoint é um oráculo de enumeração ("este número é cliente daqui"). Mitigado
+  (booleano, 20 consultas/10min por origem, placeholder responde `false`), não eliminado. A
+  alternativa sem oráculo seria OTP para todo mundo ao digitar o telefone — descartada porque
+  adicionaria atrito a todo cliente NOVO no fluxo online.
+- **DECISOES #54** — sem edição de perfil, quem está com o nome errado não corrige sozinho; só o
+  admin. Antes ele "corrigia" reagendando, que era o próprio mecanismo do problema. O lugar natural
+  da edição é a conta do cliente, que já autentica por OTP.
+
+### Testes
+
+**12 novos** (4 de domínio, 5 e2e, 3 do `mesmoTelefone`), suíte em **831 verdes** nos 3 fusos.
+
+O e2e cobre o que importa: agendar duas vezes com nomes diferentes não troca o cadastro; cliente
+identificado agenda SEM mandar nome; sem sessão e sem nome o funil recusa; e a consulta não vaza
+nome, responde `false` pra placeholder, e recusa telefone mal formado (que não é "desconhecido", é
+entrada inválida).
+
+### Smoke test manual
+
+Navegador anônimo, funil:
+1. **Número novo** → "Continuar" → aparecem nome + opcionais, e o telefone trava com "usar outro
+   número".
+2. **Número que já é cliente** → "Continuar" → modal *"Confirme que é você"*, sem nome à vista →
+   confirme → "Olá, {nome}", sem campo de nome, e o resto do funil segue.
+3. Feche o agendamento e confira no painel que o **nome do cadastro não mudou**.
+4. **Sem tocar em nada**, repita o passo 2 no mesmo navegador: a sessão já está ativa, e nem o
+   código é pedido.
+
 ## Como rodar localmente
 
 ```bash

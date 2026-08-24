@@ -16,6 +16,13 @@ export interface ClienteProps {
   sobreVoce: string | null;
 }
 
+/**
+ * Nome provisório de um `Cliente` criado por login OTP sem cadastro prévio
+ * (§8.9). Fica aqui, no domínio, porque duas coisas dependem de reconhecê-lo:
+ * quem o cria e quem decide se pode substituí-lo.
+ */
+export const NOME_PLACEHOLDER = 'Cliente';
+
 export class Cliente extends AggregateRoot {
   private constructor(private props: ClienteProps) {
     super();
@@ -47,18 +54,41 @@ export class Cliente extends AggregateRoot {
   }
 
   /**
-   * Nome não é opcional — sempre sobrescreve com o que veio digitado agora.
-   * Existe porque a sessão de OTP+reserva (§8.9) pode criar o `Cliente` ANTES
-   * de qualquer compra/agendamento (login sem cadastro prévio, ver
-   * `ConfirmarLoginClienteUseCase`), com um nome placeholder — sem isto, o
-   * primeiro agendamento/compra que o cliente de fato faz (onde ele digita o
-   * nome real no funil) nunca corrigia o placeholder, e o cadastro ficava com
-   * "Cliente" para sempre. Não há tela de edição de perfil hoje: o funil é a
-   * única fonte da verdade sobre o nome, então ele sempre vence.
+   * Renomeia de forma incondicional. Use com cuidado: hoje só o próprio
+   * cadastro (quando existir edição de perfil) deveria chamar isto.
    */
   renomear(nome: string): void {
     const limpo = nome.trim();
     if (limpo && limpo !== this.props.nome) this.props.nome = limpo;
+  }
+
+  /**
+   * Nome ainda não informado de verdade — só o placeholder que o login por OTP
+   * deixa quando o `Cliente` nasce sem cadastro prévio (§8.9,
+   * `ConfirmarLoginClienteUseCase`).
+   */
+  get nomeEhPlaceholder(): boolean {
+    return this.props.nome.trim() === NOME_PLACEHOLDER;
+  }
+
+  /**
+   * O que o FUNIL pode fazer com o nome (2026-08-21): completar o cadastro de
+   * quem ainda não tem nome, nunca sobrescrever o de quem já tem.
+   *
+   * Antes o funil sempre vencia, com o argumento de que era "a única fonte da
+   * verdade sobre o nome". Na prática isso deixava o cadastro à mercê de
+   * qualquer agendamento: bastava alguém digitar outra coisa — um apelido, um
+   * erro de digitação, o nome de quem estava marcando pra outra pessoa — e o
+   * cadastro do cliente era reescrito. Foi reportado como problema real.
+   *
+   * Devolve `true` quando adotou o nome, para quem chama saber se mudou algo.
+   */
+  adotarNomeSeAusente(nome: string): boolean {
+    if (!this.nomeEhPlaceholder) return false;
+    const limpo = nome.trim();
+    if (!limpo || limpo === this.props.nome) return false;
+    this.props.nome = limpo;
+    return true;
   }
 
   static reconstituir(props: ClienteProps): Cliente {

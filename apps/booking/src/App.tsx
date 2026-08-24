@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
+  ClienteConhecidoDTO,
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
   CobrancaDTO,
@@ -11,6 +12,7 @@ import type {
   VenderPacotePublicoResponse,
 } from '@bigods/contracts';
 import { api, ApiError } from './lib/api';
+import { mesmoTelefone } from './lib/telefone';
 import { COMPANY_ID } from './lib/config';
 import { carregarSessaoBooking, salvarSessaoBooking, limparSessaoBooking } from './lib/session';
 import { EmpresaProvider, useEmpresa } from './lib/empresa-context';
@@ -146,7 +148,15 @@ function Funil() {
   const [intencaoId, setIntencaoId] = useState<string | null>(null);
   // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
   // pausa aqui até o telefone ser verificado.
-  const [mostrandoOtp, setMostrandoOtp] = useState(false);
+  /**
+   * `null` = fechado. `identificar` = OTP do passo de dados, pra provar que o
+   * telefone é de quem diz ser antes de usar o cadastro dele. `confirmar` = o
+   * OTP de sempre, antes de reservar/cobrar.
+   */
+  const [otp, setOtp] = useState<null | 'identificar' | 'confirmar'>(null);
+  const setMostrandoOtp = (v: boolean) => setOtp(v ? 'confirmar' : null);
+  const [identificando, setIdentificando] = useState(false);
+  const [erroIdentificacao, setErroIdentificacao] = useState<string | null>(null);
   // Sessão já verificada NESTE navegador (localStorage) — enquanto existir, o
   // cliente não é obrigado a repetir o OTP em nenhum agendamento/compra
   // (comportamento intencional, ver lib/session.ts). Sem um aviso explícito
@@ -562,6 +572,9 @@ function Funil() {
   const trocarNumero = () => {
     limparSessaoBooking();
     setSessaoAtiva(null);
+    // A identificação era daquele número: some junto com a sessão, senão o
+    // funil seguiria dizendo "Olá, Fulano" pra quem acabou de trocar de dono.
+    patch({ clienteConhecido: null, nome: '', telefone: '' });
   };
 
   const avancar = () => {
@@ -598,6 +611,56 @@ function Funil() {
         patch({ step: PASSO.DADOS });
         break;
     }
+  };
+
+  /**
+   * Passo de dados, fase 1 (2026-08-21): o cliente digitou o telefone e mandou
+   * continuar. Perguntamos à API se aquele número já é cliente da casa —
+   * booleano, nunca o nome.
+   *
+   * - **já é cliente** → OTP AGORA. É o que protege o cadastro dele: sem provar
+   *   posse do telefone, ninguém usa (nem vê) o nome de outra pessoa. O nome só
+   *   aparece depois que o código confirma.
+   * - **não é** → segue pro formulário normal, com nome e opcionais.
+   *
+   * Com sessão ativa do MESMO telefone, nada disso acontece: já sabemos quem é.
+   */
+  const identificarTelefone = async () => {
+    setErroIdentificacao(null);
+    const daSessao = sessaoAtiva?.cliente.telefone;
+    if (daSessao && mesmoTelefone(daSessao, estado.telefone)) {
+      patch({ clienteConhecido: true, nome: sessaoAtiva!.cliente.nome });
+      return;
+    }
+    setIdentificando(true);
+    try {
+      const r = await api<ClienteConhecidoDTO>(
+        `/public/clientes/conhecido?companyId=${encodeURIComponent(COMPANY_ID)}&telefone=${encodeURIComponent(estado.telefone)}`,
+      );
+      if (r.conhecido) {
+        setOtp('identificar');
+      } else {
+        patch({ clienteConhecido: false });
+      }
+    } catch (e) {
+      // Se a consulta falhar, o funil NÃO trava: segue pelo caminho de
+      // cadastro. O pior que acontece é pedir o nome a quem já tem — e o
+      // backend continua não sobrescrevendo, então nada se perde.
+      setErroIdentificacao(
+        e instanceof ApiError && e.status === 400
+          ? e.message
+          : 'Não deu pra verificar seu número agora — siga preenchendo seus dados.',
+      );
+      if (!(e instanceof ApiError && e.status === 400)) patch({ clienteConhecido: false });
+    } finally {
+      setIdentificando(false);
+    }
+  };
+
+  /** Volta pra fase do telefone: a identificação anterior era de outro número. */
+  const trocarTelefoneNoFunil = () => {
+    setErroIdentificacao(null);
+    patch({ clienteConhecido: null, nome: '' });
   };
 
   // Sessão de OTP+reserva (Problema 1): telefone verificado ANTES de reservar
@@ -776,10 +839,14 @@ function Funil() {
         telefone={estado.telefone}
         email={estado.email}
         sobreVoce={estado.sobreVoce}
+        clienteConhecido={estado.clienteConhecido}
+        identificando={identificando}
+        erroIdentificacao={erroIdentificacao}
         onNome={(v) => patch({ nome: v })}
         onTelefone={(v) => patch({ telefone: mascararTelefone(v) })}
         onEmail={(v) => patch({ email: v })}
         onSobreVoce={(v) => patch({ sobreVoce: v })}
+        onTrocarTelefone={trocarTelefoneNoFunil}
       />
     );
   } else if (estado.step === PASSO.CONFIRMACAO) {
@@ -813,12 +880,21 @@ function Funil() {
       case PASSO.DATA_HORA:
         return { label: 'Continuar', disabled: !estado.horaInicio, onClick: avancar };
       case PASSO.DADOS:
+        // Fase 1: só o telefone. O botão leva à identificação, não à revisão.
+        if (estado.clienteConhecido === null) {
+          return {
+            label: identificando ? 'Verificando' : 'Continuar',
+            disabled: identificando || !celularBrasileiroValido(estado.telefone),
+            onClick: () => void identificarTelefone(),
+          };
+        }
         return {
           label: estado.modo === 'pacote' ? 'Revisar compra' : 'Revisar agendamento',
           // Mesmas regras da borda da API (@bigods/contracts) — o botão nunca
-          // habilita para algo que o backend vai recusar.
+          // habilita para algo que o backend vai recusar. Cliente identificado
+          // não precisa de nome: ele vem do cadastro.
           disabled:
-            !nomeDeClienteValido(estado.nome) ||
+            (!estado.clienteConhecido && !nomeDeClienteValido(estado.nome)) ||
             !celularBrasileiroValido(estado.telefone) ||
             (preenchido(estado.email) && !emailValido(estado.email)),
           onClick: avancar,
@@ -926,16 +1002,24 @@ function Funil() {
       )}
       {/* Sessão de OTP+reserva: modal sobre a Confirmação — sem sessão local válida, pausa
           o envio aqui até o telefone ser verificado. Não é passo próprio do funil. */}
-      {mostrandoOtp && (
+      {otp && (
         <OtpVerificacao
           telefone={estado.telefone}
+          motivo={otp}
           onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
             salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
             setSessaoAtiva({ token: sessao.token, cliente: sessao.cliente });
-            setMostrandoOtp(false);
+            const motivo = otp;
+            setOtp(null);
+            if (motivo === 'identificar') {
+              // Identidade provada: AGORA o nome do cadastro pode aparecer, e o
+              // funil segue sem perguntá-lo. Nada é enviado ainda.
+              patch({ clienteConhecido: true, nome: sessao.cliente.nome });
+              return;
+            }
             void enviarComSessao(sessao.token);
           }}
-          onCancelar={() => setMostrandoOtp(false)}
+          onCancelar={() => setOtp(null)}
         />
       )}
     </div>

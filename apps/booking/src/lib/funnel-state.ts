@@ -47,6 +47,18 @@ export interface FunnelState {
    * e no sucesso. `null` = sem foto, e o avatar cai nas iniciais.
    */
   barbeiroFotoUrl: string | null;
+  /**
+   * Reorganização do passo de dados (2026-08-21). O cliente informa o TELEFONE
+   * primeiro; só depois o funil sabe o que perguntar:
+   *
+   * - `null`  → ainda não perguntamos. Só o campo de telefone aparece.
+   * - `true`  → já é cliente da casa E confirmou identidade por OTP. O nome vem
+   *             do cadastro; o funil não pergunta de novo e não sobrescreve.
+   * - `false` → não tem cadastro. Aí sim aparecem nome e os opcionais.
+   *
+   * Trocar o telefone volta pra `null`: a resposta era sobre o outro número.
+   */
+  clienteConhecido: boolean | null;
   /** true quando o barbeiro foi pré-selecionado por ser o único da casa. */
   barbeiroAuto: boolean;
   /** true quando o barbeiro veio do link pessoal dele (§4b) — mostra "Agendando com X" e a saída "ver outros profissionais". */
@@ -106,6 +118,7 @@ export const estadoInicial: FunnelState = {
   barbeiroId: null,
   barbeiroNome: null,
   barbeiroFotoUrl: null,
+  clienteConhecido: null,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,
   semPreferencia: false,
