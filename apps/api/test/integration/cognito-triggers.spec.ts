@@ -111,6 +111,62 @@ describe('CreateAuthChallenge — gera o código e manda o SMS', () => {
   });
 });
 
+describe('CreateAuthChallenge — troca de provedor de SMS (2026-08-21)', () => {
+  afterEach(() => {
+    delete process.env.SMS_PROVIDER;
+    delete process.env.GTISMS_TOKEN;
+  });
+
+  it('default é o SMS Gate — subir o código novo não muda quem já está em produção', async () => {
+    const fetchMock = mockarEnvioOk();
+    await create.handler(eventoCreate());
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('sms-gate.app');
+  });
+
+  it('★ SMS_PROVIDER=gtisms manda pelo GTI — a troca é UMA variável, sem redeploy', async () => {
+    process.env.SMS_PROVIDER = 'gtisms';
+    process.env.GTISMS_TOKEN = 'tok-abc';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'success', data: { uid: 'gti-1', status: 'Delivered', cost: 1 } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const ev = await create.handler(eventoCreate());
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain('gtisms.com');
+    expect(init.headers.Authorization).toBe('Bearer tok-abc');
+    // O código continua sendo o mesmo mecanismo: 6 dígitos, guardado fora do
+    // alcance do cliente. Trocar de provedor não mexe em nada disso.
+    const codigo = (ev.response.privateChallengeParameters as { codigo: string }).codigo;
+    expect(codigo).toMatch(/^\d{6}$/);
+    expect(JSON.parse(init.body).message).toContain(codigo);
+  });
+
+  it('valor desconhecido falha alto — não cai no default em silêncio', async () => {
+    process.env.SMS_PROVIDER = 'twilio';
+    mockarEnvioOk();
+    await expect(create.handler(eventoCreate())).rejects.toThrow(/SMS_PROVIDER desconhecido/);
+  });
+
+  it('★ falha do provedor SOBE — nunca existe desafio sem código entregue', async () => {
+    process.env.SMS_PROVIDER = 'gtisms';
+    process.env.GTISMS_TOKEN = 'tok-abc';
+    // Saldo esgotado chega como HTTP 200 com status:"error".
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'error', message: 'Insufficient balance' }),
+      }),
+    );
+    await expect(create.handler(eventoCreate())).rejects.toThrow(/Insufficient balance/);
+  });
+});
+
 describe('VerifyAuthChallengeResponse — confere o código', () => {
   it('código certo passa; errado não', async () => {
     const certo = await verify.handler({

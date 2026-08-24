@@ -522,9 +522,9 @@
     "semantic_hash": "885b60183c1918e747126b6360f49916"
   },
   "apps/api/src/modules/identity/application/confirmar-login-cliente.usecase.ts": {
-    "mtime": 1787592502.7235386,
-    "seen": 1787593440.201755,
-    "ast_hash": "f82d1be368139d41b1f0d885f20bf5c8",
+    "mtime": 1787595909.2426128,
+    "seen": 1787596336.9850278,
+    "ast_hash": "a37ddb85cb778c13b84df312b5525ad4",
     "semantic_hash": ""
   },
   "apps/api/src/modules/identity/application/iniciar-login-cliente.usecase.ts": {
@@ -630,9 +630,9 @@
     "semantic_hash": "648d445446f2614c50574b2f214cb1f1"
   },
   "apps/api/src/modules/identity/presentation/conta-cliente.controller.ts": {
-    "mtime": 1787593768.3568676,
-    "seen": 1787594751.1776536,
-    "ast_hash": "cdb80679cfca1b3c93d7084cce7549af",
+    "mtime": 1787595935.6748853,
+    "seen": 1787596336.985798,
+    "ast_hash": "e5f68c24befc22230420a082b360b3c5",
     "semantic_hash": ""
   },
   "apps/api/src/modules/identity/presentation/envia-otp.decorator.ts": {
@@ -1926,9 +1926,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1787593850.2334745,
-    "seen": 1787594751.1890957,
-    "ast_hash": "8f3cd29e5a96a68fce79b9d8a1f1aecb",
+    "mtime": 1787595973.343269,
+    "seen": 1787596336.9958327,
+    "ast_hash": "913876fa7375299c24bf6c7fe0b1ef94",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
@@ -1956,9 +1956,9 @@
     "semantic_hash": "83f7a9c7d92ed61980723c56c27d4a6c"
   },
   "apps/booking/src/components/OtpVerificacao.tsx": {
-    "mtime": 1787592853.2260225,
-    "seen": 1787593440.2115774,
-    "ast_hash": "9915b17a4d86fc567ad4132f79e8ef02",
+    "mtime": 1787595973.343269,
+    "seen": 1787596336.9960046,
+    "ast_hash": "64f2ad55d08611d755dbe11241c48c7f",
     "semantic_hash": ""
   },
   "apps/booking/src/components/PagamentoManualAguardando.tsx": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787594487.5143168,
-    "seen": 1787594751.1915088,
-    "ast_hash": "ba437f835a655e9bede0c71f02e6990a",
+    "mtime": 1787596069.1802235,
+    "seen": 1787596336.998363,
+    "ast_hash": "5561caadc0fdb68777bfb6521bf3f12b",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -2538,9 +2538,9 @@
     "semantic_hash": ""
   },
   "docs/DOMAIN.md": {
-    "mtime": 1787594487.5103166,
-    "seen": 1787594751.1918342,
-    "ast_hash": "dc7fac1246e0935b1f88e5ff430ce6c7",
+    "mtime": 1787596069.1722236,
+    "seen": 1787596336.9986985,
+    "ast_hash": "0f41551967b1403dab2520d2cca8d045",
     "semantic_hash": ""
   },
   "docs/QA_GO_LIVE.md": {
@@ -3126,9 +3126,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/cadastro-nao-sobrescreve.e2e.spec.ts": {
-    "mtime": 1787593876.837673,
-    "seen": 1787594751.1877475,
-    "ast_hash": "5a17bed68f43e5d82b1bc94c582cb059",
+    "mtime": 1787596004.047578,
+    "seen": 1787596336.994442,
+    "ast_hash": "547fade33681073393151f394c9f97aa",
     "semantic_hash": ""
   }
 }

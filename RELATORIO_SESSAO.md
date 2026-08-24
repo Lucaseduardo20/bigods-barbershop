@@ -4534,6 +4534,74 @@ Navegador anônimo, funil:
 4. **Sem tocar em nada**, repita o passo 2 no mesmo navegador: a sessão já está ativa, e nem o
    código é pedido.
 
+## Provedor de SMS do OTP vira plugável — GTI SMS (2026-08-21) ✅
+
+Pedido do dono: o SMS Gate está instável e o OTP precisa ficar estável rápido. O SMS Gate entrega
+pelo **celular Android pareado** da barbearia, e é essa perna final que falha — aparelho suspenso
+pelo Android, sem bateria, sem Wi-Fi. O GTI SMS entrega da nuvem, sem aparelho no meio.
+
+### O que mudou
+
+Nada na API, nada no frontend, **nenhuma migration**. O envio do OTP vive na Lambda
+`create-auth-challenge` (trigger do Cognito), e é só lá que se mexe.
+
+`infra/cognito-triggers/gti-sms.js` — cliente novo, mesma forma do `sms-gate.js`: zero
+dependências, `fetch` nativo do Node 20, erro limpo em vez de exceção crua. E
+`SMS_PROVIDER` escolhe quem envia:
+
+| `SMS_PROVIDER` | Entrega | Variáveis |
+|---|---|---|
+| `smsgate` (**default**) | celular Android pareado | `SMS_GATE_USER`, `SMS_GATE_PASSWORD` |
+| `gtisms` | GTI SMS, nuvem | `GTISMS_TOKEN` |
+
+**Default `smsgate` de propósito:** subir o código não muda o comportamento de quem está em
+produção. Virar a chave é um ato explícito — e voltar atrás é mudar a mesma variável no console,
+em segundos, sem redeploy. Mesmo padrão reversível do pagamento manual por WhatsApp.
+
+Valor desconhecido **falha alto** em vez de cair no default: um OTP que não sai por causa de um typo
+na variável é caro de diagnosticar.
+
+### As duas diferenças que quebram uma migração dessas
+
+**O destino vai sem o `+`.** O SMS Gate exige `+5511...` e recusa sem; o GTI quer `5511...` e não
+entende com. É a diferença mais fácil de errar, e tem teste dedicado.
+
+**★ Erro pode vir com HTTP 200.** O provedor sinaliza falha no CORPO (`{"status":"error"}`) — saldo
+esgotado e número inválido chegam assim. Um cliente que olhasse só `response.ok` trataria isso como
+sucesso, o Cognito apresentaria o desafio, e o cliente ficaria esperando um código que nunca saiu. O
+cliente novo checa o corpo; há teste para isso, e para o caso de o corpo não ser JSON.
+
+### O contrato veio da documentação, não de um envio real
+
+Registrado no código e no README: o `sms-gate.js` foi validado por PoC do dono antes de virar
+produção, e este merece o mesmo. `scripts/testar-sms-gtisms.mjs` faz **um** envio real e imprime a
+resposta crua — exige `--confirmo` porque gasta crédito, e diz explicitamente como o cliente de
+produção trataria aquela resposta.
+
+### Observabilidade
+
+A linha do CloudWatch ganhou o provedor:
+`{"evento":"sms_enviado","provedor":"gtisms","destino":"••••7777","mensagemId":"...","estadoInicial":"Delivered"}`.
+Numa troca de provedor, é o que diz de onde veio (ou não veio) cada mensagem sem depender de lembrar
+quando a variável mudou. O código do OTP continua **fora** do log.
+
+### Testes
+
+**14 novos** (10 do cliente GTI, 4 da seleção de provedor), suíte em **853 verdes** nos 3 fusos.
+
+### Como virar a chave
+
+```bash
+cd infra/cognito-triggers
+zip -q create.zip create-auth-challenge.js sms-gate.js gti-sms.js
+aws lambda update-function-code --function-name bigods-cognito-create-auth --zip-file fileb://create.zip
+```
+Depois, no console da Lambda: `GTISMS_TOKEN=<token>` e `SMS_PROVIDER=gtisms`. Rollback: `SMS_PROVIDER=smsgate`.
+
+⚠️ O OTP passa a depender de saldo no provedor. Sem crédito, o login é **recusado** — corretamente
+(melhor recusar que apresentar um código que não saiu), mas é uma parada dura. Colocar saldo e ligar
+o alerta de saldo baixo antes de virar a chave em produção.
+
 ## Como rodar localmente
 
 ```bash

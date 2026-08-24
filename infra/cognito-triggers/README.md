@@ -93,7 +93,7 @@ Em **Runtime settings → Handler**, ajuste para:
 | `bigods-cognito-create-auth` | `index.handler` |
 | `bigods-cognito-verify-auth` | `index.handler` |
 
-> **A `create-auth` tem DOIS arquivos.** No editor do console, crie também um
+> **A `create-auth` tem TRÊS arquivos** (`index.js` + `sms-gate.js` + `gti-sms.js`). No editor do console, crie também um
 > arquivo `sms-gate.js` ao lado do `index.js` e cole o conteúdo de
 > `infra/cognito-triggers/sms-gate.js`. Depois troque, no topo do `index.js`, o
 > `require('./sms-gate')` — já está assim, não precisa mexer. Clique **Deploy**.
@@ -107,7 +107,7 @@ cd infra/cognito-triggers
 
 zip define.zip define-auth-challenge.js
 zip verify.zip verify-auth-challenge-response.js
-zip create.zip create-auth-challenge.js sms-gate.js
+zip create.zip create-auth-challenge.js sms-gate.js gti-sms.js
 ```
 
 Subindo por zip, o **Handler** de cada uma é o nome do arquivo sem `.js` +
@@ -119,16 +119,41 @@ Subindo por zip, o **Handler** de cada uma é o nome do arquivo sem `.js` +
 | create | `create-auth-challenge.handler` |
 | verify | `verify-auth-challenge-response.handler` |
 
+### 1.1 Qual provedor de SMS (2026-08-21)
+
+A `create-auth` fala com UM de dois provedores, escolhido por variável de ambiente. Trocar é mudar
+a variável no console da Lambda — **sem redeploy de código**, em segundos. É o caminho de volta se o
+provedor novo decepcionar.
+
+| `SMS_PROVIDER` | Quem entrega | Variáveis próprias |
+|---|---|---|
+| `smsgate` (default) | celular Android pareado, via SMS Gate Cloud | `SMS_GATE_USER`, `SMS_GATE_PASSWORD` |
+| `gtisms` | GTI SMS (nuvem, sem aparelho no meio) | `GTISMS_TOKEN` |
+
+O default é `smsgate` de propósito: subir o código novo não muda o comportamento de quem já está em
+produção. A troca é um ato explícito.
+
+Um valor desconhecido **falha alto** em vez de cair no default — um OTP que não sai por causa de um
+typo na variável é caro de diagnosticar.
+
+> **Por que o GTI existe aqui.** O SMS Gate depende do celular pareado, e essa perna final se mostrou
+> instável (ver "Quando o SMS não chega"). O GTI entrega da nuvem: não há aparelho para ficar sem
+> bateria, sem Wi-Fi ou suspenso pelo Android.
+
 ### 2. Env vars da `create-auth`
 
 Só ela precisa. Em **Configuration → Environment variables**:
 
 | Chave | Valor | Obrigatória |
 |---|---|---|
-| `SMS_GATE_USER` | usuário do SMS Gate Cloud | sim |
-| `SMS_GATE_PASSWORD` | senha do SMS Gate Cloud | sim |
+| `SMS_PROVIDER` | `smsgate` (default) ou `gtisms` | não |
+| `SMS_GATE_USER` | usuário do SMS Gate Cloud | só no `smsgate` |
+| `SMS_GATE_PASSWORD` | senha do SMS Gate Cloud | só no `smsgate` |
 | `SMS_GATE_ENDPOINT` | outro endpoint (instância própria) | não |
 | `SMS_GATE_TIMEOUT_MS` | timeout do envio (padrão `8000`) | não |
+| `GTISMS_TOKEN` | token da API do GTI SMS (tela API do painel deles) | só no `gtisms` |
+| `GTISMS_ENDPOINT` | outro endpoint (padrão `https://sms.gtisms.com/api/v3/sms/send`) | não |
+| `GTISMS_TIMEOUT_MS` | timeout do envio (padrão `8000`) | não |
 
 > As credenciais do SMS Gate ficam **só aqui**, na Lambda. A nossa API nunca
 > fala com o SMS Gate — não coloque essas variáveis no servidor da API.
@@ -300,6 +325,33 @@ Onde olhar, em ordem:
    — aí é operadora ou número errado.
 3. **App do SMS Gate no celular** — a causa mais comum. Checklist no fim desta
    seção.
+
+### Provedor GTI SMS — o que confirmar no primeiro envio
+
+O contrato abaixo veio da **documentação pública** do provedor, não de um envio real. O
+`sms-gate.js` foi validado por PoC do dono antes de virar produção; este merece o mesmo.
+
+```
+POST https://sms.gtisms.com/api/v3/sms/send
+Authorization: Bearer <GTISMS_TOKEN>
+Accept: application/json
+Content-Type: application/json
+
+{ "recipient": "5511988887777", "message": "..." }
+```
+
+Três coisas para conferir com UM envio de verdade (cada um custa crédito):
+
+1. **O destino vai sem o `+`.** É a diferença mais fácil de errar entre os dois provedores: o SMS
+   Gate exige `+55...`, o GTI quer `55...`.
+2. **Erro pode vir com HTTP 200.** Saldo esgotado e número inválido chegam como
+   `{"status":"error"}` com código 200 — por isso o cliente checa o corpo, não só o status HTTP.
+   Vale confirmar mandando com o token errado e vendo o que volta.
+3. **Acento e emoji.** A doc fala em 160 caracteres sem acento; o texto do OTP já é sem acento de
+   propósito, mas confira como a mensagem chega no aparelho.
+
+O CloudWatch da `create-auth` registra `{"evento":"sms_enviado","provedor":"gtisms","mensagemId":…}`
+— o `mensagemId` é o `uid` para procurar no painel do provedor.
 
 > Não implementei health check automático do device: não consegui confirmar na
 > documentação oficial o caminho exato do endpoint de health, e chutar uma rota
