@@ -4317,6 +4317,41 @@ o que agenda pro futuro, conclui agora e marca avulso.
 5. Venda outro pacote: volta a ATIVO. No banco, `EventoDoClube` do cliente deve ter exatamente
    `ENTROU_CLUBE, VIROU_INATIVO, SAIU_CLUBE, RENOVOU`.
 
+## Um OTP, não dois (2026-08-21) ✅
+
+Reportado testando como cliente: confirmar o telefone pra fechar o agendamento e, na tela de
+sucesso, ter que confirmar **de novo** pra entrar na conta.
+
+O funil já tinha a sessão na mão. O OTP da confirmação chama `/conta/login/confirmar` — o MESMO
+endpoint da área do cliente — e o token era guardado em `sessaoAtiva`/`localStorage`. O
+`Onboarding` da tela de sucesso simplesmente ignorava isso e começava do zero.
+
+Pior: o funil **já prometia** o contrário. Nas telas de dados e confirmação ele mostra "Número
+verificado nesta sessão — não vamos pedir o código de novo", e a tela seguinte pedia.
+
+**Correção.** `App` → `Sucesso` → `Onboarding` passam a sessão (`sessaoDoFunil`). Com ela, a caixa
+nasce no estado final, com o link de handoff pronto (`linkDeContaComSessao`, que já existia
+exatamente pra atravessar as duas origens). O texto muda também: "Sua conta está pronta / Seu
+telefone já está confirmado" em vez de "Acesso criado! 🎉" — nada foi criado agora, e anunciar um
+passo que o cliente não deu é mentira pequena mas é mentira.
+
+Vale nos dois fluxos (avulso e pacote) e nos dois caminhos de pagamento, porque os dois passam pelo
+mesmo OTP. Quem cai no funil sem OTP (há caminhos assim) continua vendo o pedido de código —
+correto, ele não confirmou nada.
+
+**Zero mudança de backend.** O token é o mesmo, a validação é a mesma, a sessão é a mesma.
+
+Verificado no navegador, ponta a ponta e com storage limpo: agendar com "pagar na barbearia" →
+**um** código → sucesso mostra "Sua conta está pronta" → clicar em "Ir para minha conta" abre a
+conta **logada**, com o agendamento na tela. Nenhum segundo código em nenhum ponto.
+
+### Smoke test manual
+
+Navegador anônimo (pra não ter sessão salva): agende com "pagar na barbearia", confirme o código
+UMA vez, e na tela de sucesso clique em "Ir para minha conta" — tem que abrir logado. Depois repita
+com "pagar agora": mesmo comportamento. Por fim, em "Trocar número" no banner de sessão ativa, o
+funil volta a pedir código no próximo agendamento (é o escape hatch, e continua funcionando).
+
 ## Como rodar localmente
 
 ```bash

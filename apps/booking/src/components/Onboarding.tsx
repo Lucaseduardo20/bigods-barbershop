@@ -6,6 +6,7 @@ import type {
 import { api, ApiError } from '../lib/api';
 import { COMPANY_ID } from '../lib/config';
 import { linkDeContaComSessao } from '../lib/handoff';
+import type { SessaoBooking } from '../lib/session';
 
 const ACCOUNT_URL = (import.meta.env.VITE_ACCOUNT_URL as string | undefined) ?? 'http://localhost:5175';
 const N = 6;
@@ -24,15 +25,38 @@ const N = 6;
  * `Cliente` se não existir. Ou seja: TODO cliente tem conta, tenha ele comprado
  * pacote, agendado avulso ou nada. O `contexto` só muda a frase — o fluxo é o
  * mesmo.
+ *
+ * ★ 2026-08-21 — UM OTP, NÃO DOIS. Se o funil já confirmou o telefone (o OTP
+ * pedido antes de fechar o agendamento), `sessao` chega preenchida e esta caixa
+ * NÃO pede código nenhum: vai direto pro link da conta, com a sessão no
+ * handoff. Pedir de novo era cansativo e, pior, contradizia o próprio funil, que
+ * na tela de dados promete em letras "não vamos pedir o código de novo".
+ *
+ * O token é o MESMO que a área do cliente emite (`/conta/login/confirmar`), só
+ * atravessando origens pela querystring — ver `linkDeContaComSessao`.
  */
-export function Onboarding({ telefone, contexto = 'pacote' }: { telefone: string; contexto?: 'pacote' | 'agendamento' }) {
-  const [fase, setFase] = useState<'oferta' | 'codigo' | 'pronto'>('oferta');
+export function Onboarding({
+  telefone,
+  contexto = 'pacote',
+  sessaoDoFunil = null,
+}: {
+  telefone: string;
+  contexto?: 'pacote' | 'agendamento';
+  /**
+   * Sessão que o funil já obteve no OTP da confirmação. Presente = o cliente
+   * acabou de provar posse do telefone, e não se pede código de novo.
+   */
+  sessaoDoFunil?: SessaoBooking | null;
+}) {
+  const [fase, setFase] = useState<'oferta' | 'codigo' | 'pronto'>(
+    sessaoDoFunil ? 'pronto' : 'oferta',
+  );
   const [desafio, setDesafio] = useState('');
   const [codigoDemo, setCodigoDemo] = useState<string | null>(null);
   const [digitos, setDigitos] = useState<string[]>(Array(N).fill(''));
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [sessao, setSessao] = useState<ConfirmarLoginClienteResponse | null>(null);
+  const [sessao, setSessao] = useState<ConfirmarLoginClienteResponse | null>(sessaoDoFunil);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
 
   const iniciar = async () => {
@@ -83,13 +107,23 @@ export function Onboarding({ telefone, contexto = 'pacote' }: { telefone: string
   };
 
   if (fase === 'pronto') {
+    // Quando a sessão veio do funil, nada foi "criado agora" — o telefone já
+    // estava confirmado. Anunciar "acesso criado! 🎉" aqui soaria como um passo
+    // que o cliente não deu.
+    const jaEstavaConfirmado = sessaoDoFunil !== null;
     return (
       <div className="rounded-2xl p-4 text-center" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
-        <div className="text-[15px] font-extrabold">Acesso criado! 🎉</div>
+        <div className="text-[15px] font-extrabold">
+          {jaEstavaConfirmado ? 'Sua conta está pronta' : 'Acesso criado! 🎉'}
+        </div>
         <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
-          {contexto === 'pacote'
-            ? 'Agora é só entrar na sua conta para usar os créditos quando quiser.'
-            : 'Agora é só entrar na sua conta para ver e gerenciar seus horários.'}
+          {jaEstavaConfirmado
+            ? contexto === 'pacote'
+              ? 'Seu telefone já está confirmado — entre e use os créditos quando quiser.'
+              : 'Seu telefone já está confirmado — entre e acompanhe seus horários.'
+            : contexto === 'pacote'
+              ? 'Agora é só entrar na sua conta para usar os créditos quando quiser.'
+              : 'Agora é só entrar na sua conta para ver e gerenciar seus horários.'}
         </div>
         <a
           href={sessao ? linkDeContaComSessao(ACCOUNT_URL, sessao) : ACCOUNT_URL}

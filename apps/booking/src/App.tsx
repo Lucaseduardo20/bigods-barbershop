@@ -307,6 +307,9 @@ function Funil() {
         pago={pago}
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
+        // Um OTP, não dois: o telefone confirmado na confirmação do agendamento
+        // vale pra entrar na conta (2026-08-21).
+        sessaoDoFunil={sessaoAtiva}
         onNovo={reset}
         onComprarPacote={comprarPacoteDoClub}
       />

@@ -2,6 +2,7 @@ import type { PacoteOfertaDTO } from '@bigods/contracts';
 import { dinheiro, instanteDeDataHoraLocal, rotuloDia } from '../lib/format';
 import type { FunnelState } from '../lib/funnel-state';
 import { Onboarding } from '../components/Onboarding';
+import type { SessaoBooking } from '../lib/session';
 import { BigodsClub } from '../components/BigodsClub';
 import { BARBEARIA, linksDaBarbearia } from '../lib/barbearia';
 import { IconeDeMarca } from '../components/IconesDeMarca';
@@ -12,11 +13,17 @@ export function Sucesso({
   pago,
   timezone,
   duracaoMinutos,
+  sessaoDoFunil,
   onNovo,
   onComprarPacote,
 }: {
   estado: FunnelState;
   pago: boolean;
+  /**
+   * Sessão obtida no OTP da confirmação, quando houve. Com ela, a caixa de
+   * acesso à conta não pede código de novo (2026-08-21).
+   */
+  sessaoDoFunil: SessaoBooking | null;
   /** Fuso da empresa — o horário escolhido é de parede NELE, não no do navegador. */
   timezone: string;
   duracaoMinutos: number;
@@ -28,7 +35,15 @@ export function Sucesso({
   const ehPacote = estado.modo === 'pacote';
 
   if (ehPacote) {
-    return <SucessoPacote estado={estado} primeiroNome={primeiroNome} pago={pago} onNovo={onNovo} />;
+    return (
+      <SucessoPacote
+        estado={estado}
+        primeiroNome={primeiroNome}
+        pago={pago}
+        sessaoDoFunil={sessaoDoFunil}
+        onNovo={onNovo}
+      />
+    );
   }
 
   const dia = estado.data ? rotuloDia(estado.data).longo : '';
@@ -71,7 +86,7 @@ export function Sucesso({
             quem agendou avulso terminar o funil sem saber que existe uma área
             onde ele acompanha, remarca e vê o histórico. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="agendamento" />
+          <Onboarding telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />
@@ -198,11 +213,13 @@ function SucessoPacote({
   estado,
   primeiroNome,
   pago,
+  sessaoDoFunil,
   onNovo,
 }: {
   estado: FunnelState;
   primeiroNome: string;
   pago: boolean;
+  sessaoDoFunil: SessaoBooking | null;
   onNovo: () => void;
 }) {
   return (
@@ -230,7 +247,7 @@ function SucessoPacote({
             liberação. Esconder aqui deixava quem vai pagar na barbearia sem
             caminho nenhum para a própria conta. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="pacote" />
+          <Onboarding telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />
