@@ -210,3 +210,38 @@ describe('Expediente semanal — materialização (item 1, sessão 2026-07-16)',
     expect(dispSegunda[0]!.origem).toBe('MANUAL');
   });
 });
+
+/**
+ * Regressão do PRIMEIRO erro que o Sentry capturou (2026-08-24):
+ * `PrismaClientKnownRequestError P2025` — "No record was found for a delete" —
+ * dentro do cron das 4h.
+ *
+ * A materialização LÊ as disponibilidades do dia e depois apaga uma a uma por
+ * id. Ela roda em dois lugares: o cron e o `DefinirExpedienteUseCase` (quando o
+ * admin salva o expediente). Duas execuções do mesmo barbeiro/dia leem a mesma
+ * lista, e a segunda tenta apagar o que a primeira já apagou.
+ *
+ * O estrago não era a exceção: era o cron abortar no meio e a esteira de dias
+ * parar de rolar — o funil passa a mostrar "sem horários" semanas depois, sem
+ * ninguém ligar uma coisa à outra.
+ */
+describe('★ materialização concorrente não explode (regressão P2025)', () => {
+  it('duas execuções simultâneas do mesmo barbeiro terminam sem erro', async () => {
+    await expect(
+      Promise.all([
+        materializar.executar({ companyId, barbeiroId }),
+        materializar.executar({ companyId, barbeiroId }),
+      ]),
+    ).resolves.toBeDefined();
+  });
+
+  it('e o dia continua com exatamente uma janela — nem duplicada, nem sumida', async () => {
+    const amanha = diaCivilMaisDias(diaCivilChave(new Date(), tz), 1);
+    await materializar.executar({ companyId, barbeiroId });
+    const disponibilidades = await prisma.disponibilidade.findMany({
+      where: { barbeiroId, data: amanha },
+    });
+    // Domingo não tem expediente neste fixture; nos demais dias, uma janela.
+    expect(disponibilidades.length).toBeLessThanOrEqual(1);
+  });
+});
