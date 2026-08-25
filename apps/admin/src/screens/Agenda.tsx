@@ -173,7 +173,7 @@ export function Agenda({
         />
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 mb-05">
         {carregando && <Loading />}
         {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
         {!carregando && !erro && !periodoInvalido && porDia.length === 0 && (
@@ -189,7 +189,7 @@ export function Agenda({
               >
                 {rotuloDiaCompleto(dia)}
               </div>
-              <div className="flex flex-col gap-2.5">
+              <div className="flex flex-col gap-2.5 mb-025">
                 {atendimentosDoDia.map((a) => {
                   const ehPacote = a.origem === OrigemAtendimento.CREDITO_PACOTE;
                   return (
