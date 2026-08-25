@@ -188,6 +188,8 @@ export class AgendaQueryService {
       ),
       podeEditarComanda: motivoBloqueio === null,
       motivoBloqueioEdicao: motivoBloqueio,
+      caixinhaCentavos: a.caixinhaCentavos,
+      descontoConcedidoCentavos: a.descontoConcedidoCentavos,
       // Os quatro campos do pedido de conclusão antecipada viram um objeto ou
       // `null` — nunca meio preenchido: ou existe pedido pendente, ou não.
       conclusaoAntecipada:

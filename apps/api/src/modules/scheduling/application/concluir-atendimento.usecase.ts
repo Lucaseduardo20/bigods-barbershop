@@ -20,7 +20,8 @@ import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
   IntencaoDePagamentoRepository,
 } from '../../payments/domain/intencao-de-pagamento.repository';
-import { Atendimento } from '../domain/atendimento.aggregate';
+import { AjustesDoFechamento, Atendimento } from '../domain/atendimento.aggregate';
+import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { RepositoriosTransacionais } from '../../../shared/application/unit-of-work';
 
 /**
@@ -40,6 +41,12 @@ export interface ConcluirAtendimentoInput {
   motivoConclusaoAntecipada?: string;
   /** Injetável para teste; em produção é sempre o relógio do processo. */
   agora?: Date;
+  /**
+   * FASE 3 (2026-08-25) — ajustes do fechamento, DECLARADOS pelo barbeiro na
+   * etapa de pagamento. Ausentes = zero; nunca inferidos.
+   */
+  caixinhaCentavos?: number;
+  descontoCentavos?: number;
 }
 
 export interface ConcluirAtendimentoResultado {
@@ -119,13 +126,14 @@ export class ConcluirAtendimentoUseCase {
           solicitadaPorId: input.usuario.barbeiroId ?? atendimento.barbeiroId,
           agora,
           formaPagamento: forma,
+          ajustes: ajustesDe(input),
         });
         await repos.atendimentos.salvar(atendimento);
         // Nenhum evento, nenhum crédito consumido: a conclusão não aconteceu.
         return false;
       }
 
-      atendimento.concluir(forma);
+      atendimento.concluir(forma, ajustesDe(input));
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
       eventos.push(...(await consumirCreditosDePacote(atendimento, repos, agora)));
@@ -148,6 +156,18 @@ export class ConcluirAtendimentoUseCase {
     const intencao = await this.intencoes.porReferenciaAtendimento(atendimentoId);
     return intencao && intencao.status === StatusPagamento.PAGO ? intencao : null;
   }
+}
+
+/**
+ * Ausente vira zero. `Dinheiro` recusa negativo por invariante, então um valor
+ * negativo vindo da borda morre aqui — mas a borda também valida
+ * (`@Min(0)` no DTO), porque erro de digitação merece 400, não 422.
+ */
+function ajustesDe(input: ConcluirAtendimentoInput): AjustesDoFechamento {
+  return {
+    caixinha: Dinheiro.deCentavos(input.caixinhaCentavos ?? 0),
+    descontoConcedido: Dinheiro.deCentavos(input.descontoCentavos ?? 0),
+  };
 }
 
 export function autorizarDonoOuAdmin(barbeiroId: string, usuario: UsuarioAutenticado): void {

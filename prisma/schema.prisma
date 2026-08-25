@@ -67,6 +67,9 @@ enum OrigemDisponibilidade {
 enum OrigemComissao {
   SERVICO
   PRODUTO
+  // Gorjeta: 100% do barbeiro. Origem própria para virar uma linha que ele
+  // reconhece no extrato, em vez de sumir dentro da comissão do serviço.
+  CAIXINHA
 }
 
 // Workflow de aprovação de PacoteOferta (sessão-B, Fase 3).
@@ -468,6 +471,13 @@ model Atendimento {
   conclusaoSolicitadaEm     DateTime?         @db.Timestamptz(3)
   conclusaoFormaPagamento   FormaPagamento?
 
+  // FASE 3 (2026-08-25) — o que o barbeiro DECLAROU no fechamento. O efeito no
+  // dinheiro vive no ledger (LancamentoComissao), imutável; estes campos são o
+  // registro do que foi declarado, para a comanda poder ser relida depois.
+  // Nunca inferidos de "pagou mais/menos": só existem por ação explícita.
+  caixinhaCentavos          Int     @default(0)
+  descontoConcedidoCentavos Int     @default(0)
+
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
   produtos ItemProdutoAtendido[]
@@ -732,6 +742,10 @@ enum TipoLancamento {
   COMISSAO
   VALE
   PAGAMENTO
+  // Parte do desconto concedido que o BARBEIRO absorve. Subtrai no saldo como
+  // VALE/PAGAMENTO, mas é outro fato — comissão que ele deixou de ganhar, não
+  // dinheiro que a casa lhe entregou.
+  DESCONTO_CONCEDIDO
 }
 
 enum StatusVale {

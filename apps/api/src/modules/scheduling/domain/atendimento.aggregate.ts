@@ -122,6 +122,25 @@ export interface AtendimentoProps {
   conclusaoSolicitadaPorId: BarbeiroId | null;
   conclusaoSolicitadaEm: Date | null;
   conclusaoFormaPagamento: FormaPagamento | null;
+  /**
+   * FASE 3 (2026-08-25) — ajustes DECLARADOS pelo barbeiro no fechamento.
+   *
+   * `caixinha`: gorjeta que o cliente deu a mais; vai 100% para o barbeiro.
+   * `descontoConcedido`: abatimento que o barbeiro deu; repartido com a casa na
+   * proporção da comissão dele (`rateio-de-desconto.ts`).
+   *
+   * Nunca inferidos de "pagou mais/menos" — só existem por ação explícita. O
+   * efeito no dinheiro vive no ledger, imutável; aqui fica o que foi declarado,
+   * para a comanda poder ser relida depois.
+   */
+  caixinha: Dinheiro;
+  descontoConcedido: Dinheiro;
+}
+
+/** Ajustes do fechamento, declarados juntos porque são um único ato. */
+export interface AjustesDoFechamento {
+  caixinha: Dinheiro;
+  descontoConcedido: Dinheiro;
 }
 
 export interface AgendarParams {
@@ -243,6 +262,8 @@ export class Atendimento extends AggregateRoot {
       conclusaoSolicitadaPorId: null,
       conclusaoSolicitadaEm: null,
       conclusaoFormaPagamento: null,
+      caixinha: Dinheiro.zero(),
+      descontoConcedido: Dinheiro.zero(),
     });
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
@@ -282,7 +303,7 @@ export class Atendimento extends AggregateRoot {
    * IntencaoDePagamento (§2.2, agregados não se chamam), quem decide isso é
    * `ConcluirAtendimentoUseCase`.
    */
-  concluir(formaPagamento?: FormaPagamento): void {
+  concluir(formaPagamento?: FormaPagamento, ajustes?: AjustesDoFechamento): void {
     this.exigirAgendado('concluir');
     // A comanda ficou editável (2026-08-25) e pode chegar aqui vazia — o
     // barbeiro removeu o serviço errado e não colocou outro. Concluir assim
@@ -293,7 +314,29 @@ export class Atendimento extends AggregateRoot {
         'A comanda não tem nenhum serviço — adicione o que foi feito, ou cancele o atendimento',
       );
     }
+    if (ajustes) this.declararAjustes(ajustes);
     this.marcarConcluido(formaPagamento);
+  }
+
+  /**
+   * Registra caixinha e desconto do fechamento.
+   *
+   * **O desconto não pode passar do total da comanda.** Um abatimento maior que
+   * o que o cliente deve não é desconto, é a casa pagando para atender — e o
+   * mais provável é dedo errado no teclado (R$5000 em vez de R$50,00). Recusar
+   * aqui é a única chance de pegar isso antes de virar lançamento imutável.
+   *
+   * A caixinha NÃO tem teto: gorjeta grande é rara, mas é do cliente decidir.
+   */
+  private declararAjustes(ajustes: AjustesDoFechamento): void {
+    const total = this.valorTotal();
+    if (ajustes.descontoConcedido.centavos > total.centavos) {
+      throw new InvarianteVioladaError(
+        `Desconto de ${ajustes.descontoConcedido.centavos} centavos é maior que o total da comanda (${total.centavos})`,
+      );
+    }
+    this.props.caixinha = ajustes.caixinha;
+    this.props.descontoConcedido = ajustes.descontoConcedido;
   }
 
   /**
@@ -314,6 +357,8 @@ export class Atendimento extends AggregateRoot {
     solicitadaPorId: BarbeiroId;
     agora: Date;
     formaPagamento?: FormaPagamento;
+    /** Declarados agora e congelados até a decisão do admin — como a forma de pagamento. */
+    ajustes?: AjustesDoFechamento;
   }): void {
     this.exigirAgendado('solicitar conclusão antecipada');
     if (params.agora.getTime() >= this.props.intervalo.inicio.getTime()) {
@@ -332,6 +377,10 @@ export class Atendimento extends AggregateRoot {
         'Conclusão exige forma de pagamento para os itens/produtos não cobertos por crédito de pacote',
       );
     }
+    // Mesma razão da forma de pagamento: caixinha e desconto são declarados por
+    // quem estava na cadeira, agora. O admin que aprova dias depois não tem como
+    // saber quanto de gorjeta o cliente deixou.
+    if (params.ajustes) this.declararAjustes(params.ajustes);
     this.props.status = StatusAtendimento.CONCLUSAO_PENDENTE;
     this.props.conclusaoAntecipadaMotivo = params.motivo.trim();
     this.props.conclusaoSolicitadaPorId = params.solicitadaPorId;
@@ -375,6 +424,10 @@ export class Atendimento extends AggregateRoot {
     this.props.conclusaoSolicitadaPorId = null;
     this.props.conclusaoSolicitadaEm = null;
     this.props.conclusaoFormaPagamento = null;
+    // Os ajustes declarados no pedido também não vingaram: AGENDADO volta sem
+    // caixinha nem desconto pendurados de um fechamento que não aconteceu.
+    this.props.caixinha = Dinheiro.zero();
+    this.props.descontoConcedido = Dinheiro.zero();
   }
 
   private exigirConclusaoPendente(acao: string): void {
@@ -417,6 +470,8 @@ export class Atendimento extends AggregateRoot {
           quantidade: p.quantidade,
           valorUnitarioCentavos: p.valorUnitario.centavos,
         })),
+        this.props.caixinha.centavos,
+        this.props.descontoConcedido.centavos,
       ),
     );
   }
@@ -686,4 +741,6 @@ export class Atendimento extends AggregateRoot {
   get conclusaoSolicitadaPorId() { return this.props.conclusaoSolicitadaPorId; }
   get conclusaoSolicitadaEm() { return this.props.conclusaoSolicitadaEm; }
   get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
+  get caixinha() { return this.props.caixinha; }
+  get descontoConcedido() { return this.props.descontoConcedido; }
 }

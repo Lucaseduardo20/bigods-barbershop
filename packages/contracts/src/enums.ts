@@ -66,6 +66,13 @@ export enum FormaPagamento {
 export enum OrigemComissao {
   SERVICO = 'SERVICO',
   PRODUTO = 'PRODUTO',
+  /**
+   * Caixinha (2026-08-25): gorjeta que o cliente deu a mais. Vai 100% para o
+   * barbeiro — não é receita da casa, é dinheiro que o cliente destinou a ele.
+   * Origem própria, e não "serviço com percentual de 100%", porque no extrato
+   * ela precisa aparecer como uma linha que o barbeiro reconhece.
+   */
+  CAIXINHA = 'CAIXINHA',
 }
 
 /** Workflow de aprovação de PacoteOferta (sessão-B, Fase 3). */
@@ -99,6 +106,14 @@ export enum TipoLancamento {
   COMISSAO = 'COMISSAO',
   VALE = 'VALE',
   PAGAMENTO = 'PAGAMENTO',
+  /**
+   * Desconto que o barbeiro concedeu ao cliente no fechamento (2026-08-25): a
+   * PARTE DELE, absorvida na proporção da comissão (ver `rateio-de-desconto.ts`).
+   * Subtrai no saldo, como VALE e PAGAMENTO — mas é outro fato: não é dinheiro
+   * que a casa entregou ao barbeiro, é comissão que ele deixou de ganhar. Um
+   * tipo próprio é o que permite dizer isso no extrato.
+   */
+  DESCONTO_CONCEDIDO = 'DESCONTO_CONCEDIDO',
 }
 
 /**

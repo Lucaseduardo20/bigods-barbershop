@@ -47,6 +47,14 @@ export class AtendimentoConcluido implements DomainEvent {
     readonly origem: OrigemAtendimento,
     readonly itens: ItemAtendidoSnapshot[],
     readonly produtos: ItemProdutoAtendidoSnapshot[],
+    /**
+     * FASE 3 (2026-08-25): ajustes DECLARADOS no fechamento. Viajam no evento
+     * porque é o Payroll que os transforma em lançamento — o Atendimento não
+     * conhece o ledger (§2.3), e o ledger não vai ler o atendimento para
+     * descobrir isso.
+     */
+    readonly caixinhaCentavos: number = 0,
+    readonly descontoConcedidoCentavos: number = 0,
   ) {}
 }
 

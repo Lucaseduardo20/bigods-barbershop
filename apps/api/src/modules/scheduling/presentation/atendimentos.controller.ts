@@ -19,6 +19,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  Min,
   IsOptional,
   IsPositive,
   IsString,
@@ -100,6 +101,14 @@ class ConcluirDto {
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
   /** Obrigatório apenas quando o horário do atendimento ainda não começou. */
   @IsOptional() @IsString() @MinLength(3) @MaxLength(500) motivoConclusaoAntecipada?: string;
+  /**
+   * FASE 3 (2026-08-25) — em CENTAVOS, inteiros. Declarados pelo barbeiro na
+   * etapa de pagamento; o sistema nunca os deduz de "pagou mais/menos".
+   * O teto do desconto (não passar do total da comanda) é invariante de
+   * domínio, não validação de borda — depende da comanda, que o DTO não conhece.
+   */
+  @IsOptional() @IsInt() @Min(0) caixinhaCentavos?: number;
+  @IsOptional() @IsInt() @Min(0) descontoCentavos?: number;
 }
 
 class CancelarDto {
@@ -356,6 +365,8 @@ export class AtendimentosController {
       atendimentoId: id,
       formaPagamento: body.formaPagamento,
       motivoConclusaoAntecipada: body.motivoConclusaoAntecipada,
+      caixinhaCentavos: body.caixinhaCentavos,
+      descontoCentavos: body.descontoCentavos,
       usuario,
     });
     return { ok: true, concluido };

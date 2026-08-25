@@ -250,6 +250,13 @@ export interface AtendimentoDTO {
   /** Por que não pode — texto pronto para a tela. `null` quando pode. */
   motivoBloqueioEdicao: string | null;
   /**
+   * FASE 3 (2026-08-25) — ajustes DECLARADOS no fechamento, em centavos.
+   * Zero enquanto o atendimento não foi concluído (ou se nada foi declarado).
+   * O efeito no dinheiro está no ledger; aqui é o registro do que foi declarado.
+   */
+  caixinhaCentavos: number;
+  descontoConcedidoCentavos: number;
+  /**
    * Registro de que este atendimento foi concluído ANTES do horário marcado
    * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e
    * depois de aprovado** — é o rastro auditável de por que a conclusão saiu
