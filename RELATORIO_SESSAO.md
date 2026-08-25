@@ -4744,6 +4744,250 @@ anterior a esta mudança — mas está registrado aqui em vez de arredondado par
 minificado, quase inútil. Subir source map exige token de auth do Sentry e um passo no deploy;
 não entrou hoje. É o próximo passo óbvio se o Sentry do frontend for ser levado a sério.
 
+## Virada de produção — reset do banco e recriação do admin (2026-08-24) ✅
+
+O banco de produção acumulou dados de TESTE do go-live: clientes fictícios, agendamentos de
+experimento, um cadastro de barbearia meio pronto. Antes de operar de verdade, esses dados vão
+embora e o sistema recomeça com **um admin e nada mais** — o cadastro real é feito pela interface,
+pelo dono.
+
+O entregável desta sessão é o **procedimento**. O código é a parte pequena.
+
+### PARTE 1 — Um seed de produção, separado do de desenvolvimento
+
+`prisma/seed.ts` (dev) cria Gabriel, Igor, dois serviços, dois produtos, pacotes de exemplo e 30 dias
+de disponibilidade — uma barbearia fictícia inteira, com **todo mundo usando a mesma senha
+conhecida**. É ótimo para desenvolver e catastrófico em produção: dado falso misturado com dado real
+de cliente fica indistinguível uma semana depois, e contas de senha pública ficam abertas.
+
+`apps/api/src/scripts/seed-producao.ts` cria **um admin**. Só.
+
+| | seed de dev | seed de produção |
+|---|---|---|
+| Comando | `npm run seed:dev -w @bigods/api` | `npm run seed:prod -w @bigods/api` |
+| Cria | barbearia fictícia completa | `Company` + um `Barbeiro` com papel `ADMIN` |
+| Senha | `bigods123`, no código | `ADMIN_SEED_SENHA`, **nunca** no código |
+| Em produção | **recusa rodar** (`NODE_ENV=production`) | é o único que roda |
+
+**Por que a `Company` não é "algo além do admin".** `Barbeiro.companyId` é chave estrangeira: sem a
+linha da empresa o admin não pode nem ser inserido. E o sistema é multi-tenant por costura
+(CLAUDE.md §9) — sem tenant explícito, operação nenhuma funciona. A empresa nasce só com id e nome;
+todo o resto fica nos **defaults do schema**, inclusive `comissaoProdutosBp = 0`. O sistema nunca
+paga comissão que ninguém configurou.
+
+**★ Idempotente quer dizer que ele não SOBRESCREVE.** Se o login já existe, o script não toca na
+linha — em particular, **não reseta a senha**. É deliberado: o procedimento manda trocar a senha
+inicial no primeiro acesso, e um seed que "conserta" a linha a cada execução devolveria a senha
+fraca e temporária sem ninguém perceber. Vale igual para a `Company`: fuso, janelas e comissão de
+produto que o dono já ajustou ficam como estão. Tem teste para os dois casos.
+
+**O hash parou de existir em dois lugares.** `hashSenha` morava dentro do `LocalAuthProvider` — uma
+classe `@Injectable` que injeta `PrismaService` — então o seed de dev, que é script standalone,
+resolveu **copiando as três linhas**. Duas implementações do mesmo formato de hash é o anti-padrão
+declarado da CLAUDE.md, e a falha seria silenciosa: mudar o parâmetro do scrypt de um lado faz o seed
+gravar um hash que o login não valida, e o sintoma é "a senha certa não entra". Agora o formato mora
+em `identity/infrastructure/senha.ts`, sem Nest e sem Prisma, e os três chamadores importam de lá.
+
+**Senha mínima de 4 caracteres, e não é política de força.** É o `@MinLength(4)` do `LoginDto`: com
+menos que isso a validação da borda recusa o corpo **antes** de conferir o hash. O admin seria criado
+e não conseguiria entrar nunca, com um 400 que não fala nada sobre tamanho de senha. O seed falha
+antes, com a mensagem certa.
+
+**Duas proteções contra rodar o seed errado**, porque nome de comando não protege ninguém:
+1. o seed de dev **recusa** com `NODE_ENV=production` — que é exatamente o que a imagem Docker da API
+   define no estágio de runtime, então um `seed:dev` disparado por engano dentro do container morre
+   antes de escrever;
+2. `scripts/deploy.sh production --seed` já era bloqueado.
+
+E uma nota sobre `prisma migrate reset`: hoje ele **não** rodaria o seed de dev, porque não existe
+`prisma.seed` configurado em nenhum `package.json` nem `prisma.config.ts` (conferido). Mas essa
+segurança é acidental — no dia em que alguém adicionar a configuração, o reset passa a rodar o seed
+de dev em produção calado. O procedimento abaixo não depende dela.
+
+---
+
+### PARTE 2 — ★ O PROCEDIMENTO DA VIRADA
+
+> ⚠️ **Operação destrutiva e irreversível sem o snapshot.** Leia os três avisos antes de digitar o
+> primeiro comando.
+>
+> 1. **O snapshot do RDS é obrigatório**, não recomendado. É a única volta atrás.
+> 2. **Sem admin logável o sistema fica inacessível.** Criar usuário exige um admin autenticado —
+>    com o banco já apagado, um admin que não entra é um sistema trancado por fora. Por isso o passo
+>    5 é um checkpoint que PARA a operação.
+> 3. **A senha inicial é temporária e já foi exposta** (ela passa pela linha de comando e fica no
+>    histórico do shell). Trocar no primeiro acesso é inegociável.
+
+#### Antes de começar: o que vai ser apagado
+
+Tudo. Clientes, agendamentos, vendas de pacote, créditos, ledger de comissão, produtos, serviços,
+fotos referenciadas no banco (os arquivos no S3 ficam órfãos, mas ficam).
+
+**Se existir agendamento REAL de cliente marcado para depois da virada, anote em papel antes.** Ele
+some, e o cliente vai aparecer na barbearia num horário que o sistema não conhece mais. Os clientes
+que já criaram conta também somem — eles recriam sozinhos no próximo OTP, sem problema, mas o
+histórico deles não volta.
+
+#### Passo 0 — Snapshot do RDS (console AWS, antes de tudo)
+
+RDS → Databases → a instância → **Actions → Take snapshot**. Nome com data
+(ex.: `bigods-antes-da-virada-2026-08-24`). **Espere ficar `Available`** — um snapshot "Creating" não
+te salva de nada.
+
+> Restaurar um snapshot do RDS **não é in-place**: ele cria uma instância NOVA, com endpoint NOVO.
+> Se precisar voltar, o caminho é restaurar para um identificador novo e apontar a `DATABASE_URL`
+> (no `.env` da EC2 e no SSM) para o endpoint dela. Saber disso no dia ruim vale meia hora.
+
+#### Passo 1 — Subir o código atual PRIMEIRO
+
+O script do seed de produção (`apps/api/dist/scripts/seed-producao.js`) só existe na imagem nova.
+Resetar antes de fazer o deploy deixaria o banco vazio e sem como semear.
+
+```bash
+# na sua máquina
+git push origin staging
+
+# na EC2
+cd ~/bigods-production/app
+./scripts/deploy.sh production --pull
+```
+
+#### Passo 2 — Parar quem escreve no banco
+
+```bash
+docker compose -f docker-compose.aws.yml stop api whatsapp-otp
+```
+
+#### Passo 3 — Apagar e reconstruir o schema
+
+```bash
+printf 'DROP SCHEMA public CASCADE;\nCREATE SCHEMA public;\n' | \
+  docker compose -f docker-compose.aws.yml run --rm -T api \
+  npx prisma db execute --schema prisma/schema.prisma --stdin
+
+docker compose -f docker-compose.aws.yml run --rm api \
+  npx prisma migrate deploy --schema prisma/schema.prisma
+```
+
+**Por que este caminho e não `prisma migrate reset --force --skip-seed`:**
+
+| | `DROP SCHEMA` + `migrate deploy` | `migrate reset` |
+|---|---|---|
+| Comando de produção | **sim** — é o mesmo que o deploy já roda | não; a própria Prisma documenta como comando de desenvolvimento |
+| Roda seed | **impossível**, não há hook | roda o seed configurado; a segurança depende de lembrar `--skip-seed` |
+| Privilégio necessário | dono do schema | idem, mas com semântica de "resetar o banco" |
+| O que apaga | exatamente o schema `public` do banco da `DATABASE_URL` | idem, com menos controle sobre o passo |
+
+`DROP SCHEMA public CASCADE` apaga **todas as tabelas, a tabela de controle `_prisma_migrations` e a
+extensão `btree_gist`** — por isso o `migrate deploy` seguinte reaplica as 40+ migrations desde a
+primeira, e a `init` recria a extensão e a constraint `EXCLUDE USING gist` do conflito de horário.
+
+**Isto foi ENSAIADO, não deduzido.** O ciclo completo rodou contra um banco de desenvolvimento nesta
+sessão: 30 tabelas recriadas, `btree_gist` presente, constraint `atendimento_sem_sobreposicao`
+presente, banco vazio. Migration aditiva aplicada desde o zero não conflita — mas "não deveria
+conflitar" e "eu vi rodar" são coisas diferentes na véspera de uma virada.
+
+#### Passo 4 — Seed de produção
+
+```bash
+docker compose -f docker-compose.aws.yml run --rm \
+  -e ADMIN_SEED_SENHA='SUA-SENHA-TEMPORARIA' api \
+  node apps/api/dist/scripts/seed-producao.js
+```
+
+Saída esperada:
+
+```
+[seed:prod] empresa=bigods admin=lkt
+[seed:prod] empresa "Bigod's Barber" criada.
+[seed:prod] admin "lkt" criado (id=bar-...).
+[seed:prod] ✓ próximo passo OBRIGATÓRIO: entrar no painel e TROCAR A SENHA.
+```
+
+O `companyId` é `bigods` — o mesmo `VITE_COMPANY_ID` com que os três frontends foram buildados. Se
+um dia mudar, os dois mudam juntos, ou o funil aponta para uma empresa que não existe.
+
+⚠️ **Não coloque `ADMIN_SEED_SENHA` no `.env`.** O compose usa `env_file: .env`, então a senha
+passaria a viver no ambiente do container da API — um processo de longa duração — em vez de existir
+só durante os segundos do seed. O `-e` acima entrega a variável ao container descartável e a ninguém
+mais.
+
+#### Passo 5 — Subir a API
+
+```bash
+docker compose -f docker-compose.aws.yml up -d
+docker compose -f docker-compose.aws.yml logs api | tail -20
+```
+
+#### Passo 6 — ★★ CHECKPOINT OBRIGATÓRIO: o admin entra?
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.bigodsbarbershop.com/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"lkt","senha":"SUA-SENHA-TEMPORARIA"}'
+```
+
+**`201` = pode seguir.** Confirme também entrando no painel pelo navegador.
+
+**Qualquer outra coisa = PARE AQUI.** Não cadastre nada, não tente "dar um jeito", não rode o seed de
+novo esperando que conserte (ele não sobrescreve — de propósito). Restaure o snapshot do passo 0,
+suba a API contra o banco restaurado e investigue com o sistema no ar. Um sistema com banco vazio e
+sem admin logável não tem caminho de recuperação pela interface: **criar usuário exige um admin
+autenticado**.
+
+| Resposta | O que provavelmente é |
+|---|---|
+| `401` | senha diferente da que foi para o `ADMIN_SEED_SENHA` (aspas do shell, caractere especial) |
+| `400` | senha com menos de 4 caracteres — o seed deveria ter recusado antes; confira a saída do passo 4 |
+| `500` | API sem banco: confira `DATABASE_URL` e os logs |
+| timeout | API não subiu; `docker compose ... logs api` |
+
+#### Passo 7 — Checklist pós-reset, nesta ordem
+
+1. **★ TROCAR A SENHA DO ADMIN.** Painel → Ajustes → trocar senha. A inicial passou pela linha de
+   comando e está no histórico do shell da EC2. Antes de qualquer cadastro.
+2. **Configurar a comissão de PRODUTO da empresa.** Nasce em **zero** — sem isso, todo produto vendido
+   gera comissão de R$ 0,00 para o barbeiro, e o erro só aparece no fechamento do mês. É taxa única da
+   empresa (DOMAIN.md §3.9.1), não por barbeiro.
+3. **Cadastrar os barbeiros** (nome, foto, papéis, comissão padrão). Se o dono também atende, o
+   cadastro dele acumula `ADMIN` + `BARBEIRO` — o admin criado pelo seed é só de gestão.
+4. **Cadastrar os serviços** (nome, preço de referência da casa, duração).
+5. **Preço e comissão por barbeiro**, onde diferir do padrão (exceções, DOMAIN.md §3.2.2).
+6. **Quais serviços cada barbeiro atende** — sem isso ele não aparece no funil.
+7. **Expediente de cada barbeiro** (janelas semanais). Sem expediente materializado, o funil mostra
+   "sem horários" e ninguém consegue agendar.
+8. **Produtos** (nome, preço).
+9. **Pacotes / ofertas** e, se for usar, os **degraus de desconto progressivo** e o teto.
+10. **Order-bump**, se for usar.
+11. **Fotos** de barbeiro e de produto (o upload usa o S3 — confira que o bucket responde; foi ele
+    que deu 503 por região errada no go-live).
+
+#### Passo 8 — Conferir as flags de ambiente
+
+```bash
+grep -E 'IDENTITY_PROVIDER|PAGAMENTO_MANUAL_WHATSAPP|PAYMENT_GATEWAY|DEMO_MODE|SENTRY' .env
+```
+
+| Variável | Valor esperado na virada |
+|---|---|
+| `DEMO_MODE` | ausente ou `false` — `true` em produção é recusado no boot |
+| `IDENTITY_PROVIDER` | `cognito` (SMS) ou `whatsapp` — o que estiver em uso |
+| `PAGAMENTO_MANUAL_WHATSAPP` | `true` enquanto a AbacatePay não liberar; com `PAGAMENTO_MANUAL_WHATSAPP_NUMERO` preenchido |
+| `SENTRY_DSN` | preenchido — no boot a API imprime `[sentry] ativo` |
+
+Depois do primeiro agendamento real, confirme no Sentry que **não** chegou erro nenhum — e que a
+navegação do cliente não levou telefone junto.
+
+### Testes
+
+**11 novos** em `test/integration/seed-producao.e2e.spec.ts`, na ordem de gravidade do que protegem:
+o admin criado **entra de verdade** (login pelo endpoint real, com a senha da env); rodar o seed de
+novo não duplica e **não reseta a senha trocada**; nada de dev entra junto (serviço, produto, oferta,
+cliente, degrau, Gabriel — todos zero); a comissão de produto nasce em zero; e a configuração da
+empresa já ajustada não é sobrescrita.
+
+Suíte da API em **869 verdes** nos 3 fusos.
+
 ## Como rodar localmente
 
 ```bash
@@ -4759,7 +5003,7 @@ cp .env.example .env   # DATABASE_URL + AUTH_SECRET
 # 4. Migrations + client + seed
 npm run db:migrate -w @bigods/api    # aplica migrations (inclui EXCLUDE gist)
 npm run db:generate -w @bigods/api   # gera o Prisma Client
-npm run db:seed -w @bigods/api       # Company, Gabriel, serviços, pacote exemplo
+npm run seed:dev -w @bigods/api       # Company, Gabriel, serviços, pacote exemplo
 
 # (se DATABASE_URL não estiver no ambiente, prefixe os comandos acima com:
 #  DATABASE_URL="postgresql://bigods:bigods@localhost:5432/bigods")

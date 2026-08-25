@@ -9,7 +9,8 @@
     "test": "vitest run",
     "db:migrate": "prisma migrate deploy --schema ../../prisma/schema.prisma",
     "db:generate": "prisma generate --schema ../../prisma/schema.prisma",
-    "db:seed": "tsx ../../prisma/seed.ts",
+    "seed:dev": "tsx ../../prisma/seed.ts",
+    "seed:prod": "tsx src/scripts/seed-producao.ts",
     "test:watch": "vitest",
     "test:multitz": "for tz in UTC America/Sao_Paulo Asia/Tokyo; do echo \"== TZ=$tz ==\" && TZ=$tz vitest run || exit 1; done"
   },

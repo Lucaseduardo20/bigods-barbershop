@@ -1,22 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { createHmac, scryptSync, timingSafeEqual, randomBytes } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Papel } from '@bigods/contracts';
 import { AuthProvider, UsuarioAutenticado } from '../domain/auth-provider';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
+import { hashSenha, verificaSenha } from './senha';
 
 const TTL_MS = 12 * 60 * 60 * 1000;
 
-export function hashSenha(senha: string): string {
-  const sal = randomBytes(16).toString('hex');
-  return `${sal}:${scryptSync(senha, sal, 32).toString('hex')}`;
-}
-
-function verificaSenha(senha: string, hash: string): boolean {
-  const [sal, esperado] = hash.split(':');
-  if (!sal || !esperado) return false;
-  const calculado = scryptSync(senha, sal, 32);
-  return timingSafeEqual(calculado, Buffer.from(esperado, 'hex'));
-}
+/**
+ * Reexportado porque os controllers já importam `hashSenha` daqui. O formato do
+ * hash mora em `senha.ts`, sem Nest e sem Prisma, para que os SEEDS possam
+ * gerar exatamente o mesmo hash que este provider valida — antes eles copiavam
+ * a implementação, que é a mesma regra em dois lugares.
+ */
+export { hashSenha };
 
 @Injectable()
 export class LocalAuthProvider implements AuthProvider {

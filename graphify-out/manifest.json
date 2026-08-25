@@ -372,9 +372,9 @@
     "semantic_hash": "ca19a6ab09ef426170011b48b44515a1"
   },
   "apps/api/package.json": {
-    "mtime": 1787616394.7133222,
-    "seen": 1787617665.0959377,
-    "ast_hash": "f4d759c7a6f5cb7f822a538ed11d4923",
+    "mtime": 1787623506.4789813,
+    "seen": 1787624545.9189656,
+    "ast_hash": "37aed68c01c02ab05cd374f089f02105",
     "semantic_hash": ""
   },
   "apps/api/src/app.module.ts": {
@@ -390,9 +390,9 @@
     "semantic_hash": "f49ef0c992110684de2b7bf32249d194"
   },
   "apps/api/src/main.ts": {
-    "mtime": 1787616569.9387195,
-    "seen": 1787617665.0960124,
-    "ast_hash": "2ea5e1bc7abafe604f8370f9e02ba616",
+    "mtime": 1787617780.2192826,
+    "seen": 1787624545.9191182,
+    "ast_hash": "bb6896c7cd52b661608d2fb3c968102a",
     "semantic_hash": ""
   },
   "apps/api/src/modules/catalog/catalog.module.ts": {
@@ -582,10 +582,10 @@
     "semantic_hash": "e1a9c72211995ec568732456bf712171"
   },
   "apps/api/src/modules/identity/infrastructure/local-auth.provider.ts": {
-    "mtime": 1784051655.639663,
-    "seen": 1787165206.979872,
-    "ast_hash": "3b27cea5986bc44a099f922d001b5f08",
-    "semantic_hash": "3b27cea5986bc44a099f922d001b5f08"
+    "mtime": 1787623502.55095,
+    "seen": 1787624545.9218345,
+    "ast_hash": "1f998fa21c6f4630d1ebf68c49962a00",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/identity/infrastructure/otp-identity-provider.base.ts": {
     "mtime": 1787077644.7004771,
@@ -2268,10 +2268,10 @@
     "semantic_hash": "636570b191d59a427ffee0a5383f2b86"
   },
   "prisma/seed.ts": {
-    "mtime": 1786393644.032654,
-    "seen": 1787165206.9810522,
-    "ast_hash": "971dcdc11359fbae9f6418e50f1c569a",
-    "semantic_hash": "971dcdc11359fbae9f6418e50f1c569a"
+    "mtime": 1787623502.55095,
+    "seen": 1787624545.945621,
+    "ast_hash": "bcb73f744e60d78314ab8cdade70e4e1",
+    "semantic_hash": ""
   },
   "scripts/deploy-frontends.sh": {
     "mtime": 1787617347.5883348,
@@ -2292,10 +2292,10 @@
     "semantic_hash": "fd984711c764a455c0c49f6b76879565"
   },
   "scripts/env-up.sh": {
-    "mtime": 1787077644.8524783,
-    "seen": 1787165206.9810746,
-    "ast_hash": "f7cf117b9e9b64702e9b924e77418f89",
-    "semantic_hash": "f7cf117b9e9b64702e9b924e77418f89"
+    "mtime": 1787623511.9510248,
+    "seen": 1787624545.9458144,
+    "ast_hash": "3c604a72326ba3c54f7eb4945526f787",
+    "semantic_hash": ""
   },
   "scripts/fetch-secrets-ssm.sh": {
     "mtime": 1786642666.2708876,
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787617631.4902756,
-    "seen": 1787617665.113726,
-    "ast_hash": "b0927e6da05dac8964730910c52197c2",
+    "mtime": 1787624115.6838515,
+    "seen": 1787624545.946794,
+    "ast_hash": "8395bf57c43cb087e4bf7683f0e561ea",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -3150,15 +3150,15 @@
     "semantic_hash": ""
   },
   "apps/account/src/lib/sentry.ts": {
-    "mtime": 1787617202.2753277,
-    "seen": 1787617665.0938559,
-    "ast_hash": "79ceb1c9fc3e25f3da3cdca508c0bc00",
+    "mtime": 1787617713.1548293,
+    "seen": 1787624545.9148467,
+    "ast_hash": "3158e3f0eba232604dc3d1dc44f872ab",
     "semantic_hash": ""
   },
   "apps/admin/src/lib/sentry.ts": {
-    "mtime": 1787617202.2713277,
-    "seen": 1787617665.095221,
-    "ast_hash": "82f7572bba4536fbcc79ef88d8c7c69d",
+    "mtime": 1787617713.1548293,
+    "seen": 1787624545.9174623,
+    "ast_hash": "440ce0d9a1a4540a56d6070cbde88a90",
     "semantic_hash": ""
   },
   "apps/api/src/shared/observability/sentry-http.filter.ts": {
@@ -3168,15 +3168,15 @@
     "semantic_hash": ""
   },
   "apps/api/src/shared/observability/sentry.ts": {
-    "mtime": 1787617037.4181688,
-    "seen": 1787617665.1079106,
-    "ast_hash": "ec1ea68d6a7d6cb1e3f66431a1e15ced",
+    "mtime": 1787617780.2192826,
+    "seen": 1787624545.9378169,
+    "ast_hash": "ee135df1711e233e4ccb37fcbababfbe",
     "semantic_hash": ""
   },
   "apps/booking/src/lib/sentry.ts": {
-    "mtime": 1787617202.2713277,
-    "seen": 1787617665.1113765,
-    "ast_hash": "f2aad00bccbf5556ec9a08c40afb7889",
+    "mtime": 1787617713.1548293,
+    "seen": 1787624545.9433982,
+    "ast_hash": "87892a274b2973e239f28a0730bcfb7f",
     "semantic_hash": ""
   },
   "packages/contracts/src/sentry-scrubbing.spec.ts": {
@@ -3189,6 +3189,30 @@
     "mtime": 1787617442.472987,
     "seen": 1787617665.1126454,
     "ast_hash": "dbc7f68218773d483d615ac34e1d1452",
+    "semantic_hash": ""
+  },
+  "apps/api/src/modules/identity/infrastructure/senha.ts": {
+    "mtime": 1787622972.9187882,
+    "seen": 1787624545.9220073,
+    "ast_hash": "0a61dad540aa97d0e9cb5aa7686c420c",
+    "semantic_hash": ""
+  },
+  "apps/api/src/scripts/seed-producao.ts": {
+    "mtime": 1787623018.0431378,
+    "seen": 1787624545.9359002,
+    "ast_hash": "00ff6ac3a7e98252943c2817828cb35a",
+    "semantic_hash": ""
+  },
+  "apps/api/src/shared/observability/sentry.spec.ts": {
+    "mtime": 1787617938.9163523,
+    "seen": 1787624545.9378138,
+    "ast_hash": "cbfa087157e5e695ff827608b85a8b06",
+    "semantic_hash": ""
+  },
+  "apps/api/test/integration/seed-producao.e2e.spec.ts": {
+    "mtime": 1787623605.107766,
+    "seen": 1787624545.9406192,
+    "ast_hash": "ce7f005ab5fc8cd66a346bd30a364ba7",
     "semantic_hash": ""
   }
 }
