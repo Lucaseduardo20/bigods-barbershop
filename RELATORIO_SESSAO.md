@@ -4942,6 +4942,48 @@ autenticado**.
 | `500` | API sem banco: confira `DATABASE_URL` e os logs |
 | timeout | API não subiu; `docker compose ... logs api` |
 
+#### Se a senha inicial se perder
+
+Aconteceu na primeira execução real: o procedimento manda trocar a senha no primeiro acesso, mas não
+dizia o que fazer quando ninguém anotou a inicial. O hash é scrypt — não tem volta — e trocar a senha
+pelo painel exige a senha ATUAL (`PUT /auth/senha` pede `senhaAtual`, de propósito: sem isso um
+celular destravado no balcão trancaria o dono para fora).
+
+Primeiro, as duas hipóteses baratas: a senha pode ser o próprio placeholder do comando
+(`SUA-SENHA-TEMPORARIA`, se o comando foi colado literal), ou estar em `~/.bash_history` da EC2
+(`grep ADMIN_SEED_SENHA ~/.bash_history`).
+
+Se não achar, **apague a linha e rode o seed de novo**. Re-rodar sozinho não resolve: o seed não
+sobrescreve, é o comportamento que protege a senha já trocada.
+
+```bash
+docker compose -f docker-compose.aws.yml run --rm -T api \
+  npx prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
+DELETE FROM "Barbeiro" WHERE login = 'lkt';
+SQL
+
+docker compose -f docker-compose.aws.yml run --rm \
+  -e ADMIN_SEED_SENHA='a-nova-anotada' api \
+  node apps/api/dist/scripts/seed-producao.js
+```
+
+A `Company` fica de pé (o seed não a recria) e o admin volta com a senha nova.
+
+⚠️ Isso vale enquanto o admin for uma linha isolada. Depois que ele tiver atendimento, comissão ou
+venda apontando para ele, a chave estrangeira recusa o `DELETE` — e aí o caminho é trocar só o hash:
+
+```bash
+# 1) gera o hash no MESMO formato que o login valida
+docker compose -f docker-compose.aws.yml run --rm -e NOVA='a-nova-anotada' api \
+  node -e "console.log(require('./apps/api/dist/modules/identity/infrastructure/senha').hashSenha(process.env.NOVA))"
+
+# 2) grava o valor impresso acima
+docker compose -f docker-compose.aws.yml run --rm -T api \
+  npx prisma db execute --schema prisma/schema.prisma --stdin <<'SQL'
+UPDATE "Barbeiro" SET "senhaHash" = 'COLE-O-HASH-AQUI' WHERE login = 'lkt';
+SQL
+```
+
 #### Passo 7 — Checklist pós-reset, nesta ordem
 
 1. **★ TROCAR A SENHA DO ADMIN.** Painel → Ajustes → trocar senha. A inicial passou pela linha de
