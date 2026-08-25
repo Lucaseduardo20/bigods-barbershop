@@ -48,6 +48,7 @@ import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-a
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
 import { EditarComandaUseCase } from '../application/editar-comanda.usecase';
+import { ReativarAtendimentoUseCase } from '../application/reativar-atendimento.usecase';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
 import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
@@ -138,6 +139,7 @@ export class AtendimentosController {
     private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
     private readonly editarComanda: EditarComandaUseCase,
+    private readonly reativar: ReativarAtendimentoUseCase,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
     private readonly processarWebhook: ProcessarWebhookUseCase,
@@ -399,6 +401,23 @@ export class AtendimentosController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<{ ok: true }> {
     await this.cancelar.executar({ atendimentoId: id, motivo: body.motivo, usuario });
+    return { ok: true };
+  }
+
+  /**
+   * FASE 4 (2026-08-25): o admin desfaz um cancelamento feito por engano.
+   *
+   * Só ADMIN, e não o barbeiro dono: cancelar é operação do dia a dia dele, mas
+   * ressuscitar um atendimento mexe em comissão futura e em crédito de pacote de
+   * cliente. É decisão de quem responde pelo caixa.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post(':id/reativar')
+  async reativarAtendimento(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.reativar.executar({ atendimentoId: id, usuario });
     return { ok: true };
   }
 

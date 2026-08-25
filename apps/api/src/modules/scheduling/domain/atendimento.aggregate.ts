@@ -135,6 +135,13 @@ export interface AtendimentoProps {
    */
   caixinha: Dinheiro;
   descontoConcedido: Dinheiro;
+  /**
+   * FASE 4 (2026-08-25) — quem reativou este atendimento depois de cancelado, e
+   * quando. `motivoCancelamento` continua preenchido de propósito: os três
+   * juntos contam a história (cancelado por X, trazido de volta por Y em Z).
+   */
+  reativadoPorId: BarbeiroId | null;
+  reativadoEm: Date | null;
 }
 
 /** Ajustes do fechamento, declarados juntos porque são um único ato. */
@@ -264,6 +271,8 @@ export class Atendimento extends AggregateRoot {
       conclusaoFormaPagamento: null,
       caixinha: Dinheiro.zero(),
       descontoConcedido: Dinheiro.zero(),
+      reativadoPorId: null,
+      reativadoEm: null,
     });
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
@@ -635,6 +644,65 @@ export class Atendimento extends AggregateRoot {
   }
 
   /**
+   * FASE 4 (2026-08-25) — o admin desfaz um cancelamento feito por engano.
+   *
+   * ## Isto é uma exceção consciente à regra dos estados finais
+   *
+   * A regra da casa (CLAUDE.md §4, DOMAIN.md §4.1) é que estado final não
+   * transiciona: reagendar é cancelar e criar outro. `CANCELADO` era final.
+   *
+   * O caso real que abriu a exceção: um agendamento foi cancelado achando que
+   * era duplicata, e era do PAI do cliente. O dono resolveu com um UPDATE na mão
+   * no banco de produção. Entre "criar um atendimento novo, que perde o vínculo
+   * com a intenção de pagamento e com os créditos de pacote daquele" e "voltar
+   * o mesmo registro para AGENDADO", o segundo é o que reflete o que de fato
+   * aconteceu — o atendimento nunca deixou de existir, alguém apertou o botão
+   * errado. E é infinitamente melhor que o UPDATE manual, que não valida nada.
+   *
+   * ## Revalidar o horário é o ponto inteiro
+   *
+   * Entre o cancelamento e a reativação o horário pode ter sido vendido a outro
+   * cliente. Reativar cegamente colocaria dois na mesma cadeira — exatamente o
+   * que a constraint EXCLUDE existe para impedir. A checagem aqui dá a mensagem
+   * boa; o `EXCLUDE` do Postgres é a rede que pega a corrida entre duas
+   * requisições simultâneas.
+   *
+   * Devolve os itens de pacote que precisam ser reagendados no outro agregado
+   * (§2.2) — o cancelamento devolveu os créditos ao cliente, e a reativação
+   * tem que tomá-los de volta, ou o cliente ficaria com o crédito E o horário.
+   */
+  reativar(params: {
+    atendimentosAtivos: Atendimento[];
+    reativadoPorId: BarbeiroId;
+    agora: Date;
+  }): ItemDoPacoteId[] {
+    if (this.props.status !== StatusAtendimento.CANCELADO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Só um atendimento CANCELADO pode ser reativado (este está ${this.props.status})`,
+      );
+    }
+    const conflito = params.atendimentosAtivos.find(
+      (a) =>
+        a.props.id !== this.props.id &&
+        a.props.barbeiroId === this.props.barbeiroId &&
+        (a.props.status === StatusAtendimento.AGENDADO ||
+          a.props.status === StatusAtendimento.RESERVADO ||
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+        a.props.intervalo.sobrepoe(this.props.intervalo),
+    );
+    if (conflito) {
+      throw new ConflitoDeHorarioError(
+        'Este horário já foi ocupado por outro atendimento — reagende em vez de reativar',
+      );
+    }
+
+    this.props.status = StatusAtendimento.AGENDADO;
+    this.props.reativadoPorId = params.reativadoPorId;
+    this.props.reativadoEm = params.agora;
+    return this.itensDoPacote();
+  }
+
+  /**
    * Pagamento online confirmado: a reserva temporária vira firme. Só aqui —
    * não em `agendar()` — o evento `AtendimentoAgendado` é emitido pra este
    * atendimento (ver comentário em `agendar()`).
@@ -742,5 +810,7 @@ export class Atendimento extends AggregateRoot {
   get conclusaoSolicitadaEm() { return this.props.conclusaoSolicitadaEm; }
   get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
   get caixinha() { return this.props.caixinha; }
+  get reativadoPorId() { return this.props.reativadoPorId; }
+  get reativadoEm() { return this.props.reativadoEm; }
   get descontoConcedido() { return this.props.descontoConcedido; }
 }

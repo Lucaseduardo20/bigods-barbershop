@@ -257,6 +257,12 @@ export interface AtendimentoDTO {
   caixinhaCentavos: number;
   descontoConcedidoCentavos: number;
   /**
+   * FASE 4 (2026-08-25) — preenchido quando este atendimento voltou de um
+   * cancelamento. `motivoCancelamento` continua preenchido junto: os dois
+   * contam a história (foi cancelado por isto, e fulano trouxe de volta).
+   */
+  reativado: { porNome: string; em: string } | null;
+  /**
    * Registro de que este atendimento foi concluído ANTES do horário marcado
    * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e
    * depois de aprovado** — é o rastro auditável de por que a conclusão saiu

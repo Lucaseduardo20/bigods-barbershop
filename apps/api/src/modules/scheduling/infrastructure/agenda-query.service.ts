@@ -190,6 +190,13 @@ export class AgendaQueryService {
       motivoBloqueioEdicao: motivoBloqueio,
       caixinhaCentavos: a.caixinhaCentavos,
       descontoConcedidoCentavos: a.descontoConcedidoCentavos,
+      reativado:
+        a.reativadoEm && a.reativadoPorId
+          ? {
+              porNome: barbeiroPorId.get(a.reativadoPorId)?.nome ?? '?',
+              em: a.reativadoEm.toISOString(),
+            }
+          : null,
       // Os quatro campos do pedido de conclusão antecipada viram um objeto ou
       // `null` — nunca meio preenchido: ou existe pedido pendente, ou não.
       conclusaoAntecipada:

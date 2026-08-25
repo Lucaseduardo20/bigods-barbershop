@@ -478,6 +478,13 @@ model Atendimento {
   caixinhaCentavos          Int     @default(0)
   descontoConcedidoCentavos Int     @default(0)
 
+  // FASE 4 (2026-08-25) — reativação de cancelamento pelo admin. Auditoria de
+  // quem trouxe o atendimento de volta. `motivoCancelamento` continua
+  // preenchido: os três campos juntos contam a história (cancelado por X,
+  // reativado por Y em Z).
+  reativadoPorId            String?
+  reativadoEm               DateTime? @db.Timestamptz(3)
+
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
   produtos ItemProdutoAtendido[]
