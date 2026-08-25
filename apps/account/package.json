@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@bigods/contracts": "*",
+    "@sentry/react": "^10.71.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

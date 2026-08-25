@@ -22,6 +22,8 @@ import {
 } from './modules/identity/presentation/telefone-throttler.guard';
 import { rotaEnviaOtp } from './modules/identity/presentation/envia-otp.decorator';
 import { DomainErrorFilter } from './shared/presentation/domain-error.filter';
+import { SentryModule } from '@sentry/nestjs/setup';
+import { SentryHttpFilter } from './shared/observability/sentry-http.filter';
 
 /** Nome do throttler que conta envios de OTP por origem (ver abaixo). */
 export const THROTTLER_OTP_ORIGEM = 'otp-origem';
@@ -45,6 +47,11 @@ export function limiteOtpPorOrigemHora(): number {
 
 @Module({
   imports: [
+    // Só o interceptor que nomeia a transação com a ROTA (`GET /public/horarios`)
+    // em vez da URL crua (`/public/horarios?data=...&barbeiroId=...`). Sem ele,
+    // cada requisição vira uma transação distinta e o painel de performance não
+    // agrupa nada. Sem DSN não faz nada além de comparar dois objetos.
+    SentryModule.forRoot(),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     // Backstop generoso para toda a API; limites finos vêm de @Throttle por rota
@@ -89,6 +96,12 @@ export function limiteOtpPorOrigemHora(): number {
     // Rate limit primeiro (freia abuso antes de qualquer trabalho), depois auth.
     { provide: APP_GUARD, useClass: TelefoneOuIpThrottlerGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Sentry PRIMEIRO na lista = consultado por ÚLTIMO (o Nest inverte os
+    // filtros globais). Erro de regra de negócio segue indo para o
+    // DomainErrorFilter e virando 422; só o que ninguém tratou chega aqui.
+    // Sem DSN o SDK está inerte: o filtro roda, o captureException não envia
+    // nada e a resposta HTTP é a mesma de sempre.
+    { provide: APP_FILTER, useClass: SentryHttpFilter },
     { provide: APP_FILTER, useClass: DomainErrorFilter },
   ],
 })

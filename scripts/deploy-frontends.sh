@@ -56,6 +56,18 @@ deploy_app() {
     exit 1
   fi
 
+  # Sentry: cada app tem o SEU projeto, então o DSN é escolhido pelo app que
+  # está buildando (BOOKING_SENTRY_DSN → VITE_SENTRY_DSN). Vazio NÃO é erro —
+  # sem DSN o SDK fica inerte de propósito, e é assim que se publica um app
+  # sem observabilidade se for preciso. Mas avisa, porque publicar o funil às
+  # cegas raramente é intencional.
+  local dsn_var
+  dsn_var="$(echo "$app" | tr '[:lower:]' '[:upper:]')_SENTRY_DSN"
+  export VITE_SENTRY_DSN="${!dsn_var:-}"
+  export VITE_SENTRY_ENVIRONMENT="${SENTRY_ENVIRONMENT:-production}"
+  export VITE_SENTRY_TRACES_SAMPLE_RATE="${SENTRY_TRACES_SAMPLE_RATE:-0.15}"
+  [[ -n "$VITE_SENTRY_DSN" ]] || echo "  aviso: $dsn_var vazio — $app sobe sem Sentry." >&2
+
   info "Buildando @bigods/$app (VITE_API_URL=$VITE_API_URL)"
   npx turbo run build --filter="@bigods/$app"
 

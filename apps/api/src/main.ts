@@ -4,6 +4,12 @@ import { resolve } from 'node:path';
 // apps/api — Prisma Client (ao contrário do Prisma CLI) não o carrega sozinho.
 config({ path: resolve(__dirname, '../../../.env') });
 
+// Sentry ANTES de qualquer coisa do Nest: o SDK instrumenta módulos (http, etc.)
+// no momento do init, e o que já foi carregado antes dele fica de fora. Depois
+// do dotenv, porque o DSN vem do ambiente.
+import { iniciarSentry } from './shared/observability/sentry';
+const sentryLigado = iniciarSentry();
+
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -11,6 +17,13 @@ import { AppModule } from './app.module';
 import { assertConfiguracaoSegura } from './shared/config/config-seguranca';
 
 async function bootstrap() {
+  if (sentryLigado) {
+    // Log de uma linha, no boot: sem isto, "o Sentry está ligado?" só se
+    // responde provocando um erro e olhando o painel.
+    console.log(
+      `[sentry] ativo — environment=${process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development'}`,
+    );
+  }
   // Recusa subir com configuração insegura (ex.: DEMO_MODE=true em produção)
   // ANTES de instanciar qualquer coisa.
   assertConfiguracaoSegura();
