@@ -977,3 +977,26 @@ permitia qualquer um bagunçar o cadastro. Trocamos um problema por um menor, de
 **O que falta decidir:** onde mora a edição de perfil. O lugar natural é a conta do cliente
 (`apps/account`), que já autentica por OTP — ali o próprio dono do telefone edita o próprio nome,
 que é a única pessoa que deveria poder.
+
+## 55. Remover item de comanda já paga online exige estorno (2026-08-25)
+
+A comanda ficou editável (FASE 1): o barbeiro remove e troca serviços/produtos antes de concluir, e o
+total é refeito sobre a composição final. Isso funciona enquanto o dinheiro ainda não entrou.
+
+Quando **já entrou**, remover item significa devolver dinheiro, e devolução não existe neste sistema.
+Duas situações caem nisso:
+
+- **pago online** (`IntencaoDePagamento` PAGA): o cliente transferiu via PIX. Estornar exige chamar o
+  gateway, tratar estorno parcial, lidar com estorno que falha, e registrar tudo isso no ledger —
+  nada disso está escrito;
+- **saldo residual abatido** (`Atendimento.valorAbatidoSaldo > 0`): parte do valor veio de um saldo
+  de outro pacote. Desfazer é devolver saldo àquela outra venda, que já foi fechada.
+
+**O que foi feito:** a remoção é RECUSADA com mensagem explícita, e o painel esconde o botão
+(`AtendimentoDTO.podeEditarComanda`). Adicionar continua liberado nos dois casos — o adicional é
+cobrado presencialmente — mas a comanda NÃO é reprecificada, para o preço do que já foi pago não
+mudar embaixo de um pagamento fechado.
+
+**O que falta decidir:** se vale escrever o fluxo de estorno, ou se a saída operacional (devolver por
+fora e registrar no acerto) basta. Enquanto o pagamento online for majoritariamente o modo manual por
+WhatsApp, "por fora" já é o normal — o gateway nem está no caminho.

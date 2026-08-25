@@ -18,6 +18,8 @@ import {
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
+import { TabelaDeDescontoDTO } from '@bigods/contracts';
+import { ItemDoCarrinho, precificarCarrinho } from '../../catalog/domain/desconto-progressivo';
 import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { DisponibilidadeBarbeiro } from '../../staff/domain/disponibilidade.aggregate';
 import {
@@ -34,6 +36,21 @@ export interface ItemAtendido {
   valorCobrado: Dinheiro;
   duracao: Duracao;
   itemDoPacoteId: ItemDoPacoteId | null;
+  /**
+   * Comanda editável (2026-08-25): preço CHEIO do barbeiro quando o item entrou
+   * na comanda — a BASE da escada de desconto progressivo.
+   *
+   * Sem ele, remover um serviço não tem como refazer o desconto: `valorCobrado`
+   * já vem com o degrau diluído dentro, e de um total descontado não se
+   * reconstrói a escada. Ausente/null = item anterior a esta mudança; o
+   * recálculo usa `valorCobrado` como base, que é o melhor que se sabe dele.
+   */
+  precoCheio?: Dinheiro | null;
+  /**
+   * Preço cravado do order-bump (§8.13). Não-nulo ⇒ este item fica FORA da
+   * escada progressiva — nunca desconto sobre desconto.
+   */
+  precoPromocional?: Dinheiro | null;
 }
 
 /**
@@ -267,6 +284,15 @@ export class Atendimento extends AggregateRoot {
    */
   concluir(formaPagamento?: FormaPagamento): void {
     this.exigirAgendado('concluir');
+    // A comanda ficou editável (2026-08-25) e pode chegar aqui vazia — o
+    // barbeiro removeu o serviço errado e não colocou outro. Concluir assim
+    // geraria um atendimento sem nada feito e comissão zero, e ninguém
+    // entenderia depois. A edição é livre; o portão é aqui.
+    if (this.props.itens.length === 0) {
+      throw new InvarianteVioladaError(
+        'A comanda não tem nenhum serviço — adicione o que foi feito, ou cancele o atendimento',
+      );
+    }
     this.marcarConcluido(formaPagamento);
   }
 
@@ -412,7 +438,113 @@ export class Atendimento extends AggregateRoot {
     if (!barbeiro.atende(servicoId)) {
       throw new InvarianteVioladaError(`Barbeiro ${barbeiro.nome} não atende o serviço ${servicoId}`);
     }
-    this.props.itens.push({ servicoId, valorCobrado, duracao, itemDoPacoteId: null });
+    // `precoCheio = valorCobrado`: o item entra pelo preço de referência do
+    // barbeiro, e é esse valor que vira a base dele na escada quando a comanda
+    // for reprecificada logo em seguida.
+    this.props.itens.push({
+      servicoId,
+      valorCobrado,
+      duracao,
+      itemDoPacoteId: null,
+      precoCheio: valorCobrado,
+      precoPromocional: null,
+    });
+  }
+
+  /**
+   * COMANDA EDITÁVEL (2026-08-25) — remove um serviço da comanda antes de
+   * concluir.
+   *
+   * O caso real: o cliente agendou "corte navalhado" achando que era o simples.
+   * Até aqui o barbeiro só sabia ADICIONAR — ficava preso cobrando o serviço
+   * errado, e o jeito de "trocar" era cancelar o atendimento inteiro.
+   *
+   * ## O índice, e por que ele vem acompanhado
+   *
+   * `ItemAtendido` não tem identidade: o repositório apaga e recria a lista
+   * inteira a cada `salvar`, então o id da linha no banco não sobrevive a uma
+   * edição e não serve de alça. Sobra a POSIÇÃO — que é frágil se a lista mudar
+   * entre a tela e o clique. Por isso o chamador manda também qual serviço ele
+   * ACHA que está naquela posição: se não bater, a remoção é recusada em vez de
+   * apagar o item errado. É dinheiro; errar calado não é opção.
+   *
+   * Devolve o item removido porque quem chama precisa saber se ele carregava um
+   * crédito de pacote — o crédito tem que voltar para o cliente, e isso acontece
+   * em OUTRO agregado (§2.2), na mesma transação.
+   */
+  removerItem(indice: number, servicoIdEsperado: ServicoId): ItemAtendido {
+    this.exigirAgendado('remover item');
+    const item = this.props.itens[indice];
+    if (!item) {
+      throw new InvarianteVioladaError(`A comanda não tem item na posição ${indice}`);
+    }
+    if (item.servicoId !== servicoIdEsperado) {
+      throw new InvarianteVioladaError(
+        'A comanda mudou desde que a tela foi carregada — recarregue antes de remover',
+      );
+    }
+    this.props.itens.splice(indice, 1);
+    return item;
+  }
+
+  /** Mesma regra de alça do `removerItem`: posição + confirmação do produto. */
+  removerProduto(indice: number, produtoIdEsperado: ProdutoId): ItemProdutoAtendido {
+    this.exigirAgendado('remover produto');
+    const produto = this.props.produtos[indice];
+    if (!produto) {
+      throw new InvarianteVioladaError(`A comanda não tem produto na posição ${indice}`);
+    }
+    if (produto.produtoId !== produtoIdEsperado) {
+      throw new InvarianteVioladaError(
+        'A comanda mudou desde que a tela foi carregada — recarregue antes de remover',
+      );
+    }
+    this.props.produtos.splice(indice, 1);
+    return produto;
+  }
+
+  /**
+   * Recalcula o desconto progressivo sobre a composição FINAL da comanda.
+   *
+   * É o que faz a edição significar alguma coisa: tirar um serviço não pode só
+   * apagar a linha e deixar o degrau do 2º item embutido no preço do 1º. A
+   * escada depende de QUANTOS serviços a comanda tem, então ela é refeita
+   * inteira a cada mudança.
+   *
+   * **Itens de pacote não entram.** O `valorCobrado` deles é o valor RATEADO da
+   * venda do pacote (§3.6) — dinheiro que já foi cobrado, em outra transação,
+   * com outra regra. Passá-los pela escada de avulso seria inventar um desconto
+   * sobre algo que já está pago.
+   *
+   * **A base é o preço de quando o item entrou**, não o preço de hoje: o
+   * `precoCheio` é snapshot. Assim, remover a barba não faz o corte "subir"
+   * porque a tabela mudou entre o agendamento e o atendimento — o cliente paga
+   * o que combinou, com o desconto que a composição final merece.
+   */
+  reprecificarAvulsos(tabela: TabelaDeDescontoDTO): void {
+    this.exigirAgendado('reprecificar');
+    const posicoesAvulsas: number[] = [];
+    const entradas: ItemDoCarrinho[] = [];
+    this.props.itens.forEach((item, i) => {
+      if (item.itemDoPacoteId !== null) return;
+      posicoesAvulsas.push(i);
+      entradas.push({
+        servicoId: item.servicoId,
+        // Item anterior à migration não tem `precoCheio`: o valor cobrado é o
+        // melhor que se sabe sobre ele.
+        precoCheio: item.precoCheio ?? item.valorCobrado,
+        precoPromocional: item.precoPromocional ?? null,
+      });
+    });
+    if (entradas.length === 0) return;
+
+    // Por POSIÇÃO, nunca por servicoId: uma comanda pode ter o mesmo serviço
+    // duas vezes (dois cortes, pai e filho na mesma cadeira), e um mapa por id
+    // colapsaria os dois num só.
+    const carrinho = precificarCarrinho(entradas, tabela);
+    posicoesAvulsas.forEach((posicao, i) => {
+      this.props.itens[posicao]!.valorCobrado = carrinho.itens[i]!.precoFinal;
+    });
   }
 
   /**

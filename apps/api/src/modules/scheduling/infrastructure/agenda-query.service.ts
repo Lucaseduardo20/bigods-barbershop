@@ -131,6 +131,14 @@ export class AgendaQueryService {
   ): AtendimentoDTO {
     const valorItens = a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0);
     const valorProdutos = a.produtos.reduce((acc, p) => acc + p.valorUnitarioCentavos * p.quantidade, 0);
+    // Mesma regra do `motivoParaNaoMexerNoValor` da aplicação, dita na
+    // linguagem da leitura: dinheiro já recebido trava a remoção de itens.
+    const motivoBloqueio =
+      a.valorAbatidoSaldoCentavos > 0
+        ? 'Este atendimento usou saldo residual de um pacote — o valor não pode ser alterado aqui.'
+        : intencaoPaga !== undefined
+          ? 'Este atendimento já foi pago online — o valor não pode ser alterado aqui.'
+          : null;
     return {
       id: a.id,
       cliente: {
@@ -148,6 +156,7 @@ export class AgendaQueryService {
         valorCobradoCentavos: i.valorCobradoCentavos,
         duracaoMinutos: i.duracaoMinutos,
         itemDoPacoteId: i.itemDoPacoteId,
+        precoCheioCentavos: i.precoCheioCentavos,
       })),
       produtos: a.produtos.map((p) => ({
         produtoId: p.produtoId,
@@ -167,6 +176,18 @@ export class AgendaQueryService {
       origemLinkBarbeiroId: a.origemLinkBarbeiroId,
       origemLinkBarbeiroNome: a.origemLinkBarbeiroId ? (barbeiroPorId.get(a.origemLinkBarbeiroId)?.nome ?? null) : null,
       valorAbatidoSaldoCentavos: a.valorAbatidoSaldoCentavos,
+      // Só dos AVULSOS: item de crédito de pacote não passa pela escada, e
+      // contá-lo aqui inventaria um desconto que não existiu.
+      descontoProgressivoCentavos: a.itens.reduce(
+        (acc, i) =>
+          acc +
+          (i.itemDoPacoteId === null && i.precoCheioCentavos !== null
+            ? i.precoCheioCentavos - i.valorCobradoCentavos
+            : 0),
+        0,
+      ),
+      podeEditarComanda: motivoBloqueio === null,
+      motivoBloqueioEdicao: motivoBloqueio,
       // Os quatro campos do pedido de conclusão antecipada viram um objeto ou
       // `null` — nunca meio preenchido: ou existe pedido pendente, ou não.
       conclusaoAntecipada:

@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Inject,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -44,6 +46,7 @@ import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
+import { EditarComandaUseCase } from '../application/editar-comanda.usecase';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
 import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
@@ -125,6 +128,7 @@ export class AtendimentosController {
     private readonly adicionarItem: AdicionarItemAtendimentoUseCase,
     private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
+    private readonly editarComanda: EditarComandaUseCase,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
     private readonly processarWebhook: ProcessarWebhookUseCase,
@@ -251,6 +255,44 @@ export class AtendimentosController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<{ ok: true }> {
     await this.adicionarItem.executar({ atendimentoId: id, servicoId: body.servicoId, usuario });
+    return { ok: true };
+  }
+
+  /**
+   * COMANDA EDITÁVEL (2026-08-25, FASE 1): remove um serviço da comanda.
+   *
+   * O índice vem na rota e o `servicoId` na query como CONFIRMAÇÃO do que o
+   * painel achava que estava ali — `ItemAtendido` não tem identidade estável
+   * (o repositório recria a lista a cada save), então a alça é a posição, e a
+   * posição sozinha remove o item errado se a lista mudou. Ver
+   * `Atendimento.removerItem`.
+   */
+  @Delete(':id/itens/:indice')
+  async removerItemAtendimento(
+    @Param('id') id: string,
+    @Param('indice', ParseIntPipe) indice: number,
+    @Query('servicoId') servicoId: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    if (!servicoId) {
+      throw new BadRequestException('Informe o servicoId do item que está sendo removido');
+    }
+    await this.editarComanda.removerItem({ atendimentoId: id, indice, servicoId, usuario });
+    return { ok: true };
+  }
+
+  /** Gêmeo do anterior, para produtos. */
+  @Delete(':id/produtos/:indice')
+  async removerProdutoAtendimento(
+    @Param('id') id: string,
+    @Param('indice', ParseIntPipe) indice: number,
+    @Query('produtoId') produtoId: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    if (!produtoId) {
+      throw new BadRequestException('Informe o produtoId do item que está sendo removido');
+    }
+    await this.editarComanda.removerProduto({ atendimentoId: id, indice, produtoId, usuario });
     return { ok: true };
   }
 

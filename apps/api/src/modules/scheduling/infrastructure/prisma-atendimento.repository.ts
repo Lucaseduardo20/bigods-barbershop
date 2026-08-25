@@ -30,6 +30,11 @@ function paraDominio(row: Row): Atendimento {
       valorCobrado: Dinheiro.deCentavos(i.valorCobradoCentavos),
       duracao: Duracao.deMinutos(i.duracaoMinutos),
       itemDoPacoteId: i.itemDoPacoteId,
+      // Comanda editável (2026-08-25). NULL nas linhas anteriores à migration:
+      // o domínio cai em `valorCobrado` como base da escada.
+      precoCheio: i.precoCheioCentavos === null ? null : Dinheiro.deCentavos(i.precoCheioCentavos),
+      precoPromocional:
+        i.precoPromocionalCentavos === null ? null : Dinheiro.deCentavos(i.precoPromocionalCentavos),
     })),
     produtos: row.produtos.map((p) => ({
       produtoId: p.produtoId,
@@ -150,6 +155,8 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
             valorCobradoCentavos: i.valorCobrado.centavos,
             duracaoMinutos: i.duracao.minutos,
             itemDoPacoteId: i.itemDoPacoteId,
+            precoCheioCentavos: i.precoCheio?.centavos ?? null,
+            precoPromocionalCentavos: i.precoPromocional?.centavos ?? null,
           })),
         });
       }
@@ -175,6 +182,8 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
               valorCobradoCentavos: i.valorCobrado.centavos,
               duracaoMinutos: i.duracao.minutos,
               itemDoPacoteId: i.itemDoPacoteId,
+              precoCheioCentavos: i.precoCheio?.centavos ?? null,
+              precoPromocionalCentavos: i.precoPromocional?.centavos ?? null,
             })),
           },
           produtos: {

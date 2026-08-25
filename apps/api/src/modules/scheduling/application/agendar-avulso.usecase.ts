@@ -282,13 +282,18 @@ export class AgendarAvulsoUseCase {
       }),
       tabelaDeDesconto,
     );
-    const precoFinalPorServico = new Map(carrinho.itens.map((i) => [i.servicoId, i.precoFinal]));
-
-    const itensComPreco = servicos.map((s) => ({
+    // Por POSIÇÃO: `carrinho.itens` sai na mesma ordem de `servicos`, e um mapa
+    // por servicoId colapsaria dois cortes na mesma comanda num só.
+    const itensComPreco = servicos.map((s, i) => ({
       servicoId: s.id,
-      valorCobrado: precoFinalPorServico.get(s.id)!,
+      valorCobrado: carrinho.itens[i]!.precoFinal,
       duracao: s.duracao,
       itemDoPacoteId: null,
+      // Comanda editável (2026-08-25): guarda a BASE da escada. Sem isto,
+      // remover um serviço depois não tem como refazer o desconto — o degrau
+      // do 2º item já está diluído dentro do valor cobrado.
+      precoCheio: carrinho.itens[i]!.precoCheio,
+      precoPromocional: carrinho.itens[i]!.precoPromocional ?? null,
     }));
     const totalCentavos = itensComPreco.reduce((acc, i) => acc + i.valorCobrado.centavos, 0);
 
