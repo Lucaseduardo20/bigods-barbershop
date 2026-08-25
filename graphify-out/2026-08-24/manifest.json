@@ -1722,9 +1722,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/cognito-triggers.spec.ts": {
-    "mtime": 1787205129.8786623,
-    "seen": 1787263284.0138037,
-    "ast_hash": "404d2ffb85367350677ad6e53fe9322c",
+    "mtime": 1787597817.8946629,
+    "seen": 1787598331.6041853,
+    "ast_hash": "b9190a4842cad862eb8a4e7d812ebccb",
     "semantic_hash": ""
   },
   "apps/api/test/integration/conclusao-avancada.e2e.spec.ts": {
@@ -2160,9 +2160,9 @@
     "semantic_hash": "025ba16a5c245744a69d269aa54353e2"
   },
   "infra/cognito-triggers/create-auth-challenge.js": {
-    "mtime": 1787205105.1265025,
-    "seen": 1787263284.0212579,
-    "ast_hash": "f426aeff71239b09411d4d7307579047",
+    "mtime": 1787597771.3944294,
+    "seen": 1787598331.6067894,
+    "ast_hash": "f99dde9b691a92a48f9ff05d49219259",
     "semantic_hash": ""
   },
   "infra/cognito-triggers/define-auth-challenge.js": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787596069.1802235,
-    "seen": 1787596336.998363,
-    "ast_hash": "5561caadc0fdb68777bfb6521bf3f12b",
+    "mtime": 1787598322.541709,
+    "seen": 1787598331.6080384,
+    "ast_hash": "b222a3ff00937a10516791f21c5295e7",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -2574,9 +2574,9 @@
     "semantic_hash": ""
   },
   "infra/cognito-triggers/README.md": {
-    "mtime": 1787205179.1789808,
-    "seen": 1787263284.0260413,
-    "ast_hash": "a700ebf62ef2d3285af352533b3f2ec6",
+    "mtime": 1787597849.6708283,
+    "seen": 1787598331.608536,
+    "ast_hash": "ec6e0ba112e5d884cab7a58b391d8c54",
     "semantic_hash": ""
   },
   "prompts/prompt-sessao-B.md": {
@@ -3129,6 +3129,24 @@
     "mtime": 1787596004.047578,
     "seen": 1787596336.994442,
     "ast_hash": "547fade33681073393151f394c9f97aa",
+    "semantic_hash": ""
+  },
+  "apps/api/test/integration/gti-sms.spec.ts": {
+    "mtime": 1787597798.3465633,
+    "seen": 1787598331.6045613,
+    "ast_hash": "c9a4c574890b918d108c0a309fd373d2",
+    "semantic_hash": ""
+  },
+  "infra/cognito-triggers/gti-sms.js": {
+    "mtime": 1787597742.702291,
+    "seen": 1787598331.6068294,
+    "ast_hash": "0b5f9c673374d5bd1a8b99b140810c61",
+    "semantic_hash": ""
+  },
+  "scripts/testar-sms-gtisms.mjs": {
+    "mtime": 1787598294.2975209,
+    "seen": 1787598331.6074982,
+    "ast_hash": "88eb66098ce725bce173fbaa192cfbd9",
     "semantic_hash": ""
   }
 }

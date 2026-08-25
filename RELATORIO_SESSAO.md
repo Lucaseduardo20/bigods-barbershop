@@ -4602,6 +4602,148 @@ Depois, no console da Lambda: `GTISMS_TOKEN=<token>` e `SMS_PROVIDER=gtisms`. Ro
 (melhor recusar que apresentar um código que não saiu), mas é uma parada dura. Colocar saldo e ligar
 o alerta de saldo baixo antes de virar a chave em produção.
 
+## Sentry nos quatro apps — erro e latência, sem levar dado de cliente junto (2026-08-21) ✅
+
+Véspera de lançamento: quando algo quebrar em produção, a informação não pode depender de alguém
+estar com o terminal aberto. A API, o funil, o painel e a conta do cliente passam a reportar erro e
+tempo de resposta para o Sentry — **um projeto por app**, porque um erro do painel do dono e um erro
+do funil do cliente têm urgência e dono diferentes, e numa fila só nada é de ninguém.
+
+### A regra que mais importa: o relatório não pode virar o vazamento
+
+Um stack trace com o telefone do cliente, a senha digitada ou o código do OTP é dado saindo da nossa
+infraestrutura para um serviço de terceiro. `packages/contracts/src/sentry-scrubbing.ts` é a regra —
+TypeScript puro, sem SDK, testável isolada, e **compartilhada pelos quatro apps**. Duas listas de "o
+que é sensível" divergiriam no primeiro campo novo, e a que ficasse para trás é que vazaria.
+
+Quatro camadas, porque uma só sempre deixa passar:
+
+| Camada | O que faz |
+|---|---|
+| Rotas mudas | corpo de `/auth/login`, `/conta/login`, `/conta/cadastro`, `/webhooks`, `/pagamentos` e `/barbeiros` **não vai**, ponto |
+| Chaves proibidas | `senha`, `hash`, `codigo`, `otp`, `token`, `authorization`, `telefone`, `email`, `cpf`… viram `[removido]` em qualquer profundidade |
+| Query string | `?token=…&clienteNome=…` perde o valor e mantém a chave e a rota |
+| Telefone em texto livre | número brasileiro em qualquer string vira `[telefone]` |
+
+A última camada existe porque as três primeiras dependem de eu ter previsto o lugar. A varredura por
+texto não depende.
+
+**★ O vazamento que estava desenhado e não era hipótese.** O handoff de sessão do funil para a conta
+viaja na URL: `?token=…&clienteId=…&clienteNome=…&clienteTelefone=…` (`account/src/lib/session.ts`,
+`PARAMS_SESSAO`). A URL da página entra em **todo** evento do navegador — erro e breadcrumb de
+navegação. Sem a limpeza de query string, o token de sessão de um cliente real estaria no painel do
+Sentry, utilizável. A camada 3 nasceu disso.
+
+**★ E o que um `WeakSet` deixaria passar.** A varredura protege contra ciclo, e a primeira versão
+marcava "já visitei aqui". O evento do SDK referencia o mesmo objeto de vários lugares — o mesmo
+`cliente` no contexto e no breadcrumb — e a segunda ocorrência voltava o objeto **original**: limpo
+num lugar, sujo no outro. Hoje é um `WeakMap` de original → cópia limpa: as duas apontam para a cópia,
+e o ciclo continua resolvido. Tem teste com as duas ocorrências.
+
+**O que NÃO é apagado, de propósito:** nome de serviço, de pacote e de barbeiro. São o assunto do
+erro, não o dono dele — apagar todo campo `nome` deixaria um relatório dizendo que algo falhou e nada
+mais. A decisão olha o caminho: `cliente.nome` sai, `servico.nome` fica.
+
+Do usuário sobra **só o `id` interno** (uuid nosso, não identifica ninguém fora do banco). `email`,
+`username` e `ip_address` são removidos mesmo que um `setUser` distraído os coloque lá.
+
+### Inerte sem DSN
+
+Sem `SENTRY_DSN` (API) ou `VITE_SENTRY_DSN` (frontends) o SDK **não inicializa**: nenhuma rede,
+nenhum hook, nenhuma variação de comportamento. É assim que dev, teste e CI rodam — ligar
+observabilidade não pode ser um jeito novo de a aplicação quebrar. Um `console.log` de uma linha no
+boot diz se ligou; sem ele, "o Sentry está ativo?" só se responde provocando um erro.
+
+### Backend
+
+`@sentry/nestjs` v10 instrumenta o Nest sozinho — não existe mais `SentryModule` obrigatório nem
+registro manual de filtro para o caminho comum. O que precisou de decisão:
+
+**Ordem dos filtros.** O `SentryHttpFilter` (catch-all) vai **antes** do `DomainErrorFilter` na lista
+de providers. O Nest **inverte** os filtros globais antes de casar (`filters.reverse()`, em
+`router-exception-filters`), então o último registrado é consultado primeiro — e é assim que o
+`@Catch(DomainError)`, mais específico, continua respondendo **422** em vez de cair no catch-all e
+virar 500. Regra de negócio recusada não é falha técnica e não polui a fila.
+
+**★ 5xx explícito também conta.** O `SentryGlobalFilter` de fábrica ignora toda `HttpException` — a
+premissa é que exceção HTTP é resposta esperada. Vale para 4xx. Não vale para as duas 5xx que este
+sistema levanta de propósito: `S3ArmazenamentoDeImagens` quando o upload falha (foi exatamente o 503
+de bucket em região errada, que só apareceu porque alguém foi ler o log na mão) e
+`WhatsAppIdentityProvider` quando o OTP não sai — que é o cliente não conseguindo entrar. Sem a
+subclasse, seriam justamente os erros que o Sentry não veria.
+
+O `SentryModule.forRoot()` entra só pelo interceptor que nomeia a transação com a **rota**
+(`GET /public/horarios`) em vez da URL crua com query string — sem ele cada requisição vira uma
+transação distinta e o painel de performance não agrupa nada.
+
+### Frontends
+
+**Sem Session Replay, de propósito.** Replay grava a tela, e nestas telas se digita telefone e código
+de OTP. A garantia de que nada disso vaza não pode depender de eu ter marcado todo campo certo com
+`mask` — um campo novo sem a marcação já seria o vazamento. Então o Replay não entra: nem desligado
+por configuração, nem no bundle.
+
+**Tracing sem propagar cabeçalho** (`tracePropagationTargets: []`). Perde-se a ligação entre o trace
+do navegador e o do backend; em troca, nenhuma requisição à API ganha `sentry-trace`/`baggage` — e
+cabeçalho customizado em outra origem obriga o navegador a fazer um preflight `OPTIONS` antes de
+**cada** chamada, o que é latência real no celular do cliente. Na véspera do lançamento, a troca é
+essa. Reverter é apagar a linha.
+
+**Tela de erro em vez de página branca.** `Sentry.ErrorBoundary` nos três apps. No funil, a tela
+oferece "tentar de novo" **e** o WhatsApp da barbearia — com o funil quebrado, o agendamento ainda
+pode acontecer por lá; sem isso o cliente vê branco no meio da compra e vai embora sem que ninguém
+fique sabendo.
+
+**Custo no bundle: +5,8 kB gzip** (booking: 68,6 → 74,4 kB). Medido, não estimado.
+
+### Amostragem
+
+`SENTRY_TRACES_SAMPLE_RATE` / `VITE_SENTRY_TRACES_SAMPLE_RATE`, default **0.15**. Não é 1.0 de
+propósito: tracing de tudo custa caro e afoga o sinal em ruído. 15% já mostra tendência de latência e
+as rotas lentas, e sobe com uma variável no dia em que investigar um problema específico exigir.
+Valor inválido cai no default em vez de virar `NaN` — que o SDK lê como 0 e desligaria o tracing em
+silêncio.
+
+### Como ligar
+
+```bash
+# API (.env, vai inteiro pro container por env_file)
+SENTRY_DSN="https://…@…ingest.sentry.io/…"
+SENTRY_ENVIRONMENT="production"
+SENTRY_TRACES_SAMPLE_RATE="0.15"
+
+# Frontends (.env.frontends) — um DSN por app; o deploy converte o do app que
+# está buildando em VITE_SENTRY_DSN. NÃO coloque VITE_SENTRY_DSN aqui.
+BOOKING_SENTRY_DSN="…"
+ADMIN_SENTRY_DSN="…"
+ACCOUNT_SENTRY_DSN="…"
+```
+
+DSN vazio não trava o deploy dos frontends — só avisa. Publicar o funil às cegas raramente é
+intencional, mas é uma escolha legítima, e o script não decide isso por ninguém.
+
+### Testes
+
+**13 novos** no módulo de limpeza (37 no total, em `packages/contracts` — rodam sem banco e sem
+SDK), cobrindo: token e nome na query string, percent-encoding inválido, nome de pessoa vs nome de
+catálogo, usuário reduzido ao id, e a referência compartilhada que o `WeakSet` deixava passar.
+
+Mais **5 na API** para a LIGAÇÃO, que é outra coisa da regra: sem DSN não nasce cliente nenhum; com
+DSN, o `beforeSend` que está de fato pendurado no cliente apaga o corpo de `/conta/login/confirmar` e
+o e-mail do usuário, e preserva o id. Não adianta a regra ser perfeita se ninguém a chamou.
+
+Suíte da API em **858 verdes** (853 + 5) nos 3 fusos; contracts 72, booking 49, account 21, admin 18.
+
+Uma nota honesta: numa das rodadas, 2 testes de integração de `sem-preferencia.e2e.spec.ts`
+falharam e passaram sozinhos na rodada seguinte e isolados. É flakiness de concorrência no banco,
+anterior a esta mudança — mas está registrado aqui em vez de arredondado para "tudo verde".
+
+### O que ficou de fora
+
+**Source map.** Sem eles, o stack trace do frontend em produção aponta para `index-abc.js:1:24567` —
+minificado, quase inútil. Subir source map exige token de auth do Sentry e um passo no deploy;
+não entrou hoje. É o próximo passo óbvio se o Sentry do frontend for ser levado a sério.
+
 ## Como rodar localmente
 
 ```bash
