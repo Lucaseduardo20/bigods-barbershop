@@ -7,7 +7,6 @@ import { randomUUID } from 'node:crypto';
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
 process.env.IDENTITY_PROVIDER = 'demo';
 process.env.DEMO_MODE = 'true';
-process.env.OTP_LIMITE_POR_ORIGEM_HORA = '500';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';

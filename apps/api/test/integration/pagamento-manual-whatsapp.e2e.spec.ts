@@ -8,7 +8,6 @@ process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
 process.env.IDENTITY_PROVIDER = 'demo';
 process.env.DEMO_MODE = 'true';
 process.env.PAYMENT_GATEWAY = 'fake';
-process.env.OTP_LIMITE_POR_ORIGEM_HORA = '500';
 // ★ A flag do modo manual, ligada ANTES do AppModule compilar — ela é lida uma
 // vez no boot (não muda em runtime), então tem que estar aqui em cima.
 process.env.PAGAMENTO_MANUAL_WHATSAPP = 'true';

@@ -7,9 +7,6 @@ import { randomUUID } from 'node:crypto';
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
 process.env.IDENTITY_PROVIDER = 'demo';
 process.env.DEMO_MODE = 'true';
-// Valor baixo só para este arquivo: o comportamento sob teste é o limite
-// existir e cortar, não o número exato (produção usa 30/hora, ajustável).
-process.env.OTP_LIMITE_POR_ORIGEM_HORA = '4';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';
@@ -41,7 +38,21 @@ let app: INestApplication;
 let prisma: PrismaService;
 let http: ReturnType<typeof request>;
 
+/**
+ * Valor baixo só para ESTE arquivo — o comportamento sob teste é o limite
+ * existir e cortar, não o número exato (produção usa 30/hora, ajustável).
+ *
+ * Ligado em `beforeAll` e restaurado no `afterAll`, e não no topo do módulo: o
+ * topo executa na IMPORTAÇÃO, e a suíte inteira roda no mesmo processo com o
+ * MESMO tracker (o IP). Um limite de 4 deixado para trás derrubava o `login()`
+ * de qualquer arquivo que rodasse depois, com 429 e mensagem que não falava
+ * nada de rate limit. Ver `test/setup-env.ts`.
+ */
+const LIMITE_PADRAO_DA_SUITE = process.env.OTP_LIMITE_POR_ORIGEM_HORA;
+
 beforeAll(async () => {
+  process.env.OTP_LIMITE_POR_ORIGEM_HORA = String(LIMITE);
+
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -53,6 +64,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  process.env.OTP_LIMITE_POR_ORIGEM_HORA = LIMITE_PADRAO_DA_SUITE;
+
   await prisma.demoDesafioLogin.deleteMany({ where: { companyId } });
   await prisma.demoIdentidade.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });

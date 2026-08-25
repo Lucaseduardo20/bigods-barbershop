@@ -5196,6 +5196,24 @@ de edição de comanda, 12 e2e de caixinha/desconto, 8 e2e de reativação, 8 de
 front. Suíte em **923 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49, account 21.
 Build verde nos 5 pacotes.
 
+### Uma flakiness antiga, meio resolvida
+
+`sem-preferencia.e2e.spec.ts` falha de vez em quando, sempre no mesmo teste, e já tinha aparecido em
+sessões anteriores — antes de qualquer coisa desta aqui. Investigando, achei um vazamento de estado
+real entre arquivos: `otp-limite-por-origem.e2e.spec.ts` baixava `OTP_LIMITE_POR_ORIGEM_HORA` para 4
+no topo do módulo (que executa na IMPORTAÇÃO, não na execução) e nunca restaurava. Como o tracker
+desse limite é o IP e a suíte inteira roda no mesmo processo com o mesmo IP, quem rodasse depois
+herdava um balde de 4 OTPs/hora e tomava 429 num `login()` qualquer — com "expected 201, got 429",
+que não fala nada sobre rate limit.
+
+O default agora está em `test/setup-env.ts` (que roda antes de cada arquivo) e quem quer o limite
+apertado liga em `beforeAll` e restaura no `afterAll`, como o `pagamento-manual-whatsapp` já fazia.
+
+**Não afirmo que acabou.** Depois do conserto rodei a suíte completa 4 vezes seguidas em Asia/Tokyo,
+todas verdes; antes, falhava em cerca de metade das execuções. É um sinal, não uma prova — e houve
+uma falha DEPOIS de o conserto já estar aplicado. Se voltar, o próximo passo é capturar a resposta
+HTTP real do teste que falha, em vez de deduzir a causa.
+
 ### ★ Roteiro de smoke manual — foco no dinheiro
 
 Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não bater, pare.
