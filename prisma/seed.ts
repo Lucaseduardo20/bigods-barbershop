@@ -1,7 +1,31 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID, scryptSync, randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Timezone } from '../apps/api/src/shared/domain/timezone';
 import { diaCivilChave, instanteDeDataHoraLocal } from '../apps/api/src/shared/domain/calendario';
+import { hashSenha } from '../apps/api/src/modules/identity/infrastructure/senha';
+
+/**
+ * ⚠️ SEED DE DESENVOLVIMENTO. Cria uma barbearia FICTÍCIA inteira — Gabriel,
+ * Igor, serviços, produtos, pacotes, 30 dias de disponibilidade — e todo mundo
+ * com a MESMA senha conhecida. Em produção isso seria dado falso indistinguível
+ * de dado real de cliente, com contas de senha pública.
+ *
+ * O seed de produção é outro arquivo, cria só o admin, e é o único que deve
+ * chegar perto do banco real: `apps/api/src/scripts/seed-producao.ts`
+ * (`npm run seed:prod -w @bigods/api`).
+ *
+ * A recusa abaixo não é decoração: `NODE_ENV=production` é o que roda na imagem
+ * Docker da API (Dockerfile, estágio de runtime), então um `db:seed` disparado
+ * por engano DENTRO do container morre aqui, antes de escrever qualquer coisa.
+ */
+if (process.env.NODE_ENV === 'production') {
+  console.error(
+    '[seed:dev] ✗ recusado: NODE_ENV=production. Este seed cria dados FICTÍCIOS ' +
+      '(Gabriel, serviços, pacotes de exemplo) e contas com senha conhecida. ' +
+      'Em produção use: ADMIN_SEED_SENHA="..." npm run seed:prod -w @bigods/api',
+  );
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 
@@ -10,11 +34,6 @@ const tz = Timezone.de(TZ_EMPRESA);
 const DIAS_DE_DISPONIBILIDADE = 30;
 /** Senha padrão de todos os usuários seedados — só para desenvolvimento local. */
 const SENHA_PADRAO = 'bigods123';
-
-function hashSenha(senha: string): string {
-  const sal = randomBytes(16).toString('hex');
-  return `${sal}:${scryptSync(senha, sal, 32).toString('hex')}`;
-}
 
 /** dia civil local + `d` dias, como "YYYY-MM-DD" (aritmética de calendário, não 24h×d). */
 function diaLocalMaisDias(d: number): string {

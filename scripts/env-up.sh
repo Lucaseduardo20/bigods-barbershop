@@ -81,7 +81,7 @@ echo "==> Gerando Prisma Client"
 npm run db:generate -w @bigods/api
 
 echo "==> Semeando banco (idempotente — apaga e recria os dados de demo)"
-npm run db:seed -w @bigods/api
+npm run seed:dev -w @bigods/api
 
 echo "==> Derrubando servidores de dev anteriores (árvore inteira)"
 derrubar_servidores
