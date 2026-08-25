@@ -54,9 +54,20 @@ export function Financeiro({ usuario }: { usuario: UsuarioDTO }) {
   );
 }
 
-/** Sinal do lançamento no saldo — mesma regra de `saldo-do-barbeiro.ts` no backend, aqui só pra exibição. */
+/**
+ * Sinal do lançamento no saldo — mesma regra de `saldo-do-barbeiro.ts` no
+ * backend, aqui só pra exibição.
+ *
+ * `DESCONTO_CONCEDIDO` (2026-08-25) entra aqui: é comissão que o barbeiro
+ * deixou de ganhar. Sem esta linha ele apareceria com "+" e em dourado, como se
+ * o desconto que ele deu ao cliente fosse um ganho dele.
+ */
 function ehDebito(tipo: TipoLancamento): boolean {
-  return tipo === TipoLancamento.VALE || tipo === TipoLancamento.PAGAMENTO;
+  return (
+    tipo === TipoLancamento.VALE ||
+    tipo === TipoLancamento.PAGAMENTO ||
+    tipo === TipoLancamento.DESCONTO_CONCEDIDO
+  );
 }
 
 function Extrato({ usuario }: { usuario: UsuarioDTO }) {
@@ -187,14 +198,55 @@ function LinhaDoExtrato({
     );
   }
 
+  /**
+   * ★ FASE 3 (2026-08-25) — a transparência que o dono pediu: caixinha e
+   * desconto são LINHAS PRÓPRIAS, com nome e sinal próprios. Se o barbeiro não
+   * entende por que o número dele mudou, o sistema gera desconfiança sobre
+   * dinheiro — que é o que ninguém quer numa barbearia.
+   */
+  if (l.tipo === TipoLancamento.DESCONTO_CONCEDIDO) {
+    return (
+      <div className="card flex items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <div className="text-[13px] font-bold truncate">Desconto concedido (sua parte)</div>
+          </div>
+          <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+            {l.clienteNome ?? '?'} · {dataRotulo}
+          </div>
+          {l.valorBaseCentavos !== null && (
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              de {dinheiro(l.valorBaseCentavos)} abatidos do cliente
+            </div>
+          )}
+        </div>
+        <div className="font-extrabold text-[15px] flex-shrink-0" style={{ color: cor }}>
+          − {dinheiro(l.valorComissaoCentavos)}
+        </div>
+        {l.atendimentoId && (
+          <button
+            className="btn btn-ghost btn-sm flex-shrink-0"
+            aria-label="Ver detalhes do atendimento"
+            onClick={() => aoVerAtendimento(l.atendimentoId!)}
+          >
+            ⓘ
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const ehCaixinha = l.origem === OrigemComissao.CAIXINHA;
   const ehProduto = l.origem === OrigemComissao.PRODUTO;
-  const nomeItem = ehProduto ? l.produtoNome : l.servicoNome;
+  // Caixinha não tem serviço nem produto: o "item" dela é ela mesma.
+  const nomeItem = ehCaixinha ? 'Caixinha — 100% sua' : ehProduto ? l.produtoNome : l.servicoNome;
   return (
     <div className="card flex items-center gap-2.5">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <div className="text-[13px] font-bold truncate">{l.clienteNome ?? '?'}</div>
           {ehProduto && <Badge tone="gold">Produto</Badge>}
+          {ehCaixinha && <Badge tone="gold">Caixinha</Badge>}
         </div>
         <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
           {nomeItem} · {dataRotulo}

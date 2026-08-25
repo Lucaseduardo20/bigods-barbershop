@@ -18,6 +18,14 @@ import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { limitesDoDiaCivil } from '../../../shared/domain/calendario';
 import { Timezone } from '../../../shared/domain/timezone';
 
+/**
+ * ★ Mesma ordem do repositório de escrita — é ESTA leitura que alimenta a tela
+ * de comanda, e é por ela que a posição do item chega ao barbeiro. Duas ordens
+ * diferentes para a mesma lista fariam a tela remover o item errado.
+ * Ver `prisma-atendimento.repository.ts`.
+ */
+const ORDEM_DA_COMANDA = { orderBy: [{ ordem: 'asc' as const }, { id: 'asc' as const }] };
+
 type AtendimentoComItens = AtendimentoRow & { itens: ItemAtendidoRow[]; produtos: ItemProdutoAtendidoRow[] };
 
 /** Projeção de leitura da agenda (§2.1) — não é fonte de verdade de conflito. */
@@ -47,7 +55,7 @@ export class AgendaQueryService {
         inicio: { lt: fimExclusivo },
         fim: { gt: inicio },
       },
-      include: { itens: true, produtos: true },
+      include: { itens: ORDEM_DA_COMANDA, produtos: ORDEM_DA_COMANDA },
       orderBy: { inicio: 'asc' },
     });
     return this.mapearTodos(atendimentos);
@@ -57,7 +65,7 @@ export class AgendaQueryService {
   async porId(id: string, companyId: string): Promise<AtendimentoDTO | null> {
     const atendimento = await this.prisma.atendimento.findFirst({
       where: { id, companyId },
-      include: { itens: true, produtos: true },
+      include: { itens: ORDEM_DA_COMANDA, produtos: ORDEM_DA_COMANDA },
     });
     if (!atendimento) return null;
     const dtos = await this.mapearTodos([atendimento]);

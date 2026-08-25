@@ -213,6 +213,49 @@ describe('★★ o total acompanha a composição final', () => {
   });
 });
 
+/**
+ * ★ REGRESSÃO ENCONTRADA CLICANDO NA TELA (2026-08-25).
+ *
+ * A alça da remoção é a POSIÇÃO, e o repositório apaga e recria a lista inteira
+ * a cada save. Sem `ORDER BY` na leitura, o Postgres devolvia as linhas na
+ * ordem que quisesse: depois do primeiro save a comanda aparecia embaralhada, e
+ * "remover o segundo item" virava sorteio. O `servicoId` de confirmação salvou
+ * o dinheiro (a remoção falhou em vez de apagar o item errado), mas a tela
+ * ficava impossível de usar.
+ */
+describe('★★ a ordem da comanda não muda sozinha', () => {
+  it('continua na ordem de sempre depois de uma edição que reescreve a lista', async () => {
+    const id = await agendarAvulso([corteId, barbaId]);
+    expect((await detalhe(id)).itens.map((i: { servicoId: string }) => i.servicoId)).toEqual([
+      corteId,
+      barbaId,
+    ]);
+
+    // Adicionar um produto faz o repositório reescrever TAMBÉM a lista de itens.
+    await http.post(`/atendimentos/${id}/produtos`).set(auth()).send({ produtoId: gelId }).expect(201);
+
+    expect((await detalhe(id)).itens.map((i: { servicoId: string }) => i.servicoId)).toEqual([
+      corteId,
+      barbaId,
+    ]);
+
+    // E a posição continua valendo: remover a 1 tira a barba, não o corte.
+    await removerItem(id, 1, barbaId).expect(200);
+    expect((await detalhe(id)).itens.map((i: { servicoId: string }) => i.servicoId)).toEqual([corteId]);
+  });
+
+  it('a ordem sobrevive a várias edições seguidas', async () => {
+    const id = await agendarAvulso([corteId, barbaId]);
+    for (let i = 0; i < 3; i++) {
+      await http.post(`/atendimentos/${id}/produtos`).set(auth()).send({ produtoId: gelId }).expect(201);
+    }
+    expect((await detalhe(id)).itens.map((i: { servicoId: string }) => i.servicoId)).toEqual([
+      corteId,
+      barbaId,
+    ]);
+  });
+});
+
 describe('★ a alça é a posição, e ela vem conferida', () => {
   it('recusa quando o serviço da posição não é o esperado', async () => {
     const id = await agendarAvulso([corteId, barbaId]);

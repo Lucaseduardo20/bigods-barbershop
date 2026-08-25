@@ -5030,6 +5030,212 @@ empresa já ajustada não é sobrescrita.
 
 Suíte da API em **869 verdes** nos 3 fusos.
 
+## Comanda editável, fechamento em 2 etapas, caixinha/desconto e reativação (2026-08-25) ✅
+
+Quatro pedidos que vieram da operação, não de um roadmap. Ordem de execução: as fases de backend
+(1, 3, 4) primeiro e a tela (2) por último — a Fase 2 reestrutura justamente a tela onde as outras
+três aparecem, e fazê-la antes seria escrevê-la duas vezes.
+
+### FASE 1 — A comanda ficou editável
+
+Um cliente agendou "corte navalhado" achando que era o simples. Ao concluir, o Gabriel só conseguia
+**adicionar** — ficou preso cobrando o serviço errado, e o único jeito de trocar era cancelar o
+atendimento inteiro. Na operação isso é rotina: o cliente erra o serviço, muda de ideia na cadeira.
+
+**A alça é a posição, e ela vem conferida.** `ItemAtendido` não tem identidade estável — o
+repositório apaga e recria a lista inteira a cada `salvar`, então o id da linha no banco não
+sobrevive a uma edição. Sobra a POSIÇÃO. Como posição é frágil se a lista mudar entre a tela e o
+clique, o chamador manda junto **qual serviço ele acha que está ali**: se não bater, a remoção é
+recusada em vez de apagar o item vizinho. É dinheiro; errar calado não é opção.
+
+**★ E foi essa conferência que pegou um defeito de verdade, na tela.** Ao clicar "remover Barba" no
+navegador, veio erro. Causa: a leitura da comanda não tinha `ORDER BY`, e o repositório recria as
+linhas a cada save — o Postgres devolvia na ordem que quisesse, e depois do primeiro save a posição
+que a tela via deixava de ser a posição do agregado. A coluna `ordem` conserta a causa (a posição
+virou dado, não sorte); a conferência por `servicoId` foi o que impediu o dinheiro de sair errado
+enquanto o defeito existia. Nenhum teste de backend teria encontrado isso — só clicando.
+
+**O total é refeito sobre a composição FINAL.** Tirar um serviço tem que tirar junto o degrau de
+desconto que ele trazia. Isso exigiu guardar o que antes se perdia: `valorCobradoCentavos` já vem
+COM o desconto embutido, e de um total descontado não se reconstrói a escada. Duas colunas aditivas:
+
+| Coluna | Para quê |
+|---|---|
+| `precoCheioCentavos` | preço de referência do barbeiro quando o item entrou — a BASE da escada |
+| `precoPromocionalCentavos` | preço cravado do order-bump; não-nulo ⇒ item fora da escada (§8.13) |
+
+A base é o preço de **quando o item entrou**, não o de hoje: remover a barba não faz o corte "subir"
+porque a tabela mudou entre o agendamento e o atendimento. O cliente paga o que combinou, com o
+desconto que a composição final merece.
+
+**Item de crédito de pacote não entra na escada.** O `valorCobrado` dele é o rateado da venda — 
+dinheiro já cobrado, em outra transação, com outra regra. Passá-lo pela escada de avulso inventaria
+um desconto sobre algo que já está pago.
+
+**Adicionar passou a reprecificar também.** Antes o walk-in add-on entrava pelo preço cheio e os
+itens antigos ficavam com o desconto de uma composição que já não existia — o total não batia com o
+que o cliente veria se tivesse agendado os dois de uma vez.
+
+**Remover crédito devolve o crédito**, na mesma transação (`liberarItem`, a mesma transição do
+cancelamento antecipado). Um crédito que some porque a segunda escrita falhou é um pacote pago que o
+cliente não pode usar.
+
+**Comanda com dinheiro já recebido recusa remoção** (pago online ou saldo residual abatido), com
+motivo legível, e o DTO avisa a tela antes de o barbeiro descobrir no erro. Estorno não existe neste
+sistema — DECISOES_PENDENTES #55.
+
+`concluir()` passou a exigir ao menos um serviço: a edição é livre, o portão é a conclusão.
+
+### FASE 2 — Fechar comanda em duas etapas
+
+A tela anterior empilhava tudo: adicionar serviço, adicionar produto, escolher forma de pagamento,
+concluir. O Gabriel reclamou que era confusa, e era — as perguntas que ele responde ali são de
+naturezas diferentes e apareciam juntas.
+
+```
+  ETAPA 1 — COMANDA      "o que realmente aconteceu no atendimento"
+  ETAPA 2 — PAGAMENTO    "como foi pago"
+```
+
+Uma decisão de cada vez, o total sempre à vista no rodapé, e voltar é um clique. Mobile-first porque
+o barbeiro fecha a comanda no celular, de pé, com o cliente esperando: uma coluna, alvos grandes,
+forma de pagamento em **botões** (um toque) em vez de `<select>` (abrir, rolar, escolher).
+
+A etapa 1 mostra o preço cheio riscado quando houve desconto de escada, e uma linha "Desconto por
+combinar serviços" — o barbeiro precisa conseguir explicar o número ao cliente.
+
+### FASE 3 — Caixinha e desconto (★★ dinheiro)
+
+Os dois são **declarados** pelo barbeiro, por ação explícita. O sistema nunca deduz gorjeta de "o
+cliente pagou mais": quem declara é quem estava na cadeira, e isso vira lançamento imutável.
+
+**CAIXINHA** vai 100% para o barbeiro. Lançamento `tipo=COMISSAO`, `origem=CAIXINHA`, percentual
+100%, `valorBase = valorComissao = a gorjeta`.
+
+**DESCONTO** é repartido com a casa na proporção da comissão. A fórmula, e por que ela é essa:
+
+```
+Comanda de R$100, barbeiro a 45%
+  sem desconto:  cliente paga 100 → barbeiro 45,00 · casa 55,00
+  com R$10:      cliente paga  90 → barbeiro 40,50 · casa 49,50
+                                    ─────────────   ──────────
+                          barbeiro perde 4,50     casa perde 5,50
+```
+
+O barbeiro absorve **45% de R$10 = R$4,50**; a casa, os R$5,50 restantes. Não é uma regra
+arbitrária: é a consequência aritmética de o desconto reduzir a receita sobre a qual a comissão
+incide.
+
+**O cálculo, passo a passo** (`payroll/domain/rateio-de-desconto.ts`):
+
+1. o desconto é repartido entre as linhas comissionáveis **na proporção do valor de cada uma** — 
+   mesmo critério do rateio de pacote (§3.6) e do desconto progressivo (§3.2.3), com o resíduo do
+   arredondamento na última linha, de modo que `Σ pedaços == desconto` sempre;
+2. soma-se `pedaço × percentual_da_linha` em pontos-base;
+3. **uma única divisão por 10.000, no fim.**
+
+O passo 3 não é detalhe: dividir linha a linha introduziria meio centavo de erro por linha, e com
+percentual uniforme o resultado deixaria de bater com `desconto × percentual` — que é exatamente o
+número que o barbeiro confere de cabeça. Com percentuais diferentes (serviço a 45%, produto à taxa
+da empresa), o rateio proporcional é o único critério coerente. Exemplo real, conferido no sistema
+rodando: comanda de R$85 (corte R$40 + barba R$30 + gel R$15 a 0%), desconto de R$10 → parte do
+barbeiro **R$3,71**.
+
+**Por que lançamentos SEPARADOS, e não a base reduzida.** Reduzir `valorBase` de cada item daria o
+mesmo saldo — e esconderia o fato. O barbeiro veria a comissão do corte "valendo menos" sem nada
+dizendo por quê, e desconfiança sobre dinheiro é cara. No extrato:
+
+```
+Corte                            base R$ 40,00 × 45%     + R$ 18,00
+Caixinha — 100% sua              base R$  7,00 × 100%    + R$  7,00
+Desconto concedido (sua parte)   de R$ 10,00 abatidos    − R$  4,50
+```
+
+O saldo é idêntico ao da alternativa; a leitura, não. (Esta é a tela real, verificada no navegador.)
+
+**Limites.** Desconto maior que o total da comanda é recusado — não é desconto, é dedo errado no
+teclado, e depois de virar lançamento imutável não tem volta. A tela aperta mais ainda: o teto lá é
+o que o cliente **ainda deve**. Caixinha não tem teto: gorjeta grande é rara, mas é do cliente
+decidir. Tudo em centavos inteiros.
+
+### FASE 4 — Reativar um cancelamento
+
+Um agendamento foi cancelado achando que era duplicata, e era do **pai** do cliente. O dono resolveu
+com UPDATE na mão no banco de produção — sem validar horário, sem devolver crédito, sem rastro.
+
+⚠️ **Isto é uma exceção consciente à regra dos estados finais** (CLAUDE.md §4): `CANCELADO` era
+final. A alternativa que a regra sugere — criar um atendimento novo — perderia o vínculo com a
+intenção de pagamento e com os créditos daquele, e não descreve o que aconteceu: o atendimento nunca
+deixou de existir, alguém apertou o botão errado. Está registrado no agregado, com o porquê.
+
+- **O horário é revalidado.** Se foi vendido no meio tempo, recusa com mensagem em vez de colocar
+  dois na mesma cadeira. O `EXCLUDE` do Postgres continua sendo a rede contra a corrida entre duas
+  requisições simultâneas.
+- **Os créditos de pacote são retomados** na mesma transação. Reativar sem retomá-los deixaria o
+  cliente com o crédito E o horário. Crédito já usado noutro atendimento → 409 explicando.
+- **A falta computada num cancelamento tardio NÃO é desfeita**: é fato sobre o cliente, não efeito
+  colateral, e desfazê-la daria um jeito de zerar faltas cancelando e reativando.
+- **Só ADMIN.** Cancelar é rotina do barbeiro; ressuscitar mexe em comissão futura e em crédito de
+  cliente. Auditoria em `reativadoPorId`/`reativadoEm`, com `motivoCancelamento` preservado — os três
+  contam a história inteira.
+
+### Migrations (todas aditivas)
+
+| Migration | O que faz |
+|---|---|
+| `20260825010000_comanda_editavel` | `precoCheioCentavos`, `precoPromocionalCentavos` em `ItemAtendido` |
+| `20260825020000_caixinha_desconto_enums` | valores novos de enum, **sozinhos** (Postgres não deixa usar na mesma transação em que cria) |
+| `20260825020100_caixinha_desconto_campos` | `caixinhaCentavos`, `descontoConcedidoCentavos` em `Atendimento` |
+| `20260825030000_reativacao_de_cancelamento` | `reativadoPorId`, `reativadoEm` |
+| `20260825040000_ordem_dos_itens_da_comanda` | `ordem` em `ItemAtendido`/`ItemProdutoAtendido` |
+
+### Testes
+
+**45 novos**: 9 de rateio de desconto (puro, ao centavo), 9 de domínio da comanda editável, 14 e2e
+de edição de comanda, 12 e2e de caixinha/desconto, 8 e2e de reativação, 8 de resumo do fechamento no
+front. Suíte em **923 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49, account 21.
+Build verde nos 5 pacotes.
+
+### ★ Roteiro de smoke manual — foco no dinheiro
+
+Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não bater, pare.
+
+**1. Remover serviço refaz o desconto**
+- Agende um avulso com **dois** serviços (com degrau de desconto configurado). Anote o total.
+- Fechar comanda → etapa 1 → remova o segundo serviço.
+- ✅ O total tem que cair para o **preço cheio do que sobrou** — o degrau some junto com o item.
+  (Se cair só o valor do item removido, o desconto ficou embutido: pare.)
+
+**2. Remover crédito de pacote devolve o crédito**
+- Venda um pacote, agende um atendimento consumindo um crédito.
+- Fechar comanda → remova o serviço do crédito.
+- ✅ Em Pacotes, o crédito volta a **DISPONÍVEL** e pode ser agendado de novo.
+
+**3. Caixinha**
+- Feche uma comanda de R$100 (barbeiro a 45%) com **caixinha de R$7**.
+- ✅ Extrato do barbeiro: linha `Corte + R$45,00`, linha `Caixinha — 100% sua + R$7,00`.
+- ✅ Saldo subiu **exatamente R$52,00**.
+
+**4. Desconto rateado**
+- Feche outra comanda de R$100 com **desconto de R$10**.
+- ✅ Extrato: `Corte + R$45,00` (inteiro, não reduzido) e `Desconto concedido (sua parte) − R$4,50`.
+- ✅ Saldo subiu **R$40,50**. Se a comissão do corte aparecer como R$40,50 e não houver linha de
+  desconto, a modelagem regrediu para "base reduzida": pare.
+
+**5. Snapshot**
+- Depois do passo 4, mude a comissão do barbeiro em Usuários e volte ao extrato.
+- ✅ Os lançamentos do atendimento já concluído **não mudam**.
+
+**6. Reativação**
+- Cancele um agendamento e reative pelo painel (como admin).
+- ✅ Volta para Agendado, e o detalhe mostra "reativado por …".
+- Agora cancele outro, **agende outra pessoa no mesmo horário**, e tente reativar.
+- ✅ Recusa com "este horário já foi ocupado". O primeiro continua cancelado.
+
+**7. Pago online**
+- Abra um atendimento pago online e tente remover um item.
+- ✅ O botão de remover **não aparece**, e a comanda avisa por quê. Adicionar continua funcionando.
+
 ## Como rodar localmente
 
 ```bash

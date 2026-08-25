@@ -510,6 +510,10 @@ model ItemAtendido {
   // NULL = linha anterior à migration; o recálculo cai em valorCobradoCentavos.
   precoCheioCentavos       Int?
   precoPromocionalCentavos Int?
+  // Posição na comanda. A tela remove item POR POSIÇÃO, e sem esta coluna a
+  // ordem de leitura era a que o Postgres quisesse — a posição da tela deixava
+  // de ser a posição do agregado depois do primeiro save.
+  ordem                    Int     @default(0)
 
   atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
 
@@ -525,6 +529,8 @@ model ItemProdutoAtendido {
   produtoId             String
   quantidade            Int    @default(1)
   valorUnitarioCentavos Int
+  // Mesma razão do `ordem` em ItemAtendido.
+  ordem                 Int    @default(0)
 
   atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
 

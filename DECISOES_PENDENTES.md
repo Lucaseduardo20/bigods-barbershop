@@ -1000,3 +1000,30 @@ mudar embaixo de um pagamento fechado.
 **O que falta decidir:** se vale escrever o fluxo de estorno, ou se a saída operacional (devolver por
 fora e registrar no acerto) basta. Enquanto o pagamento online for majoritariamente o modo manual por
 WhatsApp, "por fora" já é o normal — o gateway nem está no caminho.
+
+## 56. Trocar serviço é remover + adicionar, sem operação atômica (2026-08-25)
+
+A comanda ficou editável (FASE 1), e "trocar o serviço errado pelo certo" se faz em dois passos:
+adiciona o certo, remove o errado. Entre um e outro a comanda existe com os dois — e, se o barbeiro
+parar no meio, ela fica errada de um jeito diferente.
+
+Não virou uma operação `trocarItem` atômica porque o caso não pede: a comanda só é lida na conclusão,
+que é o passo seguinte, e um estado intermediário de dois segundos na tela de quem está editando não
+tem leitor. Uma operação nova seria mais superfície de API para um problema que ninguém tem.
+
+**O que falta decidir:** se, na prática, o barbeiro remove primeiro e esquece de adicionar. Se isso
+aparecer, o conserto barato não é a operação atômica — é a tela pedir confirmação ao sair da etapa 1
+com menos serviços do que entrou.
+
+## 57. Caixinha por forma de pagamento (2026-08-25)
+
+A caixinha é declarada como um valor só, e vai 100% para o barbeiro no ledger. Na vida real ela pode
+chegar em dinheiro (fica direto com o barbeiro, e a casa nunca a viu) ou junto do PIX/cartão (entra
+no caixa da casa, que depois repassa). Hoje o sistema trata as duas igual: lança a favor do barbeiro
+e não distingue.
+
+Para o EXTRATO isso é indiferente — o barbeiro tem R$7 a receber dos dois jeitos. Para o
+FECHAMENTO/repasse não é: no primeiro caso a casa já "pagou" sem passar pelo caixa.
+
+**O que falta decidir:** se o fechamento precisa dessa distinção. Se precisar, o caminho é a caixinha
+carregar a forma de pagamento dela (não a da comanda) e o fechamento abater a que veio em espécie.

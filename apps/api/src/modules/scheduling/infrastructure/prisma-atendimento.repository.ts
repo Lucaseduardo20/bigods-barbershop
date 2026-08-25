@@ -17,7 +17,22 @@ import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
 import { AtendimentoId, BarbeiroId, ClienteId, CompanyId } from '../../../shared/domain/ids';
 
 type Row = AtendimentoPrisma & { itens: ItemAtendidoPrisma[]; produtos: ItemProdutoAtendidoPrisma[] };
-const include = { itens: true, produtos: true } as const;
+/**
+ * ★ A ordem da comanda é DADO, não sorte (2026-08-25).
+ *
+ * A tela remove item por POSIÇÃO, e o repositório apaga e recria a lista
+ * inteira a cada save (os itens não têm identidade estável). Sem `orderBy`, o
+ * Postgres devolve as linhas na ordem que quiser — depois do primeiro save a
+ * comanda aparecia embaralhada e "remover o segundo" virava sorteio. Foi o
+ * `servicoId` de confirmação que impediu de remover o item errado; esta é a
+ * correção da causa.
+ *
+ * Desempate por `id` para as linhas anteriores à migration, todas com ordem 0:
+ * arbitrário, mas ao menos estável entre duas leituras.
+ */
+const ORDEM_DA_COMANDA = { orderBy: [{ ordem: 'asc' as const }, { id: 'asc' as const }] };
+
+const include = { itens: ORDEM_DA_COMANDA, produtos: ORDEM_DA_COMANDA } as const;
 
 function paraDominio(row: Row): Atendimento {
   return Atendimento.reconstituir({
@@ -157,8 +172,9 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       await this.db.itemAtendido.deleteMany({ where: { atendimentoId: atendimento.id } });
       if (atendimento.itens.length > 0) {
         await this.db.itemAtendido.createMany({
-          data: atendimento.itens.map((i) => ({
+          data: atendimento.itens.map((i, ordem) => ({
             atendimentoId: atendimento.id,
+            ordem,
             servicoId: i.servicoId,
             valorCobradoCentavos: i.valorCobrado.centavos,
             duracaoMinutos: i.duracao.minutos,
@@ -171,8 +187,9 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       await this.db.itemProdutoAtendido.deleteMany({ where: { atendimentoId: atendimento.id } });
       if (atendimento.produtos.length > 0) {
         await this.db.itemProdutoAtendido.createMany({
-          data: atendimento.produtos.map((p) => ({
+          data: atendimento.produtos.map((p, ordem) => ({
             atendimentoId: atendimento.id,
+            ordem,
             produtoId: p.produtoId,
             quantidade: p.quantidade,
             valorUnitarioCentavos: p.valorUnitario.centavos,
@@ -185,7 +202,8 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
           id: atendimento.id,
           ...dados,
           itens: {
-            create: atendimento.itens.map((i) => ({
+            create: atendimento.itens.map((i, ordem) => ({
+              ordem,
               servicoId: i.servicoId,
               valorCobradoCentavos: i.valorCobrado.centavos,
               duracaoMinutos: i.duracao.minutos,
@@ -195,7 +213,8 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
             })),
           },
           produtos: {
-            create: atendimento.produtos.map((p) => ({
+            create: atendimento.produtos.map((p, ordem) => ({
+              ordem,
               produtoId: p.produtoId,
               quantidade: p.quantidade,
               valorUnitarioCentavos: p.valorUnitario.centavos,

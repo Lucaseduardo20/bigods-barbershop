@@ -6,6 +6,7 @@ import { valorACobrarNaConclusao, valorNaoCobertoPorCredito } from '../lib/concl
 import { dataCurta, dinheiro, hora } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
+import { FecharComandaDialog } from './FecharComandaDialog';
 
 export const toneStatus: Record<StatusAtendimento, string> = {
   // Sessão de OTP+reserva: avulso online fica RESERVADO até o pagamento
@@ -78,6 +79,7 @@ export function AtendimentoDetalheDialog({
   const [modalAntecipada, setModalAntecipada] = useState(false);
   const [motivoAntecipada, setMotivoAntecipada] = useState('');
   const [enviadoParaAprovacao, setEnviadoParaAprovacao] = useState(false);
+  const [fechandoComanda, setFechandoComanda] = useState(false);
 
   const {
     dados: atendimento,
@@ -222,6 +224,26 @@ export function AtendimentoDetalheDialog({
               onChange={(e) => setMotivoAntecipada(e.target.value)}
             />
           </div>
+          {/* FASE 4 (2026-08-25): desfazer um cancelamento feito por engano, sem
+              UPDATE na mão no banco. Só admin — o backend também recusa. */}
+          {a.status === StatusAtendimento.CANCELADO && ehAdmin && !somenteLeitura && (
+            <div className="card" style={{ background: 'var(--surface-brand-tint)' }}>
+              <div className="text-[13px] font-bold">Cancelado por engano?</div>
+              <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                Reativar devolve este atendimento para a agenda no mesmo horário — só funciona se o
+                horário ainda estiver livre, e o crédito de pacote (se houver) volta a ser usado por
+                ele.
+              </div>
+              <button
+                className="btn btn-sm mt-2"
+                disabled={ocupado}
+                onClick={() => acao(() => api(`/atendimentos/${a.id}/reativar`, { method: 'POST' }))}
+              >
+                {ocupado ? 'Reativando…' : 'Reativar agendamento'}
+              </button>
+            </div>
+          )}
+
           {erroAcao && (
             <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
               {erroAcao}
@@ -251,6 +273,22 @@ export function AtendimentoDetalheDialog({
   );
 
   if (modalAntecipada && a) return modalDeJustificativa;
+
+  // O fechamento em duas etapas assume a tela inteira: é uma decisão de cada
+  // vez, e o detalhe do atendimento atrás só competiria por atenção.
+  if (fechandoComanda && a) {
+    return (
+      <FecharComandaDialog
+        atendimento={a}
+        servicos={servicosReq.dados ?? []}
+        produtos={produtosReq.dados ?? []}
+        ehAdmin={ehAdmin}
+        aoAtualizar={recarregar}
+        aoFechar={() => setFechandoComanda(false)}
+        aoConcluir={aoMudar}
+      />
+    );
+  }
 
   return (
     <Dialog open onClose={aoFechar} title={a?.cliente.nome ?? 'Atendimento'}>
@@ -461,97 +499,13 @@ export function AtendimentoDetalheDialog({
 
           {agendado && !somenteLeitura && (
             <>
-              {/* Item 3/4a: adicionar serviço/produto ANTES de concluir (walk-in add-on) */}
-              <div className="card flex flex-col gap-2">
-                <div className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-                  Adicionar à conta
-                </div>
-                <div className="flex gap-2">
-                  <select className="select flex-1" value={servicoParaAdicionar} onChange={(e) => setServicoParaAdicionar(e.target.value)}>
-                    <option value="">Serviço…</option>
-                    {(servicosReq.dados ?? [])
-                      .filter((s) => s.ativo)
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.nome} · {dinheiro(s.precoAvulsoCentavos)}
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    disabled={ocupado || !servicoParaAdicionar}
-                    onClick={() =>
-                      recarregarSoDetalhe(async () => {
-                        await api(`/atendimentos/${a.id}/itens`, { method: 'POST', body: { servicoId: servicoParaAdicionar } });
-                        setServicoParaAdicionar('');
-                      })
-                    }
-                  >
-                    + Add
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <select className="select flex-1" value={produtoParaAdicionar} onChange={(e) => setProdutoParaAdicionar(e.target.value)}>
-                    <option value="">Produto…</option>
-                    {(produtosReq.dados ?? [])
-                      .filter((p) => p.ativo)
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nome} · {dinheiro(p.precoCentavos)}
-                        </option>
-                      ))}
-                  </select>
-                  <input
-                    className="input"
-                    style={{ width: 56 }}
-                    type="number"
-                    min={1}
-                    value={qtdProduto}
-                    onChange={(e) => setQtdProduto(e.target.value)}
-                  />
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    disabled={ocupado || !produtoParaAdicionar}
-                    onClick={() =>
-                      recarregarSoDetalhe(async () => {
-                        await api(`/atendimentos/${a.id}/produtos`, {
-                          method: 'POST',
-                          body: { produtoId: produtoParaAdicionar, quantidade: parseInt(qtdProduto, 10) || 1 },
-                        });
-                        setProdutoParaAdicionar('');
-                        setQtdProduto('1');
-                      })
-                    }
-                  >
-                    + Add
-                  </button>
-                </div>
-              </div>
-
-              {precisaFormaPagamento && (
-                <div>
-                  {/* Bug 5: valor a cobrar tem que aparecer sempre que a forma de
-                      pagamento é pedida — antes só mostrava quando pagoOnline, e
-                      um add-on num crédito de pacote (sem pagoOnline) pedia a
-                      forma sem dizer quanto cobrar. */}
-                  <label className="label">Forma de pagamento ({dinheiro(valorAdicional)} a cobrar agora)</label>
-                  <select className="select" value={forma} onChange={(e) => setForma(e.target.value as FormaPagamento)}>
-                    <option value={FormaPagamento.PIX}>PIX</option>
-                    <option value={FormaPagamento.DINHEIRO}>Dinheiro</option>
-                    <option value={FormaPagamento.CARTAO_DEBITO}>Cartão débito</option>
-                    <option value={FormaPagamento.CARTAO_CREDITO}>Cartão crédito</option>
-                  </select>
-                </div>
-              )}
-              {/* Antes do horário, concluir não é um clique só: abre o modal
-                  de justificativa (2026-08-20). O texto do botão avisa disso
-                  antes do clique, pra ninguém ser surpreendido pelo modal. */}
-              <button
-                className="btn"
-                disabled={ocupado}
-                onClick={() => (precisaJustificar ? setModalAntecipada(true) : acao(() => concluir()))}
-              >
-                {precisaJustificar ? 'Concluir antes do horário…' : 'Concluir atendimento'}
+              {/* FASE 2 (2026-08-25): fechar a comanda deixou de ser um monte de
+                  controles empilhados nesta tela e virou um fluxo de DUAS
+                  etapas — comanda (o que aconteceu) e pagamento (como foi
+                  pago). Aqui fica só a porta de entrada; o resto mora em
+                  `FecharComandaDialog`. */}
+              <button className="btn" disabled={ocupado} onClick={() => setFechandoComanda(true)}>
+                {precisaJustificar ? 'Fechar comanda (antes do horário)…' : 'Fechar comanda'}
               </button>
               <input
                 className="input"
