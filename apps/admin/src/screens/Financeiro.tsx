@@ -217,6 +217,11 @@ function LinhaDoExtrato({
           {l.valorBaseCentavos !== null && (
             <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
               de {dinheiro(l.valorBaseCentavos)} abatidos do cliente
+              {/* O percentual passou a existir em 2026-08-26 (antes o desconto
+                  era rateado linha a linha e não havia UM número honesto).
+                  Lançamentos anteriores continuam sem ele — e a linha tem que
+                  continuar legível para esses. */}
+              {l.percentualAplicado !== null && <> · {l.percentualAplicado}% é a parte dele</>}
             </div>
           )}
         </div>
@@ -239,7 +244,7 @@ function LinhaDoExtrato({
   const ehCaixinha = l.origem === OrigemComissao.CAIXINHA;
   const ehProduto = l.origem === OrigemComissao.PRODUTO;
   // Caixinha não tem serviço nem produto: o "item" dela é ela mesma.
-  const nomeItem = ehCaixinha ? 'Caixinha — 100% sua' : ehProduto ? l.produtoNome : l.servicoNome;
+  const nomeItem = ehCaixinha ? 'Caixinha' : ehProduto ? l.produtoNome : l.servicoNome;
   return (
     <div className="card flex items-center gap-2.5">
       <div className="flex-1 min-w-0">
