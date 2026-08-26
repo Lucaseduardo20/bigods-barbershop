@@ -189,6 +189,13 @@ export interface ItemAtendidoDTO {
   valorCobradoCentavos: number;
   duracaoMinutos: number;
   itemDoPacoteId: string | null;
+  /**
+   * Comanda editável (2026-08-25): preço CHEIO do barbeiro, antes do desconto
+   * progressivo. `null` em itens anteriores à mudança. Serve para a comanda
+   * mostrar "de R$40 por R$30" em vez de só o valor final — sem isso o barbeiro
+   * não tem como explicar ao cliente de onde saiu o número.
+   */
+  precoCheioCentavos: number | null;
 }
 export interface ItemProdutoAtendidoDTO {
   produtoId: string;
@@ -227,6 +234,34 @@ export interface AtendimentoDTO {
   origemLinkBarbeiroNome: string | null;
   /** FASE 4a (sessão-E, §8.7) — quanto deste atendimento foi abatido com saldo residual de pacote (0 = nenhum). */
   valorAbatidoSaldoCentavos: number;
+  /**
+   * Comanda editável (2026-08-25): desconto progressivo já embutido nos itens
+   * avulsos — Σ(precoCheio − valorCobrado). Só existe para exibição; o valor que
+   * vale é sempre `valorCobradoCentavos` de cada item.
+   */
+  descontoProgressivoCentavos: number;
+  /**
+   * `false` quando a comanda tem dinheiro já recebido (pago online ou saldo
+   * residual abatido) e por isso não aceita remoção de item — estorno não existe
+   * neste sistema (DECISOES_PENDENTES #55). O painel esconde os botões de
+   * remover em vez de deixar o barbeiro descobrir no erro.
+   */
+  podeEditarComanda: boolean;
+  /** Por que não pode — texto pronto para a tela. `null` quando pode. */
+  motivoBloqueioEdicao: string | null;
+  /**
+   * FASE 3 (2026-08-25) — ajustes DECLARADOS no fechamento, em centavos.
+   * Zero enquanto o atendimento não foi concluído (ou se nada foi declarado).
+   * O efeito no dinheiro está no ledger; aqui é o registro do que foi declarado.
+   */
+  caixinhaCentavos: number;
+  descontoConcedidoCentavos: number;
+  /**
+   * FASE 4 (2026-08-25) — preenchido quando este atendimento voltou de um
+   * cancelamento. `motivoCancelamento` continua preenchido junto: os dois
+   * contam a história (foi cancelado por isto, e fulano trouxe de volta).
+   */
+  reativado: { porNome: string; em: string } | null;
   /**
    * Registro de que este atendimento foi concluído ANTES do horário marcado
    * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e

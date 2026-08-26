@@ -1,0 +1,22 @@
+-- FASE 1 (2026-08-25): a comanda vira editável — o barbeiro remove e troca
+-- serviços/produtos antes de concluir, e o total é recalculado sobre a
+-- composição FINAL.
+--
+-- Recalcular exige guardar o que hoje se perde: `valorCobradoCentavos` é o
+-- preço JÁ COM desconto progressivo aplicado, e a partir dele não dá para
+-- reconstruir a escada quando a composição muda (2 serviços viram 1, o degrau
+-- do 2º some). Duas colunas aditivas e anuláveis resolvem:
+--
+--   precoCheioCentavos       preço de referência DAQUELE barbeiro no momento em
+--                            que o item entrou na comanda. É a base da escada.
+--                            NULL = linha anterior a esta migration: o recálculo
+--                            cai em valorCobradoCentavos, que é o melhor que se
+--                            sabe sobre ela.
+--
+--   precoPromocionalCentavos preço cravado do order-bump. Não-nulo ⇒ o item está
+--                            FORA da escada progressiva (nunca desconto sobre
+--                            desconto, §8.13). NULL = item normal.
+--
+-- Nada é reescrito: atendimento já concluído continua com o snapshot que tinha.
+ALTER TABLE "ItemAtendido" ADD COLUMN "precoCheioCentavos" INTEGER;
+ALTER TABLE "ItemAtendido" ADD COLUMN "precoPromocionalCentavos" INTEGER;

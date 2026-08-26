@@ -321,6 +321,10 @@ describe('Atendimento — adicionar item na conclusão (walk-in add-on, sessão 
       valorCobrado: Dinheiro.deCentavos(3000),
       duracao: Duracao.deMinutos(20),
       itemDoPacoteId: null,
+      // Comanda editável (2026-08-25): o item entra pelo preço de referência do
+      // barbeiro, e é esse valor que vira a base dele na escada do desconto.
+      precoCheio: Dinheiro.deCentavos(3000),
+      precoPromocional: null,
     });
   });
 
@@ -573,5 +577,125 @@ describe('Atendimento — visita com vários itens ocupa a SOMA das durações (
         itens: [doPacote('svc-corte', 30, 'ip-1'), doPacote('svc-barba', 20, null)],
       }),
     ).toThrow(InvarianteVioladaError);
+  });
+});
+
+/**
+ * COMANDA EDITÁVEL (2026-08-25). O caso que originou isto: o cliente agendou
+ * "corte navalhado" achando que era o simples, e o barbeiro só sabia ADICIONAR
+ * — ficava preso cobrando o serviço errado.
+ */
+describe('Atendimento — comanda editável', () => {
+  const TABELA_COM_DEGRAU = {
+    degraus: [{ posicao: 2, valorCentavos: 1000 }],
+    tetoCentavos: null,
+  };
+  const TABELA_VAZIA = { degraus: [], tetoCentavos: null };
+
+  const itemBarba = (): ItemAtendido => ({
+    servicoId: 'svc-barba',
+    valorCobrado: Dinheiro.deCentavos(3000),
+    duracao: Duracao.deMinutos(20),
+    itemDoPacoteId: null,
+    precoCheio: Dinheiro.deCentavos(3000),
+  });
+
+  const comDoisServicos = () =>
+    agendar({
+      itens: [
+        { ...itemCorte(), precoCheio: Dinheiro.deCentavos(4000) },
+        itemBarba(),
+      ],
+    });
+
+  it('remove o serviço da posição informada', () => {
+    const a = comDoisServicos();
+    const removido = a.removerItem(1, 'svc-barba');
+    expect(removido.servicoId).toBe('svc-barba');
+    expect(a.itens.map((i) => i.servicoId)).toEqual(['svc-corte']);
+  });
+
+  it('★ recusa remover quando o serviço da posição não é o esperado', () => {
+    const a = comDoisServicos();
+    // A tela mostrava a barba na posição 0; alguém já tinha removido o corte.
+    expect(() => a.removerItem(0, 'svc-barba')).toThrow(InvarianteVioladaError);
+    // E nada foi removido — a comanda continua inteira.
+    expect(a.itens).toHaveLength(2);
+  });
+
+  it('recusa remover posição que não existe', () => {
+    expect(() => comDoisServicos().removerItem(7, 'svc-corte')).toThrow(InvarianteVioladaError);
+  });
+
+  it('★ o desconto é refeito sobre a composição final — o degrau do 2º item some junto com ele', () => {
+    const a = comDoisServicos();
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+    // 40 + 30 = 70, menos R$10 do degrau da 2ª posição = 60.
+    expect(a.valorTotal().centavos).toBe(6000);
+
+    a.removerItem(1, 'svc-barba');
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+    // Sobrou um serviço: sem 2ª posição, não há degrau. Volta ao preço cheio.
+    expect(a.valorTotal().centavos).toBe(4000);
+  });
+
+  it('★ a base do recálculo é o preço de QUANDO o item entrou, não o de hoje', () => {
+    const a = comDoisServicos();
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+    // Reprecificar N vezes dá o mesmo número: o desconto incide sobre
+    // `precoCheio`, não sobre o valor já descontado (nunca desconto sobre
+    // desconto acumulando a cada clique do barbeiro).
+    expect(a.valorTotal().centavos).toBe(6000);
+  });
+
+  it('★ item de crédito de pacote NÃO entra na escada de avulso', () => {
+    const a = agendar({
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      itens: [
+        {
+          servicoId: 'svc-corte',
+          // Valor RATEADO da venda do pacote — já foi cobrado, em outra
+          // transação, com outra regra.
+          valorCobrado: Dinheiro.deCentavos(3500),
+          duracao: Duracao.deMinutos(30),
+          itemDoPacoteId: 'item-1',
+        },
+      ],
+    });
+    a.adicionarItem('svc-barba', Dinheiro.deCentavos(3000), Duracao.deMinutos(20), barbeiro);
+    a.reprecificarAvulsos(TABELA_COM_DEGRAU);
+
+    // O item do pacote fica intacto; o avulso adicionado é o único da escada e,
+    // sozinho, não tem 2ª posição para descontar.
+    expect(a.itens[0]!.valorCobrado.centavos).toBe(3500);
+    expect(a.itens[1]!.valorCobrado.centavos).toBe(3000);
+  });
+
+  it('remove produto por posição, com a mesma confirmação', () => {
+    const a = agendar({
+      produtos: [
+        { produtoId: 'prod-gel', quantidade: 1, valorUnitario: Dinheiro.deCentavos(1500) },
+        { produtoId: 'prod-pomada', quantidade: 2, valorUnitario: Dinheiro.deCentavos(3500) },
+      ],
+    });
+    expect(() => a.removerProduto(0, 'prod-pomada')).toThrow(InvarianteVioladaError);
+    a.removerProduto(1, 'prod-pomada');
+    expect(a.produtos.map((p) => p.produtoId)).toEqual(['prod-gel']);
+  });
+
+  it('★ concluir com a comanda sem nenhum serviço é recusado', () => {
+    const a = comDoisServicos();
+    a.removerItem(1, 'svc-barba');
+    a.removerItem(0, 'svc-corte');
+    expect(() => a.concluir(FormaPagamento.DINHEIRO)).toThrow(InvarianteVioladaError);
+  });
+
+  it('editar depois de concluído não é possível', () => {
+    const a = comDoisServicos();
+    a.concluir(FormaPagamento.DINHEIRO);
+    expect(() => a.removerItem(0, 'svc-corte')).toThrow(TransicaoDeEstadoInvalidaError);
+    expect(() => a.reprecificarAvulsos(TABELA_VAZIA)).toThrow(TransicaoDeEstadoInvalidaError);
   });
 });

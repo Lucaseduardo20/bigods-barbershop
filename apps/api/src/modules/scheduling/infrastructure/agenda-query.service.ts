@@ -18,6 +18,14 @@ import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { limitesDoDiaCivil } from '../../../shared/domain/calendario';
 import { Timezone } from '../../../shared/domain/timezone';
 
+/**
+ * ★ Mesma ordem do repositório de escrita — é ESTA leitura que alimenta a tela
+ * de comanda, e é por ela que a posição do item chega ao barbeiro. Duas ordens
+ * diferentes para a mesma lista fariam a tela remover o item errado.
+ * Ver `prisma-atendimento.repository.ts`.
+ */
+const ORDEM_DA_COMANDA = { orderBy: [{ ordem: 'asc' as const }, { id: 'asc' as const }] };
+
 type AtendimentoComItens = AtendimentoRow & { itens: ItemAtendidoRow[]; produtos: ItemProdutoAtendidoRow[] };
 
 /** Projeção de leitura da agenda (§2.1) — não é fonte de verdade de conflito. */
@@ -47,7 +55,7 @@ export class AgendaQueryService {
         inicio: { lt: fimExclusivo },
         fim: { gt: inicio },
       },
-      include: { itens: true, produtos: true },
+      include: { itens: ORDEM_DA_COMANDA, produtos: ORDEM_DA_COMANDA },
       orderBy: { inicio: 'asc' },
     });
     return this.mapearTodos(atendimentos);
@@ -57,7 +65,7 @@ export class AgendaQueryService {
   async porId(id: string, companyId: string): Promise<AtendimentoDTO | null> {
     const atendimento = await this.prisma.atendimento.findFirst({
       where: { id, companyId },
-      include: { itens: true, produtos: true },
+      include: { itens: ORDEM_DA_COMANDA, produtos: ORDEM_DA_COMANDA },
     });
     if (!atendimento) return null;
     const dtos = await this.mapearTodos([atendimento]);
@@ -131,6 +139,14 @@ export class AgendaQueryService {
   ): AtendimentoDTO {
     const valorItens = a.itens.reduce((acc, i) => acc + i.valorCobradoCentavos, 0);
     const valorProdutos = a.produtos.reduce((acc, p) => acc + p.valorUnitarioCentavos * p.quantidade, 0);
+    // Mesma regra do `motivoParaNaoMexerNoValor` da aplicação, dita na
+    // linguagem da leitura: dinheiro já recebido trava a remoção de itens.
+    const motivoBloqueio =
+      a.valorAbatidoSaldoCentavos > 0
+        ? 'Este atendimento usou saldo residual de um pacote — o valor não pode ser alterado aqui.'
+        : intencaoPaga !== undefined
+          ? 'Este atendimento já foi pago online — o valor não pode ser alterado aqui.'
+          : null;
     return {
       id: a.id,
       cliente: {
@@ -148,6 +164,7 @@ export class AgendaQueryService {
         valorCobradoCentavos: i.valorCobradoCentavos,
         duracaoMinutos: i.duracaoMinutos,
         itemDoPacoteId: i.itemDoPacoteId,
+        precoCheioCentavos: i.precoCheioCentavos,
       })),
       produtos: a.produtos.map((p) => ({
         produtoId: p.produtoId,
@@ -167,6 +184,27 @@ export class AgendaQueryService {
       origemLinkBarbeiroId: a.origemLinkBarbeiroId,
       origemLinkBarbeiroNome: a.origemLinkBarbeiroId ? (barbeiroPorId.get(a.origemLinkBarbeiroId)?.nome ?? null) : null,
       valorAbatidoSaldoCentavos: a.valorAbatidoSaldoCentavos,
+      // Só dos AVULSOS: item de crédito de pacote não passa pela escada, e
+      // contá-lo aqui inventaria um desconto que não existiu.
+      descontoProgressivoCentavos: a.itens.reduce(
+        (acc, i) =>
+          acc +
+          (i.itemDoPacoteId === null && i.precoCheioCentavos !== null
+            ? i.precoCheioCentavos - i.valorCobradoCentavos
+            : 0),
+        0,
+      ),
+      podeEditarComanda: motivoBloqueio === null,
+      motivoBloqueioEdicao: motivoBloqueio,
+      caixinhaCentavos: a.caixinhaCentavos,
+      descontoConcedidoCentavos: a.descontoConcedidoCentavos,
+      reativado:
+        a.reativadoEm && a.reativadoPorId
+          ? {
+              porNome: barbeiroPorId.get(a.reativadoPorId)?.nome ?? '?',
+              em: a.reativadoEm.toISOString(),
+            }
+          : null,
       // Os quatro campos do pedido de conclusão antecipada viram um objeto ou
       // `null` — nunca meio preenchido: ou existe pedido pendente, ou não.
       conclusaoAntecipada:

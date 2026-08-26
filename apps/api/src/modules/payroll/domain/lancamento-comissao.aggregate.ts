@@ -86,6 +86,97 @@ export class LancamentoComissao extends AggregateRoot {
   }
 
   /**
+   * CAIXINHA (2026-08-25): gorjeta declarada pelo barbeiro no fechamento.
+   *
+   * Vai 100% para ele — não é receita da casa, é dinheiro que o cliente
+   * destinou a ele. Por isso `percentualAplicado = 100%` e
+   * `valorComissao = valorBase`: a linha continua legível no formato do ledger
+   * ("base × percentual"), sem inventar um caso especial de leitura.
+   *
+   * Lançamento SEPARADO da comissão do serviço, e não somado a ela, porque o
+   * barbeiro precisa entender por que o número dele mudou.
+   */
+  static criarDeCaixinha(params: {
+    id: LancamentoId;
+    companyId: CompanyId;
+    barbeiroId: BarbeiroId;
+    atendimentoId: AtendimentoId;
+    valor: Dinheiro;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    if (!params.valor.ehPositivo()) {
+      throw new InvarianteVioladaError('Caixinha deve ser maior que zero');
+    }
+    return new LancamentoComissao(
+      params.id,
+      params.companyId,
+      params.barbeiroId,
+      TipoLancamento.COMISSAO,
+      OrigemComissao.CAIXINHA,
+      params.atendimentoId,
+      null,
+      null,
+      null,
+      null,
+      null,
+      params.valor,
+      Percentual.dePorcentagem(100),
+      params.valor,
+      params.ocorridoEm,
+    );
+  }
+
+  /**
+   * DESCONTO CONCEDIDO (2026-08-25): a parte do abatimento que o BARBEIRO
+   * absorve, calculada em `rateio-de-desconto.ts`.
+   *
+   * `valorBase` guarda o desconto INTEIRO dado ao cliente e `valorComissao`, a
+   * parte dele. Os dois números juntos são o que torna a linha auditável: dá
+   * para ler "de R$10 de desconto, R$4,50 saíram de você" sem consultar mais
+   * nada. `percentualAplicado` fica NULO de propósito — com percentuais
+   * diferentes por serviço na mesma comanda, não existe UM percentual honesto
+   * para escrever ali, e um número arredondado que não reproduz o valor seria
+   * pior que nenhum.
+   */
+  static criarDeDescontoConcedido(params: {
+    id: LancamentoId;
+    companyId: CompanyId;
+    barbeiroId: BarbeiroId;
+    atendimentoId: AtendimentoId;
+    descontoTotal: Dinheiro;
+    parteDoBarbeiro: Dinheiro;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    if (!params.parteDoBarbeiro.ehPositivo()) {
+      throw new InvarianteVioladaError(
+        'Lançamento de desconto exige parte do barbeiro maior que zero',
+      );
+    }
+    if (params.parteDoBarbeiro.centavos > params.descontoTotal.centavos) {
+      throw new InvarianteVioladaError(
+        'A parte do barbeiro não pode ser maior que o desconto concedido',
+      );
+    }
+    return new LancamentoComissao(
+      params.id,
+      params.companyId,
+      params.barbeiroId,
+      TipoLancamento.DESCONTO_CONCEDIDO,
+      null,
+      params.atendimentoId,
+      null,
+      null,
+      null,
+      null,
+      null,
+      params.descontoTotal,
+      null,
+      params.parteDoBarbeiro,
+      params.ocorridoEm,
+    );
+  }
+
+  /**
    * Produto vendido junto de um Atendimento (add-on, item 4a) OU numa
    * VendaDeProduto avulsa (item 4b) — exatamente um dos dois ids é passado.
    */

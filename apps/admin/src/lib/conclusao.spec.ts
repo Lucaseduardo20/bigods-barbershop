@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { valorACobrarNaConclusao, valorNaoCobertoPorCredito } from './conclusao';
 
 function item(valorCobradoCentavos: number, itemDoPacoteId: string | null) {
-  return { servicoId: 'svc', servicoNome: 'Corte', valorCobradoCentavos, duracaoMinutos: 30, itemDoPacoteId };
+  // `precoCheioCentavos` entrou com a comanda editável (2026-08-25) — irrelevante
+  // para o que este arquivo testa, mas o DTO agora o exige.
+  return {
+    servicoId: 'svc',
+    servicoNome: 'Corte',
+    valorCobradoCentavos,
+    duracaoMinutos: 30,
+    itemDoPacoteId,
+    precoCheioCentavos: null,
+  };
 }
 function produto(valorUnitarioCentavos: number, quantidade = 1) {
   return { produtoId: 'prod', produtoNome: 'Gel', quantidade, valorUnitarioCentavos };

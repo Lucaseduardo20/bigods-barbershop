@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Inject,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -17,6 +19,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  Min,
   IsOptional,
   IsPositive,
   IsString,
@@ -44,6 +47,8 @@ import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
+import { EditarComandaUseCase } from '../application/editar-comanda.usecase';
+import { ReativarAtendimentoUseCase } from '../application/reativar-atendimento.usecase';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
 import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
@@ -97,6 +102,14 @@ class ConcluirDto {
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
   /** Obrigatório apenas quando o horário do atendimento ainda não começou. */
   @IsOptional() @IsString() @MinLength(3) @MaxLength(500) motivoConclusaoAntecipada?: string;
+  /**
+   * FASE 3 (2026-08-25) — em CENTAVOS, inteiros. Declarados pelo barbeiro na
+   * etapa de pagamento; o sistema nunca os deduz de "pagou mais/menos".
+   * O teto do desconto (não passar do total da comanda) é invariante de
+   * domínio, não validação de borda — depende da comanda, que o DTO não conhece.
+   */
+  @IsOptional() @IsInt() @Min(0) caixinhaCentavos?: number;
+  @IsOptional() @IsInt() @Min(0) descontoCentavos?: number;
 }
 
 class CancelarDto {
@@ -125,6 +138,8 @@ export class AtendimentosController {
     private readonly adicionarItem: AdicionarItemAtendimentoUseCase,
     private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
+    private readonly editarComanda: EditarComandaUseCase,
+    private readonly reativar: ReativarAtendimentoUseCase,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
     private readonly processarWebhook: ProcessarWebhookUseCase,
@@ -254,6 +269,44 @@ export class AtendimentosController {
     return { ok: true };
   }
 
+  /**
+   * COMANDA EDITÁVEL (2026-08-25, FASE 1): remove um serviço da comanda.
+   *
+   * O índice vem na rota e o `servicoId` na query como CONFIRMAÇÃO do que o
+   * painel achava que estava ali — `ItemAtendido` não tem identidade estável
+   * (o repositório recria a lista a cada save), então a alça é a posição, e a
+   * posição sozinha remove o item errado se a lista mudou. Ver
+   * `Atendimento.removerItem`.
+   */
+  @Delete(':id/itens/:indice')
+  async removerItemAtendimento(
+    @Param('id') id: string,
+    @Param('indice', ParseIntPipe) indice: number,
+    @Query('servicoId') servicoId: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    if (!servicoId) {
+      throw new BadRequestException('Informe o servicoId do item que está sendo removido');
+    }
+    await this.editarComanda.removerItem({ atendimentoId: id, indice, servicoId, usuario });
+    return { ok: true };
+  }
+
+  /** Gêmeo do anterior, para produtos. */
+  @Delete(':id/produtos/:indice')
+  async removerProdutoAtendimento(
+    @Param('id') id: string,
+    @Param('indice', ParseIntPipe) indice: number,
+    @Query('produtoId') produtoId: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    if (!produtoId) {
+      throw new BadRequestException('Informe o produtoId do item que está sendo removido');
+    }
+    await this.editarComanda.removerProduto({ atendimentoId: id, indice, produtoId, usuario });
+    return { ok: true };
+  }
+
   /** Item 4a da sessão 2026-07-16: produto vendido junto do atendimento, ANTES de concluir. */
   @Post(':id/produtos')
   async adicionarProdutoAtendimento(
@@ -314,6 +367,8 @@ export class AtendimentosController {
       atendimentoId: id,
       formaPagamento: body.formaPagamento,
       motivoConclusaoAntecipada: body.motivoConclusaoAntecipada,
+      caixinhaCentavos: body.caixinhaCentavos,
+      descontoCentavos: body.descontoCentavos,
       usuario,
     });
     return { ok: true, concluido };
@@ -346,6 +401,23 @@ export class AtendimentosController {
     @UsuarioAtual() usuario: UsuarioAutenticado,
   ): Promise<{ ok: true }> {
     await this.cancelar.executar({ atendimentoId: id, motivo: body.motivo, usuario });
+    return { ok: true };
+  }
+
+  /**
+   * FASE 4 (2026-08-25): o admin desfaz um cancelamento feito por engano.
+   *
+   * Só ADMIN, e não o barbeiro dono: cancelar é operação do dia a dia dele, mas
+   * ressuscitar um atendimento mexe em comissão futura e em crédito de pacote de
+   * cliente. É decisão de quem responde pelo caixa.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post(':id/reativar')
+  async reativarAtendimento(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.reativar.executar({ atendimentoId: id, usuario });
     return { ok: true };
   }
 

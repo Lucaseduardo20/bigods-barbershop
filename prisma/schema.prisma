@@ -67,6 +67,9 @@ enum OrigemDisponibilidade {
 enum OrigemComissao {
   SERVICO
   PRODUTO
+  // Gorjeta: 100% do barbeiro. Origem própria para virar uma linha que ele
+  // reconhece no extrato, em vez de sumir dentro da comissão do serviço.
+  CAIXINHA
 }
 
 // Workflow de aprovação de PacoteOferta (sessão-B, Fase 3).
@@ -468,6 +471,20 @@ model Atendimento {
   conclusaoSolicitadaEm     DateTime?         @db.Timestamptz(3)
   conclusaoFormaPagamento   FormaPagamento?
 
+  // FASE 3 (2026-08-25) — o que o barbeiro DECLAROU no fechamento. O efeito no
+  // dinheiro vive no ledger (LancamentoComissao), imutável; estes campos são o
+  // registro do que foi declarado, para a comanda poder ser relida depois.
+  // Nunca inferidos de "pagou mais/menos": só existem por ação explícita.
+  caixinhaCentavos          Int     @default(0)
+  descontoConcedidoCentavos Int     @default(0)
+
+  // FASE 4 (2026-08-25) — reativação de cancelamento pelo admin. Auditoria de
+  // quem trouxe o atendimento de volta. `motivoCancelamento` continua
+  // preenchido: os três campos juntos contam a história (cancelado por X,
+  // reativado por Y em Z).
+  reativadoPorId            String?
+  reativadoEm               DateTime? @db.Timestamptz(3)
+
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
   produtos ItemProdutoAtendido[]
@@ -484,6 +501,19 @@ model ItemAtendido {
   valorCobradoCentavos Int
   duracaoMinutos       Int
   itemDoPacoteId       String?
+  // Comanda editável (2026-08-25): o preço CHEIO do barbeiro no momento em que
+  // o item entrou, que é a base da escada de desconto progressivo, e o preço
+  // promocional do order-bump (não-nulo ⇒ item fora da escada).
+  // `valorCobradoCentavos` continua sendo o valor final cobrado — o snapshot.
+  // Sem estas duas, remover um serviço não tem como refazer o desconto: o
+  // degrau do 2º item já está diluído dentro do valor cobrado.
+  // NULL = linha anterior à migration; o recálculo cai em valorCobradoCentavos.
+  precoCheioCentavos       Int?
+  precoPromocionalCentavos Int?
+  // Posição na comanda. A tela remove item POR POSIÇÃO, e sem esta coluna a
+  // ordem de leitura era a que o Postgres quisesse — a posição da tela deixava
+  // de ser a posição do agregado depois do primeiro save.
+  ordem                    Int     @default(0)
 
   atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
 
@@ -499,6 +529,8 @@ model ItemProdutoAtendido {
   produtoId             String
   quantidade            Int    @default(1)
   valorUnitarioCentavos Int
+  // Mesma razão do `ordem` em ItemAtendido.
+  ordem                 Int    @default(0)
 
   atendimento Atendimento @relation(fields: [atendimentoId], references: [id])
 
@@ -723,6 +755,10 @@ enum TipoLancamento {
   COMISSAO
   VALE
   PAGAMENTO
+  // Parte do desconto concedido que o BARBEIRO absorve. Subtrai no saldo como
+  // VALE/PAGAMENTO, mas é outro fato — comissão que ele deixou de ganhar, não
+  // dinheiro que a casa lhe entregou.
+  DESCONTO_CONCEDIDO
 }
 
 enum StatusVale {

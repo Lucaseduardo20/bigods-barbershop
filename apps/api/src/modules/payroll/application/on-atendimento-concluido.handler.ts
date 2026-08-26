@@ -9,6 +9,7 @@ import {
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
 import { AtendimentoConcluido } from '../../scheduling/domain/atendimento.events';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
+import { LinhaComissionavel, ratearDesconto } from '../domain/rateio-de-desconto';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
@@ -48,6 +49,11 @@ export class OnAtendimentoConcluidoHandler {
       return;
     }
 
+    // As linhas comissionáveis são coletadas enquanto os lançamentos nascem: é
+    // sobre ELAS que o desconto do fechamento será rateado, com o percentual de
+    // cada uma — o mesmo que acabou de ser congelado no lançamento.
+    const linhasComissionaveis: { valorBaseCentavos: number; percentualBp: number }[] = [];
+
     for (const item of evento.itens) {
       const lancamento = LancamentoComissao.criarDeServico({
         id: randomUUID(),
@@ -58,6 +64,10 @@ export class OnAtendimentoConcluidoHandler {
         valorBase: Dinheiro.deCentavos(item.valorCobradoCentavos),
         percentualAplicado: barbeiro.percentualPara(item.servicoId),
         ocorridoEm: evento.ocorridoEm,
+      });
+      linhasComissionaveis.push({
+        valorBaseCentavos: lancamento.valorBase!.centavos,
+        percentualBp: lancamento.percentualAplicado!.pontosBase,
       });
       await this.lancamentos.salvar(lancamento);
     }
@@ -82,7 +92,63 @@ export class OnAtendimentoConcluidoHandler {
         percentualAplicado: taxaDaEmpresa!,
         ocorridoEm: evento.ocorridoEm,
       });
+      linhasComissionaveis.push({
+        valorBaseCentavos: valorBase.centavos,
+        percentualBp: taxaDaEmpresa!.pontosBase,
+      });
       await this.lancamentos.salvar(lancamento);
+    }
+
+    await this.lancarAjustesDoFechamento(evento, linhasComissionaveis);
+  }
+
+  /**
+   * FASE 3 (2026-08-25): caixinha e desconto viram lançamentos PRÓPRIOS.
+   *
+   * Poderiam ser embutidos — somar a caixinha na comissão do serviço, reduzir a
+   * base pelo desconto — e o saldo daria o mesmo. Mas o barbeiro veria o número
+   * dele mudar sem nada explicando por quê, e desconfiança sobre dinheiro é
+   * cara. Como linhas separadas, o extrato lê:
+   *
+   *     Comissão corte simples + barba      R$ 28,34
+   *     Caixinha                          + R$  7,00
+   *     Desconto concedido (sua parte)     − R$  4,50
+   */
+  private async lancarAjustesDoFechamento(
+    evento: AtendimentoConcluido,
+    linhasComissionaveis: LinhaComissionavel[],
+  ): Promise<void> {
+    if (evento.caixinhaCentavos > 0) {
+      await this.lancamentos.salvar(
+        LancamentoComissao.criarDeCaixinha({
+          id: randomUUID(),
+          companyId: evento.companyId,
+          barbeiroId: evento.barbeiroId,
+          atendimentoId: evento.atendimentoId,
+          valor: Dinheiro.deCentavos(evento.caixinhaCentavos),
+          ocorridoEm: evento.ocorridoEm,
+        }),
+      );
+    }
+
+    if (evento.descontoConcedidoCentavos > 0) {
+      const rateio = ratearDesconto(evento.descontoConcedidoCentavos, linhasComissionaveis);
+      // Parte do barbeiro pode ser ZERO — barbeiro a 0% de comissão, ou comanda
+      // inteiramente de crédito de pacote. Aí a casa bancou sozinha, e um
+      // lançamento de valor zero só sujaria o extrato.
+      if (rateio.parteDoBarbeiroCentavos > 0) {
+        await this.lancamentos.salvar(
+          LancamentoComissao.criarDeDescontoConcedido({
+            id: randomUUID(),
+            companyId: evento.companyId,
+            barbeiroId: evento.barbeiroId,
+            atendimentoId: evento.atendimentoId,
+            descontoTotal: Dinheiro.deCentavos(evento.descontoConcedidoCentavos),
+            parteDoBarbeiro: Dinheiro.deCentavos(rateio.parteDoBarbeiroCentavos),
+            ocorridoEm: evento.ocorridoEm,
+          }),
+        );
+      }
     }
   }
 }

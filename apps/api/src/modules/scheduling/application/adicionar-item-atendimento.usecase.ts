@@ -4,7 +4,16 @@ import { SERVICO_REPOSITORY, ServicoRepository } from '../../catalog/domain/serv
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
 import { precoDeReferencia } from '../../packages/domain/precificacao-pacote';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
+import {
+  INTENCAO_DE_PAGAMENTO_REPOSITORY,
+  IntencaoDePagamentoRepository,
+} from '../../payments/domain/intencao-de-pagamento.repository';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 import { autorizarDonoOuAdmin } from './concluir-atendimento.usecase';
+import { motivoParaNaoMexerNoValor } from './editar-comanda.usecase';
 
 export interface AdicionarItemAtendimentoInput {
   atendimentoId: string;
@@ -26,6 +35,10 @@ export class AdicionarItemAtendimentoUseCase {
     @Inject(ATENDIMENTO_REPOSITORY) private readonly atendimentos: AtendimentoRepository,
     @Inject(SERVICO_REPOSITORY) private readonly servicos: ServicoRepository,
     @Inject(BARBEIRO_REPOSITORY) private readonly barbeiros: BarbeiroRepository,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
+    private readonly parametros: ParametrosDaEmpresaRepository,
+    @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY)
+    private readonly intencoes: IntencaoDePagamentoRepository,
   ) {}
 
   async executar(input: AdicionarItemAtendimentoInput): Promise<void> {
@@ -45,6 +58,21 @@ export class AdicionarItemAtendimentoUseCase {
     }
 
     atendimento.adicionarItem(servico.id, precoDeReferencia(servico, barbeiro), servico.duracao, barbeiro);
+
+    // FASE 1 (2026-08-25): entrar um serviço muda o preço dos OUTROS — a escada
+    // do desconto progressivo depende de quantos itens a comanda tem. Até aqui
+    // o add-on entrava pelo preço cheio e os itens antigos ficavam com o
+    // desconto de uma composição que já não existia; o total não batia com o
+    // que o cliente veria se tivesse agendado os dois de uma vez.
+    //
+    // Com dinheiro já recebido (pago online / saldo abatido), NÃO reprecifica:
+    // adicionar continua liberado — o adicional é cobrado na hora — mas o preço
+    // do que já foi pago não muda embaixo de um pagamento fechado.
+    const motivo = await motivoParaNaoMexerNoValor(atendimento, this.intencoes);
+    if (!motivo) {
+      atendimento.reprecificarAvulsos(await this.parametros.tabelaDeDesconto(atendimento.companyId));
+    }
+
     await this.atendimentos.salvar(atendimento);
   }
 }

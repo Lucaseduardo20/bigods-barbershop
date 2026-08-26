@@ -12,7 +12,6 @@ process.env.PAYMENT_GATEWAY = 'fake';
 // telefones de primeira viagem). O limite por origem é testado em
 // `otp-limite-por-origem.e2e.spec.ts`, com valor baixo; aqui ele sairia do
 // caminho do que se quer testar.
-process.env.OTP_LIMITE_POR_ORIGEM_HORA = '500';
 
 // eslint-disable-next-line import/first
 import { AppModule } from '../../src/app.module';

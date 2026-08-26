@@ -14,6 +14,8 @@ import { CancelarAtendimentoClienteUseCase } from './application/cancelar-atendi
 import { ReagendarAtendimentoClienteUseCase } from './application/reagendar-atendimento-cliente.usecase';
 import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-comparecimento.usecase';
 import { AdicionarItemAtendimentoUseCase } from './application/adicionar-item-atendimento.usecase';
+import { EditarComandaUseCase } from './application/editar-comanda.usecase';
+import { ReativarAtendimentoUseCase } from './application/reativar-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from './application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from './infrastructure/agenda-query.service';
 import { EmpresaPublicaQueryService } from './infrastructure/empresa-publica-query.service';
@@ -36,6 +38,8 @@ import { PaymentsModule } from '../payments/payments.module';
     ReagendarAtendimentoClienteUseCase,
     RegistrarNaoComparecimentoUseCase,
     AdicionarItemAtendimentoUseCase,
+    EditarComandaUseCase,
+    ReativarAtendimentoUseCase,
     AdicionarProdutoAtendimentoUseCase,
     AgendaQueryService,
     EmpresaPublicaQueryService,

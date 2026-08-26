@@ -18,6 +18,8 @@ import {
   InvarianteVioladaError,
   TransicaoDeEstadoInvalidaError,
 } from '../../../shared/errors/domain-error';
+import { TabelaDeDescontoDTO } from '@bigods/contracts';
+import { ItemDoCarrinho, precificarCarrinho } from '../../catalog/domain/desconto-progressivo';
 import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { DisponibilidadeBarbeiro } from '../../staff/domain/disponibilidade.aggregate';
 import {
@@ -34,6 +36,21 @@ export interface ItemAtendido {
   valorCobrado: Dinheiro;
   duracao: Duracao;
   itemDoPacoteId: ItemDoPacoteId | null;
+  /**
+   * Comanda editável (2026-08-25): preço CHEIO do barbeiro quando o item entrou
+   * na comanda — a BASE da escada de desconto progressivo.
+   *
+   * Sem ele, remover um serviço não tem como refazer o desconto: `valorCobrado`
+   * já vem com o degrau diluído dentro, e de um total descontado não se
+   * reconstrói a escada. Ausente/null = item anterior a esta mudança; o
+   * recálculo usa `valorCobrado` como base, que é o melhor que se sabe dele.
+   */
+  precoCheio?: Dinheiro | null;
+  /**
+   * Preço cravado do order-bump (§8.13). Não-nulo ⇒ este item fica FORA da
+   * escada progressiva — nunca desconto sobre desconto.
+   */
+  precoPromocional?: Dinheiro | null;
 }
 
 /**
@@ -105,6 +122,32 @@ export interface AtendimentoProps {
   conclusaoSolicitadaPorId: BarbeiroId | null;
   conclusaoSolicitadaEm: Date | null;
   conclusaoFormaPagamento: FormaPagamento | null;
+  /**
+   * FASE 3 (2026-08-25) — ajustes DECLARADOS pelo barbeiro no fechamento.
+   *
+   * `caixinha`: gorjeta que o cliente deu a mais; vai 100% para o barbeiro.
+   * `descontoConcedido`: abatimento que o barbeiro deu; repartido com a casa na
+   * proporção da comissão dele (`rateio-de-desconto.ts`).
+   *
+   * Nunca inferidos de "pagou mais/menos" — só existem por ação explícita. O
+   * efeito no dinheiro vive no ledger, imutável; aqui fica o que foi declarado,
+   * para a comanda poder ser relida depois.
+   */
+  caixinha: Dinheiro;
+  descontoConcedido: Dinheiro;
+  /**
+   * FASE 4 (2026-08-25) — quem reativou este atendimento depois de cancelado, e
+   * quando. `motivoCancelamento` continua preenchido de propósito: os três
+   * juntos contam a história (cancelado por X, trazido de volta por Y em Z).
+   */
+  reativadoPorId: BarbeiroId | null;
+  reativadoEm: Date | null;
+}
+
+/** Ajustes do fechamento, declarados juntos porque são um único ato. */
+export interface AjustesDoFechamento {
+  caixinha: Dinheiro;
+  descontoConcedido: Dinheiro;
 }
 
 export interface AgendarParams {
@@ -226,6 +269,10 @@ export class Atendimento extends AggregateRoot {
       conclusaoSolicitadaPorId: null,
       conclusaoSolicitadaEm: null,
       conclusaoFormaPagamento: null,
+      caixinha: Dinheiro.zero(),
+      descontoConcedido: Dinheiro.zero(),
+      reativadoPorId: null,
+      reativadoEm: null,
     });
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
@@ -265,9 +312,40 @@ export class Atendimento extends AggregateRoot {
    * IntencaoDePagamento (§2.2, agregados não se chamam), quem decide isso é
    * `ConcluirAtendimentoUseCase`.
    */
-  concluir(formaPagamento?: FormaPagamento): void {
+  concluir(formaPagamento?: FormaPagamento, ajustes?: AjustesDoFechamento): void {
     this.exigirAgendado('concluir');
+    // A comanda ficou editável (2026-08-25) e pode chegar aqui vazia — o
+    // barbeiro removeu o serviço errado e não colocou outro. Concluir assim
+    // geraria um atendimento sem nada feito e comissão zero, e ninguém
+    // entenderia depois. A edição é livre; o portão é aqui.
+    if (this.props.itens.length === 0) {
+      throw new InvarianteVioladaError(
+        'A comanda não tem nenhum serviço — adicione o que foi feito, ou cancele o atendimento',
+      );
+    }
+    if (ajustes) this.declararAjustes(ajustes);
     this.marcarConcluido(formaPagamento);
+  }
+
+  /**
+   * Registra caixinha e desconto do fechamento.
+   *
+   * **O desconto não pode passar do total da comanda.** Um abatimento maior que
+   * o que o cliente deve não é desconto, é a casa pagando para atender — e o
+   * mais provável é dedo errado no teclado (R$5000 em vez de R$50,00). Recusar
+   * aqui é a única chance de pegar isso antes de virar lançamento imutável.
+   *
+   * A caixinha NÃO tem teto: gorjeta grande é rara, mas é do cliente decidir.
+   */
+  private declararAjustes(ajustes: AjustesDoFechamento): void {
+    const total = this.valorTotal();
+    if (ajustes.descontoConcedido.centavos > total.centavos) {
+      throw new InvarianteVioladaError(
+        `Desconto de ${ajustes.descontoConcedido.centavos} centavos é maior que o total da comanda (${total.centavos})`,
+      );
+    }
+    this.props.caixinha = ajustes.caixinha;
+    this.props.descontoConcedido = ajustes.descontoConcedido;
   }
 
   /**
@@ -288,6 +366,8 @@ export class Atendimento extends AggregateRoot {
     solicitadaPorId: BarbeiroId;
     agora: Date;
     formaPagamento?: FormaPagamento;
+    /** Declarados agora e congelados até a decisão do admin — como a forma de pagamento. */
+    ajustes?: AjustesDoFechamento;
   }): void {
     this.exigirAgendado('solicitar conclusão antecipada');
     if (params.agora.getTime() >= this.props.intervalo.inicio.getTime()) {
@@ -306,6 +386,10 @@ export class Atendimento extends AggregateRoot {
         'Conclusão exige forma de pagamento para os itens/produtos não cobertos por crédito de pacote',
       );
     }
+    // Mesma razão da forma de pagamento: caixinha e desconto são declarados por
+    // quem estava na cadeira, agora. O admin que aprova dias depois não tem como
+    // saber quanto de gorjeta o cliente deixou.
+    if (params.ajustes) this.declararAjustes(params.ajustes);
     this.props.status = StatusAtendimento.CONCLUSAO_PENDENTE;
     this.props.conclusaoAntecipadaMotivo = params.motivo.trim();
     this.props.conclusaoSolicitadaPorId = params.solicitadaPorId;
@@ -349,6 +433,10 @@ export class Atendimento extends AggregateRoot {
     this.props.conclusaoSolicitadaPorId = null;
     this.props.conclusaoSolicitadaEm = null;
     this.props.conclusaoFormaPagamento = null;
+    // Os ajustes declarados no pedido também não vingaram: AGENDADO volta sem
+    // caixinha nem desconto pendurados de um fechamento que não aconteceu.
+    this.props.caixinha = Dinheiro.zero();
+    this.props.descontoConcedido = Dinheiro.zero();
   }
 
   private exigirConclusaoPendente(acao: string): void {
@@ -391,6 +479,8 @@ export class Atendimento extends AggregateRoot {
           quantidade: p.quantidade,
           valorUnitarioCentavos: p.valorUnitario.centavos,
         })),
+        this.props.caixinha.centavos,
+        this.props.descontoConcedido.centavos,
       ),
     );
   }
@@ -412,7 +502,113 @@ export class Atendimento extends AggregateRoot {
     if (!barbeiro.atende(servicoId)) {
       throw new InvarianteVioladaError(`Barbeiro ${barbeiro.nome} não atende o serviço ${servicoId}`);
     }
-    this.props.itens.push({ servicoId, valorCobrado, duracao, itemDoPacoteId: null });
+    // `precoCheio = valorCobrado`: o item entra pelo preço de referência do
+    // barbeiro, e é esse valor que vira a base dele na escada quando a comanda
+    // for reprecificada logo em seguida.
+    this.props.itens.push({
+      servicoId,
+      valorCobrado,
+      duracao,
+      itemDoPacoteId: null,
+      precoCheio: valorCobrado,
+      precoPromocional: null,
+    });
+  }
+
+  /**
+   * COMANDA EDITÁVEL (2026-08-25) — remove um serviço da comanda antes de
+   * concluir.
+   *
+   * O caso real: o cliente agendou "corte navalhado" achando que era o simples.
+   * Até aqui o barbeiro só sabia ADICIONAR — ficava preso cobrando o serviço
+   * errado, e o jeito de "trocar" era cancelar o atendimento inteiro.
+   *
+   * ## O índice, e por que ele vem acompanhado
+   *
+   * `ItemAtendido` não tem identidade: o repositório apaga e recria a lista
+   * inteira a cada `salvar`, então o id da linha no banco não sobrevive a uma
+   * edição e não serve de alça. Sobra a POSIÇÃO — que é frágil se a lista mudar
+   * entre a tela e o clique. Por isso o chamador manda também qual serviço ele
+   * ACHA que está naquela posição: se não bater, a remoção é recusada em vez de
+   * apagar o item errado. É dinheiro; errar calado não é opção.
+   *
+   * Devolve o item removido porque quem chama precisa saber se ele carregava um
+   * crédito de pacote — o crédito tem que voltar para o cliente, e isso acontece
+   * em OUTRO agregado (§2.2), na mesma transação.
+   */
+  removerItem(indice: number, servicoIdEsperado: ServicoId): ItemAtendido {
+    this.exigirAgendado('remover item');
+    const item = this.props.itens[indice];
+    if (!item) {
+      throw new InvarianteVioladaError(`A comanda não tem item na posição ${indice}`);
+    }
+    if (item.servicoId !== servicoIdEsperado) {
+      throw new InvarianteVioladaError(
+        'A comanda mudou desde que a tela foi carregada — recarregue antes de remover',
+      );
+    }
+    this.props.itens.splice(indice, 1);
+    return item;
+  }
+
+  /** Mesma regra de alça do `removerItem`: posição + confirmação do produto. */
+  removerProduto(indice: number, produtoIdEsperado: ProdutoId): ItemProdutoAtendido {
+    this.exigirAgendado('remover produto');
+    const produto = this.props.produtos[indice];
+    if (!produto) {
+      throw new InvarianteVioladaError(`A comanda não tem produto na posição ${indice}`);
+    }
+    if (produto.produtoId !== produtoIdEsperado) {
+      throw new InvarianteVioladaError(
+        'A comanda mudou desde que a tela foi carregada — recarregue antes de remover',
+      );
+    }
+    this.props.produtos.splice(indice, 1);
+    return produto;
+  }
+
+  /**
+   * Recalcula o desconto progressivo sobre a composição FINAL da comanda.
+   *
+   * É o que faz a edição significar alguma coisa: tirar um serviço não pode só
+   * apagar a linha e deixar o degrau do 2º item embutido no preço do 1º. A
+   * escada depende de QUANTOS serviços a comanda tem, então ela é refeita
+   * inteira a cada mudança.
+   *
+   * **Itens de pacote não entram.** O `valorCobrado` deles é o valor RATEADO da
+   * venda do pacote (§3.6) — dinheiro que já foi cobrado, em outra transação,
+   * com outra regra. Passá-los pela escada de avulso seria inventar um desconto
+   * sobre algo que já está pago.
+   *
+   * **A base é o preço de quando o item entrou**, não o preço de hoje: o
+   * `precoCheio` é snapshot. Assim, remover a barba não faz o corte "subir"
+   * porque a tabela mudou entre o agendamento e o atendimento — o cliente paga
+   * o que combinou, com o desconto que a composição final merece.
+   */
+  reprecificarAvulsos(tabela: TabelaDeDescontoDTO): void {
+    this.exigirAgendado('reprecificar');
+    const posicoesAvulsas: number[] = [];
+    const entradas: ItemDoCarrinho[] = [];
+    this.props.itens.forEach((item, i) => {
+      if (item.itemDoPacoteId !== null) return;
+      posicoesAvulsas.push(i);
+      entradas.push({
+        servicoId: item.servicoId,
+        // Item anterior à migration não tem `precoCheio`: o valor cobrado é o
+        // melhor que se sabe sobre ele.
+        precoCheio: item.precoCheio ?? item.valorCobrado,
+        precoPromocional: item.precoPromocional ?? null,
+      });
+    });
+    if (entradas.length === 0) return;
+
+    // Por POSIÇÃO, nunca por servicoId: uma comanda pode ter o mesmo serviço
+    // duas vezes (dois cortes, pai e filho na mesma cadeira), e um mapa por id
+    // colapsaria os dois num só.
+    const carrinho = precificarCarrinho(entradas, tabela);
+    posicoesAvulsas.forEach((posicao, i) => {
+      this.props.itens[posicao]!.valorCobrado = carrinho.itens[i]!.precoFinal;
+    });
   }
 
   /**
@@ -445,6 +641,65 @@ export class Atendimento extends AggregateRoot {
         Date.now() < this.props.intervalo.inicio.getTime(),
       ),
     );
+  }
+
+  /**
+   * FASE 4 (2026-08-25) — o admin desfaz um cancelamento feito por engano.
+   *
+   * ## Isto é uma exceção consciente à regra dos estados finais
+   *
+   * A regra da casa (CLAUDE.md §4, DOMAIN.md §4.1) é que estado final não
+   * transiciona: reagendar é cancelar e criar outro. `CANCELADO` era final.
+   *
+   * O caso real que abriu a exceção: um agendamento foi cancelado achando que
+   * era duplicata, e era do PAI do cliente. O dono resolveu com um UPDATE na mão
+   * no banco de produção. Entre "criar um atendimento novo, que perde o vínculo
+   * com a intenção de pagamento e com os créditos de pacote daquele" e "voltar
+   * o mesmo registro para AGENDADO", o segundo é o que reflete o que de fato
+   * aconteceu — o atendimento nunca deixou de existir, alguém apertou o botão
+   * errado. E é infinitamente melhor que o UPDATE manual, que não valida nada.
+   *
+   * ## Revalidar o horário é o ponto inteiro
+   *
+   * Entre o cancelamento e a reativação o horário pode ter sido vendido a outro
+   * cliente. Reativar cegamente colocaria dois na mesma cadeira — exatamente o
+   * que a constraint EXCLUDE existe para impedir. A checagem aqui dá a mensagem
+   * boa; o `EXCLUDE` do Postgres é a rede que pega a corrida entre duas
+   * requisições simultâneas.
+   *
+   * Devolve os itens de pacote que precisam ser reagendados no outro agregado
+   * (§2.2) — o cancelamento devolveu os créditos ao cliente, e a reativação
+   * tem que tomá-los de volta, ou o cliente ficaria com o crédito E o horário.
+   */
+  reativar(params: {
+    atendimentosAtivos: Atendimento[];
+    reativadoPorId: BarbeiroId;
+    agora: Date;
+  }): ItemDoPacoteId[] {
+    if (this.props.status !== StatusAtendimento.CANCELADO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Só um atendimento CANCELADO pode ser reativado (este está ${this.props.status})`,
+      );
+    }
+    const conflito = params.atendimentosAtivos.find(
+      (a) =>
+        a.props.id !== this.props.id &&
+        a.props.barbeiroId === this.props.barbeiroId &&
+        (a.props.status === StatusAtendimento.AGENDADO ||
+          a.props.status === StatusAtendimento.RESERVADO ||
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+        a.props.intervalo.sobrepoe(this.props.intervalo),
+    );
+    if (conflito) {
+      throw new ConflitoDeHorarioError(
+        'Este horário já foi ocupado por outro atendimento — reagende em vez de reativar',
+      );
+    }
+
+    this.props.status = StatusAtendimento.AGENDADO;
+    this.props.reativadoPorId = params.reativadoPorId;
+    this.props.reativadoEm = params.agora;
+    return this.itensDoPacote();
   }
 
   /**
@@ -554,4 +809,8 @@ export class Atendimento extends AggregateRoot {
   get conclusaoSolicitadaPorId() { return this.props.conclusaoSolicitadaPorId; }
   get conclusaoSolicitadaEm() { return this.props.conclusaoSolicitadaEm; }
   get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
+  get caixinha() { return this.props.caixinha; }
+  get reativadoPorId() { return this.props.reativadoPorId; }
+  get reativadoEm() { return this.props.reativadoEm; }
+  get descontoConcedido() { return this.props.descontoConcedido; }
 }
