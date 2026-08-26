@@ -78,6 +78,16 @@ class AtualizarComissaoDto {
   @IsNumber() @Min(0) @Max(100) comissaoProdutos!: number;
 }
 
+/**
+ * ACERTO DO FECHAMENTO (2026-08-26) — endpoint PRÓPRIO, e não mais um campo em
+ * `/comissao`: são negociações diferentes, e salvar a comissão do corte não
+ * pode mexer por tabela em quanto ele leva de caixinha.
+ */
+class AtualizarAcertoDto {
+  @IsNumber() @Min(0) @Max(100) percentualCaixinha!: number;
+  @IsNumber() @Min(0) @Max(100) percentualDescontoAbsorvido!: number;
+}
+
 class AtualizarServicosDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) servicoIds!: string[];
 }
@@ -113,6 +123,8 @@ function paraDTO(b: Barbeiro): BarbeiroDTO {
     })),
     servicosAtendidos: [...b.servicosAtendidos],
     comissaoProdutos: b.comissaoProdutos.porcentagem,
+    percentualCaixinha: b.percentualCaixinha.porcentagem,
+    percentualDescontoAbsorvido: b.percentualDescontoAbsorvido.porcentagem,
     precosServicos: [...b.precosServicos].map(([servicoId, preco]) => ({ servicoId, precoCentavos: preco.centavos })),
     fotoUrl: b.fotoUrl,
     ativo: b.ativo,
@@ -289,10 +301,38 @@ export class BarbeirosController {
       comissaoProdutos: Percentual.dePorcentagem(body.comissaoProdutos),
       precosServicos: barbeiro.precosServicos,
       fotoUrl: barbeiro.fotoUrl,
+      // O acerto do fechamento é editado em `/acerto`, não aqui: mexer na
+      // comissão de serviço não pode mudar por tabela quanto ele leva de
+      // caixinha.
+      percentualCaixinha: barbeiro.percentualCaixinha,
+      percentualDescontoAbsorvido: barbeiro.percentualDescontoAbsorvido,
       ativo: barbeiro.ativo,
     });
     await this.barbeiros.salvar(atualizado);
     return paraDTO(atualizado);
+  }
+
+  /**
+   * Quanto o barbeiro leva da CAIXINHA e quanto ele banca do DESCONTO que
+   * concede (2026-08-26).
+   *
+   * Mudar aqui NÃO mexe em lançamento já feito: o percentual é congelado no
+   * ledger no momento da conclusão (§3.5). Vale para os próximos fechamentos.
+   */
+  @Papeis(Papel.ADMIN)
+  @Put(':id/acerto')
+  async atualizarAcerto(
+    @Param('id') id: string,
+    @Body() body: AtualizarAcertoDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<BarbeiroDTO> {
+    const barbeiro = await this.buscar(id, usuario);
+    barbeiro.definirAcertoDoFechamento({
+      caixinha: Percentual.dePorcentagem(body.percentualCaixinha),
+      descontoAbsorvido: Percentual.dePorcentagem(body.percentualDescontoAbsorvido),
+    });
+    await this.barbeiros.salvar(barbeiro);
+    return paraDTO(barbeiro);
   }
 
   /** Preço por barbeiro (sessão-B, Fase 2) — mesmo padrão de `/comissao`: substituição total dos overrides. */

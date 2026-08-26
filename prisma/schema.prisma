@@ -310,6 +310,15 @@ model Barbeiro {
   // barbeiro. Ninguém lê esta coluna para calcular comissão. Mantida por
   // migration aditiva, para rollback — ver DECISOES_PENDENTES.
   comissaoProdutosBp Int     @default(0)
+  // ACERTO DO FECHAMENTO (2026-08-26) — configuráveis pelo admin, por barbeiro.
+  // `percentualCaixinhaBp`: quanto da CAIXINHA fica com ele (o resto é da casa).
+  // `percentualDescontoBp`: quanto do DESCONTO que ele concede sai da comissão
+  // dele (o resto a casa absorve).
+  // Antes os dois eram derivados — 100% cravado e a fração da comissão. O
+  // backfill da migration reproduz exatamente esses valores, então a mudança
+  // não move o dinheiro de ninguém; ela só torna o número editável.
+  percentualCaixinhaBp Int   @default(10000)
+  percentualDescontoBp Int   @default(0)
   ativo              Boolean @default(true)
   // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"
   // em vez de UUID. Único por empresa, gerado no cadastro, editável pelo admin.

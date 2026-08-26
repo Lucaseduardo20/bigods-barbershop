@@ -316,6 +316,7 @@ function DetalheDeUsuario({
           <h2 className="text-[16px] font-bold mb-3">Configuração de barbeiro</h2>
           <LinkPessoal barbeiro={usuario} aoSalvar={aoMudar} />
           <ComissaoDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
+          <AcertoDoBarbeiro barbeiro={usuario} aoSalvar={aoMudar} />
           <PrecosDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
           <ServicosDoBarbeiro barbeiro={usuario} servicos={servicos} carregandoServicos={carregandoServicos} aoSalvar={aoMudar} />
           <ExpedienteDoBarbeiro barbeiroId={usuario.id} />
@@ -558,6 +559,131 @@ function LinkPessoal({ barbeiro, aoSalvar }: { barbeiro: BarbeiroDTO; aoSalvar: 
         </div>
       </div>
       {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+    </div>
+  );
+}
+
+/**
+ * ACERTO DO FECHAMENTO (2026-08-26): quanto o barbeiro leva da CAIXINHA e
+ * quanto ele banca do DESCONTO que concede.
+ *
+ * Ficam juntos e separados da comissão de serviço porque são a mesma conversa
+ * ("como a gente divide o que acontece no balcão") e uma conversa diferente da
+ * comissão do corte. Até esta data os dois eram derivados — caixinha 100%
+ * cravada no código, desconto na proporção da comissão —, o que amarrava
+ * negociações que o dono quer separadas.
+ */
+function AcertoDoBarbeiro({
+  barbeiro,
+  aoSalvar,
+}: {
+  barbeiro: BarbeiroDTO;
+  aoSalvar: () => void;
+}) {
+  const [caixinha, setCaixinha] = useState('');
+  const [desconto, setDesconto] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCaixinha(String(barbeiro.percentualCaixinha));
+    setDesconto(String(barbeiro.percentualDescontoAbsorvido));
+    setSalvo(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barbeiro.id]);
+
+  const valido = (v: string) => {
+    const n = Number(v);
+    return v.trim() !== '' && Number.isFinite(n) && n >= 0 && n <= 100;
+  };
+  const algumInvalido = !valido(caixinha) || !valido(desconto);
+
+  /** Exemplo em cima de R$10 — o número abstrato não diz nada; R$8,00 diz. */
+  const exemplo = (percentual: string) =>
+    valido(percentual) ? dinheiro(Math.round((1000 * Number(percentual)) / 100)) : '—';
+
+  const salvar = async () => {
+    setSalvando(true);
+    setErro(null);
+    setSalvo(false);
+    try {
+      await api(`/barbeiros/${barbeiro.id}/acerto`, {
+        method: 'PUT',
+        body: {
+          percentualCaixinha: Number(caixinha),
+          percentualDescontoAbsorvido: Number(desconto),
+        },
+      });
+      setSalvo(true);
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="mb-5">
+      <div className="label mb-2">Caixinha e desconto</div>
+      <div className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
+        ⚠️ Mudar aqui <strong>não altera nada já lançado</strong>. O extrato guarda o percentual do
+        dia do atendimento — a mudança vale para os próximos fechamentos.
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className="label">Caixinha que fica com ele (%)</label>
+          <div className="flex items-center gap-2">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              style={{ width: 110 }}
+              value={caixinha}
+              onChange={(e) => setCaixinha(e.target.value)}
+            />
+            <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+              de R$ 10,00 de caixinha, ele leva <strong>{exemplo(caixinha)}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Desconto que sai da comissão dele (%)</label>
+          <div className="flex items-center gap-2">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              style={{ width: 110 }}
+              value={desconto}
+              onChange={(e) => setDesconto(e.target.value)}
+            />
+            <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+              de R$ 10,00 de desconto, ele banca <strong>{exemplo(desconto)}</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {erro && <div className="text-[13px] mt-2" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+      {salvo && (
+        <div className="text-[13px] mt-2" style={{ color: 'var(--status-success)' }}>
+          Acerto salvo — vale para os próximos fechamentos.
+        </div>
+      )}
+      <button className="btn btn-sm mt-3" disabled={salvando || algumInvalido} onClick={salvar}>
+        {salvando ? 'Salvando…' : 'Salvar acerto'}
+      </button>
+      {algumInvalido && (
+        <div className="text-[11px] mt-1.5" style={{ color: 'var(--status-danger)' }}>
+          Percentual precisa ser um número de 0 a 100.
+        </div>
+      )}
     </div>
   );
 }

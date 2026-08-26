@@ -5254,6 +5254,77 @@ Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não 
 - Abra um atendimento pago online e tente remover um item.
 - ✅ O botão de remover **não aparece**, e a comanda avisa por quê. Adicionar continua funcionando.
 
+## Caixinha e desconto viram acerto POR BARBEIRO (2026-08-26) ✅
+
+Um dia depois de a Fase 3 subir, o dono mudou a regra: os dois percentuais deixam de ser derivados e
+passam a ser **configuração de cada barbeiro**, editável no painel.
+
+| | Antes (2026-08-25) | Agora |
+|---|---|---|
+| Caixinha | 100% do barbeiro, cravado no código | `Barbeiro.percentualCaixinha` |
+| Desconto | a fração da COMISSÃO dele, rateada linha a linha da comanda | `Barbeiro.percentualDescontoAbsorvido` |
+
+**Por que a mudança faz sentido.** O modelo anterior respondia "quanto da receita perdida era dele",
+o que é uma pergunta legítima — mas amarrava duas negociações diferentes. Quem acerta 45% no corte
+não necessariamente aceita bancar 45% de todo abatimento de balcão, e a casa pode querer ficar com
+parte da caixinha que entrou no cartão. São conversas separadas, e agora têm campos separados.
+
+O cálculo virou uma regra de três sobre o valor declarado (`rateio-do-acerto.ts`): uma divisão só, e
+a casa fica com o **resto por subtração** — é o que garante `parte do barbeiro + parte da casa ==
+valor` ao centavo, para qualquer valor e qualquer percentual.
+
+### ★ O backfill preserva o dinheiro de todo mundo
+
+A migration não muda número de ninguém, barbeiro a barbeiro:
+
+```sql
+percentualCaixinhaBp = 10000                 -- exatamente o 100% que era cravado
+percentualDescontoBp = comissaoPadraoBp      -- o mesmo número que o rateio derivava
+```
+
+A única divergência possível é para quem tem **exceção de comissão por serviço**: o desconto dele
+era calculado sobre a matriz, e agora sai de um percentual único. É a consequência aceita de trocar
+um cálculo por linha por um número editável, e o admin ajusta na tela se quiser outro valor.
+
+Um barbeiro NOVO criado pela API nasce com os mesmos defaults (caixinha 100%, desconto = a comissão
+padrão dele) — aplicados no agregado, não no banco, porque `DEFAULT` de coluna não sabe copiar outra
+coluna. Quem inserir barbeiro por SQL direto pega `percentualDescontoBp = 0`.
+
+### O percentual do desconto passou a ser gravado
+
+Enquanto o desconto era rateado linha a linha, cada uma com o percentual do SEU serviço, não existia
+UM percentual honesto para escrever no lançamento — o campo ficava nulo. Agora existe, e é
+congelado junto com o resto (§3.5). O extrato ganhou o número:
+
+```
+Caixinha                          base R$ 10,00 × 70%              + R$ 7,00
+Desconto concedido (sua parte)    de R$ 10,00 abatidos · 45%       − R$ 4,50
+```
+
+Lançamentos anteriores à mudança continuam sem o percentual, e a linha deles continua legível — o
+sufixo só aparece quando o campo existe.
+
+### A tela
+
+**Usuários → (barbeiro) → Caixinha e desconto**: dois campos, com o efeito em dinheiro ao lado de
+cada um ("de R$ 10,00 de caixinha, ele leva **R$ 7,00**") — percentual sozinho não diz nada para
+quem está decidindo. Endpoint próprio (`PUT /barbeiros/:id/acerto`), separado de `/comissao`: salvar
+a comissão do corte não pode mexer por tabela em quanto ele leva de caixinha.
+
+Dois textos que passaram a mentir foram corrigidos: o rótulo "Caixinha (vai 100% para Fulano)" no
+fechamento, e "sai da sua comissão, na proporção dela" — que não é mais verdade.
+
+### Testes
+
+**8 de repartição pura** (arredondamento, bordas, invariante de fechamento ao centavo) e **7 e2e
+novos** da parametrização: caixinha a 80% e a 0%, desconto a 0% e a 100%, o percentual congelado no
+lançamento quando o acerto muda depois, a comissão de serviço não sendo afetada, e a recusa de
+percentual fora de 0–100. **929 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49,
+account 21. Build verde.
+
+Verificado no navegador: mudei a caixinha do Gabriel para 70% na tela, fechei uma comanda com R$10 de
+caixinha e R$10 de desconto, e o ledger saiu com `R$10,00 × 70% = R$7,00` e `R$10,00 × 45% = R$4,50`.
+
 ## Como rodar localmente
 
 ```bash

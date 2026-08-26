@@ -81,6 +81,19 @@ export interface BarbeiroDTO {
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
   precosServicos: ExcecaoPrecoDTO[];
   /**
+   * ACERTO DO FECHAMENTO (2026-08-26), em porcentagem (ex: 80).
+   *
+   * `percentualCaixinha`: quanto da caixinha declarada fica com ele.
+   * `percentualDescontoAbsorvido`: quanto do desconto que ele concede sai da
+   * comissão dele.
+   *
+   * Editáveis pelo admin em `PUT /barbeiros/:id/acerto`. Antes eram derivados
+   * (100% cravado e a fração da comissão de serviço); viraram campos porque são
+   * negociações diferentes da comissão do corte.
+   */
+  percentualCaixinha: number;
+  percentualDescontoAbsorvido: number;
+  /**
    * Foto de perfil (2026-08-19) — URL pública, ou `null`. Sem foto, a UI usa
    * o avatar de iniciais que já existe; nunca uma imagem quebrada.
    */

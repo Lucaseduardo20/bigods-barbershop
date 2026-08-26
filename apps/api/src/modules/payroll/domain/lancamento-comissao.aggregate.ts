@@ -86,12 +86,14 @@ export class LancamentoComissao extends AggregateRoot {
   }
 
   /**
-   * CAIXINHA (2026-08-25): gorjeta declarada pelo barbeiro no fechamento.
+   * CAIXINHA (2026-08-25; parametrizada em 2026-08-26): gorjeta declarada pelo
+   * barbeiro no fechamento.
    *
-   * Vai 100% para ele — não é receita da casa, é dinheiro que o cliente
-   * destinou a ele. Por isso `percentualAplicado = 100%` e
-   * `valorComissao = valorBase`: a linha continua legível no formato do ledger
-   * ("base × percentual"), sem inventar um caso especial de leitura.
+   * `valorBase` é a caixinha INTEIRA que o cliente deu, `percentualAplicado` é
+   * o do barbeiro (`Barbeiro.percentualCaixinha`) e `valorComissao` é a parte
+   * dele. Os três juntos deixam a linha legível sem consultar mais nada:
+   * "Caixinha R$10,00 × 80% = R$8,00". Enquanto o percentual era 100% cravado,
+   * os três números eram o mesmo; agora não são mais.
    *
    * Lançamento SEPARADO da comissão do serviço, e não somado a ela, porque o
    * barbeiro precisa entender por que o número dele mudou.
@@ -101,11 +103,18 @@ export class LancamentoComissao extends AggregateRoot {
     companyId: CompanyId;
     barbeiroId: BarbeiroId;
     atendimentoId: AtendimentoId;
-    valor: Dinheiro;
+    /** A caixinha inteira, como o cliente deu. */
+    valorTotal: Dinheiro;
+    percentualDoBarbeiro: Percentual;
+    /** A parte dele, já calculada em `rateio-do-acerto.ts`. */
+    parteDoBarbeiro: Dinheiro;
     ocorridoEm: Date;
   }): LancamentoComissao {
-    if (!params.valor.ehPositivo()) {
-      throw new InvarianteVioladaError('Caixinha deve ser maior que zero');
+    if (!params.parteDoBarbeiro.ehPositivo()) {
+      throw new InvarianteVioladaError('Lançamento de caixinha exige parte do barbeiro maior que zero');
+    }
+    if (params.parteDoBarbeiro.centavos > params.valorTotal.centavos) {
+      throw new InvarianteVioladaError('A parte do barbeiro não pode ser maior que a caixinha');
     }
     return new LancamentoComissao(
       params.id,
@@ -119,9 +128,9 @@ export class LancamentoComissao extends AggregateRoot {
       null,
       null,
       null,
-      params.valor,
-      Percentual.dePorcentagem(100),
-      params.valor,
+      params.valorTotal,
+      params.percentualDoBarbeiro,
+      params.parteDoBarbeiro,
       params.ocorridoEm,
     );
   }
@@ -130,13 +139,16 @@ export class LancamentoComissao extends AggregateRoot {
    * DESCONTO CONCEDIDO (2026-08-25): a parte do abatimento que o BARBEIRO
    * absorve, calculada em `rateio-de-desconto.ts`.
    *
-   * `valorBase` guarda o desconto INTEIRO dado ao cliente e `valorComissao`, a
-   * parte dele. Os dois números juntos são o que torna a linha auditável: dá
-   * para ler "de R$10 de desconto, R$4,50 saíram de você" sem consultar mais
-   * nada. `percentualAplicado` fica NULO de propósito — com percentuais
-   * diferentes por serviço na mesma comanda, não existe UM percentual honesto
-   * para escrever ali, e um número arredondado que não reproduz o valor seria
-   * pior que nenhum.
+   * `valorBase` guarda o desconto INTEIRO dado ao cliente, `percentualAplicado`
+   * é o do barbeiro (`Barbeiro.percentualDescontoAbsorvido`) e `valorComissao`
+   * é a parte dele: "de R$10 de desconto, 45% = R$4,50 saíram de você".
+   *
+   * O percentual passou a ser gravado em 2026-08-26. Enquanto o desconto era
+   * rateado linha a linha da comanda (cada uma com o percentual do SEU
+   * serviço), não existia UM percentual honesto para escrever ali, e o campo
+   * ficava nulo. Com o percentual vindo de um campo do barbeiro, existe — e
+   * congelá-lo é o que permite reler o lançamento anos depois sem depender do
+   * cadastro atual.
    */
   static criarDeDescontoConcedido(params: {
     id: LancamentoId;
@@ -144,6 +156,7 @@ export class LancamentoComissao extends AggregateRoot {
     barbeiroId: BarbeiroId;
     atendimentoId: AtendimentoId;
     descontoTotal: Dinheiro;
+    percentualAbsorvido: Percentual;
     parteDoBarbeiro: Dinheiro;
     ocorridoEm: Date;
   }): LancamentoComissao {
@@ -170,7 +183,7 @@ export class LancamentoComissao extends AggregateRoot {
       null,
       null,
       params.descontoTotal,
-      null,
+      params.percentualAbsorvido,
       params.parteDoBarbeiro,
       params.ocorridoEm,
     );

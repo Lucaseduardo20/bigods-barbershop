@@ -143,6 +143,11 @@ async function main() {
       papeis: ['ADMIN', 'BARBEIRO'],
       comissaoPadraoBp: 4500,
       comissaoProdutosBp: 1000, // 10% — percentual único, sem matriz por produto
+      // Acerto do fechamento (2026-08-26): quanto ele leva da caixinha e quanto
+      // banca do desconto. Valores diferentes de propósito entre os barbeiros —
+      // é o que torna visível, em dev, que o número vem do cadastro.
+      percentualCaixinhaBp: 10000,
+      percentualDescontoBp: 4500,
       login: 'gabriel',
       senhaHash: hashSenha(SENHA_PADRAO),
     },
