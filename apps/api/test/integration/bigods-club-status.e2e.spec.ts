@@ -376,3 +376,65 @@ describe('★ O log é append-only e não duplica', () => {
     expect(depois[1]!.causa).toBeTruthy();
   });
 });
+
+/**
+ * ★ QUANDO O CRÉDITO FOI (OU VAI SER) USADO — 2026-08-26.
+ *
+ * A conta do cliente mostra a data no crédito AGENDADO e no CONSUMIDO. Antes
+ * ela dependia da lista de PRÓXIMOS agendamentos, que por definição não tem os
+ * passados: crédito consumido nunca dizia quando tinha sido usado, e o agendado
+ * mostrava só a hora solta ("19:30"), sem dizer de que dia.
+ */
+describe('★ o crédito diz quando foi usado', () => {
+  it('agendado e consumido carregam o início do atendimento; disponível vem null', async () => {
+    const telefone = novoFone();
+    const token = await tokenCliente(telefone);
+    const venda = await venderPacote(telefone, 2);
+    const itens = await prisma.itemDoPacote.findMany({ where: { vendaId: venda.vendaId } });
+
+    const hora = proximaHora++;
+    const criado = await http
+      .post('/atendimentos/com-credito')
+      .set({ Authorization: `Bearer ${tokenAdmin}` })
+      .send({
+        vendaId: venda.vendaId,
+        itemIds: [itens[0]!.id],
+        barbeiroId,
+        data: DIA,
+        horaInicio: `${String(hora).padStart(2, '0')}:00`,
+      })
+      .expect(201);
+
+    const comAgendado = await http
+      .get('/conta/perfil')
+      .set({ Authorization: `Bearer ${token}` })
+      .expect(200);
+    const pacote = comAgendado.body.pacotes[0];
+    const agendado = pacote.itens.find((i: { id: string }) => i.id === itens[0]!.id);
+    const livre = pacote.itens.find((i: { id: string }) => i.id === itens[1]!.id);
+
+    const inicioEsperado = (
+      await prisma.atendimento.findUniqueOrThrow({ where: { id: criado.body.atendimentoId } })
+    ).inicio.toISOString();
+    expect(agendado.atendimentoInicio).toBe(inicioEsperado);
+    // O crédito que ninguém marcou não tem quando — e `null` é o que a tela usa
+    // para não escrever data nenhuma.
+    expect(livre.atendimentoInicio).toBeNull();
+
+    // Concluir não apaga a data: é justamente aí que ela passa a ser a única
+    // resposta para "quando eu usei este crédito?".
+    await http
+      .post(`/atendimentos/${criado.body.atendimentoId}/concluir`)
+      .set({ Authorization: `Bearer ${tokenAdmin}` })
+      .send({})
+      .expect(201);
+
+    const depois = await http
+      .get('/conta/perfil')
+      .set({ Authorization: `Bearer ${token}` })
+      .expect(200);
+    const consumido = depois.body.pacotes[0].itens.find((i: { id: string }) => i.id === itens[0]!.id);
+    expect(consumido.status).toBe('CONSUMIDO');
+    expect(consumido.atendimentoInicio).toBe(inicioEsperado);
+  });
+});

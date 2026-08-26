@@ -43,6 +43,13 @@ export interface VenderPacoteInput {
   gerarCobranca?: boolean;
   /** Fase 4c: veio do link pessoal de marketing de qual barbeiro, se veio de algum. */
   origemLinkBarbeiroId?: string | null;
+  /**
+   * A oferta que originou a compra (2026-08-26). O use case recebe a
+   * composição já EXPANDIDA em `servicoIds` — era exatamente aí que o nome se
+   * perdia, e a conta do cliente mostrava "Pacote", genérico. Opcional porque a
+   * venda avulsa pelo painel não parte de oferta nenhuma.
+   */
+  oferta?: { id: string; nome: string } | null;
 }
 
 export interface VenderPacoteOutput {
@@ -145,6 +152,7 @@ export class VenderPacoteUseCase {
         })),
         compradoEm: new Date(),
         origemLinkBarbeiroId: input.origemLinkBarbeiroId,
+        oferta: input.oferta ?? null,
       });
 
       const intencao = IntencaoDePagamento.criar({

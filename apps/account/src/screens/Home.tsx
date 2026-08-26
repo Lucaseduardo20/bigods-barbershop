@@ -30,6 +30,25 @@ function aguardandoPagamento(a: AgendamentoClienteDTO): boolean {
   return a.status === StatusAtendimento.RESERVADO;
 }
 
+/**
+ * Como chamar o pacote na tela (2026-08-26).
+ *
+ * O nome real vem em SNAPSHOT da oferta ("Combo 4 Cortes Simples"). Quando ele
+ * não existe — venda avulsa pelo painel, ou venda antiga que o backfill não
+ * conseguiu identificar com segurança —, o rótulo é DERIVADO da composição:
+ * "4× Corte Simples", "2× Corte Simples + 1× Barba". Antes desta mudança a tela
+ * escrevia "Pacote" para todo mundo, o que não dizia nada ao cliente sobre o
+ * que ele comprou.
+ */
+export function nomeDoPacote(pacote: Pick<VendaDePacoteDTO, 'nomeOferta' | 'itens'>): string {
+  if (pacote.nomeOferta) return pacote.nomeOferta;
+
+  const porServico = new Map<string, number>();
+  for (const i of pacote.itens) porServico.set(i.servicoNome, (porServico.get(i.servicoNome) ?? 0) + 1);
+  const partes = [...porServico].map(([nome, qtd]) => `${qtd}× ${nome}`);
+  return partes.length ? partes.join(' + ') : 'Pacote';
+}
+
 function rotuloDataHora(iso: string, tz: string): { dia: string; hora: string } {
   const d = new Date(iso);
   const dia = d
@@ -55,7 +74,6 @@ export function Home({
   onAbrirAtendimento: (atendimentoId: string) => void;
 }) {
   const proximo = perfil.proximosAgendamentos[0] ?? null;
-  const agendamentoPorAtId = new Map(perfil.proximosAgendamentos.map((a) => [a.atendimentoId, a]));
   const temPacoteAtivo = perfil.pacotes.some(temCreditoLivre);
   const temSaldoResidual = perfil.pacotes.some((p) => p.saldoResidualCentavos > 0);
 
@@ -140,7 +158,7 @@ export function Home({
           <div className="section-label">Meus pacotes</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {perfil.pacotes.map((p) => (
-              <PacoteCard key={p.id} pacote={p} agendamentoPorAtId={agendamentoPorAtId} tz={tz} onAgendar={onAgendar} />
+              <PacoteCard key={p.id} pacote={p} tz={tz} onAgendar={onAgendar} />
             ))}
           </div>
         </div>
@@ -257,12 +275,10 @@ function ProximoBloco({
 
 function PacoteCard({
   pacote,
-  agendamentoPorAtId,
   tz,
   onAgendar,
 }: {
   pacote: VendaDePacoteDTO;
-  agendamentoPorAtId: Map<string, AgendamentoClienteDTO>;
   tz: string;
   onAgendar: (servicoId: string | null) => void;
 }) {
@@ -279,9 +295,45 @@ function PacoteCard({
 
   return (
     <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-        <div style={{ fontWeight: 800, fontSize: 15 }}>Pacote</div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>comprado em {compradoEm}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        {/* Selo do clube no card: o pacote É o Bigod's Club, e até aqui nada na
+            tela dizia isso.
+
+            ★ O lockup-horizontal.svg NÃO é usado aqui, e a razão é medida: nele
+            o wordmark tem font-size 24 num viewBox de 520 de altura — ~4,6%. A
+            48px de altura o "CLUB" sai com 2px e vira borrão; para ficar legível
+            o lockup precisaria de ~170px, que domina o card inteiro. Testado a
+            18, 34, 48 e 88px; nenhum tamanho serve num card.
+
+            O que se usa é a MESMA composição do lockup, montada aqui: o símbolo
+            como imagem e a palavra como TEXTO, que é legível em qualquer
+            tamanho. É exatamente o que a `FaixaDoClube` já fazia no topo desta
+            tela — o padrão da casa, não uma invenção nova. */}
+        <img
+          src="/brand/bigods-club-medalha.svg"
+          alt=""
+          aria-hidden="true"
+          style={{ display: 'block', height: 30, width: 'auto', flexShrink: 0 }}
+        />
+        <div className="brand-wordmark" style={{ fontSize: 13, color: 'var(--brand-gold-700)' }}>
+          Bigod's Club
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          gap: 10,
+          marginBottom: 4,
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.25, minWidth: 0 }}>
+          {nomeDoPacote(pacote)}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0 }}>
+          comprado em {compradoEm}
+        </div>
       </div>
       {!vendaPaga(pacote) ? (
         <div style={{ fontSize: 13, color: 'var(--state-warning)', marginBottom: 12, fontWeight: 600 }}>
@@ -293,9 +345,13 @@ function PacoteCard({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {/* Grid de verdade, não flex-wrap: com nome de serviço longo os cards
+          tinham larguras diferentes e a última linha ficava desalinhada. Duas
+          colunas garantidas no celular estreito, três a partir de 380px —
+          `auto-fill` com mínimo fixo resolve os dois sem media query. */}
+      <div className="credit-grid">
         {pacote.itens.map((i) => (
-          <Credito key={i.id} item={i} agendamento={i.atendimentoId ? agendamentoPorAtId.get(i.atendimentoId) : undefined} tz={tz} />
+          <Credito key={i.id} item={i} tz={tz} />
         ))}
       </div>
 
@@ -327,7 +383,7 @@ function PacoteCard({
   );
 }
 
-function Credito({ item, agendamento, tz }: { item: ItemDoPacoteDTO; agendamento?: AgendamentoClienteDTO; tz: string }) {
+function Credito({ item, tz }: { item: ItemDoPacoteDTO; tz: string }) {
   const st = item.status;
   const classe =
     st === StatusItemPacote.SEGUNDA_CHANCE
@@ -347,15 +403,37 @@ function Credito({ item, agendamento, tz }: { item: ItemDoPacoteDTO; agendamento
           : st === StatusItemPacote.AGENDADO
             ? 'agendado'
             : 'disponível';
-  const quando = agendamento ? rotuloDataHora(agendamento.inicioIso, tz) : null;
+  /**
+   * A data vem do PRÓPRIO item agora (2026-08-26), não mais de um mapa dos
+   * próximos agendamentos: aquele mapa só tinha os FUTUROS, então um crédito
+   * consumido nunca encontrava o seu — e ficava sem dizer quando foi usado.
+   */
+  const quando = item.atendimentoInicio ? rotuloDataHora(item.atendimentoInicio, tz) : null;
+  const consumido = st === StatusItemPacote.CONSUMIDO;
+  const legendaDoQuando = consumido ? 'usado em' : null;
 
   return (
-    <div className={`credit ${classe}`} title={`${item.servicoNome} — ${titulo}`}>
-      <span style={{ color: classe === 'consumido' ? 'var(--text-muted)' : 'var(--brand-ink)', display: 'flex' }}>
-        <Icon name={st === StatusItemPacote.AGENDADO ? 'calendar-check' : 'scissors'} size={18} />
-      </span>
+    <div
+      className={`credit ${classe}`}
+      title={`${item.servicoNome} — ${titulo}${quando ? ` · ${quando.dia} ${quando.hora}` : ''}`}
+    >
+      {/* Marca do clube no crédito. Decorativa: o nome do serviço logo abaixo é
+          quem informa, e o estado já é dito pelo `title` e pela cor. */}
+      <img
+        src="/brand/bigods-club-marca-ink.svg"
+        alt=""
+        aria-hidden="true"
+        className="credit-marca"
+      />
       <span className="credit-nome">{item.servicoNome}</span>
-      {quando && <span style={{ fontSize: 8.5, fontWeight: 700, color: 'var(--accent-primary)' }}>{quando.hora}</span>}
+      {quando && (
+        <span className="credit-quando">
+          {legendaDoQuando && <span className="credit-quando-rotulo">{legendaDoQuando}</span>}
+          {/* Data E hora: antes só a hora aparecia, e "19:30" sozinho não diz
+              se é hoje, amanhã ou semana que vem. */}
+          {quando.dia} · {quando.hora}
+        </span>
+      )}
       {st === StatusItemPacote.SEGUNDA_CHANCE && (
         <span className="credit-badge">
           <Icon name="alarm-clock" size={10} />

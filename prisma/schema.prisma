@@ -582,6 +582,15 @@ model VendaDePacote {
   // Fase 4c: registro do link pessoal de barbeiro que originou a compra — só
   // registro, sem tela de relatório nesta sessão.
   origemLinkBarbeiroId            String?
+  // De qual oferta esta venda veio (2026-08-26). `nomeOferta` é SNAPSHOT do
+  // nome no momento da compra: renomear a oferta no catálogo não reescreve o
+  // que o cliente comprou (§3.5). `ofertaId` é só rastro — sem @relation, pela
+  // mesma razão dos outros ids de auditoria do schema: a oferta pode ser
+  // apagada e a venda continua existindo.
+  // NULL nas vendas anteriores à migration que não casaram no backfill por
+  // composição; a tela deriva um rótulo dos serviços nesse caso.
+  ofertaId                        String?
+  nomeOferta                      String?
 
   company               Company                  @relation(fields: [companyId], references: [id])
   barbeiro              Barbeiro?                @relation(fields: [barbeiroId], references: [id])
