@@ -149,6 +149,10 @@ export class PacotesPublicoController {
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)
       servicoIds: oferta.servicoIds,
+      // ...e o nome vai junto, senão some aqui: daqui pra frente o use case só
+      // vê uma lista de serviços. É o que faz a conta do cliente dizer "Combo 4
+      // Cortes Simples" em vez de "Pacote".
+      oferta: { id: oferta.id, nome: oferta.nome },
       valorPagoCentavos: oferta.precoCentavos,
       pagamentoImediato: false,
       // Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono) —

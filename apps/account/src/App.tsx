@@ -45,6 +45,13 @@ function Conta() {
     () => resolverSessaoInicial(window.location.search, carregarSessao()),
   );
   const [tela, setTela] = useState<Tela>(() => (sessao ? 'home' : 'login'));
+  /**
+   * O símbolo do topo depende de o cliente ser membro do clube (2026-08-26), e
+   * quem sabe disso é o perfil — carregado lá dentro, no `CockpitOuBook`. Sobe
+   * por callback; até chegar, o símbolo é o clássico da barbearia, que é o
+   * default correto (ninguém ganha medalha por um instante e perde em seguida).
+   */
+  const [ehMembroDoClube, setEhMembroDoClube] = useState(false);
 
   useEffect(() => {
     if (!sessao) return;
@@ -121,12 +128,14 @@ function Conta() {
       <Header
         nome={sessao.cliente.nome}
         telefone={sessao.cliente.telefone}
+        ehMembroDoClube={ehMembroDoClube}
         onSair={sair}
       />
       {/* Landmark principal: leitor de tela pula direto pro conteúdo, sem
           reler o cabeçalho a cada navegação (Lighthouse a11y/SEO). */}
       <main>
       <CockpitOuBook
+        aoSaberDoClube={setEhMembroDoClube}
         sessao={sessao}
         empresaTz={empresa.timezone}
         tela={tela}
@@ -159,6 +168,7 @@ function CockpitOuBook({
   onUsarSaldo,
   onVoltarHome,
   aoDeslogar,
+  aoSaberDoClube,
 }: {
   sessao: SessaoCliente;
   empresaTz: string;
@@ -169,6 +179,13 @@ function CockpitOuBook({
   onUsarSaldo: () => void;
   onVoltarHome: () => void;
   aoDeslogar: () => void;
+  /**
+   * Avisa o pai se o cliente é membro — é o `Header`, que fica FORA daqui, que
+   * troca o símbolo pela medalha (2026-08-26). Sobe por callback em vez de o
+   * `App` buscar o perfil por conta própria: seria a mesma requisição duas
+   * vezes, e duas fontes para o mesmo fato.
+   */
+  aoSaberDoClube: (ehMembroDoClube: boolean) => void;
 }) {
   const perfil = useApi(
     () => api<PerfilClienteDTO>('/conta/perfil', { token: sessao.token }),
@@ -177,6 +194,13 @@ function CockpitOuBook({
   // FASE 1 (sessão-E): detalhe de atendimento — overlay independente da tela
   // ativa embaixo (abre tanto do "próximo agendamento" quanto do Histórico).
   const [atendimentoAbertoId, setAtendimentoAbertoId] = useState<string | null>(null);
+
+  // Em efeito, não no corpo do render: avisar o pai durante o render dispara
+  // "Cannot update a component while rendering a different component".
+  const clube = perfil.dados?.clube;
+  useEffect(() => {
+    if (clube) aoSaberDoClube(ehMembro(clube));
+  }, [clube, aoSaberDoClube]);
 
   if (perfil.carregando) {
     return (

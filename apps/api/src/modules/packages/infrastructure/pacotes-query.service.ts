@@ -51,6 +51,22 @@ export class PacotesQueryService {
         where: { id: { in: [...barbeiroIds] } },
       }),
     ]);
+    // Quando cada crédito foi (ou vai ser) usado. Join em lote: a conta do
+    // cliente mostra a data no crédito AGENDADO e no CONSUMIDO, e o consumido
+    // nunca esteve na lista de próximos agendamentos que a tela já tinha.
+    const atendimentoIds = [
+      ...new Set(
+        vendas.flatMap((v) => v.itens.map((i) => i.atendimentoId).filter((id): id is string => !!id)),
+      ),
+    ];
+    const atendimentos = atendimentoIds.length
+      ? await this.prisma.atendimento.findMany({
+          where: { id: { in: atendimentoIds } },
+          select: { id: true, inicio: true },
+        })
+      : [];
+    const inicioPorAtendimentoId = new Map(atendimentos.map((a) => [a.id, a.inicio]));
+
     const clientePorId = new Map(clientes.map((c) => [c.id, c]));
     const servicoPorId = new Map(servicos.map((s) => [s.id, s]));
     const barbeiroPorId = new Map(barbeiros.map((b) => [b.id, b]));
@@ -81,6 +97,7 @@ export class PacotesQueryService {
             : null,
         compradoEm: v.compradoEm.toISOString(),
         statusPagamento: StatusPagamento[v.statusPagamento],
+        nomeOferta: v.nomeOferta,
         origemLinkBarbeiroId: v.origemLinkBarbeiroId,
         origemLinkBarbeiroNome: v.origemLinkBarbeiroId ? (barbeiroPorId.get(v.origemLinkBarbeiroId)?.nome ?? null) : null,
         itens: v.itens.map((i) => ({
@@ -93,6 +110,8 @@ export class PacotesQueryService {
           faltasComputadas: i.faltasComputadas,
           prazoReagendamentoAte: i.prazoReagendamentoAte?.toISOString() ?? null,
           atendimentoId: i.atendimentoId,
+          atendimentoInicio:
+            (i.atendimentoId ? inicioPorAtendimentoId.get(i.atendimentoId)?.toISOString() : null) ?? null,
         })),
       };
     });

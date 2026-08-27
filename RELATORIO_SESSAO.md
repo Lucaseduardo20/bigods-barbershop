@@ -5391,6 +5391,76 @@ Um 400 numa rota de pagamento merecia ser visto. Hoje nenhum 4xx chega ao Sentry
 óbvia — reportar todo 400 — encheria a fila com validação de borda legítima. O meio-termo seria
 reportar 4xx apenas nas rotas de dinheiro (`/public/pacotes`, `/public/agendamentos`,
 `/public/pagamentos`). Não foi feito nesta correção; fica registrado.
+## Conta do cliente — a tela de pacotes (2026-08-26) ✅
+
+Sete ajustes na tela que o cliente mais olha. Três exigiram dado que não existia no backend; os
+outros quatro são visual e legibilidade.
+
+### 1. O pacote passou a ter nome
+
+Aparecia "Pacote", genérico. Não era bug de tela: **o nome não existia em lugar nenhum**. O
+`VenderPacoteUseCase` recebe a oferta já EXPANDIDA em `servicoIds`, e era exatamente aí que
+"Combo 4 Cortes Simples" se perdia.
+
+A venda passa a guardar `ofertaId` e `nomeOferta`. O nome é **snapshot**, não join: renomear a
+oferta no catálogo não pode reescrever o que o cliente comprou (§3.5) — tem teste que renomeia a
+oferta e confere que a venda antiga continua com o nome do dia.
+
+**★ O backfill das vendas que já existem é por COMPOSIÇÃO**, e deliberadamente conservador: uma
+venda casa com a oferta cujos serviços expandidos são exatamente os mesmos, e só quando existe UMA
+única candidata. Duas ofertas com a mesma composição e nomes diferentes ("Combo 4 Cortes" e "Promo 4
+Cortes") não têm como ser distinguidas — e chutar escreveria no histórico do cliente um nome que ele
+nunca viu. Nesses casos fica `null`, e a tela deriva o rótulo da composição: **"4× Corte Simples"**,
+nunca mais o genérico.
+
+### 2. Nome de serviço longo não quebra mais
+
+Os créditos eram `flex-wrap` com largura fixa de 62px; "Barba Navalhada Premium com Toalha Quente"
+estourava o card. Agora é grid (`auto-fill` de 96px mínimo — duas colunas no celular estreito, três a
+partir de ~380px) e o nome tem `line-clamp: 2`. Todos os cards ficam da mesma altura, e a última
+linha para de ficar desalinhada.
+
+### 3 e 4. O crédito diz QUANDO
+
+O consumido não dizia nada, e o agendado mostrava só a hora solta ("19:30" — de que dia?). A causa
+era a fonte: a tela cruzava com a lista de PRÓXIMOS agendamentos, que por definição não tem os
+passados. Agora cada `ItemDoPacoteDTO` carrega `atendimentoInicio`, e a tela mostra **data + hora**
+nos dois casos — no consumido com o rótulo "usado em", em tom neutro (é passado, não compromisso).
+
+### 5, 6 e 7. As figurinhas
+
+| Onde | O que | Regra |
+|---|---|---|
+| Topo da página | medalha ⇄ símbolo clássico | troca conforme o cliente é membro do clube |
+| Card do pacote | medalha + "Bigod's Club" | selo do clube no pacote |
+| Cada crédito | marca coroa+bigode | herda o estado: apagada no consumido |
+
+**★ O `lockup-horizontal.svg` foi testado e descartado, com motivo medido.** Nele o wordmark tem
+`font-size: 24` num viewBox de 520 de altura — ~4,6% dela. A 48px o "CLUB" sai com 2px e vira borrão;
+para ficar legível precisaria de ~170px de altura, o que domina o card inteiro. Testado a 18, 34, 48
+e 88px; nenhum tamanho serve nesse espaço. O que ficou é a **mesma composição do lockup montada em
+HTML** — símbolo como imagem, palavra como TEXTO, legível em qualquer tamanho. Não é invenção: é
+exatamente o que a `FaixaDoClube` já fazia no topo desta tela desde 2026-08-21.
+
+(O `marca-coroa-bigode-ink.svg` pedido para os créditos já estava no projeto como
+`bigods-club-marca-ink.svg`, byte a byte — reusado em vez de duplicado.)
+
+### Migration
+
+Uma, aditiva: `VendaDePacote.ofertaId` e `nomeOferta`, ambas nuláveis, mais o `UPDATE` do backfill
+por composição descrito acima. Nenhum `DROP`, nenhuma coluna existente tocada.
+
+### Testes
+
+**11 novos**: 3 e2e do nome da oferta (grava na compra, é snapshot ao renomear, chega no DTO da
+conta), 1 e2e do `atendimentoInicio` (agendado, consumido e disponível), 4 unitários do rótulo
+derivado da composição, e o restante em ajuste dos existentes. **933 verdes** na API nos 3 fusos;
+account 25, admin 26, contracts 74, booking 49. Build verde.
+
+Verificado no navegador com o cliente real do banco de desenvolvimento: nome "4 Barbas" vindo do
+backfill, "USADO EM ter, 25 de ago. · 09:15" no consumido, "qua, 26 de ago. · 17:00" no agendado,
+serviço de nome longo em duas linhas sem quebrar o grid, medalha no topo para membro e símbolo
+clássico para quem não é.
 
 ## Como rodar localmente
 
