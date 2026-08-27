@@ -309,3 +309,64 @@ describe('Compra de pacote pública', () => {
     await http.get(`/public/pagamentos/${venda.body.intencaoId}?companyId=outra-empresa`).expect(404);
   });
 });
+
+/**
+ * ★ A VENDA LEMBRA DE QUAL OFERTA VEIO (2026-08-26).
+ *
+ * A conta do cliente mostrava "Pacote", genérico, porque o nome não existia em
+ * lugar nenhum: o use case recebe a composição já EXPANDIDA em `servicoIds`, e
+ * o nome se perdia no caminho.
+ */
+describe('★ nome da oferta na venda', () => {
+  it('grava o nome no momento da compra', async () => {
+    const fone = `11 93${sufixo}1`;
+    const token = await loginCompleto(fone);
+    const venda = await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Cliente Nome' } })
+      .expect(201);
+
+    const row = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } });
+    expect(row.nomeOferta).toBe('5 Cortes');
+    expect(row.ofertaId).toBe(ofertaId);
+  });
+
+  it('★★ é SNAPSHOT: renomear a oferta depois não reescreve o que o cliente comprou', async () => {
+    const fone = `11 93${sufixo}2`;
+    const token = await loginCompleto(fone);
+    const venda = await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Cliente Snapshot' } })
+      .expect(201);
+
+    // A casa reposiciona a oferta no catálogo.
+    await prisma.pacoteOferta.update({
+      where: { id: ofertaId },
+      data: { nome: 'Combo 5 Cortes — Promoção de Setembro' },
+    });
+
+    const row = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } });
+    // O que ele comprou continua se chamando o que se chamava no dia. Fosse um
+    // join com o catálogo, a conta dele mudaria de nome sozinha.
+    expect(row.nomeOferta).toBe('5 Cortes');
+
+    await prisma.pacoteOferta.update({ where: { id: ofertaId }, data: { nome: '5 Cortes' } });
+  });
+
+  it('o DTO leva o nome para a conta do cliente', async () => {
+    const fone = `11 93${sufixo}3`;
+    const token = await loginCompleto(fone);
+    await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Cliente DTO' } })
+      .expect(201);
+
+    const perfil = await http.get('/conta/perfil').set('Authorization', `Bearer ${token}`).expect(200);
+    expect(perfil.body.pacotes[0].nomeOferta).toBe('5 Cortes');
+    // E cada crédito diz quando será usado — `null` enquanto não há atendimento.
+    expect(perfil.body.pacotes[0].itens[0]).toHaveProperty('atendimentoInicio', null);
+  });
+});

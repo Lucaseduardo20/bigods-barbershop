@@ -12,9 +12,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/account/src/App.tsx": {
-    "mtime": 1787273319.9597967,
-    "seen": 1787274574.8230934,
-    "ast_hash": "92ed3f92226d27634fe0b1c8467fc75b",
+    "mtime": 1787770101.9587324,
+    "seen": 1787776408.1544795,
+    "ast_hash": "8d7fc800c45c448213e5404f09cfe823",
     "semantic_hash": ""
   },
   "apps/account/src/components/QuandoBloco.tsx": {
@@ -120,10 +120,10 @@
     "semantic_hash": ""
   },
   "apps/account/src/screens/Header.tsx": {
-    "mtime": 1786678275.5630162,
-    "seen": 1787165206.9795885,
-    "ast_hash": "1a434fd6c4095f38b3e2f4dc6d984ebb",
-    "semantic_hash": "1a434fd6c4095f38b3e2f4dc6d984ebb"
+    "mtime": 1787770247.867833,
+    "seen": 1787776408.1551943,
+    "ast_hash": "0520661c92697f40152a5713b09be863",
+    "semantic_hash": ""
   },
   "apps/account/src/screens/Historico.tsx": {
     "mtime": 1787199180.115623,
@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "apps/account/src/screens/Home.tsx": {
-    "mtime": 1787273307.3597076,
-    "seen": 1787274574.8269887,
-    "ast_hash": "fda393e89da5930e9dee23d7861a86cc",
+    "mtime": 1787770780.451854,
+    "seen": 1787776408.1552312,
+    "ast_hash": "a6c4def081ca12665f4cf94fe3b0230d",
     "semantic_hash": ""
   },
   "apps/account/src/screens/UsarSaldoResidual.tsx": {
@@ -300,8 +300,8 @@
     "semantic_hash": "a422d0bcfb6acaaf468481565f2dd148"
   },
   "apps/admin/src/screens/Financeiro.tsx": {
-    "mtime": 1787761405.049244,
-    "seen": 1787762276.5899622,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1564033,
     "ast_hash": "5ee6fb96507b642ea0beb11239181adc",
     "semantic_hash": ""
   },
@@ -330,8 +330,8 @@
     "semantic_hash": "ac9d64e381c7bf81e702b4accc3d02d2"
   },
   "apps/admin/src/screens/Usuarios.tsx": {
-    "mtime": 1787761106.1905599,
-    "seen": 1787762276.5902796,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.156606,
     "ast_hash": "ac702a578819180e663e122044a9c675",
     "semantic_hash": ""
   },
@@ -678,9 +678,9 @@
     "semantic_hash": "e904cf472661c60be72897dfd75cdf09"
   },
   "apps/api/src/modules/packages/application/vender-pacote.usecase.ts": {
-    "mtime": 1787592502.7235386,
-    "seen": 1787593440.203077,
-    "ast_hash": "66092bcdeea9c85d21ebb9375779f57d",
+    "mtime": 1787769862.5209236,
+    "seen": 1787776408.159294,
+    "ast_hash": "8169d399c2fb4d2eccd4f3e0c941c24b",
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/domain/pacote-oferta.aggregate.ts": {
@@ -726,9 +726,9 @@
     "semantic_hash": "18c97c15ff9db1b47b46abef7d68b3b3"
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.aggregate.ts": {
-    "mtime": 1787287864.5660567,
-    "seen": 1787289082.4943042,
-    "ast_hash": "e165361114abd1112ecbf608225ba69c",
+    "mtime": 1787769862.5209236,
+    "seen": 1787776408.1597168,
+    "ast_hash": "afd5c6bc247251f2d1a0778513e9049c",
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/domain/venda-de-pacote.events.ts": {
@@ -756,15 +756,15 @@
     "semantic_hash": "2c22771c691113d869f6e3f61c4533b5"
   },
   "apps/api/src/modules/packages/infrastructure/pacote-ofertas-query.service.ts": {
-    "mtime": 1787077644.7164774,
-    "seen": 1787165206.9799714,
-    "ast_hash": "b7ffe1b587d2546942458a8ab9d58490",
-    "semantic_hash": "b7ffe1b587d2546942458a8ab9d58490"
+    "mtime": 1787769887.1131096,
+    "seen": 1787776408.1599908,
+    "ast_hash": "7058a7493bedf0ddcc8e8d1fb168bb46",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/pacotes-query.service.ts": {
-    "mtime": 1787268653.6504922,
-    "seen": 1787269968.7248666,
-    "ast_hash": "7d72964152ebd03bfdb7072a2d4ff836",
+    "mtime": 1787769925.2013974,
+    "seen": 1787776408.159992,
+    "ast_hash": "401375f5bf417e5fcbf5b6d97f31f68c",
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/infrastructure/prisma-pacote-oferta.repository.ts": {
@@ -786,9 +786,9 @@
     "semantic_hash": "29efbc5eb3e519839acab13d56688797"
   },
   "apps/api/src/modules/packages/infrastructure/prisma-venda-de-pacote.repository.ts": {
-    "mtime": 1787287919.4664278,
-    "seen": 1787289082.4956126,
-    "ast_hash": "2ccb67bc903a28dd548bf15974593439",
+    "mtime": 1787769862.5209236,
+    "seen": 1787776408.1601353,
+    "ast_hash": "c30af6b610f4a68b5196e5a1b430b8ff",
     "semantic_hash": ""
   },
   "apps/api/src/modules/packages/packages.module.ts": {
@@ -804,10 +804,10 @@
     "semantic_hash": "b2d4a9de55e572e97abc5aa006ce2b4b"
   },
   "apps/api/src/modules/packages/presentation/pacotes-publico.controller.ts": {
-    "mtime": 1787157382.7805443,
-    "seen": 1787165206.9799993,
-    "ast_hash": "ce282b3559c66beb5d258efe52996f8c",
-    "semantic_hash": "ce282b3559c66beb5d258efe52996f8c"
+    "mtime": 1787769862.5249236,
+    "seen": 1787776408.1602278,
+    "ast_hash": "9b3f1f90b8b75c5bb598d4090a2ce6c7",
+    "semantic_hash": ""
   },
   "apps/api/src/modules/packages/presentation/pacotes.controller.ts": {
     "mtime": 1787078056.6676824,
@@ -960,8 +960,8 @@
     "semantic_hash": "0b4bdb029f917680f604be1b7d56d95c"
   },
   "apps/api/src/modules/payroll/application/on-atendimento-concluido.handler.ts": {
-    "mtime": 1787761029.2458785,
-    "seen": 1787762276.5967033,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1614082,
     "ast_hash": "9c722e01a3786ad95169de2422a43656",
     "semantic_hash": ""
   },
@@ -984,8 +984,8 @@
     "semantic_hash": "e80a25d9744d92d49b4524779489e074"
   },
   "apps/api/src/modules/payroll/domain/lancamento-comissao.aggregate.ts": {
-    "mtime": 1787761002.3536415,
-    "seen": 1787762276.596865,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1615593,
     "ast_hash": "ae91e36f0e2c4dd0348578914e75dba8",
     "semantic_hash": ""
   },
@@ -1350,8 +1350,8 @@
     "semantic_hash": "27aa93fb264e7fad526a86d84d8676a5"
   },
   "apps/api/src/modules/staff/domain/barbeiro.aggregate.ts": {
-    "mtime": 1787760859.640396,
-    "seen": 1787762276.600608,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1647012,
     "ast_hash": "29677e1085aa0287127281bac97be29e",
     "semantic_hash": ""
   },
@@ -1434,8 +1434,8 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/staff/infrastructure/prisma-barbeiro.repository.ts": {
-    "mtime": 1787760900.332749,
-    "seen": 1787762276.601297,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1653013,
     "ast_hash": "8c25b03b89e2d8f36fa45f5a055f1187",
     "semantic_hash": ""
   },
@@ -1452,8 +1452,8 @@
     "semantic_hash": "820ea2d8695ab0ee5e1dbc60f99ef5dd"
   },
   "apps/api/src/modules/staff/presentation/barbeiros.controller.ts": {
-    "mtime": 1787761058.5061371,
-    "seen": 1787762276.6014047,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1653967,
     "ast_hash": "f6f38ec5bf26945d767d8226f6143ca5",
     "semantic_hash": ""
   },
@@ -1830,9 +1830,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/pacote-publico.e2e.spec.ts": {
-    "mtime": 1787272804.0681899,
-    "seen": 1787274574.8733504,
-    "ast_hash": "61653323014e5f4489fbfd26744534eb",
+    "mtime": 1787770727.4514513,
+    "seen": 1787776408.1684968,
+    "ast_hash": "9ac8563fc9416b9dcd9e7e1ac4805da0",
     "semantic_hash": ""
   },
   "apps/api/test/integration/pagamento-manual-whatsapp.e2e.spec.ts": {
@@ -2226,9 +2226,9 @@
     "semantic_hash": "5baac680da5b6ccf8c2fcae1b1dbafd9"
   },
   "packages/contracts/src/dto.ts": {
-    "mtime": 1787761058.5061371,
-    "seen": 1787762276.6089027,
-    "ast_hash": "c8c0ff44c2ece7556dda1a75d53de663",
+    "mtime": 1787769925.2013974,
+    "seen": 1787776408.171245,
+    "ast_hash": "8b6e346903efa34165c90284de3c3e98",
     "semantic_hash": ""
   },
   "packages/contracts/src/enums.ts": {
@@ -2268,8 +2268,8 @@
     "semantic_hash": "636570b191d59a427ffee0a5383f2b86"
   },
   "prisma/seed.ts": {
-    "mtime": 1787761405.049244,
-    "seen": 1787762276.6094632,
+    "mtime": 1787769610.3150122,
+    "seen": 1787776408.171552,
     "ast_hash": "11429c0634d7e52264575876896a6143",
     "semantic_hash": ""
   },
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787761751.472402,
-    "seen": 1787762276.6107152,
-    "ast_hash": "8e334b70bdf3552a4a7603bb9facb406",
+    "mtime": 1787770931.1369972,
+    "seen": 1787776408.172382,
+    "ast_hash": "8a512e61c716086f47abe819354b449f",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -3120,9 +3120,9 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/bigods-club-status.e2e.spec.ts": {
-    "mtime": 1787288065.1314237,
-    "seen": 1787289082.5206144,
-    "ast_hash": "f45e750334d427e1945becf00a0a2102",
+    "mtime": 1787770758.1836848,
+    "seen": 1787776408.1673563,
+    "ast_hash": "99963bc93409f53fb95004c7369b35e0",
     "semantic_hash": ""
   },
   "apps/api/test/integration/cadastro-nao-sobrescreve.e2e.spec.ts": {
@@ -3216,8 +3216,8 @@
     "semantic_hash": ""
   },
   "apps/admin/src/components/FecharComandaDialog.tsx": {
-    "mtime": 1787761405.049244,
-    "seen": 1787762276.5885856,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.155548,
     "ast_hash": "8f5cd7f0f240280c917d02be5f3cde01",
     "semantic_hash": ""
   },
@@ -3246,8 +3246,8 @@
     "semantic_hash": ""
   },
   "apps/api/test/integration/caixinha-e-desconto.e2e.spec.ts": {
-    "mtime": 1787761198.8873868,
-    "seen": 1787762276.603861,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1674514,
     "ast_hash": "f918d808147831e7587cc2122dcaf929",
     "semantic_hash": ""
   },
@@ -3264,15 +3264,33 @@
     "semantic_hash": ""
   },
   "apps/api/src/modules/payroll/domain/rateio-do-acerto.spec.ts": {
-    "mtime": 1787760969.8653562,
-    "seen": 1787762276.5969734,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1616507,
     "ast_hash": "a2215bb2776756ad6a0d9889edf04e38",
     "semantic_hash": ""
   },
   "apps/api/src/modules/payroll/domain/rateio-do-acerto.ts": {
-    "mtime": 1787760951.6451964,
-    "seen": 1787762276.5969756,
+    "mtime": 1787769610.275012,
+    "seen": 1787776408.1616526,
     "ast_hash": "dcdcaf0692dc7cb91fe57d6d312ee33d",
+    "semantic_hash": ""
+  },
+  "apps/account/src/screens/nome-do-pacote.spec.ts": {
+    "mtime": 1787770780.463854,
+    "seen": 1787776408.155268,
+    "ast_hash": "ff573f43b7fbdbe309ebb9ea821c289b",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-lockup-horizontal.svg": {
+    "mtime": 1787769975.689779,
+    "seen": 1787776408.173091,
+    "ast_hash": "62dd9d95bdab22f0b9d72c0f23ee2ea7",
+    "semantic_hash": ""
+  },
+  "apps/account/public/brand/bigods-club-medalha.svg": {
+    "mtime": 1787769975.697779,
+    "seen": 1787776408.1731732,
+    "ast_hash": "e2842662e003bcc7b14489a37473a700",
     "semantic_hash": ""
   }
 }
