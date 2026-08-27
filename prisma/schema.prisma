@@ -494,6 +494,14 @@ model Atendimento {
   reativadoPorId            String?
   reativadoEm               DateTime? @db.Timestamptz(3)
 
+  // Reatribuição de barbeiro ANTES de concluir (2026-08-27): de quem era, quem
+  // transferiu e quando. `barbeiroId` segue sendo a verdade sobre quem atende;
+  // isto é o rastro de que ele mudou — e o que responde "por que a comissão
+  // deste atendimento é do B se o cliente marcou com o A?".
+  reatribuidoDeId           String?
+  reatribuidoPorId          String?
+  reatribuidoEm             DateTime? @db.Timestamptz(3)
+
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
   produtos ItemProdutoAtendido[]
