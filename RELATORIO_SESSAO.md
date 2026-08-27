@@ -5254,6 +5254,214 @@ Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não 
 - Abra um atendimento pago online e tente remover um item.
 - ✅ O botão de remover **não aparece**, e a comanda avisa por quê. Adicionar continua funcionando.
 
+## Caixinha e desconto viram acerto POR BARBEIRO (2026-08-26) ✅
+
+Um dia depois de a Fase 3 subir, o dono mudou a regra: os dois percentuais deixam de ser derivados e
+passam a ser **configuração de cada barbeiro**, editável no painel.
+
+| | Antes (2026-08-25) | Agora |
+|---|---|---|
+| Caixinha | 100% do barbeiro, cravado no código | `Barbeiro.percentualCaixinha` |
+| Desconto | a fração da COMISSÃO dele, rateada linha a linha da comanda | `Barbeiro.percentualDescontoAbsorvido` |
+
+**Por que a mudança faz sentido.** O modelo anterior respondia "quanto da receita perdida era dele",
+o que é uma pergunta legítima — mas amarrava duas negociações diferentes. Quem acerta 45% no corte
+não necessariamente aceita bancar 45% de todo abatimento de balcão, e a casa pode querer ficar com
+parte da caixinha que entrou no cartão. São conversas separadas, e agora têm campos separados.
+
+O cálculo virou uma regra de três sobre o valor declarado (`rateio-do-acerto.ts`): uma divisão só, e
+a casa fica com o **resto por subtração** — é o que garante `parte do barbeiro + parte da casa ==
+valor` ao centavo, para qualquer valor e qualquer percentual.
+
+### ★ O backfill preserva o dinheiro de todo mundo
+
+A migration não muda número de ninguém, barbeiro a barbeiro:
+
+```sql
+percentualCaixinhaBp = 10000                 -- exatamente o 100% que era cravado
+percentualDescontoBp = comissaoPadraoBp      -- o mesmo número que o rateio derivava
+```
+
+A única divergência possível é para quem tem **exceção de comissão por serviço**: o desconto dele
+era calculado sobre a matriz, e agora sai de um percentual único. É a consequência aceita de trocar
+um cálculo por linha por um número editável, e o admin ajusta na tela se quiser outro valor.
+
+Um barbeiro NOVO criado pela API nasce com os mesmos defaults (caixinha 100%, desconto = a comissão
+padrão dele) — aplicados no agregado, não no banco, porque `DEFAULT` de coluna não sabe copiar outra
+coluna. Quem inserir barbeiro por SQL direto pega `percentualDescontoBp = 0`.
+
+### O percentual do desconto passou a ser gravado
+
+Enquanto o desconto era rateado linha a linha, cada uma com o percentual do SEU serviço, não existia
+UM percentual honesto para escrever no lançamento — o campo ficava nulo. Agora existe, e é
+congelado junto com o resto (§3.5). O extrato ganhou o número:
+
+```
+Caixinha                          base R$ 10,00 × 70%              + R$ 7,00
+Desconto concedido (sua parte)    de R$ 10,00 abatidos · 45%       − R$ 4,50
+```
+
+Lançamentos anteriores à mudança continuam sem o percentual, e a linha deles continua legível — o
+sufixo só aparece quando o campo existe.
+
+### A tela
+
+**Usuários → (barbeiro) → Caixinha e desconto**: dois campos, com o efeito em dinheiro ao lado de
+cada um ("de R$ 10,00 de caixinha, ele leva **R$ 7,00**") — percentual sozinho não diz nada para
+quem está decidindo. Endpoint próprio (`PUT /barbeiros/:id/acerto`), separado de `/comissao`: salvar
+a comissão do corte não pode mexer por tabela em quanto ele leva de caixinha.
+
+Dois textos que passaram a mentir foram corrigidos: o rótulo "Caixinha (vai 100% para Fulano)" no
+fechamento, e "sai da sua comissão, na proporção dela" — que não é mais verdade.
+
+### Testes
+
+**8 de repartição pura** (arredondamento, bordas, invariante de fechamento ao centavo) e **7 e2e
+novos** da parametrização: caixinha a 80% e a 0%, desconto a 0% e a 100%, o percentual congelado no
+lançamento quando o acerto muda depois, a comissão de serviço não sendo afetada, e a recusa de
+percentual fora de 0–100. **929 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49,
+account 21. Build verde.
+
+Verificado no navegador: mudei a caixinha do Gabriel para 70% na tela, fechei uma comanda com R$10 de
+caixinha e R$10 de desconto, e o ledger saiu com `R$10,00 × 70% = R$7,00` e `R$10,00 × 45% = R$4,50`.
+
+## ★★ Cliente cadastrado não conseguia comprar pacote (2026-08-27) ✅
+
+Relato de produção: um cliente entrou no funil para comprar um pacote, já tinha o número salvo na
+sessão, informou o telefone, **não precisou de OTP**, e ao clicar em ir para o pagamento levou
+`cliente.Informe seu nome.`
+
+### A causa
+
+Em 2026-08-21 o funil parou de perguntar o nome de quem já tem cadastro — o nome vem do registro
+dele, e mandá-lo de volta faria o funil sobrescrever o próprio cadastro (§8.1.1, o bug do
+placeholder "Cliente"). O front passou a omitir o campo:
+
+```js
+...(estado.clienteConhecido ? {} : { nome: estado.nome.trim() }),
+```
+
+O DTO do **agendamento avulso** foi ajustado junto (`@IsOptional()` no `nome`, com o comentário
+explicando o porquê). O DTO da **compra de pacote** ficou para trás e continuou exigindo o campo. As
+duas trilhas do funil chamam o MESMO trecho de envio, então a partir daquele dia toda compra de
+pacote por cliente cadastrado batia num 400.
+
+Reproduzido, ao pé da letra:
+
+```
+POST /public/pacotes  (com sessão, cliente: {})   → 400 {"message":["cliente.Informe seu nome."]}
+POST /public/agendamentos (mesmo caso)            → 201
+```
+
+### Por que ninguém viu
+
+**No Sentry:** 400 é `HttpException`, e o filtro reporta 5xx e o que não é HTTP — 4xx é resposta
+esperada por definição. Correto como regra geral; aqui custou caro, porque um 400 no caminho do
+PAGAMENTO não é "entrada inválida do usuário", é funcionalidade quebrada.
+
+**Ao tentar reproduzir:** exige três coisas ao mesmo tempo — sessão de OTP válida no `localStorage`
+(que sobrevive ao fechar a aba, ao contrário do progresso do funil, que fica em `sessionStorage`),
+cadastro **com nome preenchido** (`clienteConhecido` só fica `true` aí), e a trilha de **pacote**. Um
+teste com telefone novo, aba anônima ou avulso não cai no caso.
+
+### O conserto
+
+O nome sai do CADASTRO, não do corpo — cópia deliberada da regra que o avulso já usava:
+
+```ts
+const nome = cliente.nomeEhPlaceholder ? (body.cliente.nome ?? cliente.nome) : cliente.nome;
+```
+
+O corpo só completa quem ainda está com o placeholder do login por OTP. As duas trilhas do funil
+agora resolvem o nome do mesmo jeito — foi divergirem que causou isto. Varri os três usos de
+`@EhNomeDeCliente` no projeto: os três estão opcionais e alinhados.
+
+**Sem migration, sem mudança de front.** O front já estava certo.
+
+### Testes
+
+3 novos em `pacote-publico.e2e.spec.ts`: a segunda compra sem nome passa e o cadastro fica intacto; o
+nome do corpo ainda completa quem tem placeholder; nome inválido continua recusado quando é enviado.
+O primeiro **falha sem o conserto** (com a mensagem exata do relato) e passa com ele — verificado nos
+dois sentidos. **932 verdes**.
+
+### O que fica em aberto
+
+Um 400 numa rota de pagamento merecia ser visto. Hoje nenhum 4xx chega ao Sentry, e a alternativa
+óbvia — reportar todo 400 — encheria a fila com validação de borda legítima. O meio-termo seria
+reportar 4xx apenas nas rotas de dinheiro (`/public/pacotes`, `/public/agendamentos`,
+`/public/pagamentos`). Não foi feito nesta correção; fica registrado.
+## Conta do cliente — a tela de pacotes (2026-08-26) ✅
+
+Sete ajustes na tela que o cliente mais olha. Três exigiram dado que não existia no backend; os
+outros quatro são visual e legibilidade.
+
+### 1. O pacote passou a ter nome
+
+Aparecia "Pacote", genérico. Não era bug de tela: **o nome não existia em lugar nenhum**. O
+`VenderPacoteUseCase` recebe a oferta já EXPANDIDA em `servicoIds`, e era exatamente aí que
+"Combo 4 Cortes Simples" se perdia.
+
+A venda passa a guardar `ofertaId` e `nomeOferta`. O nome é **snapshot**, não join: renomear a
+oferta no catálogo não pode reescrever o que o cliente comprou (§3.5) — tem teste que renomeia a
+oferta e confere que a venda antiga continua com o nome do dia.
+
+**★ O backfill das vendas que já existem é por COMPOSIÇÃO**, e deliberadamente conservador: uma
+venda casa com a oferta cujos serviços expandidos são exatamente os mesmos, e só quando existe UMA
+única candidata. Duas ofertas com a mesma composição e nomes diferentes ("Combo 4 Cortes" e "Promo 4
+Cortes") não têm como ser distinguidas — e chutar escreveria no histórico do cliente um nome que ele
+nunca viu. Nesses casos fica `null`, e a tela deriva o rótulo da composição: **"4× Corte Simples"**,
+nunca mais o genérico.
+
+### 2. Nome de serviço longo não quebra mais
+
+Os créditos eram `flex-wrap` com largura fixa de 62px; "Barba Navalhada Premium com Toalha Quente"
+estourava o card. Agora é grid (`auto-fill` de 96px mínimo — duas colunas no celular estreito, três a
+partir de ~380px) e o nome tem `line-clamp: 2`. Todos os cards ficam da mesma altura, e a última
+linha para de ficar desalinhada.
+
+### 3 e 4. O crédito diz QUANDO
+
+O consumido não dizia nada, e o agendado mostrava só a hora solta ("19:30" — de que dia?). A causa
+era a fonte: a tela cruzava com a lista de PRÓXIMOS agendamentos, que por definição não tem os
+passados. Agora cada `ItemDoPacoteDTO` carrega `atendimentoInicio`, e a tela mostra **data + hora**
+nos dois casos — no consumido com o rótulo "usado em", em tom neutro (é passado, não compromisso).
+
+### 5, 6 e 7. As figurinhas
+
+| Onde | O que | Regra |
+|---|---|---|
+| Topo da página | medalha ⇄ símbolo clássico | troca conforme o cliente é membro do clube |
+| Card do pacote | medalha + "Bigod's Club" | selo do clube no pacote |
+| Cada crédito | marca coroa+bigode | herda o estado: apagada no consumido |
+
+**★ O `lockup-horizontal.svg` foi testado e descartado, com motivo medido.** Nele o wordmark tem
+`font-size: 24` num viewBox de 520 de altura — ~4,6% dela. A 48px o "CLUB" sai com 2px e vira borrão;
+para ficar legível precisaria de ~170px de altura, o que domina o card inteiro. Testado a 18, 34, 48
+e 88px; nenhum tamanho serve nesse espaço. O que ficou é a **mesma composição do lockup montada em
+HTML** — símbolo como imagem, palavra como TEXTO, legível em qualquer tamanho. Não é invenção: é
+exatamente o que a `FaixaDoClube` já fazia no topo desta tela desde 2026-08-21.
+
+(O `marca-coroa-bigode-ink.svg` pedido para os créditos já estava no projeto como
+`bigods-club-marca-ink.svg`, byte a byte — reusado em vez de duplicado.)
+
+### Migration
+
+Uma, aditiva: `VendaDePacote.ofertaId` e `nomeOferta`, ambas nuláveis, mais o `UPDATE` do backfill
+por composição descrito acima. Nenhum `DROP`, nenhuma coluna existente tocada.
+
+### Testes
+
+**11 novos**: 3 e2e do nome da oferta (grava na compra, é snapshot ao renomear, chega no DTO da
+conta), 1 e2e do `atendimentoInicio` (agendado, consumido e disponível), 4 unitários do rótulo
+derivado da composição, e o restante em ajuste dos existentes. **933 verdes** na API nos 3 fusos;
+account 25, admin 26, contracts 74, booking 49. Build verde.
+
+Verificado no navegador com o cliente real do banco de desenvolvimento: nome "4 Barbas" vindo do
+backfill, "USADO EM ter, 25 de ago. · 09:15" no consumido, "qua, 26 de ago. · 17:00" no agendado,
+serviço de nome longo em duas linhas sem quebrar o grid, medalha no topo para membro e símbolo
+clássico para quem não é.
+
 ## Como rodar localmente
 
 ```bash

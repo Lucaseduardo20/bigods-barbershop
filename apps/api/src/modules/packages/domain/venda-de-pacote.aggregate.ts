@@ -77,6 +77,20 @@ export interface VendaDePacoteProps {
    * SÓ registro, sem regra de negócio associada nesta sessão.
    */
   origemLinkBarbeiroId: BarbeiroId | null;
+  /**
+   * De qual oferta esta venda nasceu (2026-08-26).
+   *
+   * `nomeOferta` é SNAPSHOT — o nome no momento da compra. A oferta pode ser
+   * renomeada ou desativada depois, e o que o cliente vê na conta dele não pode
+   * mudar por causa disso (§3.5, a mesma razão de `valorRateado` ser congelado).
+   * `ofertaId` fica ao lado só como rastro.
+   *
+   * `null` nas vendas anteriores à mudança que o backfill por composição não
+   * conseguiu identificar com segurança — a leitura deriva um rótulo dos
+   * serviços nesse caso.
+   */
+  ofertaId: string | null;
+  nomeOferta: string | null;
 }
 
 export interface ItemParaVenda {
@@ -106,6 +120,7 @@ export class VendaDePacote extends AggregateRoot {
     itens: ItemParaVenda[];
     compradoEm: Date;
     origemLinkBarbeiroId?: BarbeiroId | null;
+    oferta?: { id: string; nome: string } | null;
   }): VendaDePacote {
     if (params.itens.length === 0) {
       throw new InvarianteVioladaError('Pacote exige ao menos um item');
@@ -156,6 +171,8 @@ export class VendaDePacote extends AggregateRoot {
       compradoEm: params.compradoEm,
       statusPagamento: StatusPagamento.AGUARDANDO,
       origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
+      ofertaId: params.oferta?.id ?? null,
+      nomeOferta: params.oferta?.nome ?? null,
     });
     venda.verificarInvarianteDeSoma();
     venda.adicionarEvento(
@@ -434,4 +451,6 @@ export class VendaDePacote extends AggregateRoot {
   get compradoEm() { return this.props.compradoEm; }
   get statusPagamento() { return this.props.statusPagamento; }
   get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
+  get ofertaId() { return this.props.ofertaId; }
+  get nomeOferta() { return this.props.nomeOferta; }
 }

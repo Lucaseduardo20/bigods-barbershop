@@ -27,6 +27,8 @@ function paraDominio(row: Row): VendaDePacote {
     compradoEm: row.compradoEm,
     statusPagamento: StatusPagamento[row.statusPagamento],
     origemLinkBarbeiroId: row.origemLinkBarbeiroId,
+    ofertaId: row.ofertaId,
+    nomeOferta: row.nomeOferta,
     itens: row.itens.map((i) => ({
       id: i.id,
       servicoId: i.servicoId,
@@ -95,6 +97,8 @@ export class PrismaVendaDePacoteRepository implements VendaDePacoteRepository {
       compradoEm: venda.compradoEm,
       statusPagamento: venda.statusPagamento,
       origemLinkBarbeiroId: venda.origemLinkBarbeiroId,
+      ofertaId: venda.ofertaId,
+      nomeOferta: venda.nomeOferta,
     };
     await this.db.vendaDePacote.upsert({
       where: { id: venda.id },

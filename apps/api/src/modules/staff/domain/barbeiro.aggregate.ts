@@ -43,6 +43,24 @@ export interface BarbeiroProps {
    * uma — trocar a foto devolve a anterior pra quem souber apagá-la.
    */
   fotoUrl: string | null;
+  /**
+   * ACERTO DO FECHAMENTO (2026-08-26) — os dois percentuais que o admin
+   * configura por barbeiro, e que decidem o dinheiro da caixinha e do desconto.
+   *
+   * `percentualCaixinha`: quanto da caixinha declarada fica com ELE. O resto é
+   * da casa. Era 100% cravado no código até aqui.
+   *
+   * `percentualDescontoAbsorvido`: quanto do desconto que ele concede sai da
+   * comissão DELE. O resto a casa absorve. Antes isto era derivado da comissão
+   * de serviço, rateada linha a linha da comanda; virou um número próprio
+   * porque quem negocia a comissão do corte não necessariamente quer a mesma
+   * regra para quem banca um abatimento de balcão.
+   *
+   * São percentuais SOBRE O VALOR DECLARADO, não sobre a comissão: 45% de um
+   * desconto de R$10 são R$4,50, independentemente do que ele ganha no corte.
+   */
+  percentualCaixinha: Percentual;
+  percentualDescontoAbsorvido: Percentual;
   ativo: boolean;
 }
 
@@ -51,14 +69,28 @@ export class Barbeiro extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<BarbeiroProps, 'ativo' | 'excecoesComissao' | 'servicosAtendidos' | 'comissaoProdutos' | 'precosServicos' | 'fotoUrl'> & {
-    ativo?: boolean;
-    excecoesComissao?: Map<ServicoId, Percentual>;
-    servicosAtendidos?: Set<ServicoId>;
-    comissaoProdutos?: Percentual;
-    precosServicos?: Map<ServicoId, Dinheiro>;
-    fotoUrl?: string | null;
-  }): Barbeiro {
+  static criar(
+    props: Omit<
+      BarbeiroProps,
+      | 'ativo'
+      | 'excecoesComissao'
+      | 'servicosAtendidos'
+      | 'comissaoProdutos'
+      | 'precosServicos'
+      | 'fotoUrl'
+      | 'percentualCaixinha'
+      | 'percentualDescontoAbsorvido'
+    > & {
+      ativo?: boolean;
+      excecoesComissao?: Map<ServicoId, Percentual>;
+      servicosAtendidos?: Set<ServicoId>;
+      comissaoProdutos?: Percentual;
+      precosServicos?: Map<ServicoId, Dinheiro>;
+      fotoUrl?: string | null;
+      percentualCaixinha?: Percentual;
+      percentualDescontoAbsorvido?: Percentual;
+    },
+  ): Barbeiro {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Barbeiro exige nome');
     }
@@ -74,6 +106,12 @@ export class Barbeiro extends AggregateRoot {
       comissaoProdutos: props.comissaoProdutos ?? Percentual.dePontosBase(0),
       precosServicos: props.precosServicos ?? new Map(),
       fotoUrl: props.fotoUrl ?? null,
+      // Defaults que reproduzem o comportamento anterior à parametrização:
+      // caixinha inteira do barbeiro, e desconto absorvido na mesma proporção
+      // da comissão dele. Um barbeiro novo nasce com a regra que a casa já
+      // praticava, e o admin muda na tela se quiser outra.
+      percentualCaixinha: props.percentualCaixinha ?? Percentual.dePorcentagem(100),
+      percentualDescontoAbsorvido: props.percentualDescontoAbsorvido ?? props.comissaoPadrao,
       ativo: props.ativo ?? true,
     });
   }
@@ -133,6 +171,22 @@ export class Barbeiro extends AggregateRoot {
 
   definirComissaoProdutos(percentual: Percentual): void {
     this.props.comissaoProdutos = percentual;
+  }
+
+  /**
+   * Os dois percentuais do acerto, definidos juntos porque são um único
+   * assunto na tela do admin ("quanto ele leva da caixinha, quanto ele banca do
+   * desconto").
+   *
+   * `Percentual` já garante 0–100% por invariante: um desconto absorvido acima
+   * de 100% faria o barbeiro pagar mais do que o cliente ganhou de abatimento.
+   */
+  definirAcertoDoFechamento(params: {
+    caixinha: Percentual;
+    descontoAbsorvido: Percentual;
+  }): void {
+    this.props.percentualCaixinha = params.caixinha;
+    this.props.percentualDescontoAbsorvido = params.descontoAbsorvido;
   }
 
   removerExcecaoComissao(servicoId: ServicoId): void {
@@ -204,5 +258,7 @@ export class Barbeiro extends AggregateRoot {
   get precosServicos() { return new Map(this.props.precosServicos); }
   get servicosAtendidos() { return new Set(this.props.servicosAtendidos); }
   get fotoUrl() { return this.props.fotoUrl; }
+  get percentualCaixinha() { return this.props.percentualCaixinha; }
+  get percentualDescontoAbsorvido() { return this.props.percentualDescontoAbsorvido; }
   get ativo() { return this.props.ativo; }
 }

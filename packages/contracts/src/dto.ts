@@ -81,6 +81,19 @@ export interface BarbeiroDTO {
   /** Overrides de preço por serviço — ausência de um serviço aqui = usa a referência da casa. */
   precosServicos: ExcecaoPrecoDTO[];
   /**
+   * ACERTO DO FECHAMENTO (2026-08-26), em porcentagem (ex: 80).
+   *
+   * `percentualCaixinha`: quanto da caixinha declarada fica com ele.
+   * `percentualDescontoAbsorvido`: quanto do desconto que ele concede sai da
+   * comissão dele.
+   *
+   * Editáveis pelo admin em `PUT /barbeiros/:id/acerto`. Antes eram derivados
+   * (100% cravado e a fração da comissão de serviço); viraram campos porque são
+   * negociações diferentes da comissão do corte.
+   */
+  percentualCaixinha: number;
+  percentualDescontoAbsorvido: number;
+  /**
    * Foto de perfil (2026-08-19) — URL pública, ou `null`. Sem foto, a UI usa
    * o avatar de iniciais que já existe; nunca uma imagem quebrada.
    */
@@ -370,6 +383,16 @@ export interface ItemDoPacoteDTO {
   faltasComputadas: number;
   prazoReagendamentoAte: string | null;
   atendimentoId: string | null;
+  /**
+   * Início do atendimento que usou (ou vai usar) este crédito — ISO 8601 UTC
+   * (2026-08-26). `null` enquanto o crédito não está amarrado a nenhum.
+   *
+   * Existe porque a conta do cliente precisa dizer QUANDO: no crédito agendado,
+   * a data completa e não só a hora solta; no consumido, o dia em que ele foi
+   * usado, que antes simplesmente não aparecia (o mapa da tela só tinha os
+   * agendamentos FUTUROS, e um crédito consumido nunca está lá).
+   */
+  atendimentoInicio: string | null;
 }
 export interface VendaDePacoteDTO {
   id: string;
@@ -393,6 +416,14 @@ export interface VendaDePacoteDTO {
   prazoReembolsoAte: string | null;
   compradoEm: string;
   statusPagamento: StatusPagamento;
+  /**
+   * Nome da oferta que originou a compra, em SNAPSHOT (2026-08-26) — "Combo 4
+   * Cortes Simples". `null` nas vendas anteriores à mudança que o backfill por
+   * composição não conseguiu identificar com segurança, e nas vendas avulsas
+   * feitas pelo painel (que não partem de oferta nenhuma). Nesse caso a tela
+   * deriva um rótulo da composição.
+   */
+  nomeOferta: string | null;
   itens: ItemDoPacoteDTO[];
   /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou esta compra, se veio de algum. Só registro, sem métrica. */
   origemLinkBarbeiroId: string | null;

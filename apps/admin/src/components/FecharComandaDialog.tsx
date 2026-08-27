@@ -615,9 +615,12 @@ function EtapaPagamento({
         </div>
       )}
 
-      {/* CAIXINHA E DESCONTO (FASE 3) — ações EXPLÍCITAS. O sistema nunca deduz
-          gorjeta de "o cliente pagou mais": quem declara é quem estava na
-          cadeira, e isso vira lançamento imutável no extrato. */}
+      {/* CAIXINHA E DESCONTO — ações EXPLÍCITAS. O sistema nunca deduz gorjeta de
+          "o cliente pagou mais": quem declara é quem estava na cadeira, e isso
+          vira lançamento imutável no extrato.
+          Quanto de cada um fica com o barbeiro vem do acerto configurado por
+          admin em Usuários (2026-08-26) — a tela não repete o percentual porque
+          ele é por barbeiro e mudaria de comanda para comanda. */}
       <div className="card flex flex-col gap-2">
         <div
           className="text-[11px] font-bold uppercase"
@@ -629,7 +632,7 @@ function EtapaPagamento({
         {mostrarCaixinha ? (
           <div>
             <label className="label" htmlFor="caixinha">
-              Caixinha (vai 100% para {a.barbeiro.nome})
+              Caixinha para {a.barbeiro.nome}
             </label>
             <div className="flex gap-2">
               <CurrencyInput centavos={caixinhaCentavos} onChange={setCaixinha} style={{ flex: 1 }} />
@@ -674,8 +677,8 @@ function EtapaPagamento({
               </div>
             ) : (
               <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-                Parte deste desconto sai da sua comissão, na proporção dela — aparece como uma linha
-                separada no seu extrato.
+                Parte deste desconto sai da comissão do barbeiro, conforme o acerto configurado para
+                ele — e aparece como uma linha separada no extrato.
               </div>
             )}
           </div>

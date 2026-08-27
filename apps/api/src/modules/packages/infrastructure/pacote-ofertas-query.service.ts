@@ -50,7 +50,7 @@ export class PacoteOfertasQueryService {
   async porId(
     companyId: string,
     ofertaId: string,
-  ): Promise<{ servicoIds: string[]; precoCentavos: number } | null> {
+  ): Promise<{ id: string; nome: string; servicoIds: string[]; precoCentavos: number } | null> {
     const oferta = await this.ofertas.porId(ofertaId);
     if (
       !oferta ||
@@ -60,7 +60,15 @@ export class PacoteOfertasQueryService {
     ) {
       return null;
     }
-    return { servicoIds: oferta.expandirServicoIds(), precoCentavos: oferta.preco.centavos };
+    // `id` e `nome` vão junto desde 2026-08-26: a venda guarda de qual oferta
+    // veio, e o NOME como snapshot — a partir daqui a composição está expandida
+    // e não dá mais para saber de onde ela nasceu.
+    return {
+      id: oferta.id,
+      nome: oferta.nome,
+      servicoIds: oferta.expandirServicoIds(),
+      precoCentavos: oferta.preco.centavos,
+    };
   }
 }
 
