@@ -28,10 +28,10 @@ export function Header({
         <img
           src="/brand/bigods-club-medalha.svg"
           alt="Membro do Bigod's Club"
-          style={{ width: 40, height: 40, flexShrink: 0, display: 'block' }}
+          style={{ width: 55, height: 55, flexShrink: 0, display: 'block' }}
         />
       ) : (
-        <div className="auth-mark" style={{ width: 40, height: 40, margin: 0, flexShrink: 0 }}>
+        <div className="auth-mark" style={{ width: 55, height: 55, margin: 0, flexShrink: 0 }}>
           <img src="/brand/symbol-dark.png" alt="Bigod's Barber" style={{ width: '68%', height: 'auto' }} />
         </div>
       )}

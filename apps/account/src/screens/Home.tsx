@@ -310,10 +310,10 @@ function PacoteCard({
             tamanho. É exatamente o que a `FaixaDoClube` já fazia no topo desta
             tela — o padrão da casa, não uma invenção nova. */}
         <img
-          src="/brand/bigods-club-medalha.svg"
+          src="/brand/bigods-club-marca-ink.svg"
           alt=""
           aria-hidden="true"
-          style={{ display: 'block', height: 30, width: 'auto', flexShrink: 0 }}
+          style={{ display: 'block', height: 25, width: 'auto', flexShrink: 0 }}
         />
         <div className="brand-wordmark" style={{ fontSize: 13, color: 'var(--brand-gold-700)' }}>
           Bigod's Club

@@ -127,7 +127,25 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(gh pr create --base master --head fix/deploy-pull-arg-parsing --title 'fix: corrige parsing de --pull em scripts/deploy.sh' --body ' *)",
-      "Bash(git merge --no-ff fix/deploy-pull-arg-parsing -m ' *)"
+      "Bash(git merge --no-ff fix/deploy-pull-arg-parsing -m ' *)",
+      "Bash(python3)",
+      "Bash(bash scripts/env-up.sh)",
+      "Bash(echo \"started with pid $!\")",
+      "Bash(curl -s -o /dev/null -w \"booking:%{http_code} \" http://localhost:5174/)",
+      "Bash(curl -s -o /dev/null -w \"admin:%{http_code} \" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"account:%{http_code}\\\\n\" http://localhost:5175/)",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --window-size=430,900 --screenshot=/tmp/claude-1000/-home-lkt-work-bigods-barber-v2/26977804-07e0-45b9-ae2c-20c3e3d7ffae/scratchpad/shots/booking-landing.png http://localhost:5174/)",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --window-size=430,900 --screenshot=/tmp/claude-1000/-home-lkt-work-bigods-barber-v2/26977804-07e0-45b9-ae2c-20c3e3d7ffae/scratchpad/shots/admin-login.png http://localhost:5173/)",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --window-size=430,900 --screenshot=/tmp/claude-1000/-home-lkt-work-bigods-barber-v2/26977804-07e0-45b9-ae2c-20c3e3d7ffae/scratchpad/shots/account-login.png http://localhost:5175/)",
+      "Bash(bash scripts/env-down.sh)",
+      "Bash(break)",
+      "Bash(git check-ignore *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/aws-jwt-verify/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\('aws-amplify', require\\('./node_modules/aws-amplify/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/@nestjs/throttler/package.json'\\).version\\)\")",
+      "Bash(curl -s --max-time 3 localhost:3100/status)",
+      "Bash(node -e \"console.log\\(require\\('./services/whatsapp-otp/node_modules/baileys/package.json'\\).version\\)\")",
+      "Bash(python3 -)"
     ],
     "additionalDirectories": [
       "/tmp"
