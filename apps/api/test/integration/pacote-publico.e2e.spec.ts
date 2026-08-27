@@ -311,62 +311,73 @@ describe('Compra de pacote pública', () => {
 });
 
 /**
- * ★ A VENDA LEMBRA DE QUAL OFERTA VEIO (2026-08-26).
+ * ★★ REGRESSÃO DE UM BUG DE PRODUÇÃO (2026-08-27).
  *
- * A conta do cliente mostrava "Pacote", genérico, porque o nome não existia em
- * lugar nenhum: o use case recebe a composição já EXPANDIDA em `servicoIds`, e
- * o nome se perdia no caminho.
+ * Relato: cliente com sessão salva entrou no funil, informou o número, não
+ * precisou de OTP, e ao ir para o pagamento do pacote levou
+ * `cliente.Informe seu nome.`
+ *
+ * Causa: desde 2026-08-21 o funil NÃO manda o nome de quem já tem cadastro — o
+ * nome vem do registro, e mandá-lo de volta faria o funil sobrescrever o
+ * próprio cadastro. O DTO do agendamento avulso foi ajustado para aceitar a
+ * ausência; o da COMPRA DE PACOTE ficou para trás e continuou exigindo.
+ *
+ * O efeito é o pior possível: quebrava a compra de maior ticket do funil,
+ * exatamente para o cliente cadastrado — e passava despercebido, porque 400 é
+ * `HttpException` e o filtro do Sentry só reporta 5xx.
  */
-describe('★ nome da oferta na venda', () => {
-  it('grava o nome no momento da compra', async () => {
-    const fone = `11 93${sufixo}1`;
+describe('★★ cliente já cadastrado compra pacote sem mandar o nome', () => {
+  it('a compra passa, e o nome vem do cadastro', async () => {
+    const fone = `11 94${sufixo}1`;
     const token = await loginCompleto(fone);
-    const venda = await http
-      .post('/public/pacotes')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ companyId, ofertaId, cliente: { nome: 'Cliente Nome' } })
-      .expect(201);
 
-    const row = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } });
-    expect(row.nomeOferta).toBe('5 Cortes');
-    expect(row.ofertaId).toBe(ofertaId);
-  });
-
-  it('★★ é SNAPSHOT: renomear a oferta depois não reescreve o que o cliente comprou', async () => {
-    const fone = `11 93${sufixo}2`;
-    const token = await loginCompleto(fone);
-    const venda = await http
-      .post('/public/pacotes')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ companyId, ofertaId, cliente: { nome: 'Cliente Snapshot' } })
-      .expect(201);
-
-    // A casa reposiciona a oferta no catálogo.
-    await prisma.pacoteOferta.update({
-      where: { id: ofertaId },
-      data: { nome: 'Combo 5 Cortes — Promoção de Setembro' },
-    });
-
-    const row = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } });
-    // O que ele comprou continua se chamando o que se chamava no dia. Fosse um
-    // join com o catálogo, a conta dele mudaria de nome sozinha.
-    expect(row.nomeOferta).toBe('5 Cortes');
-
-    await prisma.pacoteOferta.update({ where: { id: ofertaId }, data: { nome: '5 Cortes' } });
-  });
-
-  it('o DTO leva o nome para a conta do cliente', async () => {
-    const fone = `11 93${sufixo}3`;
-    const token = await loginCompleto(fone);
+    // Primeiro dá nome ao cadastro, como o funil faz na primeira compra.
     await http
       .post('/public/pacotes')
       .set('Authorization', `Bearer ${token}`)
-      .send({ companyId, ofertaId, cliente: { nome: 'Cliente DTO' } })
+      .send({ companyId, ofertaId, cliente: { nome: 'Rafael Cadastrado' } })
       .expect(201);
 
-    const perfil = await http.get('/conta/perfil').set('Authorization', `Bearer ${token}`).expect(200);
-    expect(perfil.body.pacotes[0].nomeOferta).toBe('5 Cortes');
-    // E cada crédito diz quando será usado — `null` enquanto não há atendimento.
-    expect(perfil.body.pacotes[0].itens[0]).toHaveProperty('atendimentoInicio', null);
+    // Agora a segunda compra: o funil identifica o cliente pelo telefone e
+    // NÃO manda o nome. É exatamente este corpo que dava 400 em produção.
+    const segunda = await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: {} })
+      .expect(201);
+
+    const venda = await prisma.vendaDePacote.findUniqueOrThrow({
+      where: { id: segunda.body.vendaId },
+    });
+    const cliente = await prisma.cliente.findUniqueOrThrow({ where: { id: venda.clienteId } });
+    // E o cadastro continua intacto — o nome não foi apagado nem trocado.
+    expect(cliente.nome).toBe('Rafael Cadastrado');
+  });
+
+  it('sem cadastro de nome ainda, o nome do corpo completa o placeholder', async () => {
+    const fone = `11 94${sufixo}2`;
+    // O login por OTP cria o cliente com o placeholder, sem nome de verdade.
+    const token = await loginCompleto(fone);
+
+    const venda = await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'Primeira Compra' } })
+      .expect(201);
+
+    const row = await prisma.vendaDePacote.findUniqueOrThrow({ where: { id: venda.body.vendaId } });
+    const cliente = await prisma.cliente.findUniqueOrThrow({ where: { id: row.clienteId } });
+    expect(cliente.nome).toBe('Primeira Compra');
+  });
+
+  it('nome inválido continua sendo recusado quando é enviado', async () => {
+    const fone = `11 94${sufixo}3`;
+    const token = await loginCompleto(fone);
+    // Tornar o campo opcional não pode afrouxar a validação de quem o manda.
+    await http
+      .post('/public/pacotes')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, ofertaId, cliente: { nome: 'aa' } })
+      .expect(400);
   });
 });

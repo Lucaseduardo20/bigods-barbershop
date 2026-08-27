@@ -5325,6 +5325,72 @@ account 21. Build verde.
 Verificado no navegador: mudei a caixinha do Gabriel para 70% na tela, fechei uma comanda com R$10 de
 caixinha e R$10 de desconto, e o ledger saiu com `R$10,00 × 70% = R$7,00` e `R$10,00 × 45% = R$4,50`.
 
+## ★★ Cliente cadastrado não conseguia comprar pacote (2026-08-27) ✅
+
+Relato de produção: um cliente entrou no funil para comprar um pacote, já tinha o número salvo na
+sessão, informou o telefone, **não precisou de OTP**, e ao clicar em ir para o pagamento levou
+`cliente.Informe seu nome.`
+
+### A causa
+
+Em 2026-08-21 o funil parou de perguntar o nome de quem já tem cadastro — o nome vem do registro
+dele, e mandá-lo de volta faria o funil sobrescrever o próprio cadastro (§8.1.1, o bug do
+placeholder "Cliente"). O front passou a omitir o campo:
+
+```js
+...(estado.clienteConhecido ? {} : { nome: estado.nome.trim() }),
+```
+
+O DTO do **agendamento avulso** foi ajustado junto (`@IsOptional()` no `nome`, com o comentário
+explicando o porquê). O DTO da **compra de pacote** ficou para trás e continuou exigindo o campo. As
+duas trilhas do funil chamam o MESMO trecho de envio, então a partir daquele dia toda compra de
+pacote por cliente cadastrado batia num 400.
+
+Reproduzido, ao pé da letra:
+
+```
+POST /public/pacotes  (com sessão, cliente: {})   → 400 {"message":["cliente.Informe seu nome."]}
+POST /public/agendamentos (mesmo caso)            → 201
+```
+
+### Por que ninguém viu
+
+**No Sentry:** 400 é `HttpException`, e o filtro reporta 5xx e o que não é HTTP — 4xx é resposta
+esperada por definição. Correto como regra geral; aqui custou caro, porque um 400 no caminho do
+PAGAMENTO não é "entrada inválida do usuário", é funcionalidade quebrada.
+
+**Ao tentar reproduzir:** exige três coisas ao mesmo tempo — sessão de OTP válida no `localStorage`
+(que sobrevive ao fechar a aba, ao contrário do progresso do funil, que fica em `sessionStorage`),
+cadastro **com nome preenchido** (`clienteConhecido` só fica `true` aí), e a trilha de **pacote**. Um
+teste com telefone novo, aba anônima ou avulso não cai no caso.
+
+### O conserto
+
+O nome sai do CADASTRO, não do corpo — cópia deliberada da regra que o avulso já usava:
+
+```ts
+const nome = cliente.nomeEhPlaceholder ? (body.cliente.nome ?? cliente.nome) : cliente.nome;
+```
+
+O corpo só completa quem ainda está com o placeholder do login por OTP. As duas trilhas do funil
+agora resolvem o nome do mesmo jeito — foi divergirem que causou isto. Varri os três usos de
+`@EhNomeDeCliente` no projeto: os três estão opcionais e alinhados.
+
+**Sem migration, sem mudança de front.** O front já estava certo.
+
+### Testes
+
+3 novos em `pacote-publico.e2e.spec.ts`: a segunda compra sem nome passa e o cadastro fica intacto; o
+nome do corpo ainda completa quem tem placeholder; nome inválido continua recusado quando é enviado.
+O primeiro **falha sem o conserto** (com a mensagem exata do relato) e passa com ele — verificado nos
+dois sentidos. **932 verdes**.
+
+### O que fica em aberto
+
+Um 400 numa rota de pagamento merecia ser visto. Hoje nenhum 4xx chega ao Sentry, e a alternativa
+óbvia — reportar todo 400 — encheria a fila com validação de borda legítima. O meio-termo seria
+reportar 4xx apenas nas rotas de dinheiro (`/public/pacotes`, `/public/agendamentos`,
+`/public/pagamentos`). Não foi feito nesta correção; fica registrado.
 ## Conta do cliente — a tela de pacotes (2026-08-26) ✅
 
 Sete ajustes na tela que o cliente mais olha. Três exigiram dado que não existia no backend; os
