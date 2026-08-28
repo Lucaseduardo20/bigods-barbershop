@@ -5557,6 +5557,48 @@ horário, serviço que o novo não atende, estado errado para cada fluxo).
 
 **952 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49, account 25. Build verde.
 
+### A tela: uma seção, duas ações
+
+O painel não pergunta qual das duas correções aplicar — ele mostra **a certa para o estado**, porque
+o barbeiro não tem por que saber de cabeça se a comissão já foi lançada.
+
+| Estado | Ação | Quem |
+|---|---|---|
+| `AGENDADO` | **Trocar barbeiro** | o dono do atendimento, ou admin |
+| `CONCLUIDO` | **Corrigir quem atendeu** | só admin, com confirmação |
+
+A lista oferece **só quem pode receber**: ativo, com papel de barbeiro, e que atende todos os
+serviços da comanda. Oferecer quem a API vai recusar é fazer o barbeiro descobrir a regra pelo erro.
+Cada opção mostra a comissão do candidato (`Igor Molinho · comissão 40%`) — é o número que muda de
+dono.
+
+Antes de concluir, a tela reafirma o que não muda: *"O cliente continua pagando R$ 70,00 — o preço
+combinado com ele não muda"*. Depois de concluir, há um passo de confirmação que diz exatamente o que
+vai acontecer, incluindo que **nada é apagado**.
+
+Quando o atendimento já trocou de mãos, a seção mostra o rastro em qualquer estado — *"Marcado com
+Gabriel · trocado por Gabriel em 26/08 às 14:32"* —, inclusive na visão só-leitura do barbeiro que
+chega pelo extrato.
+
+**Verificado no navegador, ponta a ponta.** Um atendimento concluído do Gabriel (comissão R$18,00 +
+caixinha R$7,00 − desconto R$4,50 = R$20,50) foi corrigido para o Erick Yan pela tela. O resultado no
+banco:
+
+```
+originais    COMISSAO/SERVICO   Gabriel    45%    +18,00   ┐
+             COMISSAO/CAIXINHA  Gabriel   100%     +7,00   │ intactos
+             DESCONTO_CONCEDIDO Gabriel     —      −4,50   ┘
+estornos     ESTORNO_COMISSAO   Gabriel    45%    −18,00   ┐
+             ESTORNO_COMISSAO   Gabriel   100%     −7,00   │ Gabriel zerado
+             ESTORNO_DESCONTO   Gabriel     —      +4,50   ┘
+novos        COMISSAO/SERVICO   Erick      35%    +14,00   ┐
+             COMISSAO/CAIXINHA  Erick      50%     +3,50   │ pelas taxas DELE
+             DESCONTO_CONCEDIDO Erick      80%     −8,00   ┘
+```
+
+O saldo do Gabriel caiu de R$131,79 para R$111,29 — exatamente os R$20,50 que eram daquele
+atendimento. E o extrato dele mostra as seis linhas, com o estorno do desconto **somando** de volta.
+
 ### ★ Roteiro de smoke manual — dinheiro
 
 Em **staging**, com dois barbeiros de taxas diferentes (ex.: A a 30%, B a 50%).

@@ -78,6 +78,12 @@ export class AgendaQueryService {
     const barbeiroIds = new Set(atendimentos.map((a) => a.barbeiroId));
     for (const a of atendimentos) {
       if (a.origemLinkBarbeiroId) barbeiroIds.add(a.origemLinkBarbeiroId);
+      // Quem reativou e quem trocou o barbeiro também precisam do nome — sem
+      // isto o rastro sairia como "?" justamente na linha que existe para
+      // explicar por que o atendimento mudou de mãos.
+      if (a.reativadoPorId) barbeiroIds.add(a.reativadoPorId);
+      if (a.reatribuidoDeId) barbeiroIds.add(a.reatribuidoDeId);
+      if (a.reatribuidoPorId) barbeiroIds.add(a.reatribuidoPorId);
     }
     const [clientes, barbeiros, servicos, produtos, intencoes] = await Promise.all([
       this.prisma.cliente.findMany({
@@ -198,6 +204,16 @@ export class AgendaQueryService {
       motivoBloqueioEdicao: motivoBloqueio,
       caixinhaCentavos: a.caixinhaCentavos,
       descontoConcedidoCentavos: a.descontoConcedidoCentavos,
+      reatribuido:
+        a.reatribuidoEm && a.reatribuidoDeId
+          ? {
+              deNome: barbeiroPorId.get(a.reatribuidoDeId)?.nome ?? '?',
+              porNome: a.reatribuidoPorId
+                ? (barbeiroPorId.get(a.reatribuidoPorId)?.nome ?? '?')
+                : '?',
+              em: a.reatribuidoEm.toISOString(),
+            }
+          : null,
       reativado:
         a.reativadoEm && a.reativadoPorId
           ? {

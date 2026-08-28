@@ -7,6 +7,7 @@ import { dataCurta, dinheiro, hora } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
 import { FecharComandaDialog } from './FecharComandaDialog';
+import { QuemAtendeu } from './QuemAtendeu';
 
 export const toneStatus: Record<StatusAtendimento, string> = {
   // Sessão de OTP+reserva: avulso online fica RESERVADO até o pagamento
@@ -455,6 +456,13 @@ export function AtendimentoDetalheDialog({
               {a.origemLinkBarbeiroNome ? <>via link de {a.origemLinkBarbeiroNome}</> : 'sem link de origem'}
             </div>
           </div>
+
+          {/* Quem atendeu (2026-08-27): trocar o barbeiro antes de concluir, ou
+              corrigir depois com estorno. Fica ANTES da comanda porque a
+              pergunta "quem fez isto?" vem antes de "quanto deu". Em
+              `somenteLeitura` (o barbeiro chegando pelo extrato) o componente
+              só mostra o rastro, sem ação. */}
+          {!somenteLeitura && <QuemAtendeu atendimento={a} ehAdmin={ehAdmin} aoMudar={aoMudar} />}
 
           <div className="card" style={{ background: 'var(--surface-sunken)' }}>
             {a.itens.map((i, idx) => (
