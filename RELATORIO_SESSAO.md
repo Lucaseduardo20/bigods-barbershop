@@ -5462,6 +5462,168 @@ backfill, "USADO EM ter, 25 de ago. · 09:15" no consumido, "qua, 26 de ago. · 
 serviço de nome longo em duas linhas sem quebrar o grid, medalha no topo para membro e símbolo
 clássico para quem não é.
 
+## Quem atendeu não foi quem estava marcado (2026-08-27) ✅
+
+Caso corriqueiro na barbearia, e que já custou dinheiro: o cliente marca com o A, o A atrasa, e o
+cliente aceita ser atendido pelo B. A comissão ia para o nome do A — desbalanceando o financeiro.
+
+São **dois problemas diferentes**, separados pelo momento em que a comissão passa a existir.
+
+### FASE 1 — Antes de concluir: troca simples
+
+Nada de dinheiro aconteceu ainda; a comissão só nasce na conclusão. Então a correção é trocar o
+barbeiro e deixar o fluxo normal seguir: ao concluir, o lançamento nasce **direto no nome certo, pela
+taxa do novo**.
+
+**★ O preço do cliente não muda.** `valorCobrado` fica como está mesmo que o novo barbeiro cobre
+diferente (§3.2.2). O cliente marcou vendo um valor; a troca é interna da casa e não renegocia com
+ele. Quem muda é a comissão — que é relação casa↔barbeiro, não casa↔cliente.
+
+**Não exige admin, de propósito.** É rotina de operação: o barbeiro passa o atendimento para o
+colega. Exigir o dono para cada troca de cadeira transformaria o normal em exceção. A trava que
+importa é outra e continua valendo: um barbeiro só transfere os **próprios** atendimentos — puxar o
+de outro para si é 403.
+
+Valida o horário livre do novo barbeiro (a mesma invariante de `agendar()`, com o `EXCLUDE` do
+Postgres como rede) e que ele atende todos os serviços da comanda. Auditoria em
+`reatribuidoDeId/PorId/Em`, guardando o dono **original** em trocas sucessivas — a pergunta que
+importa é com quem o cliente marcou.
+
+### FASE 2 — Depois de concluir: estorno e novo lançamento
+
+Aqui a comissão já existe, no nome errado.
+
+**O ledger não é editado. Ele é acrescentado.** Apagar o lançamento errado apagaria justamente o
+rastro de que houve um erro, e um ledger que se reescreve não é auditável (§3.7). Três atos, uma
+transação:
+
+```
+1. lançamento original       fica onde está, intocado
+2. estorno, sinal oposto     → o saldo de quem não atendeu volta ao que era
+3. lançamento novo           → para quem atendeu, pela taxa DELE
+```
+
+**Por que DOIS tipos de estorno.** O sinal vem do TIPO, nunca do valor (`valorComissao` é magnitude e
+é sempre positiva). Então anular algo que **subtraiu** exige **somar**:
+
+| Tipo | Sinal | Anula |
+|---|---|---|
+| `ESTORNO_COMISSAO` | − | comissão de serviço, de produto, caixinha |
+| `ESTORNO_DESCONTO` | + | o desconto que o barbeiro tinha absorvido |
+
+Um tipo só, de sinal fixo, devolveria o desconto ao contrário: tiraria do barbeiro errado dinheiro
+que ele nunca chegou a ganhar.
+
+**★ A comissão é recalculada pela taxa do novo.** Comissão é a relação entre a casa e AQUELE
+barbeiro. Serviço de R$100 com o A a 30% (R$30 estornados) vira R$50 com o B a 50%. O **preço** que o
+cliente pagou não é tocado por nada disto — é snapshot do atendimento, e o faturamento da casa
+continua o mesmo.
+
+**Não valida conflito de horário**, de propósito: o atendimento já aconteceu, e a constraint `EXCLUDE`
+nem cobre `CONCLUIDO`. Exigir agenda livre recusaria a correção de um atendimento que o novo barbeiro
+de fato fez enquanto atendia os outros dele no mesmo dia.
+
+**Só ADMIN** — é dinheiro já registrado, e o estorno leva o nome de quem o fez.
+
+### A prova de que o ledger não é corrompido
+
+O teste `★★ NADA é deletado` compara o lançamento original **objeto a objeto** depois da correção:
+mesmo id, mesmo valor, mesmo dono. O que existe a mais são duas linhas novas — o estorno (apontando
+para ele por `estornoDeId`) e a comissão do novo barbeiro. O extrato de cada um mostra o seu pedaço
+do percurso: o A vê a comissão e o estorno lado a lado; o B vê a comissão entrando.
+
+### Uma coisa que saiu do lugar de propósito
+
+A geração dos lançamentos foi extraída do handler de conclusão para uma função pura
+(`lancamentos-do-atendimento.ts`), porque a correção precisa **da mesma conta** com outra taxa. Duas
+implementações divergiriam no primeiro ajuste, e o sintoma seria dinheiro diferente dependendo do
+caminho — o pior tipo de bug que este ledger pode ter.
+
+### Migrations (aditivas)
+
+| Migration | O quê |
+|---|---|
+| `..27010000_reatribuicao_de_barbeiro` | 3 colunas nuláveis de auditoria em `Atendimento` |
+| `..27020000_estorno_de_comissao_enums` | os dois valores de enum, **sozinhos** (Postgres não deixa usar na mesma transação em que cria) |
+| `..27020100_estorno_de_comissao_campos` | `estornoDeId` + índice em `LancamentoComissao` |
+
+### Testes
+
+**19 e2e**, conferindo dinheiro ao centavo nos dois extratos: a comissão nasce no nome do novo e pela
+taxa dele; o preço do cliente não muda nem antes nem depois; o saldo de quem não atendeu volta
+exatamente ao que era; nada é deletado; caixinha e desconto acompanham recalculados; corrigir duas
+vezes não estorna o que já foi estornado; barbeiro comum não corrige; e as recusas (conflito de
+horário, serviço que o novo não atende, estado errado para cada fluxo).
+
+**952 verdes** na API nos 3 fusos; admin 26, contracts 74, booking 49, account 25. Build verde.
+
+### A tela: uma seção, duas ações
+
+O painel não pergunta qual das duas correções aplicar — ele mostra **a certa para o estado**, porque
+o barbeiro não tem por que saber de cabeça se a comissão já foi lançada.
+
+| Estado | Ação | Quem |
+|---|---|---|
+| `AGENDADO` | **Trocar barbeiro** | o dono do atendimento, ou admin |
+| `CONCLUIDO` | **Corrigir quem atendeu** | só admin, com confirmação |
+
+A lista oferece **só quem pode receber**: ativo, com papel de barbeiro, e que atende todos os
+serviços da comanda. Oferecer quem a API vai recusar é fazer o barbeiro descobrir a regra pelo erro.
+Cada opção mostra a comissão do candidato (`Igor Molinho · comissão 40%`) — é o número que muda de
+dono.
+
+Antes de concluir, a tela reafirma o que não muda: *"O cliente continua pagando R$ 70,00 — o preço
+combinado com ele não muda"*. Depois de concluir, há um passo de confirmação que diz exatamente o que
+vai acontecer, incluindo que **nada é apagado**.
+
+Quando o atendimento já trocou de mãos, a seção mostra o rastro em qualquer estado — *"Marcado com
+Gabriel · trocado por Gabriel em 26/08 às 14:32"* —, inclusive na visão só-leitura do barbeiro que
+chega pelo extrato.
+
+**Verificado no navegador, ponta a ponta.** Um atendimento concluído do Gabriel (comissão R$18,00 +
+caixinha R$7,00 − desconto R$4,50 = R$20,50) foi corrigido para o Erick Yan pela tela. O resultado no
+banco:
+
+```
+originais    COMISSAO/SERVICO   Gabriel    45%    +18,00   ┐
+             COMISSAO/CAIXINHA  Gabriel   100%     +7,00   │ intactos
+             DESCONTO_CONCEDIDO Gabriel     —      −4,50   ┘
+estornos     ESTORNO_COMISSAO   Gabriel    45%    −18,00   ┐
+             ESTORNO_COMISSAO   Gabriel   100%     −7,00   │ Gabriel zerado
+             ESTORNO_DESCONTO   Gabriel     —      +4,50   ┘
+novos        COMISSAO/SERVICO   Erick      35%    +14,00   ┐
+             COMISSAO/CAIXINHA  Erick      50%     +3,50   │ pelas taxas DELE
+             DESCONTO_CONCEDIDO Erick      80%     −8,00   ┘
+```
+
+O saldo do Gabriel caiu de R$131,79 para R$111,29 — exatamente os R$20,50 que eram daquele
+atendimento. E o extrato dele mostra as seis linhas, com o estorno do desconto **somando** de volta.
+
+### ★ Roteiro de smoke manual — dinheiro
+
+Em **staging**, com dois barbeiros de taxas diferentes (ex.: A a 30%, B a 50%).
+
+**1. Antes de concluir**
+- Agende um corte de R$100 com o **A**. Anote o total que a tela mostra.
+- Reatribua para o **B** (Agenda → o atendimento → reatribuir).
+- ✅ O total continua **R$100**, mesmo que o B tenha preço próprio maior.
+- Conclua. ✅ No extrato do **B**: `+ R$50,00` (50%). No do A: **nada**.
+
+**2. Depois de concluir — o caso que custou dinheiro**
+- Anote o saldo dos dois em Financeiro → Extrato.
+- Agende e conclua um corte de R$100 com o **A**. ✅ Saldo do A subiu **R$30,00**.
+- Corrija para o **B** (só admin).
+- ✅ Saldo do **A** voltou **exatamente** ao valor anotado no começo.
+- ✅ Saldo do **B** subiu **R$50,00** — a taxa dele, não os 30% do A.
+- ✅ No extrato do A, as duas linhas convivem: a comissão de R$30 e o estorno de −R$30, este último
+  dizendo "atendimento de outro barbeiro".
+- ✅ Em Agenda, o **valor do atendimento continua R$100**. Se o faturamento mudou, pare.
+
+**3. Com caixinha e desconto**
+- Conclua com o **A** um corte de R$100, caixinha R$10 e desconto R$10.
+- Corrija para o **B**. ✅ O A volta a zero; o B recebe `50,00 + 10,00 − 5,00` (o desconto pela taxa
+  DELE, não pela do A).
+
 ## Como rodar localmente
 
 ```bash

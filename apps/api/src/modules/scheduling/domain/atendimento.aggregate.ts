@@ -142,6 +142,15 @@ export interface AtendimentoProps {
    */
   reativadoPorId: BarbeiroId | null;
   reativadoEm: Date | null;
+  /**
+   * REATRIBUIÇÃO (2026-08-27) — de quem era este atendimento antes da troca,
+   * quem transferiu e quando. `barbeiroId` continua sendo a verdade sobre quem
+   * atende; isto é o rastro de que mudou, e é o que responde "por que a
+   * comissão deste atendimento é do B se o cliente marcou com o A?".
+   */
+  reatribuidoDeId: BarbeiroId | null;
+  reatribuidoPorId: BarbeiroId | null;
+  reatribuidoEm: Date | null;
 }
 
 /** Ajustes do fechamento, declarados juntos porque são um único ato. */
@@ -273,6 +282,9 @@ export class Atendimento extends AggregateRoot {
       descontoConcedido: Dinheiro.zero(),
       reativadoPorId: null,
       reativadoEm: null,
+      reatribuidoDeId: null,
+      reatribuidoPorId: null,
+      reatribuidoEm: null,
     });
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
@@ -703,6 +715,129 @@ export class Atendimento extends AggregateRoot {
   }
 
   /**
+   * FASE 1 (2026-08-27) — o atendimento troca de barbeiro ANTES de concluir.
+   *
+   * O caso real: o cliente marcou com o A, o A ficou preso num atendimento que
+   * atrasou, e o cliente aceitou ser atendido pelo B. Até aqui a comissão nascia
+   * no nome do A — dinheiro no bolso de quem não trabalhou, e o financeiro
+   * desbalanceado.
+   *
+   * ## ★ O PREÇO NÃO MUDA
+   *
+   * `valorCobrado` de cada item fica exatamente como está, mesmo que o novo
+   * barbeiro tenha preço diferente (§3.2.2). O preço é compromisso com o
+   * CLIENTE, fechado quando ele marcou; uma troca interna da casa não pode
+   * mexer no que ele vai pagar. Quem muda é a COMISSÃO — e ela nem existe
+   * ainda, porque o atendimento não foi concluído.
+   *
+   * ## O que é validado
+   *
+   * - só AGENDADO: depois de concluído a comissão já existe, e aí o caminho é
+   *   outro (`corrigirBarbeiro`, com estorno);
+   * - o novo barbeiro atende TODOS os serviços da comanda — a mesma invariante
+   *   que `agendar()` aplica;
+   * - o horário do novo barbeiro está livre. Colocar dois clientes na mesma
+   *   cadeira é justamente o que a constraint EXCLUDE existe para impedir; aqui
+   *   a checagem dá a mensagem boa, e o banco é a rede contra a corrida.
+   */
+  reatribuirBarbeiro(params: {
+    novoBarbeiro: Barbeiro;
+    /** Atendimentos ativos do NOVO barbeiro que possam colidir com este horário. */
+    atendimentosAtivos: Atendimento[];
+    reatribuidoPorId: BarbeiroId;
+    agora: Date;
+  }): void {
+    this.exigirAgendado('reatribuir barbeiro');
+    if (params.novoBarbeiro.id === this.props.barbeiroId) {
+      throw new InvarianteVioladaError('O atendimento já é deste barbeiro');
+    }
+    if (!params.novoBarbeiro.ativo) {
+      throw new InvarianteVioladaError(
+        `${params.novoBarbeiro.nome} está inativo e não pode receber atendimentos`,
+      );
+    }
+    for (const item of this.props.itens) {
+      if (!params.novoBarbeiro.atende(item.servicoId)) {
+        throw new InvarianteVioladaError(
+          `${params.novoBarbeiro.nome} não atende o serviço ${item.servicoId}`,
+        );
+      }
+    }
+    const conflito = params.atendimentosAtivos.find(
+      (a) =>
+        a.props.id !== this.props.id &&
+        a.props.barbeiroId === params.novoBarbeiro.id &&
+        (a.props.status === StatusAtendimento.AGENDADO ||
+          a.props.status === StatusAtendimento.RESERVADO ||
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+        a.props.intervalo.sobrepoe(this.props.intervalo),
+    );
+    if (conflito) {
+      throw new ConflitoDeHorarioError(
+        `${params.novoBarbeiro.nome} já tem atendimento neste horário — escolha outro barbeiro ou reagende`,
+      );
+    }
+
+    // Só na PRIMEIRA troca: se o atendimento já passou de mão antes, o que
+    // interessa guardar é de quem ele era ORIGINALMENTE, não o penúltimo dono.
+    this.props.reatribuidoDeId = this.props.reatribuidoDeId ?? this.props.barbeiroId;
+    this.props.barbeiroId = params.novoBarbeiro.id;
+    this.props.reatribuidoPorId = params.reatribuidoPorId;
+    this.props.reatribuidoEm = params.agora;
+  }
+
+  /**
+   * FASE 2 (2026-08-27) — corrige o barbeiro de um atendimento JÁ CONCLUÍDO.
+   *
+   * Aqui a comissão já foi lançada, e no nome errado. O agregado faz só a parte
+   * dele — trocar o dono e deixar o rastro; desfazer o dinheiro é do Payroll
+   * (§2.3), na mesma transação, com ESTORNO e não com delete.
+   *
+   * ## Por que não valida conflito de horário
+   *
+   * O atendimento já aconteceu. Não há cadeira a disputar: a constraint EXCLUDE
+   * só cobre AGENDADO/RESERVADO/CONCLUSAO_PENDENTE, e um CONCLUIDO nunca entra
+   * nela. Exigir agenda livre aqui recusaria justamente a correção de um
+   * atendimento que o novo barbeiro fez de verdade — enquanto atendia os outros
+   * dele no mesmo dia.
+   *
+   * O que continua valendo é a competência: o novo barbeiro precisa atender os
+   * serviços da comanda. Se não atende, ou o serviço está errado, ou o barbeiro
+   * está — e nenhum dos dois se conserta trocando o nome em silêncio.
+   */
+  corrigirBarbeiro(params: {
+    novoBarbeiro: Barbeiro;
+    corrigidoPorId: BarbeiroId;
+    agora: Date;
+  }): void {
+    if (this.props.status !== StatusAtendimento.CONCLUIDO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Só um atendimento CONCLUIDO precisa de correção com estorno (este está ${this.props.status}) — ` +
+          'antes de concluir, use a reatribuição simples',
+      );
+    }
+    if (params.novoBarbeiro.id === this.props.barbeiroId) {
+      throw new InvarianteVioladaError('A comissão já é deste barbeiro');
+    }
+    for (const item of this.props.itens) {
+      if (!params.novoBarbeiro.atende(item.servicoId)) {
+        throw new InvarianteVioladaError(
+          `${params.novoBarbeiro.nome} não atende o serviço ${item.servicoId}`,
+        );
+      }
+    }
+
+    // Mesmos campos da reatribuição feita antes de concluir: a pergunta que eles
+    // respondem é a mesma ("de quem era, quem trocou, quando"), e duplicá-los
+    // por causa do momento em que a troca aconteceu só faria a leitura ter que
+    // olhar dois lugares.
+    this.props.reatribuidoDeId = this.props.reatribuidoDeId ?? this.props.barbeiroId;
+    this.props.barbeiroId = params.novoBarbeiro.id;
+    this.props.reatribuidoPorId = params.corrigidoPorId;
+    this.props.reatribuidoEm = params.agora;
+  }
+
+  /**
    * Pagamento online confirmado: a reserva temporária vira firme. Só aqui —
    * não em `agendar()` — o evento `AtendimentoAgendado` é emitido pra este
    * atendimento (ver comentário em `agendar()`).
@@ -811,6 +946,9 @@ export class Atendimento extends AggregateRoot {
   get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
   get caixinha() { return this.props.caixinha; }
   get reativadoPorId() { return this.props.reativadoPorId; }
+  get reatribuidoDeId() { return this.props.reatribuidoDeId; }
+  get reatribuidoPorId() { return this.props.reatribuidoPorId; }
+  get reatribuidoEm() { return this.props.reatribuidoEm; }
   get reativadoEm() { return this.props.reativadoEm; }
   get descontoConcedido() { return this.props.descontoConcedido; }
 }

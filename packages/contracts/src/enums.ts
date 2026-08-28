@@ -114,6 +114,22 @@ export enum TipoLancamento {
    * tipo próprio é o que permite dizer isso no extrato.
    */
   DESCONTO_CONCEDIDO = 'DESCONTO_CONCEDIDO',
+  /**
+   * Estornos da correção de barbeiro (2026-08-27): a comissão foi lançada para
+   * quem não atendeu, e o ledger é IMUTÁVEL — o lançamento errado não é apagado
+   * nem editado, é ANULADO por um de sinal oposto.
+   *
+   * São dois porque o sinal do estorno é o oposto do que ele anula, e o sinal
+   * no saldo vem do TIPO (§3.7), nunca do valor:
+   *
+   *   ESTORNO_COMISSAO (−) anula o que somou    — serviço, produto, caixinha;
+   *   ESTORNO_DESCONTO (+) anula o que subtraiu — o desconto que ele absorveu.
+   *
+   * Um tipo só, com sinal fixo, devolveria o desconto ao contrário: tiraria do
+   * barbeiro errado dinheiro que ele nunca chegou a ganhar.
+   */
+  ESTORNO_COMISSAO = 'ESTORNO_COMISSAO',
+  ESTORNO_DESCONTO = 'ESTORNO_DESCONTO',
 }
 
 /**

@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "apps/admin/src/components/AtendimentoDetalheDialog.tsx": {
-    "mtime": 1787876179.7711382,
-    "seen": 1787876763.4977937,
-    "ast_hash": "9088605d645cf824a39a50e5383849f7",
+    "mtime": 1787693321.1017704,
+    "seen": 1787696091.7603385,
+    "ast_hash": "7f3a1eeb0584d1b85b3cf5d5ce0d079a",
     "semantic_hash": ""
   },
   "apps/admin/src/components/FotoUpload.tsx": {
@@ -1290,9 +1290,9 @@
     "semantic_hash": "3098870ac3d842c8626540c2fb68d2e9"
   },
   "apps/api/src/modules/scheduling/infrastructure/agenda-query.service.ts": {
-    "mtime": 1787876113.36584,
-    "seen": 1787876763.505326,
-    "ast_hash": "0d4e80add97d934d00c7dce8a0593bfd",
+    "mtime": 1787693774.0288699,
+    "seen": 1787696091.7807896,
+    "ast_hash": "b89e2e60fa3d733afe1e0c851e02aa9a",
     "semantic_hash": ""
   },
   "apps/api/src/modules/scheduling/infrastructure/agendamentos-cliente-query.service.ts": {
@@ -2226,9 +2226,9 @@
     "semantic_hash": "5baac680da5b6ccf8c2fcae1b1dbafd9"
   },
   "packages/contracts/src/dto.ts": {
-    "mtime": 1787876105.186191,
-    "seen": 1787876763.511241,
-    "ast_hash": "fd6e96e28e6b92bd0f0c9bf689ee8183",
+    "mtime": 1787874848.940773,
+    "seen": 1787875718.8049026,
+    "ast_hash": "1fa688709414fb58a469201c3b5edc49",
     "semantic_hash": ""
   },
   "packages/contracts/src/enums.ts": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1787876754.3392503,
-    "seen": 1787876763.5121942,
-    "ast_hash": "256d29681d437b9ff68cfcc59528057a",
+    "mtime": 1787875394.8521028,
+    "seen": 1787875718.805844,
+    "ast_hash": "54036fb1dfd39195cc3e140299e75572",
     "semantic_hash": ""
   },
   "apps/account/index.html": {
@@ -3315,12 +3315,6 @@
     "mtime": 1787874831.160492,
     "seen": 1787875718.8027346,
     "ast_hash": "180dd038a44dcc4a626fe7412765540f",
-    "semantic_hash": ""
-  },
-  "apps/admin/src/components/QuemAtendeu.tsx": {
-    "mtime": 1787876159.095952,
-    "seen": 1787876763.4978647,
-    "ast_hash": "eb43528126c40051fed9fe3bc3b8ebad",
     "semantic_hash": ""
   }
 }

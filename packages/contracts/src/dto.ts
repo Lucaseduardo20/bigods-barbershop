@@ -276,6 +276,13 @@ export interface AtendimentoDTO {
    */
   reativado: { porNome: string; em: string } | null;
   /**
+   * Troca de barbeiro (2026-08-27) — preenchido quando este atendimento mudou
+   * de mãos, seja pela reatribuição antes de concluir, seja pela correção com
+   * estorno depois. `deNome` é com quem o CLIENTE marcou, mesmo depois de várias
+   * trocas: é a pergunta que o rastro responde.
+   */
+  reatribuido: { deNome: string; porNome: string; em: string } | null;
+  /**
    * Registro de que este atendimento foi concluído ANTES do horário marcado
    * (2026-08-20). Preenchido enquanto o status é `CONCLUSAO_PENDENTE` **e
    * depois de aprovado** — é o rastro auditável de por que a conclusão saiu
@@ -483,6 +490,13 @@ export interface LancamentoComissaoDTO {
   valeId: string | null;
   /** Só tipo=VALE|PAGAMENTO — quem confirmou que o dinheiro se moveu (admin). */
   registradoPorNome: string | null;
+  /**
+   * Correção de barbeiro (2026-08-27): qual lançamento este estorno anula.
+   * `null` em tudo que não é estorno — que são quase todos. Serve para a tela
+   * mostrar o percurso (lançou para A → estornou de A → lançou para B) e para
+   * conferência de auditoria.
+   */
+  estornoDeId: string | null;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.
