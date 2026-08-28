@@ -19,7 +19,7 @@ import {
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
-import { diaCivilChave } from '../../../shared/domain/calendario';
+import { diaCivilChave, diaDaSemanaCivil } from '../../../shared/domain/calendario';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
@@ -116,6 +116,14 @@ export class AgendarComCreditoUseCase {
     // Dia civil LOCAL (fuso da empresa) — não a data UTC bruta do instante.
     const tz = await this.parametros.timezone(input.companyId);
     const data = diaCivilChave(input.inicio, tz);
+    /**
+     * ★ O dia da semana sai do dia CIVIL da empresa, não do instante UTC
+     * (2026-08-28). Um horário de sexta 23h em São Paulo é sábado 02h em UTC:
+     * usar `getUTCDay()` no instante bruto barraria uma sexta legítima num
+     * pacote "segunda a sexta", e liberaria um sábado num pacote que o proíbe.
+     * `diaCivilChave` já resolveu o fuso; `diaDaSemanaCivil` só lê a data.
+     */
+    const diaDaSemana = diaDaSemanaCivil(data);
     const disponibilidades = await this.disponibilidades.porBarbeiroEData(barbeiro.id, data);
     const janelaBusca = 24 * 60 * 60 * 1000;
     const ativos = await this.atendimentos.agendadosDoBarbeiroNoPeriodo(
@@ -139,7 +147,7 @@ export class AgendarComCreditoUseCase {
       // atendimento, sem duplicar aqui. Se QUALQUER crédito recusar, a
       // transação inteira volta: nunca sobra visita com metade dos créditos.
       for (const itemId of input.itemIds) {
-        venda.agendarItem(itemId, atendimentoId, input.barbeiroId);
+        venda.agendarItem(itemId, atendimentoId, input.barbeiroId, diaDaSemana);
       }
 
       // (b) UM ItemAtendido por crédito, cada um com o valorCobrado = valor

@@ -431,6 +431,14 @@ export interface VendaDePacoteDTO {
    * deriva um rótulo da composição.
    */
   nomeOferta: string | null;
+  /**
+   * SNAPSHOT dos dias em que estes créditos valem (2026-08-28) — 0=domingo …
+   * 6=sábado, os sete = sem restrição. É o que o cliente COMPROU: a oferta pode
+   * ter mudado depois, e a conta dele não muda por causa disso.
+   *
+   * A frase é derivada na tela (`descricaoDosDias`), nunca trafegada pronta.
+   */
+  diasPermitidos: number[];
   itens: ItemDoPacoteDTO[];
   /** Fase 4c (sessão-B) — de qual barbeiro veio o link pessoal que originou esta compra, se veio de algum. Só registro, sem métrica. */
   origemLinkBarbeiroId: string | null;
@@ -955,6 +963,16 @@ export interface PacoteOfertaDTO {
   composicao: ItemComposicaoPacoteDTO[];
   /** Preço do pacote (o que o cliente paga) — única fonte de verdade. */
   precoCentavos: number;
+  /**
+   * Dias da semana em que os créditos deste pacote podem ser usados
+   * (2026-08-28) — 0=domingo … 6=sábado, os sete = sem restrição.
+   *
+   * ★ A FRASE que o cliente lê ("Válido de segunda a quinta") NÃO trafega: cada
+   * tela deriva a dela com `descricaoDosDias` deste mesmo pacote de contracts.
+   * Mandar o texto pronto abriria a porta para ele divergir dos dias reais —
+   * e é justamente o texto que o cliente usa para decidir a compra.
+   */
+  diasPermitidos: number[];
   /** Soma dos preços de referência da composição — base do desconto exibido. */
   precoAvulsoTotalCentavos: number;
   /** economia = precoAvulsoTotalCentavos - precoCentavos (nunca negativa). */
@@ -976,11 +994,15 @@ export interface CriarPacoteOfertaRequest {
   nome: string;
   composicao: ItemComposicaoPacoteRequest[];
   precoCentavos: number;
+  /** Omitido ou vazio = todos os dias (2026-08-28). */
+  diasPermitidos?: number[];
 }
 export interface AtualizarPacoteOfertaRequest {
   nome: string;
   composicao: ItemComposicaoPacoteRequest[];
   precoCentavos: number;
+  /** Omitido ou vazio = todos os dias (2026-08-28). */
+  diasPermitidos?: number[];
 }
 export interface AtualizarStatusPacoteOfertaRequest {
   ativo: boolean;

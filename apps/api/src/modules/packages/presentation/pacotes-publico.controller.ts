@@ -153,6 +153,9 @@ export class PacotesPublicoController {
       // vê uma lista de serviços. É o que faz a conta do cliente dizer "Combo 4
       // Cortes Simples" em vez de "Pacote".
       oferta: { id: oferta.id, nome: oferta.nome },
+      // SNAPSHOT dos dias (2026-08-28): o cliente leva a regra que estava
+      // escrita na tela agora, e mudar a oferta depois não o alcança.
+      diasPermitidos: oferta.diasPermitidos,
       valorPagoCentavos: oferta.precoCentavos,
       pagamentoImediato: false,
       // Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono) —

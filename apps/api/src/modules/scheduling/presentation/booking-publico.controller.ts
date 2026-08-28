@@ -75,6 +75,10 @@ import {
 } from '../../identity/presentation/cliente.guard';
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 import { Telefone } from '../../../shared/domain/telefone';
+import {
+  VENDA_DE_PACOTE_REPOSITORY,
+  VendaDePacoteRepository,
+} from '../../packages/domain/venda-de-pacote.repository';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -157,6 +161,8 @@ export class BookingPublicoController {
     @Inject(ITEM_DE_ORDER_BUMP_REPOSITORY) private readonly itensDeBump: ItemDeOrderBumpRepository,
     private readonly empresaQuery: EmpresaPublicaQueryService,
     private readonly horariosQuery: HorariosDisponiveisQueryService,
+    @Inject(VENDA_DE_PACOTE_REPOSITORY)
+    private readonly vendasDePacote: VendaDePacoteRepository,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly cancelarReservaOnline: CancelarReservaOnlineUseCase,
   ) {}
@@ -383,6 +389,7 @@ export class BookingPublicoController {
     @Query('barbeiroId') barbeiroId?: string,
     @Query('data') data?: string,
     @Query('servicoIds') servicoIds?: string,
+    @Query('creditoId') creditoId?: string,
   ): Promise<HorariosDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
     if (!data || !DATA_ISO.test(data)) {
@@ -390,11 +397,37 @@ export class BookingPublicoController {
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
+    const diasPermitidos = await this.diasDoCredito(id, creditoId);
     // Sem barbeiroId = "não tenho preferência": união dos horários de todos os
     // barbeiros que atendem os serviços escolhidos.
     return barbeiroId
-      ? this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids })
-      : this.horariosQuery.disponiveisGlobal({ companyId: id, data, servicoIds: ids });
+      ? this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids, diasPermitidos })
+      : this.horariosQuery.disponiveisGlobal({ companyId: id, data, servicoIds: ids, diasPermitidos });
+  }
+
+  /**
+   * DIAS PERMITIDOS DO PACOTE (2026-08-28) — a projeção só oferece o que o
+   * crédito pode gastar.
+   *
+   * A chave é o CRÉDITO (`itemDoPacoteId`), não a venda: é o que as duas telas
+   * que gastam crédito já têm em mãos (a de usar o pacote e a de reagendar um
+   * atendimento de pacote), e daqui a venda sai por consulta. O que decide são
+   * os dias CONGELADOS na venda, nunca os dias atuais da oferta — a oferta pode
+   * ter mudado depois da compra.
+   *
+   * Crédito desconhecido é 404, não "sem restrição": oferecer a agenda inteira
+   * para um id que ninguém reconhece mostraria dias que a escrita vai recusar.
+   */
+  private async diasDoCredito(
+    companyId: string,
+    creditoId: string | undefined,
+  ): Promise<number[] | undefined> {
+    if (!creditoId) return undefined;
+    const venda = await this.vendasDePacote.porItemId(creditoId);
+    if (!venda || venda.companyId !== companyId) {
+      throw new NotFoundException('Crédito de pacote não encontrado');
+    }
+    return venda.diasPermitidos;
   }
 
   /**
@@ -414,6 +447,7 @@ export class BookingPublicoController {
     @Query('de') de?: string,
     @Query('ate') ate?: string,
     @Query('servicoIds') servicoIds?: string,
+    @Query('creditoId') creditoId?: string,
   ): Promise<DiasDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
     if (!de || !DATA_ISO.test(de) || !ate || !DATA_ISO.test(ate)) {
@@ -426,9 +460,10 @@ export class BookingPublicoController {
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
+    const diasPermitidos = await this.diasDoCredito(id, creditoId);
     return barbeiroId
-      ? this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids })
-      : this.horariosQuery.diasComHorarioGlobal({ companyId: id, de, ate, servicoIds: ids });
+      ? this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids, diasPermitidos })
+      : this.horariosQuery.diasComHorarioGlobal({ companyId: id, de, ate, servicoIds: ids, diasPermitidos });
   }
 
   /**

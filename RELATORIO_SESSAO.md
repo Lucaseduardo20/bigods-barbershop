@@ -5624,6 +5624,102 @@ Em **staging**, com dois barbeiros de taxas diferentes (ex.: A a 30%, B a 50%).
 - Corrija para o **B**. ✅ O A volta a zero; o B recebe `50,00 + 10,00 − 5,00` (o desconto pela taxa
   DELE, não pela do A).
 
+## Dias da semana em que o crédito de pacote vale (2026-08-28) ✅
+
+O pacote econômico é barato porque o cliente aceita flexibilidade. Sem trava nenhuma, ele consumia
+exatamente a agenda mais disputada da casa — sexta e sábado —, e o desconto saía do horário que a
+barbearia venderia cheio de qualquer jeito. Agora **cada oferta decide em que dias os créditos dela
+podem ser usados**. Default: todos os dias, que é o que valia antes e continua valendo para tudo o
+que já existe.
+
+### As três peças, e por que são três
+
+```
+PacoteOferta.diasPermitidos   a regra ATUAL do catálogo — o admin edita quando quiser
+VendaDePacote.diasPermitidos  o SNAPSHOT da compra    — nunca muda depois
+descricaoDosDias(dias)        a FRASE que o cliente lê — sempre derivada
+```
+
+**★ A venda congela.** O cliente comprou uma coisa e leva aquela coisa: apertar a oferta para
+"segunda a quinta" amanhã não alcança quem comprou hoje sem restrição, e afrouxá-la não libera quem
+comprou restrito. É a mesma disciplina de `valorRateado` e `valorCobrado` (§3.5) — a regra que vale
+é a que estava escrita na tela no momento da compra. Duas colunas no banco e não uma, justamente
+porque são dois fatos diferentes.
+
+**★ A frase é derivada, nunca digitada.** "Válido de segunda a quinta" sai de `descricaoDosDias`,
+no `packages/contracts`, do MESMO conjunto que o sistema usa para bloquear. Um campo de texto livre
+ao lado divergiria da regra no primeiro ajuste — e é justamente esse texto que o cliente usa para
+decidir a compra. Três formas: `todos os sete → "Válido todos os dias"`, `faixa contígua → "Válido
+de segunda a quinta"`, `avulsos → "Válido às segundas, quartas e sextas"`. A contiguidade é medida
+na ordem de leitura (segunda→domingo): `sáb, dom, seg` não vira "de sábado a segunda", que faria o
+leitor pensar que a terça também vale.
+
+### Bloqueio limpo: o dia não aparece, não dá erro
+
+`/public/horarios` e `/public/dias` passaram a aceitar `creditoId` — o crédito que a visita vai
+gastar. Com ele, a projeção devolve só os dias que **aquela venda** permite: o dia bloqueado
+simplesmente não tem horário, e o seletor apaga o botão. O cliente escolhe entre o que dá, em vez
+de escolher e ser recusado no fim do fluxo; a explicação fica na tela **antes** da escolha.
+
+A chave é o CRÉDITO e não a venda porque é o que as duas telas que gastam crédito já têm em mãos
+(usar o pacote, e reagendar um atendimento de pacote). Crédito desconhecido é **404**, nunca "sem
+restrição" — oferecer a agenda inteira para um id que ninguém reconhece mostraria dias que a
+escrita vai recusar.
+
+**A projeção é leitura e leitura não guarda regra (§2.1).** O bloqueio de verdade é
+`VendaDePacote.agendarItem`, e a mensagem dele também sai de `descricaoDosDias`, dos mesmos dias que
+barraram. Quem chama a API direto, ou chega com uma tela aberta desde antes, esbarra ali.
+
+### ★ Fuso: a parte que erraria em silêncio
+
+Um horário às **23h de sexta em São Paulo é sábado em UTC**. Ler o dia da semana do instante bruto
+roubaria do cliente uma sexta legítima num pacote "segunda a sexta" — e liberaria um sábado num
+pacote que o proíbe. O caminho é sempre `diaCivilChave(instante, tz) → diaDaSemanaCivil(data)`, e o
+agregado **não** deriva o dia sozinho: ele é puro, não conhece fuso, e recebe o dia já resolvido de
+quem tem o fuso em mãos. Na projeção o `data` consultado já É o dia civil da empresa.
+
+Há teste para os dois lados da mesma meia-noite, e para o mesmo instante lido por uma empresa em
+Tóquio (onde ele É sábado).
+
+### Migration aditiva
+
+```sql
+ALTER TABLE "PacoteOferta"  ADD COLUMN "diasPermitidos" INTEGER[] NOT NULL DEFAULT ARRAY[0,1,2,3,4,5,6];
+ALTER TABLE "VendaDePacote" ADD COLUMN "diasPermitidos" INTEGER[] NOT NULL DEFAULT ARRAY[0,1,2,3,4,5,6];
+```
+
+Duas colunas com DEFAULT dos sete dias: toda oferta e toda venda que já existem passam a valer
+"qualquer dia", que é exatamente o que valia antes. **Ninguém perde um crédito por causa desta
+migration.** Nada é reescrito, nada é removido — a API velha continua funcionando com o banco novo
+durante a janela de deploy.
+
+### Onde aparece
+
+- **Admin** (Pacotes → oferta): sete botões na ordem de leitura, e embaixo **a frase exata que o
+  cliente vai ler**. Editar avisa que vale só para as próximas vendas. Nunca deixa zerar os dias.
+- **Funil** (Bigod's Club): a frase no card da oferta, antes da compra.
+- **Conta do cliente**: a frase no card do pacote, junto dos créditos — onde ele decide usar.
+- **Agendar e reagendar com crédito**: dias bloqueados apagados, sem horário nenhum.
+
+### Testes
+
+**976 testes verdes no backend** (952 antes: +13 de domínio, +11 e2e), idênticos sob `TZ=UTC`,
+`TZ=America/Sao_Paulo` e `TZ=Asia/Tokyo`. **85 em `packages/contracts`** (74 antes: +11 do módulo de
+dias). `tsc --noEmit` verde nos três frontends.
+
+`scripts/smoke-dias-permitidos.mjs` roda o caminho inteiro contra uma API local (recusa apontar para
+qualquer coisa que não seja localhost): cria a oferta, compra pelo funil, confere o congelamento,
+que a sexta some da projeção mas não da agenda, que a escrita recusa dizendo os dias, e que apertar
+a oferta depois não alcança o pacote comprado. Rodado, verde.
+
+### O que não foi feito
+
+Reagendar passa pelo mesmo `AgendarComCredito` e herda a trava sem código novo. Atendimento **já
+agendado** antes de a oferta mudar não é revisto: o snapshot da venda dele não mudou, e revisar o
+passado contrariaria §3.5.
+
+---
+
 ## Como rodar localmente
 
 ```bash

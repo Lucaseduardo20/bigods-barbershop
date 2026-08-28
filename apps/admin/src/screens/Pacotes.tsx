@@ -8,7 +8,17 @@ import type {
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
-import { Papel, StatusAprovacaoPacoteOferta, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import {
+  Papel,
+  StatusAprovacaoPacoteOferta,
+  StatusItemPacote,
+  StatusPagamento,
+  TODOS_OS_DIAS,
+  descricaoDosDias,
+  diasNormalizados,
+  nomeCurtoDoDia,
+  permiteTodosOsDias,
+} from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
@@ -640,6 +650,11 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
                   </span>
                 )}
               </div>
+              {!permiteTodosOsDias(o.diasPermitidos) && (
+                <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  {descricaoDosDias(o.diasPermitidos)}
+                </div>
+              )}
               {o.statusAprovacao === StatusAprovacaoPacoteOferta.REJEITADO && o.motivoRejeicao && (
                 <div className="text-[12px] mt-1" style={{ color: 'var(--status-danger)' }}>
                   motivo da rejeição: {o.motivoRejeicao}
@@ -695,6 +710,9 @@ function OfertaDialog({
   const [modo, setModo] = useState<'percentual' | 'preco'>('percentual');
   const [percentual, setPercentual] = useState('20');
   const [precoCentavos, setPrecoCentavos] = useState(0);
+  // Dias em que os créditos vão valer (2026-08-28). Começa com os sete: um
+  // pacote sem restrição é o caso normal, e restringir é a exceção deliberada.
+  const [dias, setDias] = useState<number[]>([...TODOS_OS_DIAS]);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -708,12 +726,14 @@ function OfertaDialog({
       setLinhas(editando.composicao.map((i) => ({ servicoId: i.servicoId, quantidade: String(i.quantidade) })));
       setModo('preco');
       setPrecoCentavos(editando.precoCentavos);
+      setDias(diasNormalizados(editando.diasPermitidos));
     } else {
       setNome('');
       setLinhas([{ servicoId: '', quantidade: '1' }]);
       setModo('percentual');
       setPercentual('20');
       setPrecoCentavos(0);
+      setDias([...TODOS_OS_DIAS]);
     }
     setErroSalvar(null);
   }, [aberto, editando]);
@@ -754,12 +774,12 @@ function OfertaDialog({
       if (editando) {
         await api(`/pacote-ofertas/${editando.id}`, {
           method: 'PATCH',
-          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado, diasPermitidos: dias },
         });
       } else {
         await api('/pacote-ofertas', {
           method: 'POST',
-          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado, diasPermitidos: dias },
         });
       }
       aoSalvar();
@@ -853,6 +873,54 @@ function OfertaDialog({
             Preço final: <strong>{dinheiro(Math.max(0, precoCentavosCalculado))}</strong>{' '}
             <span style={{ color: 'var(--text-muted)' }}>({percentualCalculado.toFixed(1)}% de desconto)</span>
           </div>
+        </div>
+
+        {/* DIAS EM QUE O CRÉDITO VALE (2026-08-28) — a trava que impede um pacote
+            econômico de comer a agenda de sexta e sábado. A frase abaixo é
+            DERIVADA destes botões (`descricaoDosDias`), a mesma função que o
+            cliente vê no funil e na conta dele: o que o admin lê aqui é
+            exatamente o que o cliente vai ler lá. */}
+        <div>
+          <label className="label">Dias em que os créditos podem ser usados</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {/* Ordem de leitura (segunda→domingo) — `diasNormalizados` já a impõe. */}
+            {diasNormalizados(TODOS_OS_DIAS).map((d) => {
+                const ligado = dias.includes(d);
+                return (
+                  <button
+                    key={d}
+                    className={`selectable ${ligado ? 'selected' : ''}`}
+                    style={{ padding: '6px 10px', minWidth: 46, textTransform: 'capitalize' }}
+                    aria-pressed={ligado}
+                    onClick={() =>
+                      setDias((atual) =>
+                        // Nunca deixa zerar: um pacote sem nenhum dia seria
+                        // impossível de usar, e o domínio recusaria depois de o
+                        // admin já ter preenchido o resto.
+                        ligado
+                          ? atual.length > 1
+                            ? atual.filter((x) => x !== d)
+                            : atual
+                          : diasNormalizados([...atual, d]),
+                      )
+                    }
+                  >
+                  {nomeCurtoDoDia(d)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[12px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+            {permiteTodosOsDias(dias)
+              ? 'Sem restrição — o cliente marca em qualquer dia.'
+              : `O cliente vai ler: "${descricaoDosDias(dias)}". Os outros dias nem aparecem para ele.`}
+          </div>
+          {editando && (
+            <div className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Vale só para as PRÓXIMAS vendas — quem já comprou mantém os dias da
+              época da compra.
+            </div>
+          )}
         </div>
 
         {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}

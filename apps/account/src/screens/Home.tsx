@@ -4,7 +4,13 @@ import type {
   PerfilClienteDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
-import { StatusAtendimento, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import {
+  StatusAtendimento,
+  StatusItemPacote,
+  StatusPagamento,
+  descricaoDosDias,
+  permiteTodosOsDias,
+} from '@bigods/contracts';
 import { BOOKING_URL } from '../lib/config';
 import { diasCivisRestantes, dinheiro } from '../lib/format';
 import { fraseSaldoResidual, fraseSegundaChance } from '../lib/textos';
@@ -342,6 +348,26 @@ function PacoteCard({
       ) : (
         <div style={{ fontSize: 13, color: abertos ? 'var(--text-secondary)' : 'var(--text-muted)', marginBottom: 12 }}>
           {abertos ? `${abertos} de ${pacote.itens.length} serviços no pacote` : 'Todos os serviços usados — obrigado!'}
+        </div>
+      )}
+
+      {/* ★ OS DIAS EM QUE ESTE PACOTE VALE (2026-08-28) — o SNAPSHOT da compra,
+          e a frase derivada dele. Fica aqui, junto dos créditos, porque é onde
+          o cliente decide usar: descobrir a restrição só ao não achar horário
+          seria descobrir pelo silêncio. */}
+      {!permiteTodosOsDias(pacote.diasPermitidos) && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 7,
+            alignItems: 'center',
+            fontSize: 12,
+            color: 'var(--text-secondary)',
+            marginBottom: 12,
+          }}
+        >
+          <Icon name="calendar" size={14} />
+          <span>{descricaoDosDias(pacote.diasPermitidos)}</span>
         </div>
       )}
 

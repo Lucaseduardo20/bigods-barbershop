@@ -4,6 +4,7 @@ import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 import { PrismaUnitOfWork } from '../../src/shared/infrastructure/prisma-unit-of-work';
 import { ProcessarWebhookUseCase } from '../../src/modules/payments/application/processar-webhook.usecase';
 import { EventPublisher } from '../../src/shared/events/event-publisher';
+import { diaDaSemanaCivil } from '../../src/shared/domain/calendario';
 
 process.env.DATABASE_URL ??= 'postgresql://bigods:bigods@localhost:5432/bigods';
 
@@ -137,7 +138,9 @@ describe('transação de crédito — rollback completo', () => {
     await expect(
       uow.transacao(async (repos) => {
         const venda = await repos.vendasDePacote.porId(vendaId);
-        venda!.agendarItem(itemId, atendimentoId, barbeiroId);
+        // A venda deste teste não tem restrição de dia (default: os sete), então o
+        // dia da semana passado aqui é indiferente — o que se testa é o rollback.
+        venda!.agendarItem(itemId, atendimentoId, barbeiroId, diaDaSemanaCivil(DIA));
         await repos.vendasDePacote.salvar(venda!); // efeito 1 gravado na tx
         // efeito 2 viola a constraint → a transação INTEIRA deve reverter
         await prisma.atendimento.create({

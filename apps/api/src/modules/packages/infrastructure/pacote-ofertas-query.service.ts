@@ -50,7 +50,13 @@ export class PacoteOfertasQueryService {
   async porId(
     companyId: string,
     ofertaId: string,
-  ): Promise<{ id: string; nome: string; servicoIds: string[]; precoCentavos: number } | null> {
+  ): Promise<{
+    id: string;
+    nome: string;
+    servicoIds: string[];
+    precoCentavos: number;
+    diasPermitidos: number[];
+  } | null> {
     const oferta = await this.ofertas.porId(ofertaId);
     if (
       !oferta ||
@@ -68,6 +74,8 @@ export class PacoteOfertasQueryService {
       nome: oferta.nome,
       servicoIds: oferta.expandirServicoIds(),
       precoCentavos: oferta.preco.centavos,
+      // Os dias que valem AGORA — a venda vai congelá-los (2026-08-28).
+      diasPermitidos: oferta.diasPermitidos,
     };
   }
 }
@@ -89,6 +97,7 @@ function paraDTO(oferta: PacoteOferta, servicoPorId: Map<ServicoId, Servico>): P
     nome: oferta.nome,
     composicao,
     precoCentavos: oferta.preco.centavos,
+    diasPermitidos: oferta.diasPermitidos,
     precoAvulsoTotalCentavos: precoAvulsoTotal.centavos,
     economiaCentavos: economia,
     economiaPercentual: precoAvulsoTotal.centavos === 0 ? 0 : Math.round((economia / precoAvulsoTotal.centavos) * 1000) / 10,
