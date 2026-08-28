@@ -1,4 +1,8 @@
-import { CobrancaPix, PaymentGateway } from '../domain/payment-gateway';
+import {
+  CobrancaPix,
+  PaymentGateway,
+  RecursoNaoSuportadoPeloGatewayError,
+} from '../domain/payment-gateway';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 
 export interface AbacatePayConfig {
@@ -28,6 +32,17 @@ export type FetchLike = typeof fetch;
  * `data.transparent.externalId` — ver `abacatepay-webhook.controller`).
  */
 export class AbacatePayGateway implements PaymentGateway {
+  readonly provedor = 'ABACATEPAY' as const;
+
+  /** A AbacatePay é PIX-only nesta integração — `pagarComCartao` recusa. */
+  readonly suportaCartao = false;
+
+  /**
+   * A AbacatePay não tem estorno nesta integração — `estornar` recusa. Reembolso
+   * com ela segue MANUAL: o dono devolve por fora e registra no admin.
+   */
+  readonly suportaEstorno = false;
+
   readonly expiraEmSegundos: number;
 
   constructor(
@@ -69,6 +84,46 @@ export class AbacatePayGateway implements PaymentGateway {
       copiaECola: dados.brCode,
       expiresAt: new Date(dados.expiresAt),
     };
+  }
+
+
+  /**
+   * A AbacatePay integrada aqui é PIX-only (Checkout Transparente v2,
+   * `/transparents/*`). Cartão existe só no Mercado Pago — foi a razão de ele
+   * entrar como terceiro adapter.
+   */
+  async pagarComCartao(params: { externalId: string }): Promise<never> {
+    throw new RecursoNaoSuportadoPeloGatewayError(
+      `AbacatePay não cobra cartão nesta integração (externalId=${params.externalId}). ` +
+        'Cartão de crédito só existe com PAYMENT_GATEWAY=mercadopago.',
+    );
+  }
+
+  /**
+   * A AbacatePay não precisa de consulta: o webhook dela é AUTOSSUFICIENTE —
+   * `transparent.completed` já é a afirmação de que a cobrança foi paga, e o
+   * payload traz o nosso `externalId` em `data.transparent.externalId`. Quem
+   * precisa consultar é o Mercado Pago, cuja notificação é um ping.
+   *
+   * Lança em vez de devolver algo vazio: nenhum caminho deveria chegar aqui, e um
+   * retorno inventado viraria "pagamento não confirmado" silencioso.
+   */
+  async consultarCobranca(gatewayId: string): Promise<never> {
+    throw new RecursoNaoSuportadoPeloGatewayError(
+      `AbacatePay não expõe consulta de cobrança (gatewayId=${gatewayId}). ` +
+        'O webhook dela é autossuficiente — se este caminho foi chamado, o gateway ativo está errado.',
+    );
+  }
+
+  /**
+   * Estorno pela AbacatePay está fora de escopo (o fluxo de reembolso do admin
+   * era manual e passa a ser integrado só no Mercado Pago). Ver followup.md #5.
+   */
+  async estornar(params: { gatewayId: string }): Promise<never> {
+    throw new RecursoNaoSuportadoPeloGatewayError(
+      `Estorno pela AbacatePay não está implementado (gatewayId=${params.gatewayId}). ` +
+        'O reembolso integrado existe só no Mercado Pago; pela AbacatePay a devolução é manual.',
+    );
   }
 
   /**

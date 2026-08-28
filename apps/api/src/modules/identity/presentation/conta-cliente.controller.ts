@@ -46,6 +46,7 @@ import {
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { creditosDaRequisicao } from '../../scheduling/application/agendar-com-credito.usecase';
 import { ClubeQueryService } from '../../packages/infrastructure/clube-query.service';
+import { ReembolsosDoClienteQueryService } from '../../packages/infrastructure/reembolsos-do-cliente-query.service';
 
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -123,6 +124,7 @@ export class ContaClienteController {
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly clube: ClubeQueryService,
+    private readonly reembolsosDoCliente: ReembolsosDoClienteQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
     private readonly cancelarAtendimento: CancelarAtendimentoClienteUseCase,
@@ -163,18 +165,25 @@ export class ContaClienteController {
     if (!cliente || cliente.companyId !== atual.companyId) {
       throw new NotFoundException('Cliente não encontrado');
     }
-    const [pacotes, proximosAgendamentos, clube] = await Promise.all([
-      this.pacotes.listar(atual.companyId, atual.clienteId),
-      this.agendamentosCliente.proximos(atual.companyId, atual.clienteId),
-      // Recalculado a cada leitura, de propósito (§Bigod's Club) — não existe
-      // coluna de status pra divergir do mundo real.
-      this.clube.doCliente(atual.companyId, atual.clienteId),
-    ]);
+    const [pacotes, proximosAgendamentos, clube, reembolsos, estornosAutomaticos] =
+      await Promise.all([
+        this.pacotes.listar(atual.companyId, atual.clienteId),
+        this.agendamentosCliente.proximos(atual.companyId, atual.clienteId),
+        // Recalculado a cada leitura, de propósito (§Bigod's Club) — não existe
+        // coluna de status pra divergir do mundo real.
+        this.clube.doCliente(atual.companyId, atual.clienteId),
+        // "Cadê meu dinheiro" (2026-08-27): até aqui o cliente pedia reembolso e
+        // nunca mais via nada, e a ansiedade virava mensagem no WhatsApp.
+        this.reembolsosDoCliente.doCliente(atual.companyId, atual.clienteId),
+        this.reembolsosDoCliente.estornosAutomaticos(atual.companyId, atual.clienteId),
+      ]);
     return {
       cliente: { id: cliente.id, nome: cliente.nome, telefone: cliente.telefone.e164 },
       clube,
       pacotes,
       proximosAgendamentos,
+      reembolsos,
+      estornosAutomaticos,
     };
   }
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ItemDeOrderBumpDTO, OrderBumpDTO } from '@bigods/contracts';
 import {
   aplicarBarbeiroDoLink,
+  contemNumeroDeCartao,
+  salvarEstado,
   alternarProdutoNoBump,
   alternarServicoNoBump,
   barbeiroParaAutoSelecionar,
@@ -291,5 +293,161 @@ describe('promocionaisDoBump — só entra quem veio do bump E tem oferta de ver
 
   it('sem vitrine carregada, mapa vazio (nunca inventa promoção)', () => {
     expect(promocionaisDoBump(null, ['svc-barba']).size).toBe(0);
+  });
+});
+
+/**
+ * ★ TESTE-CADEADO: a lista de chaves do `FunnelState` está congelada aqui.
+ *
+ * ## Por que uma lista literal, e não `Object.keys(estadoInicial)`
+ *
+ * Derivar do próprio código faria o teste passar automaticamente para qualquer
+ * chave nova — que é exatamente o evento que precisa parar a build. Esta lista é
+ * uma segunda declaração, propositalmente redundante, mantida à mão.
+ *
+ * ## O que ele protege
+ *
+ * `salvarEstado` serializa o objeto INTEIRO em `sessionStorage`. Um `numeroCartao`,
+ * `cvv` ou `tokenDoCartao` aqui grava dado de cartão no disco do celular do
+ * cliente — onde o scrubbing do Sentry não alcança, porque o dado nem passa pelo
+ * Sentry. Não é um risco hipotético: acrescentar o campo do formulário ao estado
+ * do funil "para não perder no refresh" é o reflexo natural de quem mexe nisto.
+ *
+ * ## Se este teste falhou porque você adicionou um campo legítimo
+ *
+ * Acrescente a chave à lista. Ao fazer isso, confirme as três perguntas:
+ * 1. É dado de cartão (número, CVV, validade, token)? Então NÃO vai no estado —
+ *    ele mora em iframes do Mercado Pago e em estado local do `CartaoCheckout`.
+ * 2. Precisa sobreviver a um refresh? Se não, é `useState` do componente.
+ * 3. É informação que o cliente ficaria incomodado de ver gravada no aparelho?
+ */
+const CHAVES_CONGELADAS_DO_FUNNEL_STATE = [
+  'step',
+  'modo',
+  'servicoIds',
+  'barbeiroId',
+  'barbeiroNome',
+  'barbeiroFotoUrl',
+  'clienteConhecido',
+  'emailJaCadastrado',
+  'barbeiroAuto',
+  'barbeiroFixadoPorLink',
+  'semPreferencia',
+  'valorFinalCentavos',
+  'data',
+  'horaInicio',
+  'nome',
+  'telefone',
+  'email',
+  'sobreVoce',
+  'ofertaId',
+  'ofertaNome',
+  'ofertaPrecoCentavos',
+  'formaPagamento',
+  'meioOnline',
+  'concluido',
+  'produtosBump',
+  'servicosBump',
+] as const;
+
+describe('FunnelState — cadeado de chaves e tripwire de cartão', () => {
+  it('★ nenhuma chave nova entrou no estado sem passar por aqui', () => {
+    expect([...Object.keys(estadoInicial)].sort()).toEqual(
+      [...CHAVES_CONGELADAS_DO_FUNNEL_STATE].sort(),
+    );
+  });
+
+  it('★ nenhuma chave do estado tem nome de dado de cartão', () => {
+    // O cadeado acima pega a chave nova; este pega o CONTEÚDO dela. Uma chave
+    // legítima chamada `numeroDoCartaoDoCliente` passaria no primeiro se alguém a
+    // acrescentasse à lista sem ler o comentário.
+    const proibidos = /(cartao|cartão|card|cvv|cvc|pan|titular|cardholder|validade|expir)/i;
+    for (const chave of Object.keys(estadoInicial)) {
+      expect(proibidos.test(chave), `chave "${chave}" parece dado de cartão`).toBe(false);
+    }
+  });
+
+  it('meioOnline nasce em PIX — o trilho de sempre', () => {
+    expect(estadoInicial.meioOnline).toBe('PIX');
+  });
+
+  it('estado salvo de antes desta sessão continua carregando (meioOnline cai no default)', () => {
+    const antigo = { step: PASSO.CONFIRMACAO, formaPagamento: 'online' as const };
+    expect(sanitizarEstadoCarregado(antigo).meioOnline).toBe('PIX');
+  });
+});
+
+describe('contemNumeroDeCartao — tripwire de runtime do salvarEstado', () => {
+  it('★ estado normal NÃO dispara, mesmo com telefone brasileiro', () => {
+    // Um celular BR em E.164 (5511912345678) tem 13 dígitos seguidos. A checagem
+    // ingênua "existe corrida de 13 a 19 dígitos?" acusaria TODO estado do funil —
+    // e um guarda que acusa sempre é um guarda que alguém desliga.
+    expect(
+      contemNumeroDeCartao({
+        ...estadoInicial,
+        telefone: '+5511912345678',
+        nome: 'Rafael Grigio',
+        servicoIds: ['a1b2c3d4-e5f6-7890-abcd-ef1234567890'],
+        valorFinalCentavos: 8500,
+      }),
+    ).toBe(false);
+  });
+
+  it('★ dispara com um PAN de teste plantado em qualquer campo de texto', () => {
+    // 4111111111111111 é o Visa de teste universal (16 dígitos, Luhn válido).
+    expect(
+      contemNumeroDeCartao({ ...estadoInicial, sobreVoce: 'meu cartão é 4111111111111111' }),
+    ).toBe(true);
+    expect(contemNumeroDeCartao({ ...estadoInicial, nome: '5031755734530604' })).toBe(true);
+  });
+
+  it('dispara com PAN de 15 (Amex) e de 19 dígitos', () => {
+    expect(contemNumeroDeCartao({ ...estadoInicial, email: '378282246310005@x.com' })).toBe(true);
+    expect(contemNumeroDeCartao({ ...estadoInicial, sobreVoce: '4111111111111110005' })).toBe(true);
+  });
+
+  it('corrida longa de dígitos que NÃO passa em Luhn não dispara', () => {
+    // É o que permite ao guarda conviver com ids numéricos e valores grandes sem
+    // virar falso positivo constante.
+    expect(contemNumeroDeCartao({ ...estadoInicial, sobreVoce: '1234567890123456' })).toBe(false);
+  });
+
+  it('★ um PAN no campo telefone é o ÚNICO ponto cego, e é consciente', () => {
+    // `telefone` está fora da varredura por necessidade (é o único campo cujo
+    // conteúdo é legitimamente uma corrida longa de dígitos). O campo é validado
+    // como celular BR na borda da API, então um PAN aqui não chega a persistir um
+    // agendamento — mas o registro do ponto cego é o que impede que alguém
+    // "resolva" o falso positivo movendo dado de cartão para cá.
+    expect(contemNumeroDeCartao({ ...estadoInicial, telefone: '4111111111111111' })).toBe(false);
+  });
+
+  it('salvarEstado NÃO persiste quando o tripwire dispara', () => {
+    const gravados: Record<string, string> = {};
+    const original = globalThis.sessionStorage;
+    const erroOriginal = console.error;
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      value: {
+        setItem: (k: string, v: string) => {
+          gravados[k] = v;
+        },
+        getItem: () => null,
+        removeItem: () => {},
+      },
+      configurable: true,
+    });
+    console.error = () => {};
+    try {
+      salvarEstado({ ...estadoInicial, sobreVoce: '4111111111111111' });
+      expect(Object.keys(gravados)).toHaveLength(0);
+
+      salvarEstado({ ...estadoInicial, nome: 'Rafael Grigio' });
+      expect(Object.keys(gravados)).toHaveLength(1);
+    } finally {
+      console.error = erroOriginal;
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        value: original,
+        configurable: true,
+      });
+    }
   });
 });

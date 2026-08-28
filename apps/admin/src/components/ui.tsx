@@ -92,7 +92,17 @@ export function Tabs<T extends string>({
 }: {
   value: T;
   onChange: (v: T) => void;
-  tabs: { value: T; label: string }[];
+  /**
+   * `label` aceita `ReactNode`, não só string (2026-08-27).
+   *
+   * Existe porque a aba "Falhados" de Reembolsos precisa carregar um contador em
+   * `Badge` de tom `danger`: falha financeira não pode depender de alguém lembrar
+   * de abrir a aba para descobrir que há dinheiro de cliente parado.
+   *
+   * A alternativa — embutir o número no texto (`"Falhados (2)"`) — funcionaria,
+   * mas perderia a cor, que é justamente o que faz o olho parar ali.
+   */
+  tabs: { value: T; label: ReactNode }[];
 }) {
   return (
     <div className="tabs">

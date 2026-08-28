@@ -12,6 +12,11 @@ import { AtendimentoConcluido } from '../../scheduling/domain/atendimento.events
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { repartirEntreBarbeiroECasa } from '../domain/rateio-do-acerto';
 import {
+  absorcaoDaTaxaPeloBarbeiro,
+  type BaseComissionavel,
+} from '../domain/taxa-do-pagamento-online';
+import { Percentual } from '../../../shared/domain/percentual';
+import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
   ParametrosDaEmpresaRepository,
 } from '../../packages/domain/parametros-da-empresa.repository';
@@ -88,6 +93,60 @@ export class OnAtendimentoConcluidoHandler {
     }
 
     await this.lancarAjustesDoFechamento(evento, barbeiro);
+    await this.lancarTaxaDoPagamentoOnline(evento, barbeiro, taxaDaEmpresa);
+  }
+
+  /**
+   * FASE 8 (2026-08-27): comissão sobre o LÍQUIDO, como linha própria.
+   *
+   * A taxa que o gateway retém é rateada entre as bases comissionáveis desta
+   * comanda, cada fatia leva o percentual do SEU item, e a soma é a parte que o
+   * barbeiro absorve. Ver `taxa-do-pagamento-online.ts` para a identidade que
+   * torna isso idêntico a reduzir cada base — e para por que a linha vence.
+   *
+   * ★ Precisa dos MESMOS percentuais usados nos lançamentos acima, e por isso é
+   * chamada aqui, com o mesmo `barbeiro` e a mesma `taxaDaEmpresa` já lidos: se
+   * relesse o cadastro, uma edição concorrente do percentual faria a absorção não
+   * casar com a comissão que ela desconta.
+   */
+  private async lancarTaxaDoPagamentoOnline(
+    evento: AtendimentoConcluido,
+    barbeiro: Barbeiro,
+    taxaDaEmpresa: Percentual | null,
+  ): Promise<void> {
+    if (evento.taxaPagamentoOnlineCentavos <= 0) return;
+
+    // Caixinha e desconto ficam FORA: são declarados no fechamento, e o pagamento
+    // online aconteceu no agendamento — não passaram pelo gateway.
+    const bases: BaseComissionavel[] = [
+      ...evento.itens.map((i) => ({
+        baseCentavos: i.valorCobradoCentavos,
+        percentualBp: barbeiro.percentualPara(i.servicoId).pontosBase,
+      })),
+      ...evento.produtos.map((p) => ({
+        baseCentavos: p.valorUnitarioCentavos * p.quantidade,
+        // `taxaDaEmpresa` é não-nulo sempre que há produto (lido acima por essa
+        // razão); o `?? 0` é só para o compilador, não um fallback silencioso.
+        percentualBp: taxaDaEmpresa?.pontosBase ?? 0,
+      })),
+    ];
+
+    const absorcao = absorcaoDaTaxaPeloBarbeiro(evento.taxaPagamentoOnlineCentavos, bases);
+    // Zero = a casa bancou a taxa inteira (barbeiro a 0%, ou a parte dele não
+    // chega a um centavo). Um lançamento de zero só sujaria o extrato.
+    if (absorcao.doBarbeiroCentavos <= 0) return;
+
+    await this.lancamentos.salvar(
+      LancamentoComissao.criarDeTaxaDePagamentoOnline({
+        id: randomUUID(),
+        companyId: evento.companyId,
+        barbeiroId: evento.barbeiroId,
+        atendimentoId: evento.atendimentoId,
+        taxaTotal: Dinheiro.deCentavos(absorcao.taxaTotalCentavos),
+        parteDoBarbeiro: Dinheiro.deCentavos(absorcao.doBarbeiroCentavos),
+        ocorridoEm: evento.ocorridoEm,
+      }),
+    );
   }
 
   /**

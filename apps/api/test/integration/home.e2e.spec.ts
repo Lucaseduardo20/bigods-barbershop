@@ -185,6 +185,8 @@ afterAll(async () => {
   await prisma.itemAtendido.deleteMany({ where: { atendimento: { companyId } } });
   await prisma.itemDoPacote.deleteMany({ where: { venda: { companyId } } });
   await prisma.intencaoDePagamento.deleteMany({ where: { companyId } });
+  // ANTES das vendas: `SolicitacaoDeReembolso` referencia `VendaDePacote` por FK.
+  await prisma.solicitacaoDeReembolso.deleteMany({ where: { companyId } });
   await prisma.vendaDePacote.deleteMany({ where: { companyId } });
   await prisma.atendimento.deleteMany({ where: { companyId } });
   await prisma.cliente.deleteMany({ where: { companyId } });
@@ -397,6 +399,56 @@ describe('Home de GESTÃO — dinheiro do dia e do mês', () => {
     const pacote = res.body.pendencias.find((p: { tipo: string }) => p.tipo === 'PACOTE_AGUARDANDO');
     expect(pacote.valorCentavos).toBe(17000);
     expect(pacote.clienteNome).toBe('Cliente Home');
+  });
+
+  it('★★ estorno FALHADO vira pendência — dinheiro do cliente não pode sumir num log', async () => {
+    /*
+     * `followup.md` #1: um estorno agendado que esgota as tentativas — quase
+     * sempre por saldo insuficiente na conta do gateway — precisa APARECER. Se só
+     * existisse na aba "Falhados", dependeria de alguém lembrar de abri-la, e
+     * quem descobriria primeiro seria o cliente.
+     *
+     * Entra na MESMA lista de pendências da home, sem mecanismo novo.
+     */
+    const vendaId = randomUUID();
+    await prisma.vendaDePacote.create({
+      data: {
+        id: vendaId,
+        companyId,
+        clienteId,
+        barbeiroId,
+        valorPagoCentavos: 9000,
+        statusPagamento: 'PAGO',
+        compradoEm: hojeMeioDia,
+      },
+    });
+    await prisma.solicitacaoDeReembolso.create({
+      data: {
+        id: randomUUID(),
+        companyId,
+        vendaDePacoteId: vendaId,
+        clienteId,
+        valorCentavos: 3500,
+        criadaEm: hojeMeioDia,
+        prazoLimiteEm: new Date(Date.now() + 45 * 86_400_000),
+        status: 'FALHOU',
+        agendadaPara: hojeMeioDia,
+        tentativas: 8,
+        ultimoErro: 'HTTP 400 (insufficient_funds): not enough balance',
+      },
+    });
+
+    const res = await http.get('/home/gestao').set('Authorization', `Bearer ${tokenAdmin}`).expect(200);
+    const falhado = res.body.pendencias.find((p: { tipo: string }) => p.tipo === 'ESTORNO_FALHADO');
+    expect(falhado, 'o estorno falhado tem que aparecer na home').toBeDefined();
+    expect(falhado.valorCentavos).toBe(3500);
+    expect(falhado.clienteNome).toBe('Cliente Home');
+
+    // ★ O motivo vem em linguagem de OPERAÇÃO, e diz o que FAZER. O erro cru é
+    // longo, em inglês e em vocabulário de API — inútil numa linha de home.
+    expect(falhado.motivo).toMatch(/saldo/i);
+    expect(falhado.motivo).not.toContain('insufficient_funds');
+    expect(falhado.motivo).not.toContain('HTTP 400');
   });
 
   it('empresa sem movimento no mês mostra ticket médio null — nunca divide por zero', async () => {

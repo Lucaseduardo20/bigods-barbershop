@@ -312,7 +312,18 @@ export class Atendimento extends AggregateRoot {
    * IntencaoDePagamento (§2.2, agregados não se chamam), quem decide isso é
    * `ConcluirAtendimentoUseCase`.
    */
-  concluir(formaPagamento?: FormaPagamento, ajustes?: AjustesDoFechamento): void {
+  /**
+   * @param taxaPagamentoOnline Taxa retida pelo gateway no pagamento online deste
+   *   atendimento. Vem da camada de APLICAÇÃO (é ela quem lê a
+   *   `IntencaoDePagamento` e a configuração) e só atravessa o agregado para
+   *   chegar ao evento, onde o Payroll a consome — o `Atendimento` não conhece
+   *   gateway nem ledger. Zero quando não houve pagamento online.
+   */
+  concluir(
+    formaPagamento?: FormaPagamento,
+    ajustes?: AjustesDoFechamento,
+    taxaPagamentoOnline?: Dinheiro,
+  ): void {
     this.exigirAgendado('concluir');
     // A comanda ficou editável (2026-08-25) e pode chegar aqui vazia — o
     // barbeiro removeu o serviço errado e não colocou outro. Concluir assim
@@ -324,7 +335,7 @@ export class Atendimento extends AggregateRoot {
       );
     }
     if (ajustes) this.declararAjustes(ajustes);
-    this.marcarConcluido(formaPagamento);
+    this.marcarConcluido(formaPagamento, taxaPagamentoOnline);
   }
 
   /**
@@ -402,7 +413,13 @@ export class Atendimento extends AggregateRoot {
    * forma de pagamento que o barbeiro informou no pedido, e o evento sai —
    * gerando comissão e consumindo crédito de pacote.
    */
-  aprovarConclusaoAntecipada(): void {
+  /**
+   * @param taxaPagamentoOnline Igual a `concluir`: vem da aplicação, que a relê no
+   *   momento da APROVAÇÃO. Reler é correto — a taxa não é um dado do pedido do
+   *   barbeiro, é um fato do pagamento, e entre o pedido e a aprovação o webhook
+   *   pode ter chegado com o líquido que ainda não existia antes.
+   */
+  aprovarConclusaoAntecipada(taxaPagamentoOnline?: Dinheiro): void {
     this.exigirConclusaoPendente('aprovar');
     const forma = this.props.conclusaoFormaPagamento ?? undefined;
     // O motivo, o autor e o instante do pedido FICAM no atendimento aprovado —
@@ -414,7 +431,7 @@ export class Atendimento extends AggregateRoot {
     // Só `conclusaoFormaPagamento` é limpa: ela virou `formaPagamento` agora, e
     // manter as duas seria a mesma informação em dois lugares.
     this.props.conclusaoFormaPagamento = null;
-    this.marcarConcluido(forma);
+    this.marcarConcluido(forma, taxaPagamentoOnline);
   }
 
   /**
@@ -453,7 +470,10 @@ export class Atendimento extends AggregateRoot {
   }
 
   /** O ato de concluir em si — compartilhado pelo caminho normal e pela aprovação. */
-  private marcarConcluido(formaPagamento?: FormaPagamento): void {
+  private marcarConcluido(
+    formaPagamento?: FormaPagamento,
+    taxaPagamentoOnline?: Dinheiro,
+  ): void {
     const exigeFormaPagamento = this.exigeFormaPagamento();
     if (exigeFormaPagamento && !formaPagamento) {
       throw new InvarianteVioladaError(
@@ -481,6 +501,7 @@ export class Atendimento extends AggregateRoot {
         })),
         this.props.caixinha.centavos,
         this.props.descontoConcedido.centavos,
+        taxaPagamentoOnline?.centavos ?? 0,
       ),
     );
   }

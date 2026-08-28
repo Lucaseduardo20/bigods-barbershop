@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OrigemComissao, Papel, TipoLancamento } from '@bigods/contracts';
 import { LancamentoComissao } from './lancamento-comissao.aggregate';
-import { calcularSaldoCentavos } from './saldo-do-barbeiro';
+import { calcularSaldoCentavos, sinalDoTipo } from './saldo-do-barbeiro';
 import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Percentual } from '../../../shared/domain/percentual';
@@ -248,5 +248,99 @@ describe('★ REGRESSÃO — lançamentos de comissão pré-migration continuam 
     const lancamentos = [criar('svc-corte', 4000), criar('svc-barba', 3000)];
     const somaSimples = lancamentos.reduce((acc, l) => acc + l.valorComissao.centavos, 0);
     expect(calcularSaldoCentavos(lancamentos)).toBe(somaSimples);
+  });
+});
+
+describe('★ taxa do pagamento online (Fase 8) — comissão sobre o líquido como linha', () => {
+  const base = {
+    id: 'lanc-taxa-1',
+    companyId: 'co-1',
+    barbeiroId: 'barb-1',
+    atendimentoId: 'at-1',
+    ocorridoEm: new Date('2026-08-27T15:00:00.000Z'),
+  };
+
+  it('nasce como débito, com a taxa inteira na base e a parte dele no valor', () => {
+    const l = LancamentoComissao.criarDeTaxaDePagamentoOnline({
+      ...base,
+      taxaTotal: Dinheiro.deCentavos(160),
+      parteDoBarbeiro: Dinheiro.deCentavos(72),
+    });
+    expect(l.tipo).toBe(TipoLancamento.TAXA_PAGAMENTO_ONLINE);
+    expect(l.valorBase!.centavos).toBe(160);
+    expect(l.valorComissao.centavos).toBe(72);
+    // Os dois juntos deixam a linha auditável: "taxa de R$1,60 · sua parte R$0,72".
+    expect(l.origem).toBeNull();
+  });
+
+  it('★ SUBTRAI no saldo — nunca soma', () => {
+    // Se `sinalDoTipo` tratasse este tipo como crédito, a taxa que o gateway
+    // cobrou apareceria como ganho do barbeiro. O sinal vem de `tipo`, e tudo que
+    // não é COMISSAO é -1 — este teste é o cadeado disso.
+    expect(sinalDoTipo(TipoLancamento.TAXA_PAGAMENTO_ONLINE)).toBe(-1);
+  });
+
+  it('★ percentualAplicado é NULL — não existe UM percentual honesto aqui', () => {
+    // A taxa é rateada entre os itens da comanda e cada fatia leva o percentual do
+    // SEU serviço. Gravar a razão parte/total seria um número derivado convidando
+    // alguém a recalcular e chegar a outro resultado.
+    const l = LancamentoComissao.criarDeTaxaDePagamentoOnline({
+      ...base,
+      taxaTotal: Dinheiro.deCentavos(160),
+      parteDoBarbeiro: Dinheiro.deCentavos(72),
+    });
+    expect(l.percentualAplicado).toBeNull();
+  });
+
+  it('recusa parte do barbeiro ZERO — lançamento de zero só sujaria o extrato', () => {
+    expect(() =>
+      LancamentoComissao.criarDeTaxaDePagamentoOnline({
+        ...base,
+        taxaTotal: Dinheiro.deCentavos(160),
+        parteDoBarbeiro: Dinheiro.deCentavos(0),
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('★ recusa parte MAIOR que a taxa — o barbeiro não paga mais do que o gateway cobrou', () => {
+    expect(() =>
+      LancamentoComissao.criarDeTaxaDePagamentoOnline({
+        ...base,
+        taxaTotal: Dinheiro.deCentavos(160),
+        parteDoBarbeiro: Dinheiro.deCentavos(161),
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('parte IGUAL à taxa é válida (barbeiro a 100%)', () => {
+    expect(() =>
+      LancamentoComissao.criarDeTaxaDePagamentoOnline({
+        ...base,
+        taxaTotal: Dinheiro.deCentavos(160),
+        parteDoBarbeiro: Dinheiro.deCentavos(160),
+      }),
+    ).not.toThrow();
+  });
+
+  it('★ o saldo cai exatamente pela parte dele', () => {
+    // A prova de que "linha própria" e "base reduzida" dão o mesmo total.
+    const comissao = LancamentoComissao.criarDeServico({
+      id: 'l-1',
+      companyId: 'co-1',
+      barbeiroId: 'barb-1',
+      atendimentoId: 'at-1',
+      servicoId: 'svc-1',
+      valorBase: Dinheiro.deCentavos(4000),
+      percentualAplicado: Percentual.dePontosBase(4500),
+      ocorridoEm: base.ocorridoEm,
+    });
+    const taxa = LancamentoComissao.criarDeTaxaDePagamentoOnline({
+      ...base,
+      taxaTotal: Dinheiro.deCentavos(160),
+      parteDoBarbeiro: Dinheiro.deCentavos(72),
+    });
+    // 45% de 4000 = 1800; menos 72 = 1728. E 45% de (4000 − 160) = 1728. Igual.
+    expect(calcularSaldoCentavos([comissao, taxa])).toBe(1728);
+    expect(Percentual.dePontosBase(4500).aplicarEm(Dinheiro.deCentavos(3840)).centavos).toBe(1728);
   });
 });

@@ -27,6 +27,7 @@ import {
 import {
   ClienteConhecidoDTO,
   FormaPagamentoFunil,
+  MeioDePagamentoOnline,
   LIMITE_DIAS_AGENDAMENTO,
   MAX_SOBRE_VOCE,
 } from '@bigods/contracts';
@@ -112,6 +113,16 @@ class AgendarPublicoDto {
   @Matches(HORA_HHMM) horaInicio!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   @IsOptional() @IsIn(['online', 'presencial']) formaPagamento?: FormaPagamentoFunil;
+  /**
+   * Trilho online (2026-08-27). Ausente = `'PIX'`, que preserva o comportamento
+   * de todo cliente antigo do funil.
+   *
+   * ★ Continua não existindo campo de dinheiro neste DTO, e escolher cartão não
+   * cria um: o valor sai da `IntencaoDePagamento` no servidor, nos dois trilhos.
+   * `@IsIn` valida a FORMA; se o deploy aceita aquele trilho é pergunta de
+   * `CobrancaOnlineService.assertMeioSuportado`, respondida antes da 1ª escrita.
+   */
+  @IsOptional() @IsIn(['PIX', 'CARTAO_CREDITO']) meioOnline?: MeioDePagamentoOnline;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
   /**
@@ -516,16 +527,24 @@ export class BookingPublicoController {
         sobreVoce: body.cliente.sobreVoce ?? null,
       },
       gerarCobranca: online,
+      ...(body.meioOnline ? { meioOnline: body.meioOnline } : {}),
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       produtosBump: body.produtosBump,
       servicosBump: body.servicosBump,
     });
     return {
       atendimentoId: resultado.atendimentoId,
-      // No modo manual não há PIX, mas há intenção — é ela que o admin
-      // confirma depois, e é por ela que o funil consulta o status.
-      intencaoId: resultado.cobranca?.intencaoId ?? resultado.pagamentoManual?.intencaoId ?? null,
+      // Os TRÊS trilhos online trazem intenção: PIX (com QR), cartão (sem
+      // cobrança ainda) e manual (o admin confirma depois). É por ela que o funil
+      // consulta o status, então esquecer um trilho aqui deixaria a tela de espera
+      // sem nada para consultar.
+      intencaoId:
+        resultado.cobranca?.intencaoId ??
+        resultado.checkoutCartao?.intencaoId ??
+        resultado.pagamentoManual?.intencaoId ??
+        null,
       cobranca: resultado.cobranca,
+      checkoutCartao: resultado.checkoutCartao,
       pagamentoManual: resultado.pagamentoManual,
       barbeiro: resultado.barbeiro,
       valorTotalCentavos: resultado.valorTotalCentavos,

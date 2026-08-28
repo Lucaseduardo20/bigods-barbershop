@@ -6,6 +6,7 @@ import { PrismaAtendimentoRepository } from '../../modules/scheduling/infrastruc
 import { PrismaVendaDePacoteRepository } from '../../modules/packages/infrastructure/prisma-venda-de-pacote.repository';
 import { PrismaClienteRepository } from '../../modules/customers/infrastructure/prisma-cliente.repository';
 import { PrismaIntencaoDePagamentoRepository } from '../../modules/payments/infrastructure/prisma-intencao-de-pagamento.repository';
+import { PrismaTentativaDePagamentoRepository } from '../../modules/payments/infrastructure/prisma-tentativa-de-pagamento.repository';
 import { PrismaLancamentoComissaoRepository } from '../../modules/payroll/infrastructure/prisma-lancamento-comissao.repository';
 import { PrismaSolicitacaoDeReembolsoRepository } from '../../modules/packages/infrastructure/prisma-solicitacao-de-reembolso.repository';
 import { PrismaValeRepository } from '../../modules/payroll/infrastructure/prisma-vale.repository';
@@ -16,6 +17,7 @@ export function repositoriosDe(db: Db): RepositoriosTransacionais {
     vendasDePacote: new PrismaVendaDePacoteRepository(db),
     clientes: new PrismaClienteRepository(db),
     intencoesDePagamento: new PrismaIntencaoDePagamentoRepository(db),
+    tentativasDePagamento: new PrismaTentativaDePagamentoRepository(db),
     lancamentosComissao: new PrismaLancamentoComissaoRepository(db),
     solicitacoesReembolso: new PrismaSolicitacaoDeReembolsoRepository(db),
     vales: new PrismaValeRepository(db),

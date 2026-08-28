@@ -1,4 +1,10 @@
-import type { OrderBumpDTO, ServicoDTO, TabelaDeDescontoDTO } from '@bigods/contracts';
+import type {
+  MeioDePagamentoOnline,
+  OrderBumpDTO,
+  ServicoDTO,
+  TabelaDeDescontoDTO,
+} from '@bigods/contracts';
+import { cartaoDisponivel } from '../lib/cartao';
 import { dinheiro, rotuloDia } from '../lib/format';
 import {
   precificarCarrinhoFunil,
@@ -22,6 +28,7 @@ export function Confirmacao({
   enviando,
   erroEnvio,
   onFormaPagamento,
+  onMeioOnline,
   onToggleServicoBump,
   onToggleProdutoBump,
   onConfirmar,
@@ -34,6 +41,7 @@ export function Confirmacao({
   enviando: boolean;
   erroEnvio: string | null;
   onFormaPagamento: (f: FormaPagamento) => void;
+  onMeioOnline: (m: MeioDePagamentoOnline) => void;
   onToggleServicoBump: (servicoId: string) => void;
   onToggleProdutoBump: (produtoId: string) => void;
   onConfirmar: () => void;
@@ -76,7 +84,12 @@ export function Confirmacao({
   // Modo manual (TEMPORÁRIO): o "pagar agora" não gera QR, leva pro WhatsApp
   // da barbearia. Prometer PIX na hora aqui e entregar outra coisa na tela
   // seguinte é o tipo de surpresa que faz o cliente desistir no checkout.
-  const viaWhatsapp = useEmpresa().pagamentoManualWhatsapp === true;
+  const empresa = useEmpresa();
+  const viaWhatsapp = empresa.pagamentoManualWhatsapp === true;
+  // Cartão exige o backend anunciar o meio E a chave pública existir — sem os
+  // dois, oferecer o botão levaria a um formulário que falha no submit.
+  const temCartao = cartaoDisponivel(empresa.pagamentoOnline);
+  const noCartao = online && temCartao && estado.meioOnline === 'CARTAO_CREDITO';
 
   return (
     <div className="flex flex-col gap-4">
@@ -223,10 +236,40 @@ export function Confirmacao({
             <PagBtn
               ativo={online}
               titulo="Pagar agora"
-              sub={viaWhatsapp ? 'PIX pelo WhatsApp' : 'PIX na hora'}
+              sub={viaWhatsapp ? 'PIX pelo WhatsApp' : temCartao ? 'PIX ou cartão' : 'PIX na hora'}
               onClick={() => onFormaPagamento('online')}
             />
             <PagBtn ativo={!online} titulo="Pagar na barbearia" sub="no dia" onClick={() => onFormaPagamento('presencial')} />
+          </div>
+        </div>
+      )}
+
+      {/*
+        Trilho online — só aparece quando há mais de um. Com um único meio a
+        pergunta seria decorativa: um seletor de uma opção só ensina o cliente que
+        existe uma escolha e depois não a oferece.
+
+        A ESCOLHA vem antes de confirmar, e não na tela seguinte, porque o backend
+        precisa dela para decidir se cria a cobrança PIX. Escolher depois faria
+        nascer uma order de PIX para quem vai pagar com cartão — dois caminhos de
+        pagamento vivos na mesma intenção (ver `CheckoutCartaoDTO`).
+      */}
+      {online && temCartao && (
+        <div>
+          <div className="label">Forma de pagamento</div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <PagBtn
+              ativo={estado.meioOnline === 'PIX'}
+              titulo="PIX"
+              sub="confirma na hora"
+              onClick={() => onMeioOnline('PIX')}
+            />
+            <PagBtn
+              ativo={estado.meioOnline === 'CARTAO_CREDITO'}
+              titulo="Cartão de crédito"
+              sub="à vista"
+              onClick={() => onMeioOnline('CARTAO_CREDITO')}
+            />
           </div>
         </div>
       )}
@@ -235,9 +278,19 @@ export function Confirmacao({
         className="flex items-start gap-2.5 rounded-2xl p-4 text-[13px]"
         style={{ background: 'var(--surface-brand-tint)', color: 'var(--brand-gold-700)' }}
       >
-        <span className="text-[16px] leading-none mt-0.5">{online ? '📲' : '💈'}</span>
+        <span className="text-[16px] leading-none mt-0.5">
+          {noCartao ? '💳' : online ? '📲' : '💈'}
+        </span>
         <div>
-          {ehPacote && viaWhatsapp ? (
+          {noCartao ? (
+            <>
+              <strong>Pagamento com cartão de crédito, à vista.</strong> Na próxima tela você
+              preenche os dados do cartão num formulário seguro do Mercado Pago.{' '}
+              {ehPacote
+                ? 'Seus créditos são liberados assim que a compra for aprovada.'
+                : 'Seu horário fica reservado enquanto isso.'}
+            </>
+          ) : ehPacote && viaWhatsapp ? (
             <>
               <strong>Pagamento por PIX, obrigatório na compra de pacote.</strong> Na próxima tela você
               abre o WhatsApp da barbearia com o pedido pronto e recebe o PIX por lá; seus créditos são

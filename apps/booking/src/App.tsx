@@ -4,6 +4,7 @@ import type {
   ClienteConhecidoDTO,
   AgendarPublicoResponse,
   BarbeiroPublicoDTO,
+  CheckoutCartaoDTO,
   CobrancaDTO,
   ConfirmarLoginClienteResponse,
   OrderBumpDTO,
@@ -48,6 +49,8 @@ import {
 } from './lib/funnel-state';
 import { Avatar, ErroEstado, Loading, useApi } from './components/ui';
 import { PixAguardando } from './components/PixAguardando';
+import { CartaoCheckout } from './components/CartaoCheckout';
+import { cartaoDisponivel } from './lib/cartao';
 import { PagamentoManualAguardando } from './components/PagamentoManualAguardando';
 import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
@@ -146,6 +149,15 @@ function Funil() {
   // CobrancaOnlineService no backend). Só um dos dois vem preenchido: ou PIX,
   // ou WhatsApp. Quem decide é o servidor, nunca o front.
   const [pagamentoManual, setPagamentoManual] = useState<PagamentoManualDTO | null>(null);
+  /**
+   * Trilho de cartão pendente. Só um dos TRÊS vem preenchido — PIX, WhatsApp ou
+   * cartão —, e quem decide é o servidor, nunca o front.
+   *
+   * ★ Este estado guarda apenas `{ intencaoId, expiraEm }`. Nenhum dado de cartão
+   * mora em estado do React aqui nem em `FunnelState`: número, validade e CVV
+   * vivem em iframes do Mercado Pago (ver `CartaoCheckout`).
+   */
+  const [checkoutCartao, setCheckoutCartao] = useState<CheckoutCartaoDTO | null>(null);
   const [intencaoId, setIntencaoId] = useState<string | null>(null);
   // Sessão de OTP+reserva (Problema 1): sem sessão local válida, a confirmação
   // pausa aqui até o telefone ser verificado.
@@ -286,6 +298,7 @@ function Funil() {
     setPago(false);
     setErroEnvio(null);
     setCobranca(null);
+    setCheckoutCartao(null);
     setIntencaoId(null);
     setEstado(estadoInicial);
   };
@@ -303,6 +316,7 @@ function Funil() {
     setPago(false);
     setErroEnvio(null);
     setCobranca(null);
+    setCheckoutCartao(null);
     setIntencaoId(null);
     setEstado({
       ...estadoInicial,
@@ -382,8 +396,34 @@ function Funil() {
     }
     setCobranca(null);
     setPagamentoManual(null);
+    setCheckoutCartao(null);
     setIntencaoId(null);
     patch({ valorFinalCentavos: null, step: PASSO.CONFIRMACAO });
+  };
+
+  /**
+   * "Prefiro pagar com PIX", na tela do cartão — e também o fallback automático
+   * quando o SDK do Mercado Pago não carrega (CSP, extensão, rede).
+   *
+   * Não existe endpoint para "converter" uma intenção de cartão em PIX, e é
+   * proposital: a intenção de cartão não tem cobrança nenhuma no gateway (é o que
+   * evita dois trilhos vivos), então não há o que converter. O caminho é desfazer
+   * a tentativa e voltar à Confirmação já com PIX escolhido — um clique a mais,
+   * zero ambiguidade sobre o que está cobrado.
+   *
+   * No AVULSO, desfazer devolve o horário (`alterarPedido`). No PACOTE não há
+   * horário reservado e não há endpoint de cancelamento: a intenção é abandonada e
+   * expira sozinha — exatamente o que já acontece hoje no "Tentar de novo" do PIX.
+   */
+  const trocarParaPix = async () => {
+    if (estado.modo === 'pacote') {
+      setCheckoutCartao(null);
+      setIntencaoId(null);
+      patch({ meioOnline: 'PIX', step: PASSO.CONFIRMACAO });
+      return;
+    }
+    patch({ meioOnline: 'PIX' });
+    await alterarPedido();
   };
 
   // Valor em cobrança: usa o que a API já confirmou (`valorFinalCentavos`,
@@ -412,6 +452,38 @@ function Funil() {
             setPagamentoManual(null);
             setIntencaoId(null);
           }}
+          onAlterarPedido={estado.modo === 'pacote' ? undefined : alterarPedido}
+        />
+      </div>
+    );
+  }
+
+  // Trilho de cartão → formulário com Secure Fields. Mesma posição no funil que o
+  // PIX ocupa. `publicKey` vem do servidor (`/public/empresa`), nunca de uma
+  // `VITE_`: ela é por ambiente, e congelada no bundle levaria um funil de
+  // staging a tokenizar com a chave da aplicação errada.
+  //
+  // Guarda só em `checkoutCartao`, sem exigir a chave: sem chave, o componente
+  // cai na tela de "não foi possível abrir o cartão" com o PIX ao lado
+  // (`carregarSdkMercadoPago` recusa chave vazia). Condicionar o early return à
+  // chave faria o funil cair NO PASSO ANTERIOR sem nenhuma tela de pagamento — um
+  // buraco silencioso, com a intenção já criada e o horário reservado.
+  if (checkoutCartao) {
+    return (
+      <div className="funnel-shell">
+        <CartaoCheckout
+          intencaoId={checkoutCartao.intencaoId}
+          publicKey={empresa.pagamentoOnline.mercadoPagoPublicKey ?? ''}
+          valorCentavos={valorEmCobranca()}
+          expiraEm={checkoutCartao.expiraEm}
+          ehPacote={estado.modo === 'pacote'}
+          onPago={() => {
+            setPago(true);
+            setCheckoutCartao(null);
+            patch({ concluido: true });
+          }}
+          onTrocarParaPix={trocarParaPix}
+          // Só no avulso: pacote não reserva horário nem tem bump pra editar.
           onAlterarPedido={estado.modo === 'pacote' ? undefined : alterarPedido}
         />
       </div>
@@ -726,6 +798,12 @@ function Funil() {
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
     // ver Confirmacao.tsx); avulso segue a escolha do cliente.
     const online = estado.modo === 'pacote' || estado.formaPagamento === 'online';
+    // Só manda `meioOnline` quando o cartão está realmente disponível: um deploy
+    // sem cartão recusa `CARTAO_CREDITO` na borda (`assertMeioSuportado`), e não
+    // queremos que um estado salvo em sessionStorage — de uma sessão anterior, com
+    // outra configuração — derrube a confirmação do cliente. Ausente = PIX.
+    const meioOnline =
+      online && cartaoDisponivel(empresa.pagamentoOnline) ? estado.meioOnline : undefined;
     // §4c: só registra de qual link pessoal veio quando o barbeiro FOI mesmo
     // fixado por um link — escolha manual ou barbeiro único da casa não conta
     // como "veio de marketing individual".
@@ -744,11 +822,13 @@ function Funil() {
             // (2026-08-18): só ele atende os serviços deste pacote. Sem
             // escolha ("não tenho preferência"), vai null e qualquer um atende.
             barbeiroId: estado.barbeiroId,
+            ...(meioOnline ? { meioOnline } : {}),
           },
         });
-        if (online && (r.pagamentoManual || r.cobranca)) {
+        if (online && (r.pagamentoManual || r.cobranca || r.checkoutCartao)) {
           setPagamentoManual(r.pagamentoManual ?? null);
           setCobranca(r.cobranca);
+          setCheckoutCartao(r.checkoutCartao ?? null);
           setIntencaoId(r.intencaoId);
         } else {
           setPago(false);
@@ -767,6 +847,7 @@ function Funil() {
             horaInicio: estado.horaInicio,
             cliente,
             formaPagamento: estado.formaPagamento,
+            ...(meioOnline ? { meioOnline } : {}),
             origemLinkBarbeiroId,
             ...(estado.produtosBump.length > 0 ? { produtosBump: estado.produtosBump } : {}),
             // Quem veio pelo bump paga o promocional e sai da escada — o
@@ -784,10 +865,11 @@ function Funil() {
           barbeiroFotoUrl: r.barbeiro.fotoUrl,
           valorFinalCentavos: r.valorTotalCentavos,
         };
-        if (online && (r.pagamentoManual || r.cobranca)) {
+        if (online && (r.pagamentoManual || r.cobranca || r.checkoutCartao)) {
           patch(atribuido);
           setPagamentoManual(r.pagamentoManual ?? null);
           setCobranca(r.cobranca);
+          setCheckoutCartao(r.checkoutCartao ?? null);
           setIntencaoId(r.intencaoId);
         } else {
           setPago(false);
@@ -819,7 +901,17 @@ function Funil() {
     // contra agenda falsa. Presencial (segura o horário firme, sem pagar) e
     // pacote (crédito que vive na conta do cliente) continuam exigindo.
     const avulsoOnline = estado.modo === 'avulso' && estado.formaPagamento === 'online';
-    if (avulsoOnline) {
+    // ★ CARTÃO com telefone NOVO exige OTP (decisão do dono).
+    //
+    // A dispensa do OTP no avulso online se sustentava numa assimetria do PIX:
+    // quem não paga só perde o horário, e ninguém é cobrado. No cartão a cobrança
+    // é imediata — um telefone inventado permitiria testar cartões roubados contra
+    // a nossa conta, e o estrago (chargeback, taxa, risco de conta bloqueada)
+    // recai na barbearia, não em quem tentou. Telefone JÁ CADASTRADO segue
+    // dispensado: ali existe histórico e um dono identificável.
+    const cartaoComTelefoneNovo =
+      estado.meioOnline === 'CARTAO_CREDITO' && estado.clienteConhecido !== true;
+    if (avulsoOnline && !cartaoComTelefoneNovo) {
       await enviarComSessao(null);
       return;
     }
@@ -901,6 +993,7 @@ function Funil() {
         enviando={enviando}
         erroEnvio={erroEnvio}
         onFormaPagamento={(f: FormaPagamento) => patch({ formaPagamento: f })}
+        onMeioOnline={(m) => patch({ meioOnline: m })}
         onToggleServicoBump={toggleServicoBump}
         onToggleProdutoBump={(produtoId) => patch({ produtosBump: alternarProdutoNoBump(estado.produtosBump, produtoId) })}
         onConfirmar={confirmar}

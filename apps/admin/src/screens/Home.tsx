@@ -203,7 +203,16 @@ function HomePessoal({
   );
 }
 
-function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
+function LinhaPendencia({
+  p,
+  tz,
+  aoNavegar,
+}: {
+  p: HomePendenciaDTO;
+  tz: string;
+  /** Só usado pela linha urgente — ver `urgente` abaixo. */
+  aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
+}) {
   const dia = new Date(p.desde).toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
@@ -214,23 +223,64 @@ function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
       ? 'Pacote aguardando pagamento'
       : p.tipo === 'CONCLUSAO_ANTECIPADA'
         ? `Conclusão antes do horário · ${p.barbeiroNome ?? '—'}`
-        : 'Atendimento aguardando pagamento';
-  return (
-    <div className="flex items-center justify-between gap-2 py-1.5">
-      <div className="min-w-0">
+        : p.tipo === 'ESTORNO_FALHADO'
+          ? 'Devolução falhou — o dinheiro não voltou'
+          : 'Atendimento aguardando pagamento';
+
+  /**
+   * ★ Estorno falhado é a ÚNICA pendência em vermelho, e é proporcional: as
+   * outras são decisões esperando o admin; esta é dinheiro de CLIENTE que já
+   * deveria ter voltado e não voltou. Se ela se parecer com as outras, ela vira
+   * uma das outras — e quem descobre primeiro é o cliente.
+   *
+   * O `motivo` aqui vem em linguagem de operação (`rotuloDoMotivoDeEstorno`),
+   * nunca o erro cru do gateway. O cru fica na tela de Reembolsos, que é onde
+   * alguém vai investigar de fato.
+   */
+  const urgente = p.tipo === 'ESTORNO_FALHADO';
+
+  const conteudo = (
+    <>
+      <div className="min-w-0 text-left">
         <div className="text-[13px] font-semibold truncate">{p.clienteNome}</div>
-        <div className="text-[11.5px] truncate" style={{ color: 'var(--text-muted)' }}>
+        <div
+          className="text-[11.5px] truncate"
+          style={{ color: urgente ? 'var(--status-danger)' : 'var(--text-muted)' }}
+        >
           {rotulo} · {dia}
         </div>
         {p.motivo && (
           <div className="text-[11.5px] truncate" style={{ color: 'var(--text-secondary)' }}>
-            “{p.motivo}”
+            {urgente ? p.motivo : `“${p.motivo}”`}
           </div>
         )}
       </div>
-      <div className="text-[13px] font-bold flex-shrink-0">{dinheiro(p.valorCentavos)}</div>
-    </div>
+      <div
+        className="text-[13px] font-bold flex-shrink-0"
+        style={urgente ? { color: 'var(--status-danger)' } : undefined}
+      >
+        {dinheiro(p.valorCentavos)}
+      </div>
+    </>
   );
+
+  // A linha urgente é CLICÁVEL e leva ao Financeiro. O "ver tudo" do card aponta
+  // para Pacotes — certo para as outras pendências, e um beco sem saída para
+  // esta, que mora em Financeiro > Reembolsos. Mostrar a urgência e não oferecer
+  // o caminho seria pior do que não mostrar.
+  if (urgente) {
+    return (
+      <button
+        className="flex items-center justify-between gap-2 py-1.5 w-full bg-transparent border-0 p-0 cursor-pointer"
+        onClick={() => aoNavegar('financeiro')}
+        title="Abrir Financeiro > Reembolsos"
+      >
+        {conteudo}
+      </button>
+    );
+  }
+
+  return <div className="flex items-center justify-between gap-2 py-1.5">{conteudo}</div>;
 }
 
 function HomeGestao({
@@ -289,7 +339,9 @@ function HomeGestao({
         {dados.pendencias.length === 0 ? (
           <Vazio texto="Nada pendente de aprovação. 👌" />
         ) : (
-          dados.pendencias.map((p) => <LinhaPendencia key={`${p.tipo}-${p.id}`} p={p} tz={tz} />)
+          dados.pendencias.map((p) => (
+            <LinhaPendencia key={`${p.tipo}-${p.id}`} p={p} tz={tz} aoNavegar={aoNavegar} />
+          ))
         )}
       </Card>
 

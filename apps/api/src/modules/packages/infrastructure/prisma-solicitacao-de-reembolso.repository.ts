@@ -17,6 +17,11 @@ function paraDominio(row: SolicitacaoDeReembolsoPrisma): SolicitacaoDeReembolso 
     prazoLimiteEm: row.prazoLimiteEm,
     status: StatusSolicitacaoReembolso[row.status],
     reembolsadaEm: row.reembolsadaEm,
+    agendadaPara: row.agendadaPara,
+    executadaEm: row.executadaEm,
+    gatewayRefundId: row.gatewayRefundId,
+    tentativas: row.tentativas,
+    ultimoErro: row.ultimoErro,
   });
 }
 
@@ -36,6 +41,33 @@ export class PrismaSolicitacaoDeReembolsoRepository implements SolicitacaoDeReem
     return rows.map(paraDominio);
   }
 
+  async porStatus(
+    companyId: CompanyId,
+    status: StatusSolicitacaoReembolso,
+  ): Promise<SolicitacaoDeReembolso[]> {
+    const rows = await this.db.solicitacaoDeReembolso.findMany({
+      where: { companyId, status },
+      // AGENDADO ordena pelo prazo (o que sai primeiro aparece primeiro); os
+      // outros pela criação, que é a fila de decisão do admin.
+      orderBy:
+        status === StatusSolicitacaoReembolso.AGENDADO
+          ? { agendadaPara: 'asc' }
+          : { criadaEm: 'asc' },
+    });
+    return rows.map(paraDominio);
+  }
+
+  async agendadosVencidos(agora: Date, limite: number): Promise<SolicitacaoDeReembolso[]> {
+    const rows = await this.db.solicitacaoDeReembolso.findMany({
+      // Casa com o índice `@@index([status, agendadaPara])` — sem ele isto é seq
+      // scan numa tabela que só cresce.
+      where: { status: 'AGENDADO', agendadaPara: { lte: agora } },
+      orderBy: { agendadaPara: 'asc' },
+      take: limite,
+    });
+    return rows.map(paraDominio);
+  }
+
   async salvar(solicitacao: SolicitacaoDeReembolso): Promise<void> {
     const dados = {
       companyId: solicitacao.companyId,
@@ -46,6 +78,11 @@ export class PrismaSolicitacaoDeReembolsoRepository implements SolicitacaoDeReem
       prazoLimiteEm: solicitacao.prazoLimiteEm,
       status: solicitacao.status,
       reembolsadaEm: solicitacao.reembolsadaEm,
+      agendadaPara: solicitacao.agendadaPara,
+      executadaEm: solicitacao.executadaEm,
+      gatewayRefundId: solicitacao.gatewayRefundId,
+      tentativas: solicitacao.tentativas,
+      ultimoErro: solicitacao.ultimoErro,
     };
     await this.db.solicitacaoDeReembolso.upsert({
       where: { id: solicitacao.id },

@@ -157,6 +157,20 @@ checar_var() {
   local nome="$1" valor="${!1:-}"
   [[ -n "$valor" ]] || erro "$nome está vazio em $ENV_FILE — preencha antes de continuar (produção: rode scripts/fetch-secrets-ssm.sh)."
 }
+
+# Presente não é o mesmo que preenchido. Espelha `assertNaoEhExemplo` de
+# config-seguranca.ts — a fonte da verdade é lá; aqui é só pra falhar antes de
+# subir container. Nasceu de um caso real (2026-08-27): o .env foi copiado do
+# exemplo, metade preenchida, e o MERCADOPAGO_ACCESS_TOKEN ficou em
+# APP_USR-0000… A API subiu saudável e só quebrou no primeiro checkout, com 401
+# no log e o cliente vendo erro genérico.
+checar_nao_e_exemplo() {
+  local nome="$1" valor="${!1:-}"
+  if [[ "$valor" =~ 0{8,} ]]; then
+    erro "$nome ainda está com o valor de exemplo do .env.example (sequência de zeros) em $ENV_FILE. Pegue o valor real no painel do gateway — sem ele a cobrança falha com HTTP 401 no meio do checkout."
+  fi
+}
+
 checar_var AUTH_SECRET
 checar_var DATABASE_URL
 [[ "${AUTH_SECRET}" != "dev-secret-change-me" ]] || erro "AUTH_SECRET ainda é o valor de exemplo de dev — troque por um valor real (openssl rand -hex 32) em $ENV_FILE."
@@ -184,6 +198,72 @@ case "${IDENTITY_PROVIDER:-}" in
     ;;
   *)
     erro "IDENTITY_PROVIDER='${IDENTITY_PROVIDER:-vazio}' não envia OTP real — em $AMBIENTE use \"whatsapp\" (celular pareado) ou \"cognito\" (SMS). Mesma lista de config-seguranca.ts."
+    ;;
+esac
+
+# Taxa do gateway em PONTOS-BASE, para a comissão incidir sobre o LÍQUIDO
+# (Fase 8). Espelha `lerTaxaBp` de comissao-liquida.ts: inteiro 0..3000, vazio é
+# recusado quando obrigatório. Um "2.99" no lugar de "299" erraria toda comissão
+# — e o ledger de comissão é IMUTÁVEL, então corrigir depois custa um lançamento
+# de ajuste por atendimento.
+checar_taxa_bp() {
+  local nome="$1" valor="${!1:-}"
+  if [[ -z "$valor" ]]; then
+    erro "$nome está vazia. A comissão do barbeiro incide sobre o valor LÍQUIDO, e sem a taxa o sistema não sabe descontá-la. Informe um INTEIRO em pontos-base (1% = 100; 2,99% = 299), lido do extrato da conta. Use 0 se a barbearia bancar a taxa — mas escreva 0: vazio é \"ninguém decidiu\"."
+  fi
+  if ! [[ "$valor" =~ ^[0-9]+$ ]] || (( valor > 3000 )); then
+    erro "$nome='$valor' é inválida — use um INTEIRO em pontos-base entre 0 e 3000 (1% = 100; 2,99% = 299). Valor com vírgula ou fora da faixa produziria comissão errada em todo atendimento online."
+  fi
+}
+
+# Espelha o bloco de gateway de config-seguranca.ts — mesma regra do
+# IDENTITY_PROVIDER acima: a FONTE DA VERDADE é lá, aqui é só pra falhar ANTES
+# de subir container. O boot da API também recusaria, mas aí já é downtime.
+case "${PAYMENT_GATEWAY:-}" in
+  abacatepay)
+    checar_var ABACATEPAY_API_KEY
+    checar_var ABACATEPAY_WEBHOOK_SECRET
+    checar_nao_e_exemplo ABACATEPAY_API_KEY
+    checar_nao_e_exemplo ABACATEPAY_WEBHOOK_SECRET
+    # OBRIGATÓRIA: a AbacatePay não informa o líquido em resposta nenhuma, então
+    # esta taxa é a ÚNICA fonte para a comissão sobre o líquido.
+    checar_taxa_bp ABACATEPAY_TAXA_BASIS_POINTS
+    ;;
+  mercadopago)
+    checar_var MERCADOPAGO_ACCESS_TOKEN
+    checar_var MERCADOPAGO_WEBHOOK_SECRET
+    checar_nao_e_exemplo MERCADOPAGO_ACCESS_TOKEN
+    checar_nao_e_exemplo MERCADOPAGO_WEBHOOK_SECRET
+    # Ambiente explícito: teste e produção usam ambos tokens APP_USR- e o MESMO
+    # host, então não há como inferir. É esta variável que permite recusar um
+    # webhook com live_mode divergente — o cenário de apontar a aplicação de
+    # staging pra URL de produção é indetectável de outra forma.
+    case "${MERCADOPAGO_ENV:-}" in
+      producao|staging) ;;
+      *) erro "MERCADOPAGO_ENV='${MERCADOPAGO_ENV:-vazio}' é inválido — use \"producao\" ou \"staging\". Mesma lista de config-seguranca.ts." ;;
+    esac
+    if [[ "$AMBIENTE" == "production" && "${MERCADOPAGO_ENV}" != "producao" ]]; then
+      erro "Deploy de produção com MERCADOPAGO_ENV='${MERCADOPAGO_ENV}' — as credenciais são de outra aplicação do Mercado Pago. Cada ambiente tem a SUA aplicação (a URL de webhook é por aplicação)."
+    fi
+    if [[ -n "${MERCADOPAGO_PUBLIC_KEY:-}" && "${MERCADOPAGO_PUBLIC_KEY}" == "${MERCADOPAGO_ACCESS_TOKEN}" ]]; then
+      erro "MERCADOPAGO_PUBLIC_KEY é idêntica a MERCADOPAGO_ACCESS_TOKEN — a chave pública vai para o browser, isso publicaria o Access Token no bundle do frontend."
+    fi
+    # Em produção a taxa é rede, não fonte: o Mercado Pago informa `paid_amount`
+    # em cada order. Exigida só aqui porque em dev um campo ausente é problema de
+    # configuração, e em produção é dinheiro de barbeiro.
+    if [[ "$AMBIENTE" == "production" ]]; then
+      checar_taxa_bp MERCADOPAGO_TAXA_BASIS_POINTS
+    fi
+    # Decisão do dono (2026-08-26): uma ou outra, nunca as duas.
+    if [[ "${PAGAMENTO_MANUAL_WHATSAPP:-}" == "true" ]]; then
+      erro "PAGAMENTO_MANUAL_WHATSAPP=true com PAYMENT_GATEWAY=mercadopago — o modo manual desliga a cobrança online, então o gateway ficaria configurado e nunca seria chamado. Desligue um dos dois."
+    fi
+    ;;
+  fake)
+    echo "⚠ PAYMENT_GATEWAY=fake: nenhuma cobrança online é gerada e NENHUM webhook é exposto."
+    ;;
+  *)
+    erro "PAYMENT_GATEWAY='${PAYMENT_GATEWAY:-vazio}' não é um adapter conhecido — use \"abacatepay\", \"mercadopago\" ou \"fake\". Mesma lista de config-seguranca.ts."
     ;;
 esac
 

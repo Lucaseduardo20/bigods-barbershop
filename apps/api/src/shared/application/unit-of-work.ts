@@ -5,6 +5,7 @@ import { IntencaoDePagamentoRepository } from '../../modules/payments/domain/int
 import { LancamentoComissaoRepository } from '../../modules/payroll/domain/lancamento-comissao.repository';
 import { ValeRepository } from '../../modules/payroll/domain/vale.repository';
 import { SolicitacaoDeReembolsoRepository } from '../../modules/packages/domain/solicitacao-de-reembolso.repository';
+import { TentativaDePagamentoRepository } from '../../modules/payments/domain/tentativa-de-pagamento.repository';
 
 /** Repositórios enxergando a mesma transação de banco. */
 export interface RepositoriosTransacionais {
@@ -12,6 +13,7 @@ export interface RepositoriosTransacionais {
   vendasDePacote: VendaDePacoteRepository;
   clientes: ClienteRepository;
   intencoesDePagamento: IntencaoDePagamentoRepository;
+  tentativasDePagamento: TentativaDePagamentoRepository;
   lancamentosComissao: LancamentoComissaoRepository;
   solicitacoesReembolso: SolicitacaoDeReembolsoRepository;
   vales: ValeRepository;

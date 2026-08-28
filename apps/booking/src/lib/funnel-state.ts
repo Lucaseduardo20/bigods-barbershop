@@ -2,6 +2,7 @@ import { precificarCarrinhoDoFunil } from '@bigods/contracts';
 import type {
   BarbeiroPublicoDTO,
   ItemDeOrderBumpDTO,
+  MeioDePagamentoOnline,
   OrderBumpDTO,
   ProdutoBumpRequest,
   ServicoDTO,
@@ -95,6 +96,20 @@ export interface FunnelState {
   ofertaPrecoCentavos: number | null;
   // ---- pagamento (ambas as trilhas) ----
   formaPagamento: FormaPagamento;
+  /**
+   * Trilho online escolhido: PIX (default) ou cartão de crédito.
+   *
+   * ★ É a ÚNICA coisa do cartão que mora aqui — e mora porque não é dado de
+   * cartão, é uma escolha de tela, do mesmo tipo que `formaPagamento`. Número,
+   * validade, CVV, nome do titular e CPF **nunca** entram no `FunnelState`: este
+   * objeto é serializado inteiro em `sessionStorage` (ver `salvarEstado`), e o
+   * scrubbing do Sentry não alcança o disco do celular do cliente. Número e CVV
+   * nem existem no nosso JavaScript — vivem em iframes do Mercado Pago.
+   *
+   * `funnel-state.spec.ts` tem um teste-cadeado com a lista congelada de chaves,
+   * e `contemNumeroDeCartao` abaixo é a segunda linha de defesa em runtime.
+   */
+  meioOnline: MeioDePagamentoOnline;
   /** Compra/agendamento concluído nesta sessão — estado final (§ bug 1). */
   concluido: boolean;
   /**
@@ -139,6 +154,7 @@ export const estadoInicial: FunnelState = {
   ofertaNome: null,
   ofertaPrecoCentavos: null,
   formaPagamento: 'presencial',
+  meioOnline: 'PIX',
   concluido: false,
   produtosBump: [],
   servicosBump: [],
@@ -196,7 +212,68 @@ export function carregarEstado(): FunnelState {
   }
 }
 
+/** Luhn — o dígito verificador que todo cartão de crédito satisfaz. */
+function passaLuhn(digitos: string): boolean {
+  let soma = 0;
+  let dobra = false;
+  for (let i = digitos.length - 1; i >= 0; i--) {
+    let n = Number(digitos[i]);
+    if (dobra) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    soma += n;
+    dobra = !dobra;
+  }
+  return soma % 10 === 0;
+}
+
+/**
+ * Alguma coisa neste estado se parece com um número de cartão?
+ *
+ * ## O que esta função protege
+ *
+ * `salvarEstado` serializa o `FunnelState` INTEIRO em `sessionStorage`. Se alguém
+ * acrescentar `numeroCartao`, `cvv` ou o token do cartão ao estado — por hábito,
+ * "só para não perder o formulário no refresh" —, esses dados vão para o disco do
+ * celular do cliente. Nem o scrubbing do Sentry nem a CSP alcançam isso: o dado
+ * já saiu do nosso controle no momento do `setItem`.
+ *
+ * ## Por que Luhn, e por que o telefone é exceção
+ *
+ * A checagem ingênua "existe corrida de 13 a 19 dígitos?" dispara em **todo**
+ * estado do funil: um celular brasileiro em E.164 (`5511912345678`) tem
+ * exatamente 13 dígitos. Um guarda que acusa sempre é um guarda que se desliga.
+ *
+ * Então: o campo `telefone` é excluído da varredura (é o único campo do funil
+ * cujo conteúdo é legitimamente uma corrida longa de dígitos), e o que sobra só
+ * conta como cartão se passar no Luhn. A chance de um id ou preço passar em Luhn
+ * por acidente existe, e é aceitável: o custo do falso positivo é perder o
+ * progresso salvo de um funil; o do falso negativo é PAN no disco.
+ */
+export function contemNumeroDeCartao(estado: FunnelState): boolean {
+  const { telefone: _telefone, ...resto } = estado;
+  const json = JSON.stringify(resto);
+  for (const corrida of json.match(/\d{13,19}/g) ?? []) {
+    if (passaLuhn(corrida)) return true;
+  }
+  return false;
+}
+
 export function salvarEstado(estado: FunnelState): void {
+  // ★ Tripwire, não validação de fluxo: em operação normal nunca dispara. Quando
+  // dispara, NÃO persiste — perder o progresso do funil é muito melhor que
+  // gravar um cartão no disco do cliente. E grita no console em vez de lançar:
+  // um `throw` aqui, dentro de um efeito do React, derrubaria o checkout de um
+  // cliente pagante para o error boundary.
+  if (contemNumeroDeCartao(estado)) {
+    console.error(
+      '[bigods] FunnelState contém algo que se parece com número de cartão — ' +
+        'estado NÃO persistido. Dado de cartão não pode entrar em funnel-state.ts: ' +
+        'ver o comentário de `meioOnline` e o teste-cadeado em funnel-state.spec.ts.',
+    );
+    return;
+  }
   try {
     sessionStorage.setItem(CHAVE, JSON.stringify(estado));
   } catch {

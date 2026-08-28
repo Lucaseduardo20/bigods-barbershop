@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -23,6 +24,27 @@ import {
 import { AjustesDoFechamento, Atendimento } from '../domain/atendimento.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { RepositoriosTransacionais } from '../../../shared/application/unit-of-work';
+import { taxaRetidaDoPagamento } from '../../payments/application/taxa-retida';
+import {
+  CONFIG_COMISSAO_LIQUIDA,
+  ConfigComissaoLiquida,
+} from '../../../shared/config/comissao-liquida';
+import type { MeioDePagamentoOnline } from '@bigods/contracts';
+
+/**
+ * `FormaPagamento` de um atendimento coberto por pagamento ONLINE.
+ *
+ * ★ Até 2026-08-27 isto era `PIX_ONLINE` cravado, para todo pagamento online.
+ * Com o trilho de cartão (Fase 7) passou a ser falso — e falso em silêncio: o
+ * dinheiro e a comissão ficam certos, só a leitura por forma de pagamento mente.
+ * Era o `followup.md` #13.
+ *
+ * `null` (intenção anterior à coluna `meio`, ou modo manual por WhatsApp) cai em
+ * `PIX_ONLINE`, que é o que essas linhas de fato foram — não há backfill a fazer.
+ */
+function formaDoTrilhoOnline(meio: MeioDePagamentoOnline | null): FormaPagamento {
+  return meio === 'CARTAO_CREDITO' ? FormaPagamento.CARTAO_CREDITO : FormaPagamento.PIX_ONLINE;
+}
 
 /**
  * Código de erro que o front usa pra abrir o modal de justificativa. Vai no
@@ -59,10 +81,13 @@ export interface ConcluirAtendimentoResultado {
 
 @Injectable()
 export class ConcluirAtendimentoUseCase {
+  private readonly logger = new Logger(ConcluirAtendimentoUseCase.name);
+
   constructor(
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
     @Inject(INTENCAO_DE_PAGAMENTO_REPOSITORY) private readonly intencoes: IntencaoDePagamentoRepository,
+    @Inject(CONFIG_COMISSAO_LIQUIDA) private readonly configComissao: ConfigComissaoLiquida,
   ) {}
 
   async executar(input: ConcluirAtendimentoInput): Promise<ConcluirAtendimentoResultado> {
@@ -100,9 +125,33 @@ export class ConcluirAtendimentoUseCase {
       const valorAbatido = atendimento.valorAbatidoSaldo.centavos;
       const valorCoberto = valorPagoOnline + valorAbatido;
       const semAdicional = valorCoberto > 0 && valorTotal <= valorCoberto;
-      const formaPagamentoCoberta = valorPagoOnline > 0 ? FormaPagamento.PIX_ONLINE : FormaPagamento.SALDO_RESIDUAL;
+      const formaPagamentoCoberta =
+        valorPagoOnline > 0
+          ? formaDoTrilhoOnline(intencaoPaga!.meio)
+          : FormaPagamento.SALDO_RESIDUAL;
 
       const forma = semAdicional ? formaPagamentoCoberta : input.formaPagamento;
+
+      // FASE 8: a taxa que o gateway retém. Calculada AQUI, na aplicação, porque
+      // depende da `IntencaoDePagamento` (o líquido) e de configuração de ambiente
+      // (a taxa do gateway que não informa líquido) — o `Atendimento` não conhece
+      // nenhum dos dois. Ela só atravessa o agregado para chegar ao evento.
+      const taxa = taxaRetidaDoPagamento(intencaoPaga, this.configComissao);
+      if (!taxa.conhecida) {
+        // ★ Lança o BRUTO e grita, nunca adia o lançamento.
+        //
+        // Adiar deixaria a comissão do barbeiro sem existir, sem erro e sem tela
+        // que a liberasse — ele descobriria no acerto, achando que o sistema comeu
+        // o dinheiro dele. Bruto erra a favor DELE e o log denuncia a causa.
+        // Normalmente isto é inalcançável: `config-seguranca.ts` exige a taxa no
+        // boot do gateway online ativo.
+        this.logger.error(
+          `Taxa do gateway DESCONHECIDA no pagamento da intenção ${intencaoPaga!.id} ` +
+            `(gateway=${intencaoPaga!.gateway ?? 'null'}, líquido não informado e taxa não configurada). ` +
+            'A comissão deste atendimento sai sobre o BRUTO. Configure a taxa em pontos-base ' +
+            'para o gateway ativo e considere um lançamento de ajuste.',
+        );
+      }
 
       // TRAVA DE CONCLUSÃO ANTECIPADA (2026-08-20): o barbeiro não conclui
       // sozinho um atendimento cujo horário ainda não chegou. Precisa
@@ -133,7 +182,7 @@ export class ConcluirAtendimentoUseCase {
         return false;
       }
 
-      atendimento.concluir(forma, ajustesDe(input));
+      atendimento.concluir(forma, ajustesDe(input), Dinheiro.deCentavos(taxa.centavos));
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
       eventos.push(...(await consumirCreditosDePacote(atendimento, repos, agora)));

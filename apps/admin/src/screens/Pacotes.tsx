@@ -36,6 +36,9 @@ const tonePagamento: Record<StatusPagamento, string> = {
   [StatusPagamento.AGUARDANDO]: 'warning',
   [StatusPagamento.EXPIRADO]: 'danger',
   [StatusPagamento.FALHOU]: 'danger',
+  // Cartão em análise pelo emissor: tom NEUTRO de propósito. Não é sucesso (o
+  // dinheiro não entrou) nem problema (ninguém precisa agir) — é espera.
+  [StatusPagamento.EM_ANALISE]: 'neutral',
 };
 
 type Aba = 'vendidos' | 'catalogo' | 'reembolsos';

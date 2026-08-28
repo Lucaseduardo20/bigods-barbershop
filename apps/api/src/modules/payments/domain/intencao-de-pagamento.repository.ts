@@ -16,6 +16,29 @@ export interface IntencaoDePagamentoRepository {
    * caminho idempotente do webhook, só que disparado pelo admin.
    */
   porReferenciaVendaDePacote(vendaDePacoteId: VendaDePacoteId): Promise<IntencaoDePagamento | null>;
+  /**
+   * A intenção cujo `gatewayId` é este — a rota de recuperação quando a
+   * notificação do Mercado Pago não permite chegar pelo `externalId`.
+   *
+   * Existe porque o webhook dele é um PING: traz só o id da order, sem status e
+   * sem o nosso `external_reference`. O caminho normal é ler o
+   * `external_reference` da resposta do `GET /v1/orders/{id}`; este é o plano B
+   * para quando o gateway não o ecoa.
+   */
+  porGatewayId(gatewayId: string): Promise<IntencaoDePagamento | null>;
+  /**
+   * Intenções com estorno EM VOO: pedido feito e sem confirmação do gateway
+   * (`estornoSolicitadoEm != null && estornoGatewayId == null`).
+   *
+   * É o estado que existe porque a chamada ao gateway acontece FORA da transação
+   * que marcou o pedido — um crash entre as duas deixa a devolução travada. Sem
+   * esta varredura, o cliente descobriria antes da barbearia.
+   *
+   * `limite` existe para o job não puxar a tabela inteira nem estourar o rate
+   * limit do gateway num lote grande; a ordenação é do mais ANTIGO primeiro,
+   * porque quem espera mais tem prioridade.
+   */
+  comEstornoEmVoo(limite: number): Promise<IntencaoDePagamento[]>;
   salvar(intencao: IntencaoDePagamento): Promise<void>;
 }
 

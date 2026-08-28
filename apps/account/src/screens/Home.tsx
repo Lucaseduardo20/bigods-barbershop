@@ -1,13 +1,21 @@
 import type {
   AgendamentoClienteDTO,
+  EstornoAutomaticoDTO,
   ItemDoPacoteDTO,
   PerfilClienteDTO,
+  ReembolsoDoClienteDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
 import { StatusAtendimento, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
 import { BOOKING_URL } from '../lib/config';
 import { diasCivisRestantes, dinheiro } from '../lib/format';
-import { fraseSaldoResidual, fraseSegundaChance } from '../lib/textos';
+import {
+  fraseSaldoResidual,
+  fraseSegundaChance,
+  textoDoEstornoAutomatico,
+  textoDoReembolso,
+} from '../lib/textos';
+import { useEmpresa } from '../lib/empresa-context';
 import { Icon } from '../components/ui';
 import { ChamadoDoClube, FaixaDoClube } from '../components/Clube';
 
@@ -54,6 +62,7 @@ export function Home({
   onUsarSaldo: () => void;
   onAbrirAtendimento: (atendimentoId: string) => void;
 }) {
+  const whatsapp = useEmpresa().whatsapp;
   const proximo = perfil.proximosAgendamentos[0] ?? null;
   const agendamentoPorAtId = new Map(perfil.proximosAgendamentos.map((a) => [a.atendimentoId, a]));
   const temPacoteAtivo = perfil.pacotes.some(temCreditoLivre);
@@ -70,6 +79,26 @@ export function Home({
     <div style={{ padding: '18px 20px 40px' }}>
       {/* Selo de membro no topo — é a primeira coisa que um membro vê. */}
       <FaixaDoClube clube={perfil.clube} />
+
+      {/*
+        ★ ANTES de tudo: o estorno automático.
+
+        O cliente pagou, o dinheiro voltou, e o horário NÃO é dele. É a única
+        coisa nesta tela que representa um combinado desfeito — e o card não pode
+        ser um aviso passivo: ele chama para remarcar, com o serviço já escolhido.
+      */}
+      {perfil.estornosAutomaticos.map((e) => (
+        <CardEstornoAutomatico key={e.intencaoId} estorno={e} onAgendar={onAgendar} />
+      ))}
+
+      {/*
+        Reembolsos em andamento. Vêm logo abaixo porque respondem a pergunta que
+        o cliente já tinha ("cadê meu dinheiro") — e ele pediu justamente porque
+        se importa com ela.
+      */}
+      {perfil.reembolsos.map((r) => (
+        <CardReembolso key={r.id} reembolso={r} tz={tz} whatsapp={whatsapp} />
+      ))}
 
       {emPrazo.map(({ item }) => {
         const frase = fraseSegundaChance(diasCivisRestantes(item.prazoReagendamentoAte!, tz), item.servicoNome);
@@ -365,3 +394,150 @@ function Credito({ item, agendamento, tz }: { item: ItemDoPacoteDTO; agendamento
   );
 }
 
+
+/** Data curta (DD/MM) no fuso da empresa — nunca no do dispositivo. */
+function diaMes(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: tz,
+  });
+}
+
+/**
+ * "Cadê meu dinheiro", respondido.
+ *
+ * O texto inteiro vem de `textoDoReembolso`, que é puro e testado — inclusive as
+ * regras que mais importam: data explícita em vez de "em breve", crédito voltando
+ * na FATURA e não na conta, e `FALHOU` que não diz "falhou".
+ *
+ * ★ Não há ação nenhuma além do WhatsApp. O cliente não cancela nem antecipa
+ * reembolso (decisão do dono), e oferecer botão que não existe é pior que não
+ * oferecer nada.
+ */
+function CardReembolso({
+  reembolso,
+  tz,
+  whatsapp,
+}: {
+  reembolso: ReembolsoDoClienteDTO;
+  tz: string;
+  whatsapp: string | null;
+}) {
+  const t = textoDoReembolso({
+    status: reembolso.status,
+    meio: reembolso.meio,
+    dataAgendada: reembolso.agendadaPara ? diaMes(reembolso.agendadaPara, tz) : null,
+    dataDevolvida: reembolso.reembolsadaEm ? diaMes(reembolso.reembolsadaEm, tz) : null,
+  });
+
+  const fundo =
+    t.tom === 'positivo'
+      ? 'var(--surface-card)'
+      : t.tom === 'atencao'
+        ? 'var(--state-warning)'
+        : 'var(--surface-card)';
+  const cor = t.tom === 'atencao' ? '#fff' : 'var(--text-primary)';
+
+  return (
+    <div
+      style={{
+        background: fundo,
+        color: cor,
+        border: t.tom === 'atencao' ? 'none' : '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-lg)',
+        padding: 16,
+        marginBottom: 14,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+        <div style={{ fontWeight: 800, fontSize: 14.5 }}>{t.titulo}</div>
+        <div style={{ fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
+          {dinheiro(reembolso.valorCentavos)}
+        </div>
+      </div>
+      <div style={{ fontSize: 12.5, opacity: t.tom === 'atencao' ? 0.9 : 0.75, marginTop: 4 }}>
+        {t.corpo}
+      </div>
+      {/*
+        O botão só existe em `atencao` (a devolução precisa de um passo a mais) e
+        só quando há número configurado — link quebrado é pior que link nenhum.
+      */}
+      {t.tom === 'atencao' && whatsapp && (
+        <a
+          href={`https://wa.me/${whatsapp}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: 'block',
+            textAlign: 'center',
+            marginTop: 12,
+            padding: '12px 0',
+            borderRadius: 'var(--radius-md)',
+            background: '#fff',
+            color: 'var(--state-warning)',
+            fontWeight: 800,
+            fontSize: 14,
+            textDecoration: 'none',
+          }}
+        >
+          Falar com a barbearia
+        </a>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Pagamento que chegou depois da janela: o dinheiro voltou e o horário se perdeu.
+ *
+ * ★ O CTA é o ponto do card. Um aviso que diz "seu pagamento chegou tarde" e
+ * termina aí deixa o cliente com um problema e nenhuma saída — e ele já pagou
+ * uma vez querendo vir. `onAgendar(servicoId)` reusa o mesmo caminho do resto da
+ * tela, com o serviço perdido já escolhido.
+ */
+function CardEstornoAutomatico({
+  estorno,
+  onAgendar,
+}: {
+  estorno: EstornoAutomaticoDTO;
+  onAgendar: (servicoId: string | null) => void;
+}) {
+  const t = textoDoEstornoAutomatico(estorno.servicoNome);
+  return (
+    <div
+      style={{
+        background: 'var(--state-warning)',
+        borderRadius: 'var(--radius-lg)',
+        padding: 16,
+        color: '#fff',
+        marginBottom: 14,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14.5, marginBottom: 4 }}>
+        <Icon name="alarm-clock" size={18} />
+        <span>{t.titulo}</span>
+      </div>
+      <div style={{ fontSize: 12.5, opacity: 0.9, marginBottom: 4 }}>{t.corpo}</div>
+      <div style={{ fontSize: 12.5, opacity: 0.9, marginBottom: 12, fontWeight: 700 }}>
+        {dinheiro(estorno.valorCentavos)} devolvidos
+      </div>
+      <button
+        onClick={() => onAgendar(estorno.servicoId)}
+        style={{
+          border: 'none',
+          width: '100%',
+          padding: '12px 0',
+          borderRadius: 'var(--radius-md)',
+          background: '#fff',
+          color: 'var(--state-warning)',
+          fontWeight: 800,
+          fontSize: 14,
+          cursor: 'pointer',
+        }}
+      >
+        {t.cta}
+      </button>
+    </div>
+  );
+}

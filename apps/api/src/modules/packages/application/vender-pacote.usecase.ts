@@ -12,7 +12,8 @@ import { CobrancaOnlineService } from '../../payments/application/cobranca-onlin
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Telefone } from '../../../shared/domain/telefone';
 import { DomainEvent } from '../../../shared/events/domain-event';
-import { CobrancaDTO, PagamentoManualDTO } from '@bigods/contracts';
+import { CheckoutCartaoDTO, CobrancaDTO, PagamentoManualDTO } from '@bigods/contracts';
+import type { MeioDePagamentoOnline } from '@bigods/contracts';
 
 export interface VenderPacoteInput {
   companyId: string;
@@ -43,6 +44,11 @@ export interface VenderPacoteInput {
   gerarCobranca?: boolean;
   /** Fase 4c: veio do link pessoal de marketing de qual barbeiro, se veio de algum. */
   origemLinkBarbeiroId?: string | null;
+  /**
+   * Trilho online escolhido pelo cliente (2026-08-27). Ausente = `'PIX'`.
+   * Só tem efeito com `gerarCobranca`.
+   */
+  meioOnline?: MeioDePagamentoOnline;
 }
 
 export interface VenderPacoteOutput {
@@ -53,6 +59,8 @@ export interface VenderPacoteOutput {
   cobranca: CobrancaDTO | null;
   /** Ponte do WhatsApp quando o modo manual está ligado (no lugar do PIX). */
   pagamentoManual: PagamentoManualDTO | null;
+  /** Trilho de cartão: nada cobrado ainda, o funil monta o formulário. */
+  checkoutCartao: CheckoutCartaoDTO | null;
 }
 
 @Injectable()
@@ -67,6 +75,9 @@ export class VenderPacoteUseCase {
   ) {}
 
   async executar(input: VenderPacoteInput): Promise<VenderPacoteOutput> {
+    // Antes de QUALQUER escrita — ver `assertMeioSuportado`.
+    this.cobrancaOnline.assertMeioSuportado(input.meioOnline);
+
     // Barbeiro é OPCIONAL desde 2026-08-18: sem ele, o crédito vale com
     // qualquer um que atenda o serviço. Quando vem, só se valida que existe e
     // é desta empresa — o preço dele não entra em nada aqui.
@@ -157,7 +168,12 @@ export class VenderPacoteUseCase {
       });
 
       if (input.pagamentoImediato) {
-        intencao.confirmarPagamento();
+        // `intencao.valor` como valor pago: aqui a venda nasce JÁ PAGA por
+        // decisão do admin (venda presencial), e a intenção foi criada agora com
+        // exatamente esse valor. Não há terceiro informando quanto entrou — a
+        // asserção do admin É a fonte. O argumento existe para que nenhum
+        // caminho de confirmação passe sem declarar o valor (ver o agregado).
+        intencao.confirmarPagamento(intencao.valor);
         venda.confirmarPagamento();
       }
 
@@ -175,6 +191,7 @@ export class VenderPacoteUseCase {
     // normal, admin no modo manual).
     let cobranca: VenderPacoteOutput['cobranca'] = null;
     let pagamentoManual: VenderPacoteOutput['pagamentoManual'] = null;
+    let checkoutCartao: VenderPacoteOutput['checkoutCartao'] = null;
     if (gerarCobranca) {
       const porServico = new Map<string, number>();
       for (const servicoId of input.servicoIds) {
@@ -183,6 +200,7 @@ export class VenderPacoteUseCase {
       const r = await this.cobrancaOnline.gerar({
         intencao: resultado.intencao,
         descricao: `Pacote ${vendaId}`,
+        ...(input.meioOnline ? { meio: input.meioOnline } : {}),
         // Sem override: usa gateway.expiraEmSegundos (1h) — a mesma janela já
         // usada pra calcular `expiraEm` acima, nunca duas chamadas a "agora"
         // separadas (evita split-brain entre "expiresIn pedido" e "expiraEm salvo").
@@ -198,6 +216,7 @@ export class VenderPacoteUseCase {
       });
       cobranca = r.cobranca;
       pagamentoManual = r.pagamentoManual;
+      checkoutCartao = r.checkoutCartao;
     }
 
     return {
@@ -206,6 +225,7 @@ export class VenderPacoteUseCase {
       intencaoId: resultado.intencao.id,
       cobranca,
       pagamentoManual,
+      checkoutCartao,
     };
   }
 }

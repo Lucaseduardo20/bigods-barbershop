@@ -103,9 +103,35 @@ export class PacotesQueryService {
    * pro admin decidir devolver por fora (PIX) e confirmar.
    */
   async reembolsosPendentes(companyId: string): Promise<SolicitacaoDeReembolsoDTO[]> {
+    return this.reembolsosPorStatus(companyId, StatusSolicitacaoReembolso.PENDENTE);
+  }
+
+  /**
+   * Solicitações de um status, com o que a tela do admin precisa para decidir.
+   *
+   * ## Por que `estornoAutomatico` é calculado aqui
+   *
+   * A tela precisa saber se pode oferecer "agendar estorno" ou se o caminho é
+   * devolver por fora — e isso depende de haver uma `IntencaoDePagamento` PAGA com
+   * `gatewayId`, que é outro agregado. Num read model isso é uma junção; num caso
+   * de uso seria agregado lendo agregado. Read model é o lugar certo.
+   *
+   * Uma consulta em lote (`in`), não uma por solicitação: a lista da tela pode ter
+   * dezenas, e N+1 aqui apareceria como tela lenta justamente quando o dono está
+   * mexendo em dinheiro.
+   */
+  async reembolsosPorStatus(
+    companyId: string,
+    status: StatusSolicitacaoReembolso,
+  ): Promise<SolicitacaoDeReembolsoDTO[]> {
     const solicitacoes = await this.prisma.solicitacaoDeReembolso.findMany({
-      where: { companyId, status: 'PENDENTE' },
-      orderBy: { criadaEm: 'asc' },
+      where: { companyId, status },
+      // AGENDADO ordena pelo prazo (o que sai primeiro aparece primeiro); os
+      // outros pela criação, que é a fila de decisão do admin.
+      orderBy:
+        status === StatusSolicitacaoReembolso.AGENDADO
+          ? { agendadaPara: 'asc' }
+          : { criadaEm: 'asc' },
     });
     if (solicitacoes.length === 0) return [];
 
@@ -113,6 +139,16 @@ export class PacotesQueryService {
       where: { id: { in: [...new Set(solicitacoes.map((s) => s.clienteId))] } },
     });
     const clientePorId = new Map(clientes.map((c) => [c.id, c]));
+
+    const intencoes = await this.prisma.intencaoDePagamento.findMany({
+      where: {
+        vendaDePacoteId: { in: [...new Set(solicitacoes.map((s) => s.vendaDePacoteId))] },
+        status: 'PAGO',
+        gatewayId: { not: null },
+      },
+      select: { vendaDePacoteId: true },
+    });
+    const comPagamentoOnline = new Set(intencoes.map((i) => i.vendaDePacoteId));
 
     return solicitacoes.map((s) => ({
       id: s.id,
@@ -127,6 +163,11 @@ export class PacotesQueryService {
       prazoLimiteEm: s.prazoLimiteEm.toISOString(),
       status: StatusSolicitacaoReembolso[s.status],
       reembolsadaEm: s.reembolsadaEm?.toISOString() ?? null,
+      agendadaPara: s.agendadaPara?.toISOString() ?? null,
+      executadaEm: s.executadaEm?.toISOString() ?? null,
+      tentativas: s.tentativas,
+      ultimoErro: s.ultimoErro,
+      estornoAutomatico: comPagamentoOnline.has(s.vendaDePacoteId),
     }));
   }
 }

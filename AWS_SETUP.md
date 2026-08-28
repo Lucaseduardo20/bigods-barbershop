@@ -78,11 +78,11 @@ Cole isto no CloudShell (ou no seu terminal, se preferir CLI local) —
 **todo o resto do runbook usa essas variáveis**:
 
 ```bash
-export AWS_REGION="sa-east-1"
+export AWS_REGION="us-east-1"
 export PROJETO="bigods"
-export DOMINIO_BASE="suabarbearia.com"          # domínio real (0.2-A) OU algo como "18-230-10-5.sslip.io" (0.2-B)
+export DOMINIO_BASE="bigodsbarbershop.com"
 export API_DOMAIN="api.${DOMINIO_BASE}"
-export DB_SENHA="$(openssl rand -base64 24 | tr -d '=+/')"   # guarde isso — não tem como recuperar depois
+export DB_SENHA="$(openssl rand -base64 50 | tr -d '=+/')"
 export AUTH_SECRET_VALOR="$(openssl rand -hex 32)"
 export WHATSAPP_TOKEN_VALOR="$(openssl rand -hex 32)"
 ```
@@ -358,9 +358,11 @@ echo "EIP=$EIP  ← aponte API_DOMAIN pra este IP no seu DNS AGORA (fase 6 expli
 > → salva na sua máquina → depois `chmod 400` nele localmente também.
 
 **Checkpoint:** espera ~1-2min o `user-data` terminar, depois:
+
 ```bash
 ssh -i ~/.ssh/${PROJETO}-key.pem admin@$EIP docker --version
 ```
+
 Se responder a versão do Docker, a instância está pronta.
 
 ---
@@ -371,6 +373,7 @@ No Route53 (ou no seu registrador, se o DNS não estiver na AWS), crie um
 registro **A** de `api.${DOMINIO_BASE}` apontando pro `$EIP` acima.
 
 Se o domínio já estiver numa Hosted Zone do Route53:
+
 ```bash
 HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name --dns-name "$DOMINIO_BASE" \
   --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')

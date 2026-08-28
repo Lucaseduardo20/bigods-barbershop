@@ -66,7 +66,11 @@ function ehDebito(tipo: TipoLancamento): boolean {
   return (
     tipo === TipoLancamento.VALE ||
     tipo === TipoLancamento.PAGAMENTO ||
-    tipo === TipoLancamento.DESCONTO_CONCEDIDO
+    tipo === TipoLancamento.DESCONTO_CONCEDIDO ||
+    // FASE 8 (2026-08-27): a parte da taxa do gateway que o barbeiro absorve.
+    // Sem esta linha ela apareceria com "+" e em dourado, como se a taxa que o
+    // Mercado Pago cobrou fosse um ganho dele.
+    tipo === TipoLancamento.TAXA_PAGAMENTO_ONLINE
   );
 }
 
@@ -204,6 +208,46 @@ function LinhaDoExtrato({
    * entende por que o número dele mudou, o sistema gera desconfiança sobre
    * dinheiro — que é o que ninguém quer numa barbearia.
    */
+  /**
+   * ★ FASE 8 (2026-08-27) — "comissão sobre o líquido" como LINHA, não como base
+   * menor. As duas dão o mesmo total; só esta explica o total.
+   *
+   * O texto diz PIX/cartão e não "gateway": o barbeiro não precisa saber o nome do
+   * intermediário, precisa entender que a diferença veio de o cliente ter pago
+   * online. Sem percentual na linha (é null de propósito — a taxa é rateada entre
+   * os itens da comanda, cada um com o percentual do seu serviço, e não existe UM
+   * número honesto para escrever aqui).
+   */
+  if (l.tipo === TipoLancamento.TAXA_PAGAMENTO_ONLINE) {
+    return (
+      <div className="card flex items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-bold truncate">Taxa do pagamento online (sua parte)</div>
+          <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+            {l.clienteNome ?? '?'} · {dataRotulo}
+          </div>
+          {l.valorBaseCentavos !== null && (
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              o cliente pagou por PIX/cartão e a taxa foi de {dinheiro(l.valorBaseCentavos)}
+            </div>
+          )}
+        </div>
+        <div className="font-extrabold text-[15px] flex-shrink-0" style={{ color: cor }}>
+          − {dinheiro(l.valorComissaoCentavos)}
+        </div>
+        {l.atendimentoId && (
+          <button
+            className="btn btn-ghost btn-sm flex-shrink-0"
+            aria-label="Ver detalhes do atendimento"
+            onClick={() => aoVerAtendimento(l.atendimentoId!)}
+          >
+            →
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (l.tipo === TipoLancamento.DESCONTO_CONCEDIDO) {
     return (
       <div className="card flex items-center gap-2.5">

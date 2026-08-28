@@ -152,15 +152,18 @@ fuso implícito (recebe `Timezone` como parâmetro explícito quando precisa
 raciocinar sobre dias civis).
 
 **Domínio (`apps/api/src/shared/domain/`):**
+
 - `Timezone` — VO que valida fuso IANA via `Intl.DateTimeFormat` (TS puro, sem lib externa).
 - `calendario.ts` — funções puras usando só `Intl.DateTimeFormat`: `instanteDeLocal`/`instanteDeDataHoraLocal` (local→UTC, robusto a DST via a técnica padrão de 2 iterações), `diaCivilChave` (dia civil no fuso dado), `limitesDoDiaCivil` (intervalo `[00:00 local, 00:00 local do dia seguinte)` para consultas de agenda), `fimDoDiaCivilMaisDias` (prazo em **dias civis**, não em N×24h — usado pelo prazo de reagendamento).
 - `VendaDePacote.computarFalta` agora recebe `tz: Timezone` explícito e usa `fimDoDiaCivilMaisDias` — o prazo vence no fim do dia civil local. A **checagem** de vencimento (`expirarItensVencidos`) continua sendo comparação pura de instantes UTC, porque o prazo já foi congelado corretamente no momento da falta — nenhuma tz é necessária de novo ali.
 
 **Banco/Prisma:**
+
 - `Company.timezone` (IANA, default `"America/Sao_Paulo"`).
 - Auditoria completa: **todas** as colunas `DateTime` (`Atendimento.inicio/fim`, `Disponibilidade.inicio/fim`, `VendaDePacote.compradoEm`, `ItemDoPacote.prazoReagendamentoAte`, `LancamentoComissao.ocorridoEm`) estavam como `timestamp without time zone` — corrigidas para `@db.Timestamptz(3)`. Migration usa `AT TIME ZONE 'UTC'` explícito na conversão (não o cast implícito do Postgres, que reinterpretaria os valores conforme o `TimeZone` da sessão da migration). A constraint `EXCLUDE` foi recriada com `tstzrange` (era `tsrange`, que não aceita `timestamptz`).
 
 **Aplicação/infraestrutura:**
+
 - `ParametrosDaEmpresaRepository.timezone(companyId)` — nova porta, sem tenant explícito → erro (nunca fallback, DOMAIN.md §2.4).
 - `AgendarAvulsoUseCase`/`AgendarComCreditoUseCase`: a busca de disponibilidade por "data" usava `inicio.toISOString().slice(0,10)` (dia **UTC** do instante) — trocado por `diaCivilChave(inicio, tz)`. Esse era exatamente o bug: um atendimento às 23h30 local cairia no dia UTC seguinte e não encontraria a disponibilidade certa.
 - `AgendaQueryService.listar` passou a receber `diaLocal` + `tz` e usa `limitesDoDiaCivil` para o range de consulta — "a agenda de hoje" agora é o dia civil local, não o dia UTC bruto.
@@ -169,11 +172,13 @@ raciocinar sobre dias civis).
 - Seed corrigido para construir os instantes de disponibilidade via `instanteDeDataHoraLocal(data, '09:00'|'18:00', tz)` — **achado durante a verificação manual**: o `upsert` original usava `update: {}` (no-op), então rodar o seed de novo não corrigia disponibilidades já existentes da sessão anterior (bug mascarado). Corrigido para `update` real (seed autocorretivo).
 
 **Frontend (`apps/admin`):**
+
 - `TimezoneProvider`/`useTimezone()` — busca `/parametros` uma vez após login e disponibiliza o fuso da empresa via contexto; toda tela usa esse fuso para formatar horas/datas, nunca `Intl`/`Date` sem `timeZone` explícito (o que usaria o fuso do navegador — um admin viajando não pode ver a agenda deslocada).
 - `hora`/`dataCurta`/`hojeISO` em `lib/format.ts` agora exigem `tz` explícito.
 - Diálogos de agendar avulso, agendar com crédito e disponibilidade enviam `data` + horário local (`HH:mm`) em vez de montar `${data}T${hora}:00.000Z` no cliente (que hardcodava UTC).
 
 **Testes (o que provaria a regressão se alguém revertesse a correção):**
+
 1. `calendario.spec.ts` — 9h/18h local de SP → 12:00Z/21:00Z; 23:30 local → instante UTC do dia seguinte mas `diaCivilChave` correto; `limitesDoDiaCivil` classifica corretamente um atendimento de 23:30 no seu próprio dia.
 2. `calendario.spec.ts` — **DST real**: atravessando o início do horário de verão em `America/New_York` (2024-03-10), prova que dia civil é aritmética de calendário (2 dias civis) e não 48h corridas (na verdade 47h, porque 03-10 tem só 23h em NY).
 3. `venda-de-pacote.spec.ts` — prazo de 10 dias vence no fim do dia civil, não em `hoje + 240h`; caso explícito de falta às 23h local cujo prazo vence "hoje" local mas cairia em dia diferente em UTC.
@@ -187,6 +192,7 @@ raciocinar sobre dias civis).
 Implementado o `apps/booking` como o funil público de agendamento **avulso**, consumindo a API real. Cliente não autenticado marca um horário (nome + telefone), paga **presencialmente** (cobrado na conclusão pelo painel, como o fluxo avulso já existente), e o atendimento **aparece na agenda do Gabriel no admin** — ciclo fechado, sem mocks. Escopo estrito: nada de Cognito, AbacatePay, pacotes ou área do cliente.
 
 **Backend — superfície pública (`modules/scheduling`, endpoints `@Publico()` atrás do guard global):**
+
 - `GET /public/empresa?companyId=` → marca + fuso (`EmpresaPublicaQueryService`). Empresa inexistente → 404, nunca fallback (§2.4).
 - `GET /public/servicos?companyId=` → serviços ativos.
 - `GET /public/barbeiros?companyId=&servicoIds=` → barbeiros ativos que atendem **todos** os serviços escolhidos.
@@ -196,6 +202,7 @@ Implementado o `apps/booking` como o funil público de agendamento **avulso**, c
 **Decisão registrada (endpoint público vs. guard global):** o endpoint de agendar do painel exige autenticação (guard global). Em vez de afrouxar o guard ou duplicar regra, criei um endpoint `@Publico()` dedicado que **orquestra o mesmo caso de uso** — a escrita pública passa exatamente pelas mesmas validações de domínio (evita o anti-padrão §10 "rota pública de escrita sem validação"). O **tenant é explícito**: o funil carrega `companyId` (constante de build, `VITE_COMPANY_ID`, default `bigods`) e o envia em toda chamada — sem resolução implícita de empresa no servidor.
 
 **Frontend (`apps/booking`, React+Vite+Tailwind, tokens compartilhados do design system, porta 5174):**
+
 - Etapas: Landing → Serviços (multi-seleção, total+duração sempre visíveis) → Barbeiro (pré-selecionado e pulado quando só há um que atende os serviços) → Data/Horário (day picker + slots reais agrupados manhã/tarde) → Dados (nome + telefone com máscara) → Confirmação (resumo + aviso "pagamento na barbearia") → Sucesso.
 - Datas/horas **sempre no fuso da empresa** (via `/public/empresa`, mesmo princípio do `TimezoneProvider` do admin) — nunca o fuso do navegador.
 - Progresso persiste a refresh (`sessionStorage`, chave `bigods.booking.v1` — não é o banco); voltar sem perder o preenchido; indicador de progresso (stepper).
@@ -211,22 +218,26 @@ Implementado o `apps/booking` como o funil público de agendamento **avulso**, c
 Quatro pedidos pontuais no `apps/admin`, todos implementados e testados manualmente contra a API real.
 
 **1. Agenda — de "um dia" para "semana/período" (`Agenda.tsx`):**
+
 - Removido o filtro de dia único. Agora tem dois modos: **Semana** (padrão — segunda a domingo da semana atual, com navegação "◀ anterior / próxima ▶") e **Período** (dois inputs de data, validado `de <= ate` e no máximo **31 dias** — decisão pendente #5).
 - Lista agrupada por dia civil local, com cabeçalho de seção por dia ("Segunda-feira, 14 de julho") e cada card mostrando a hora — nunca ambíguo qual dia/horário é cada agendamento.
 - Novo filtro de barbeiro (só para admin, só aparece com mais de um barbeiro atendendo) — passa `barbeiroId` para a API.
 - Backend: `GET /atendimentos` trocou o parâmetro único `data` por `de`/`ate` (dias civis, inclusive nas duas pontas); `AgendaQueryService.listar` recebe `deLocal`/`ateLocal` em vez de `diaLocal`. **Breaking change de contrato** — só tinha um consumidor (o admin), atualizado junto.
 
 **2. Detalhe do agendamento sempre com cliente + data + hora:**
+
 - Extraído `AtendimentoDetalheDialog` (`apps/admin/src/components/`), um componente **compartilhado** que busca o atendimento por id (novo `GET /atendimentos/:id`, com a mesma autorização da listagem: barbeiro só vê os próprios, admin vê tudo) e sempre mostra nome+telefone do cliente num bloco destacado, mais **data** (antes só mostrava a hora) e hora de início/fim.
 - Reusado tanto pela Agenda (clicar num card) quanto pela Comissão (item 3) — literalmente o mesmo componente, não uma cópia.
 
 **3. Histórico de comissão com mais contexto (`Comissao.tsx`):**
-- Cada lançamento agora mostra o **nome do cliente** inline (novo campo `clienteNome` em `LancamentoComissaoDTO`) e a **data real do atendimento** (`atendimentoInicio` — importante: é diferente de `ocorridoEm`, que é o instante em que o atendimento foi *concluído*/lançado no ledger; um atendimento pode ser concluído em outro momento do dia). Um botão de informações (ⓘ) abre o mesmo `AtendimentoDetalheDialog` do item 2, trazendo telefone e o resto do detalhe.
+
+- Cada lançamento agora mostra o **nome do cliente** inline (novo campo `clienteNome` em `LancamentoComissaoDTO`) e a **data real do atendimento** (`atendimentoInicio` — importante: é diferente de `ocorridoEm`, que é o instante em que o atendimento foi _concluído_/lançado no ledger; um atendimento pode ser concluído em outro momento do dia). Um botão de informações (ⓘ) abre o mesmo `AtendimentoDetalheDialog` do item 2, trazendo telefone e o resto do detalhe.
 - `ComissaoController` agora faz um join em lote (Atendimento → Cliente) para preencher esses campos sem N+1.
 
 **4. Seletor de barbeiro filtrado por papel:** como consequência direta do item 4 do seed (abaixo), os seletores de "escolher barbeiro para agendar" (Agenda, Pacotes) e o seletor de comissão agora filtram por `papeis.includes('BARBEIRO')` — um admin puro (que não atende) não aparece mais como opção de quem vai cortar o cabelo (decisão pendente #6).
 
 **5. Seed fortalecido — mais usuários para testar o fluxo completo:**
+
 - **2 admins puros** (só gestão, não atendem): `lkt` / `rafaelgrigio`, senha `bigods123` (mesma senha de todos os logins seedados, só para dev local).
 - **2 barbeiros fictícios** (só atendem, não são admin), com atributos propositalmente diferentes de Gabriel para exercitar a matriz de comissão e a disponibilidade por dia civil:
   - **Lucas Andrade** — 40% de comissão padrão, atende Corte+Barba, expediente **12h–20h** (tarde/noite).
@@ -289,7 +300,8 @@ Como testar o webhook local sem HTTPS pública (payload assinado à mão ou ngro
 `apps/api/src/modules/payments/README.md`.
 
 **Confirmação:** trocar fake→real é **só variável de ambiente** — `PAYMENT_GATEWAY=abacatepay`
-+ as duas keys; nenhum código de domínio/aplicação muda.
+
+- as duas keys; nenhum código de domínio/aplicação muda.
 
 **Testes (23 novos, total 160):** verificador de assinatura (8, unit — HMAC válido/inválido/
 adulterado/ausente/segredo vazio/query); `AbacatePayGateway` com `fetch` mockado (5 — mapeamento
@@ -306,6 +318,7 @@ sua conta e usa os créditos — tudo consumindo a infraestrutura já pronta (id
 demo/Cognito, AbacatePay real + webhook validado). Nenhuma infra nova foi inventada.
 
 **Backend (contratos + endpoints, reusando casos de uso existentes):**
+
 - `POST /public/pacotes` (trilha de pacote pública) + `GET /public/pacotes` (ofertas).
   Reusa `VenderPacoteUseCase` — zero regra duplicada; tenant explícito; rate limit
   igual ao agendamento (30/10min). `online` gera cobrança PIX real; `presencial` fica
@@ -442,16 +455,15 @@ Antes: disponibilidade era criada dia a dia (o seed gerava 30 dias corridos,
 ### 3. Adicionar serviço/produto na conclusão (walk-in add-on)
 
 - `Atendimento.adicionarItem(servicoId, ...)` e `.adicionarProduto(produtoId,
-  quantidade, ...)`: permitem registrar, **antes de concluir**, um serviço ou
+quantidade, ...)`: permitem registrar, **antes de concluir**, um serviço ou
   produto que o cliente pediu na cadeira além do agendado. Só com `AGENDADO`.
-  
 - **Decisão consciente documentada em DOMAIN.md §3.5:** NÃO revalidam
   sobreposição de horário — o `intervalo` não muda; a invariante de sobreposição
-  protege agendamentos *futuros*, não o registro retroativo de um atendimento em
+  protege agendamentos _futuros_, não o registro retroativo de um atendimento em
   curso.
 - **Regra de forma de pagamento generalizada:** deixou de depender só de `origem`
   e passou a depender do que há de fato pra cobrar (`algum item com
-  itemDoPacoteId===null` OU `produtos.length>0`). Isso fecha uma lacuna real: antes,
+itemDoPacoteId===null` OU `produtos.length>0`). Isso fecha uma lacuna real: antes,
   um item avulso adicionado a um atendimento `CREDITO_PACOTE` **não seria cobrado**
   (o domínio zerava `formaPagamento` só por olhar `origem`). Testado explicitamente.
 - Pago-online + item/produto adicionado: a conclusão pede forma de pagamento **só
@@ -485,11 +497,12 @@ Antes: disponibilidade era criada dia a dia (o seed gerava 30 dias corridos,
   abrindo um diálogo simples; extrato de comissão distingue origem (badge
   "Produto") e mostra o nome certo (produto ou serviço).
 - **Endpoints:** `GET/POST /produtos`, `PATCH /produtos/:id`, `GET/POST
-  /vendas-produto`.
+/vendas-produto`.
 
 ### Testes e verificação
 
 **16 testes de integração novos**, em 3 arquivos:
+
 - `expediente.e2e.spec.ts` (4): dia sem janela não gera slots públicos; edição
   manual sobrevive à rematerialização (via `MaterializarExpedienteUseCase`
   chamado diretamente no teste).
@@ -958,6 +971,7 @@ ser corrigida pelo admin, e a experiência de "criar oferta com serviço que
 o barbeiro não deveria atender" podia acontecer se o cadastro de
 `servicosAtendidos` já estivesse errado por outro motivo, não porque a
 oferta burlou a validação. Corrigido:
+
 - Nova tela **Ajustes → Serviços por barbeiro** (checkboxes, usa o endpoint
   que já existia).
 - `OfertaDialog` (tela de oferta) agora **filtra** o seletor de serviço da
@@ -998,7 +1012,7 @@ oferta burlou a validação. Corrigido:
   guard `exigirDonoOuAdmin` que `criar`/`atualizar` já tinham.
 - **Badge contraditório (Rejeitado + Ativo ao mesmo tempo):** `ativo` é uma
   flag independente de `statusAprovacao` no domínio (correto — soft-disable
-  não é o mesmo conceito que aprovação) — mas só é *visível/relevante* de
+  não é o mesmo conceito que aprovação) — mas só é _visível/relevante_ de
   fato quando `APROVADO` (só oferta aprovada aparece no funil público). A
   tela agora só mostra o badge/toggle Ativo·Inativo quando
   `statusAprovacao === APROVADO`; para os outros estados, só o badge de
@@ -1227,6 +1241,7 @@ partes.
 ### O que precisa de smoke test manual
 
 **Parte 1:**
+
 - Com um único barbeiro cadastrado (ou testando o caminho manual com 2+):
   confirmar que a etapa "O que vai ser?" carrega a lista de serviços sem
   loading infinito, logo após o skip automático de "Com quem?".
@@ -1236,6 +1251,7 @@ partes.
   atendimento criado).
 
 **Parte 2:**
+
 - Navegar pelas novas abas Barbeiros/Catálogo como admin — confirmar que
   todos os 5 fluxos de antes (link, preços, serviços atendidos, expediente,
   criar/editar serviço e produto) continuam funcionando exatamente igual,
@@ -1306,11 +1322,12 @@ Novo `FormaPagamento.SALDO_RESIDUAL` estendendo o netting que já existia pra
 `PIX_ONLINE` na conclusão — mesmo padrão, migration `ALTER TYPE ... ADD VALUE`.
 
 **Testes de dinheiro (destacados, e2e + domínio):**
+
 - `saldo MENOR que o preço do serviço: abate tudo, paga a diferença, saldo
-  zera` e `saldo MAIOR OU IGUAL ao preço: serviço fica quitado, sobra saldo`
+zera` e `saldo MAIOR OU IGUAL ao preço: serviço fica quitado, sobra saldo`
   (`cockpit-cliente-autonomia.e2e.spec.ts`) — os dois braços da regra do
   resto, ponta a ponta, com conferência de `saldoResidual + saldoUtilizado ==
-  valorPago` ao centavo depois da operação.
+valorPago` ao centavo depois da operação.
 - 5 testes de domínio em `venda-de-pacote.spec.ts` (`aplicarSaldoResidual`):
   abatimento parcial, abatimento total, nunca fica negativo (rejeita abater
   mais do que existe), rejeita valor zero/negativo, dois abatimentos
@@ -1342,16 +1359,17 @@ saldo migra pra `saldoReembolsado`, solicitação fecha (`PENDENTE` →
 `REEMBOLSADO`, estado final).
 
 **Testes de dinheiro (destacados, e2e + domínio):**
+
 - `pedir reembolso cria solicitação PENDENTE e reserva o saldo (some do
-  saldoResidual)` — prova a reserva imediata.
+saldoResidual)` — prova a reserva imediata.
 - `admin marca como reembolsado: saldo reservado vira saldoReembolsado,
-  solicitação fecha` — com conferência da soma dos 4 baldes == valorPago ao
+solicitação fecha` — com conferência da soma dos 4 baldes == valorPago ao
   centavo.
 - `não dá pra confirmar o mesmo reembolso duas vezes` (422 na segunda
   chamada) e `não dá pra abater um saldo que já foi reservado/reembolsado` —
   provam a exclusão mútua na prática, não só na leitura do código.
 - `prazo de 45 dias vencido barra o pedido — 422 com orientação de WhatsApp,
-  nada muda` — nada é reservado se o pedido falha.
+nada muda` — nada é reservado se o pedido falha.
 - `pedir reembolso de saldo de OUTRO cliente é recusado — 403, nada muda`.
 - 7 testes de domínio em `venda-de-pacote.spec.ts`
   (`reservarSaldoParaReembolso`/`confirmarReembolso`): reserva total,
@@ -1566,7 +1584,7 @@ API, whatsapp-otp, admin, booking, account — Postgres já existia). Comandos
 compose` v2 vs `docker-compose` v1 (esta máquina só tinha v1). Guard-rails
 antes de tocar em Docker: `.env` ausente → copia de `.env.docker.example` e
 PARA pedindo pra preencher segredos (nunca sobe com placeholder); variáveis
-essenciais vazias/erradas (`AUTH_SECRET` default, `IDENTITY_PROVIDER` != 
+essenciais vazias/erradas (`AUTH_SECRET` default, `IDENTITY_PROVIDER` !=
 whatsapp, `DATABASE_URL` apontando pra `localhost` em vez do serviço
 `postgres`) bloqueiam antes do build; porta já ocupada por processo que não é
 container deste stack também bloqueia com mensagem clara (aprendido testando
@@ -1616,7 +1634,7 @@ um container, "localhost" é o PRÓPRIO container, nunca outro serviço.
 - `docker-compose.prod.yml` via `scripts/deploy.sh staging` de ponta a ponta:
   as 5 imagens buildaram, Postgres subiu saudável, mas o `api` esbarrou num
   conflito de porta real (3000 já estava em uso por um processo `node
-  apps/api/dist/main` rodando fora do Docker desde antes deste teste — não foi
+apps/api/dist/main` rodando fora do Docker desde antes deste teste — não foi
   morto, propositalmente, por poder ser algo do próprio usuário). Confirma que
   o script SURFACIA o erro de verdade do Docker em vez de mascarar — e motivou
   adicionar a checagem de porta ocupada citada acima. Ambiente de teste foi
@@ -1740,6 +1758,7 @@ migration nova — `login`/`senhaHash`/`ativo` já existiam no schema desde a v1
 da autenticação local.
 
 **Domínio (`staff/domain/`):**
+
 - `Barbeiro` ganhou `renomear`, `atualizarPapeis` (rejeita conjunto vazio,
   mesma invariante de `criar`), `ativar`/`desativar` (soft-disable — nunca
   deleta: comissão/atendimento/ledger seguem intactos e consultáveis).
@@ -1753,6 +1772,7 @@ da autenticação local.
   misturar os dois quebraria esses fluxos.
 
 **Presentation (`barbeiros.controller.ts`, tudo `@Papeis(Papel.ADMIN)`):**
+
 - `GET /barbeiros/usuarios` — lista TODO o staff (inclusive admin puro, que
   `GET /barbeiros` normal não devolve) com `login` incluso. `BarbeiroDTO`
   normal **não** ganhou `login` de propósito — `GET /barbeiros` é usado por
@@ -1781,12 +1801,13 @@ da autenticação local.
 **Permissão — a trava real é no endpoint, não só no botão escondido:**
 `RolesGuard` (global, `APP_GUARD`) já bloqueia qualquer rota `@Papeis(ADMIN)`
 pra quem não tem o papel — isso sozinho garante que um barbeiro não-admin não
-consegue se auto-promover: ele nem consegue *chamar* `PUT /barbeiros/:id`,
+consegue se auto-promover: ele nem consegue _chamar_ `PUT /barbeiros/:id`,
 muito menos editar o próprio registro. Testado explicitamente (403 em todos os
 5 endpoints de gestão, inclusive tentando o próprio barbeiro alterar o próprio
 papel).
 
 **Barbeiro desativado — as 3 consequências pedidas, todas no backend:**
+
 1. Some do funil público (`GET /public/barbeiros` já filtrava `.ativo`) **e**
    das opções de agendamento do próprio admin — `Agenda.tsx` (dialogs de novo
    atendimento e nova venda de produto) não filtrava `ativo`, só papel
@@ -2067,6 +2088,7 @@ fallbacks só defensivos (nunca usados pelo payload v2 real).
 
 Confirmado contra `pages/webhooks/security.mdx`: **dois mecanismos
 obrigatórios, AND** (não OR como estava, e não um só):
+
 1. Secret compartilhado na query string `?webhookSecret=...` (nosso
    `ABACATEPAY_WEBHOOK_SECRET`).
 2. HMAC-SHA256 em **base64** (não hex) no header `X-Webhook-Signature`,
@@ -2177,8 +2199,8 @@ de sandbox carregados:
    as duas opções — online e presencial.
 3. **Pagar de verdade (Pix real ou simulação sandbox):** no dashboard da
    AbacatePay, encontrar a cobrança criada (mesmo `externalId`/`id` do passo
-   1) e disparar a simulação de pagamento (ou pagar via Pix sandbox de
-   verdade, se o app da AbacatePay permitir).
+   1. e disparar a simulação de pagamento (ou pagar via Pix sandbox de
+      verdade, se o app da AbacatePay permitir).
 4. **Confirmar a UI:** a tela "aguardando confirmação" do funil deve sair
    sozinha do polling e mostrar sucesso em poucos segundos — sem precisar
    dar refresh.
@@ -2206,12 +2228,12 @@ suíte confirmada verde (428 testes) antes de tocar em qualquer código, como pe
 
 ### Matriz implementada
 
-| Cenário | OTP | Reserva |
-|---|---|---|
-| Presencial, sem sessão | Exige OTP na confirmação | Firme direto após o OTP |
-| Presencial, com sessão | Sem OTP | Firme direto |
+| Cenário                   | OTP                      | Reserva                                  |
+| ------------------------- | ------------------------ | ---------------------------------------- |
+| Presencial, sem sessão    | Exige OTP na confirmação | Firme direto após o OTP                  |
+| Presencial, com sessão    | Sem OTP                  | Firme direto                             |
 | Online/pacote, sem sessão | Exige OTP na confirmação | Temporária (10 min) → firme no pagamento |
-| Online/pacote, com sessão | Sem OTP | Temporária (10 min) → firme no pagamento |
+| Online/pacote, com sessão | Sem OTP                  | Temporária (10 min) → firme no pagamento |
 
 ### Problema 1 — agenda falsa (qualquer telefone reservava sem provar posse)
 
@@ -2228,12 +2250,13 @@ próprio de `apps/booking`), pula o OTP.
 
 **Solução:** novo estado `RESERVADO` em `StatusAtendimento` (+ `RESERVA_EXPIRADA`, final). Avulso
 online nasce `RESERVADO`, não `AGENDADO` — participa da invariante de conflito de horário (domínio
-+ constraint `EXCLUDE` do Postgres, estendida pra cobrir os dois status) igual a um agendamento
-firme, mas expira sozinho se não pagar a tempo. `PRAZO_RESERVA_SEGUNDOS = 600` (10 min, constante
-nomeada) alimenta, no MESMO instante calculado uma única vez: `Atendimento.reservaOnlineExpiraEm`,
-`IntencaoDePagamento.expiraEm` e o `expiresIn` pedido de verdade à AbacatePay — nunca duas chamadas
-a "agora" separadas, pra nunca haver split-brain entre "reserva expirou" e "intenção expirou", nem
-a AbacatePay aceitar um pagamento depois que a reserva local já foi liberada.
+
+- constraint `EXCLUDE` do Postgres, estendida pra cobrir os dois status) igual a um agendamento
+  firme, mas expira sozinho se não pagar a tempo. `PRAZO_RESERVA_SEGUNDOS = 600` (10 min, constante
+  nomeada) alimenta, no MESMO instante calculado uma única vez: `Atendimento.reservaOnlineExpiraEm`,
+  `IntencaoDePagamento.expiraEm` e o `expiresIn` pedido de verdade à AbacatePay — nunca duas chamadas
+  a "agora" separadas, pra nunca haver split-brain entre "reserva expirou" e "intenção expirou", nem
+  a AbacatePay aceitar um pagamento depois que a reserva local já foi liberada.
 
 `ExpirarPagamentoVencidoUseCase` (já existia da sessão do AbacatePay, só pra intenção) passou a
 rodar numa transação que expira a intenção **e** a reserva do atendimento juntas — disparado pelo
@@ -2309,6 +2332,7 @@ evitar um slot preso esperando pagamento); `VendaDePacote` não reserva horário
 ticket mais alto que merece mais tempo pra pagar.
 
 **A correção:** os dois prazos voltaram a ser conceitos e constantes separados:
+
 - **Avulso online** continua com `PRAZO_RESERVA_SEGUNDOS` (10 min, fixo,
   `payments/domain/prazo-reserva.ts`) — ligado à reserva de horário. Nada mudou aqui.
 - **Pacote** voltou a `gateway.expiraEmSegundos` (1h, via `ABACATEPAY_EXPIRA_SEGUNDOS`) —
@@ -2335,6 +2359,7 @@ importação do "Claude Design" no admin, Fase 4). Ou seja, **nenhum token novo 
 confirmado que o sistema existente já era a paleta certa, e usado como estava.
 
 **Logo no header/login:**
+
 - **Admin** — logo completa (`logo-full-dark.png`, variante escura pra fundo claro) no header
   pós-login (`App.tsx`) e em destaque na tela de login (`Login.tsx`, variante clara
   `logo-full-light.png` sobre o fundo escuro da tela).
@@ -2392,14 +2417,14 @@ Suíte confirmada verde (456 testes, 3 fusos) antes de tocar em qualquer código
 
 Rastreei todos os pontos onde a ausência de `sub` condicionava envio ou verificação:
 
-| Ponto | O que fazia | Ação |
-|---|---|---|
-| `OtpIdentityProviderBase.iniciarLogin` | **O gate.** Telefone sem linha em `DemoIdentidade` recebia `desafio: ''` e `codigoDemo: null` — nenhum código enviado | **Removido.** Agora provisiona na hora (`garantirIdentidade`) e envia sempre |
-| `OtpIdentityProviderBase.confirmarLogin` | `if (!identidade) return null` | **Mantido** como defensivo — `iniciarLogin` garante a identidade antes de emitir desafio, então não bloqueia fluxo legítimo |
-| `CognitoIdentityProvider.iniciarLogin` | `UserNotFoundException` → resposta neutra | **Mantido** (provider não está no fluxo hoje); comentário corrigido — é defensivo, não gate, porque o caso de uso provisiona antes |
-| `IniciarLoginClienteUseCase` | Já provisionava antes de chamar o provider | Inalterado |
-| `Cliente.cognitoSub` / `ehUsuario` | Só leitura para `possuiConta` no painel + a escrita na confirmação | **Inalterado** — a coluna e a regra de escrita (§3.4, decisão #7) continuam iguais |
-| `services/whatsapp-otp` | Nenhum gate — envia para o JID normalizado | Inalterado |
+| Ponto                                    | O que fazia                                                                                                           | Ação                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `OtpIdentityProviderBase.iniciarLogin`   | **O gate.** Telefone sem linha em `DemoIdentidade` recebia `desafio: ''` e `codigoDemo: null` — nenhum código enviado | **Removido.** Agora provisiona na hora (`garantirIdentidade`) e envia sempre                                                       |
+| `OtpIdentityProviderBase.confirmarLogin` | `if (!identidade) return null`                                                                                        | **Mantido** como defensivo — `iniciarLogin` garante a identidade antes de emitir desafio, então não bloqueia fluxo legítimo        |
+| `CognitoIdentityProvider.iniciarLogin`   | `UserNotFoundException` → resposta neutra                                                                             | **Mantido** (provider não está no fluxo hoje); comentário corrigido — é defensivo, não gate, porque o caso de uso provisiona antes |
+| `IniciarLoginClienteUseCase`             | Já provisionava antes de chamar o provider                                                                            | Inalterado                                                                                                                         |
+| `Cliente.cognitoSub` / `ehUsuario`       | Só leitura para `possuiConta` no painel + a escrita na confirmação                                                    | **Inalterado** — a coluna e a regra de escrita (§3.4, decisão #7) continuam iguais                                                 |
+| `services/whatsapp-otp`                  | Nenhum gate — envia para o JID normalizado                                                                            | Inalterado                                                                                                                         |
 
 **Observação honesta sobre o sintoma:** o gate era real e estava lá, mas por
 `/conta/login/iniciar` ele já estava mascarado desde o commit `41bca6b`, porque
@@ -2509,8 +2534,7 @@ Confira o número digitado"** em vez do 503 "tente novamente em instantes". A di
 porque as duas situações pedem ações opostas: serviço fora → insistir resolve; número sem
 WhatsApp → insistir nunca resolve e ainda queima o rate limit do cliente.
 
-**Testes (+2):** 422 vira `TelefoneSemWhatsAppError` no cliente HTTP; provider devolve 400 (não
-503) e **não** persiste desafio órfão — mesma garantia que já valia para indisponibilidade.
+**Testes (+2):** 422 vira `TelefoneSemWhatsAppError` no cliente HTTP; provider devolve 400 (não 503) e **não** persiste desafio órfão — mesma garantia que já valia para indisponibilidade.
 
 **473 testes na API**, idênticos sob os 3 fusos.
 
@@ -2530,14 +2554,14 @@ lugares", as regras vivem em **`packages/contracts/src/validacao.ts`** (TypeScri
 pontas importam a MESMA função — o front chama direto, o back embrulha em `class-validator`
 (`apps/api/src/shared/presentation/validadores.ts`). Uma implementação, dois pontos de uso.
 
-| # | Item | Frontend | Backend |
-|---|---|---|---|
-| 1 | Celular BR válido (dígito pós-DDD = 9) | `Dados.tsx` (erro no blur) + botão só habilita se válido | `@EhCelularBrasileiro()` em `IniciarLoginDto`/`ConfirmarLoginDto` → **400** |
-| 2 | Label "Celular com WhatsApp" | `Dados.tsx` | — |
-| 3 | Nome mínimo | `Dados.tsx` | `@EhNomeDeCliente()` nos DTOs de agendamento e de pacote → **400** |
-| 4 | E-mail opcional | `Dados.tsx` (só valida se preenchido) | `@IsOptional() @EhEmail()` + coluna `Cliente.email` |
-| 5 | "Fale sobre você" opcional | `Dados.tsx` (textarea) | `@MaxLength(MAX_SOBRE_VOCE)` + coluna `Cliente.sobreVoce` |
-| 7 | Janela de hoje + 30 dias | `DataHora.tsx` (datas fora nem são clicáveis) | `assertDentroDaJanelaDeAgendamento` no `AgendarAvulsoUseCase` → **422** |
+| #   | Item                                   | Frontend                                                 | Backend                                                                     |
+| --- | -------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | Celular BR válido (dígito pós-DDD = 9) | `Dados.tsx` (erro no blur) + botão só habilita se válido | `@EhCelularBrasileiro()` em `IniciarLoginDto`/`ConfirmarLoginDto` → **400** |
+| 2   | Label "Celular com WhatsApp"           | `Dados.tsx`                                              | —                                                                           |
+| 3   | Nome mínimo                            | `Dados.tsx`                                              | `@EhNomeDeCliente()` nos DTOs de agendamento e de pacote → **400**          |
+| 4   | E-mail opcional                        | `Dados.tsx` (só valida se preenchido)                    | `@IsOptional() @EhEmail()` + coluna `Cliente.email`                         |
+| 5   | "Fale sobre você" opcional             | `Dados.tsx` (textarea)                                   | `@MaxLength(MAX_SOBRE_VOCE)` + coluna `Cliente.sobreVoce`                   |
+| 7   | Janela de hoje + 30 dias               | `DataHora.tsx` (datas fora nem são clicáveis)            | `assertDentroDaJanelaDeAgendamento` no `AgendarAvulsoUseCase` → **422**     |
 
 Detalhes que valem registro:
 
@@ -2584,13 +2608,13 @@ Detalhes que valem registro:
 Tudo em `apps/booking/src/lib/barbearia.ts`. **Enquanto estiverem pendentes, os links
 simplesmente não são renderizados** — melhor não mostrar nada do que um @ inventado ou link morto:
 
-| Campo | Situação |
-|---|---|
-| Endereço | ✅ Preenchido (Av. Deputado Emílio Carlos, 2117 — São Paulo/SP) |
-| Link do Google Maps | ✅ Montado a partir do endereço; funciona. Se quiser o link oficial com avaliações, troque |
-| `instagram` | ❌ **PENDENTE** — o @ da barbearia |
-| `whatsapp` | ❌ **PENDENTE** — telefone público em E.164. (Não usei o número do serviço de OTP: aquele é descartável, não é o de contato) |
-| `googleUrl` | ❌ **PENDENTE** — perfil do Google com avaliações; hoje cai no link do mapa |
+| Campo                         | Situação                                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endereço                      | ✅ Preenchido (Av. Deputado Emílio Carlos, 2117 — São Paulo/SP)                                                                                                   |
+| Link do Google Maps           | ✅ Montado a partir do endereço; funciona. Se quiser o link oficial com avaliações, troque                                                                        |
+| `instagram`                   | ❌ **PENDENTE** — o @ da barbearia                                                                                                                                |
+| `whatsapp`                    | ❌ **PENDENTE** — telefone público em E.164. (Não usei o número do serviço de OTP: aquele é descartável, não é o de contato)                                      |
+| `googleUrl`                   | ❌ **PENDENTE** — perfil do Google com avaliações; hoje cai no link do mapa                                                                                       |
 | `formasDePagamentoPresencial` | ⚠️ **CONFIRMAR** — está com Dinheiro, PIX, Cartão de débito e Cartão de crédito (o exemplo que você deu). Confirme se é isso mesmo antes de considerar definitivo |
 
 ### Fallout nos testes existentes (esperado, e corrigido)
@@ -2644,14 +2668,14 @@ checa as invariantes antes de o valor virar snapshot.
 
 **Onde ficou cada parte:**
 
-| Peça | Arquivo |
-|---|---|
-| Regra pura (centavos) | `packages/contracts/src/desconto.ts` |
-| Fronteira do domínio (Dinheiro + invariantes) | `apps/api/src/modules/catalog/domain/desconto-progressivo.ts` |
-| Persistência (degraus + teto) | `DegrauDeDesconto` + `Company.descontoTetoCentavos` |
-| Aplicação | `AgendarAvulsoUseCase` — depois de `precoDeReferencia`, sobre o preço do barbeiro |
-| Config do admin | `GET/PUT /parametros/desconto` + seção em Ajustes |
-| Exibição no funil | preço cheio riscado por item, faixa "você está economizando", dica do próximo degrau |
+| Peça                                          | Arquivo                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Regra pura (centavos)                         | `packages/contracts/src/desconto.ts`                                                 |
+| Fronteira do domínio (Dinheiro + invariantes) | `apps/api/src/modules/catalog/domain/desconto-progressivo.ts`                        |
+| Persistência (degraus + teto)                 | `DegrauDeDesconto` + `Company.descontoTetoCentavos`                                  |
+| Aplicação                                     | `AgendarAvulsoUseCase` — depois de `precoDeReferencia`, sobre o preço do barbeiro    |
+| Config do admin                               | `GET/PUT /parametros/desconto` + seção em Ajustes                                    |
+| Exibição no funil                             | preço cheio riscado por item, faixa "você está economizando", dica do próximo degrau |
 
 ### O que aconteceu com os combos antigos
 
@@ -2716,19 +2740,19 @@ sozinha) exige guardar o preço cheio como segundo snapshot. Registrado em DECIS
 Configure primeiro em **Ajustes → Desconto progressivo**: 2º = R$10, 3º = R$15, 4º = R$20, teto
 R$40. Os casos de dinheiro são os que importam:
 
-| # | O que fazer | Resultado esperado |
-|---|---|---|
-| 1 | Funil → escolher barbeiro | Bigod's Club no topo com os pacotes DELE; serviços abaixo. Nenhum botão "Comprar pacote" na entrada |
-| 2 | Selecionar só 1 serviço (Corte R$40) | Sem desconto. Total R$40. Aparece a dica "adicione mais um e ganhe R$10" |
-| 3 | Adicionar Barba (R$30) | Faixa "🎉 Você está economizando R$10", cheio R$70 riscado, total **R$60** |
-| 4 | Ir até a Confirmação | Cada item com o preço cheio riscado ao lado do cobrado; total R$60 |
-| 5 | Confirmar (presencial) e abrir no painel | Valor do atendimento **R$60**, e a soma dos itens bate exatamente |
-| 6 | Repetir com 4 serviços | Desconto para em **R$40** (teto), mesmo que os degraus somem R$45 |
-| 7 | Trocar a ordem de clique dos mesmos serviços | Total idêntico, centavo a centavo |
-| 8 | Repetir com um barbeiro que tenha preço próprio | Mesmo desconto em reais, base diferente (ex.: R$110 → R$100) |
-| 9 | Escolher um pacote no clube | Vai direto para Dados → Confirmação de **compra** (sem data/hora), pagamento PIX obrigatório |
-| 10 | Voltar da Confirmação de pacote | Cai na tela unificada; ao clicar num serviço, a oferta é abandonada (nunca os dois juntos) |
-| 11 | Abrir um atendimento ANTIGO feito com combo | Valor original intacto, mesmo depois de desativar o combo |
+| #   | O que fazer                                     | Resultado esperado                                                                                  |
+| --- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 1   | Funil → escolher barbeiro                       | Bigod's Club no topo com os pacotes DELE; serviços abaixo. Nenhum botão "Comprar pacote" na entrada |
+| 2   | Selecionar só 1 serviço (Corte R$40)            | Sem desconto. Total R$40. Aparece a dica "adicione mais um e ganhe R$10"                            |
+| 3   | Adicionar Barba (R$30)                          | Faixa "🎉 Você está economizando R$10", cheio R$70 riscado, total **R$60**                          |
+| 4   | Ir até a Confirmação                            | Cada item com o preço cheio riscado ao lado do cobrado; total R$60                                  |
+| 5   | Confirmar (presencial) e abrir no painel        | Valor do atendimento **R$60**, e a soma dos itens bate exatamente                                   |
+| 6   | Repetir com 4 serviços                          | Desconto para em **R$40** (teto), mesmo que os degraus somem R$45                                   |
+| 7   | Trocar a ordem de clique dos mesmos serviços    | Total idêntico, centavo a centavo                                                                   |
+| 8   | Repetir com um barbeiro que tenha preço próprio | Mesmo desconto em reais, base diferente (ex.: R$110 → R$100)                                        |
+| 9   | Escolher um pacote no clube                     | Vai direto para Dados → Confirmação de **compra** (sem data/hora), pagamento PIX obrigatório        |
+| 10  | Voltar da Confirmação de pacote                 | Cai na tela unificada; ao clicar num serviço, a oferta é abandonada (nunca os dois juntos)          |
+| 11  | Abrir um atendimento ANTIGO feito com combo     | Valor original intacto, mesmo depois de desativar o combo                                           |
 
 ## Avulso online dispensa o OTP (2026-08-14) ✅
 
@@ -2742,11 +2766,11 @@ o PIX não confirmar**. Quem marcar de brincadeira não trava nada — o horári
 presencial não há nada disso: o horário fica FIRME sem pagamento nenhum, então lá o OTP continua
 sendo a única prova de que o telefone é real.
 
-| Caminho | OTP | Por quê |
-|---|---|---|
-| Avulso **online** (PIX) | **dispensado** | reserva temporária + pagamento já travam a agenda falsa |
-| Avulso **presencial** | exigido | segura horário firme sem pagar nada |
-| **Pacote** | exigido | o crédito vive na conta do cliente — sem telefone provado, ele não acessa depois |
+| Caminho                 | OTP            | Por quê                                                                          |
+| ----------------------- | -------------- | -------------------------------------------------------------------------------- |
+| Avulso **online** (PIX) | **dispensado** | reserva temporária + pagamento já travam a agenda falsa                          |
+| Avulso **presencial**   | exigido        | segura horário firme sem pagar nada                                              |
+| **Pacote**              | exigido        | o crédito vive na conta do cliente — sem telefone provado, ele não acessa depois |
 
 **O que ficou blindado** (é o risco real dessa mudança):
 
@@ -2777,16 +2801,16 @@ Suíte confirmada verde (516 API + 65 fronts, 3 fusos) antes de tocar em qualque
 
 ### ⛔ FASE 1 (fotos) — PAREI, como você pediu
 
-Você instruiu: *"O projeto JÁ TEM object storage configurado — use o que existe. Se não encontrar
-a config de storage, PARE e reporte em vez de inventar."* **Não existe.** O que existe é outra
+Você instruiu: _"O projeto JÁ TEM object storage configurado — use o que existe. Se não encontrar
+a config de storage, PARE e reporte em vez de inventar."_ **Não existe.** O que existe é outra
 coisa:
 
-| O que existe | O que NÃO existe |
-|---|---|
-| 3 buckets S3 (`bigods-admin/booking/account`), privados, servindo o **build estático** dos fronts via CloudFront | Bucket para uploads da aplicação |
-| Escrita neles pelo `scripts/deploy-frontends.sh`, com credencial **da sua máquina**, no deploy | SDK de S3 na API (`@aws-sdk/client-s3` não está instalado — só o do Cognito) |
-| | Qualquer tratamento de upload (sem multer, sem `FileInterceptor`, sem multipart) |
-| | Credencial/role da API (EC2) com permissão de escrita em bucket |
+| O que existe                                                                                                     | O que NÃO existe                                                                 |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 3 buckets S3 (`bigods-admin/booking/account`), privados, servindo o **build estático** dos fronts via CloudFront | Bucket para uploads da aplicação                                                 |
+| Escrita neles pelo `scripts/deploy-frontends.sh`, com credencial **da sua máquina**, no deploy                   | SDK de S3 na API (`@aws-sdk/client-s3` não está instalado — só o do Cognito)     |
+|                                                                                                                  | Qualquer tratamento de upload (sem multer, sem `FileInterceptor`, sem multipart) |
+|                                                                                                                  | Credencial/role da API (EC2) com permissão de escrita em bucket                  |
 
 E um detalhe que torna a confusão perigosa: o deploy roda
 `aws s3 sync apps/<app>/dist s3://<bucket> --delete`. Se as fotos fossem parar num desses
@@ -2794,6 +2818,7 @@ buckets, **o próximo deploy de frontend apagaria todas** — o `--delete` remov
 no `dist/`.
 
 **O que falta para destravar** (decisão sua, não invento):
+
 1. Criar um bucket dedicado a uploads (ex.: `bigods-uploads`), separado dos de frontend;
 2. Dar à role da EC2 permissão de `s3:PutObject`/`DeleteObject` **só nesse bucket**;
 3. Definir como a imagem é servida — CloudFront próprio na frente do bucket, ou URL assinada.
@@ -2804,8 +2829,8 @@ iniciais. Não escrevi nada disso para não deixar código morto apontando para 
 
 ### ⛔ FASE 4 — o enunciado chegou truncado
 
-A mensagem termina no meio da frase: *"Agendamento PRESENCIAL de um cliente que JÁ é 'da casa'
-daquele barbeiro: APROVADO AUTOMATICAMENTE (sem passo de"*. Faltam as regras finais. Não
+A mensagem termina no meio da frase: _"Agendamento PRESENCIAL de um cliente que JÁ é 'da casa'
+daquele barbeiro: APROVADO AUTOMATICAMENTE (sem passo de"_. Faltam as regras finais. Não
 implementei porque as perguntas em aberto mudam o modelo de estados:
 
 - O `Atendimento` ganha um estado novo (`PENDENTE_APROVACAO`) ou um campo de aprovação separado?
@@ -2883,6 +2908,7 @@ do filtro óbvio: `GET /public/order-bump` já exclui o que o barbeiro escolhido
 front nunca sugere um serviço complementar que o cliente já tem no carrinho.
 
 **Preço sem caminho paralelo (o ponto mais delicado da sessão):**
+
 - Serviço-bump não tem cálculo próprio — adicionar um é literalmente colocar o id na MESMA lista
   `servicoIds` que a tela de serviços usa. Entra no desconto progressivo e usa o preço DO
   BARBEIRO exatamente como um serviço escolhido do jeito normal; provado por teste e2e que agendar
@@ -3017,11 +3043,11 @@ sendo "este item, sempre, para todo mundo, com esta oferta" (DECISOES_PENDENTES 
 
 **Um item do carrinho recebe exatamente UMA regra de preço, nunca duas:**
 
-| Situação | Preço |
-|---|---|
-| Serviço escolhido na tela de serviços | preço do barbeiro + desconto progressivo |
+| Situação                                  | Preço                                                   |
+| ----------------------------------------- | ------------------------------------------------------- |
+| Serviço escolhido na tela de serviços     | preço do barbeiro + desconto progressivo                |
 | Serviço do bump **com** preço promocional | o promocional, cravado — **fora** da escada progressiva |
-| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal |
+| Serviço do bump **sem** preço promocional | idêntico ao escolhido na tela normal                    |
 
 O item promocional sai também da **contagem de posições** da escada. Se contasse, adicionar um item
 já descontado aprofundaria o desconto dos outros — desconto sobre desconto, com o total dependendo
@@ -3109,20 +3135,20 @@ nos 5 pacotes.
 
 ## Pacote é da empresa — barbeiro dono extinto (2026-08-18) ✅
 
-Fecha o que a sessão anterior tinha começado pela metade. O dono foi explícito: *"não terá mais
+Fecha o que a sessão anterior tinha começado pela metade. O dono foi explícito: _"não terá mais
 nenhum vínculo do pacote com o Barbeiro […] não terá mais barbeiro dono de pacote, isso será
 extinto. A única regra é: quando o cliente selecionar o barbeiro x e comprar um pacote com ele
-selecionado, só ele poderá atender serviços daquele pacote."*
+selecionado, só ele poderá atender serviços daquele pacote."_
 
 ### O que foi extinto
 
-| Antes | Agora |
-|---|---|
-| `PacoteOferta.barbeiroId` (dono/autor) | **extinto** — a oferta é da empresa |
-| Cada barbeiro com o próprio catálogo | catálogo único da casa, cadastro **admin-only** |
-| Composição limitada ao que o dono atende | qualquer serviço do catálogo |
-| Rateio pesado pelo preço do dono | **referência da casa** (`Servico.precoAvulso`) |
-| Economia exibida variando por barbeiro | uma economia só, igual para todo cliente |
+| Antes                                    | Agora                                           |
+| ---------------------------------------- | ----------------------------------------------- |
+| `PacoteOferta.barbeiroId` (dono/autor)   | **extinto** — a oferta é da empresa             |
+| Cada barbeiro com o próprio catálogo     | catálogo único da casa, cadastro **admin-only** |
+| Composição limitada ao que o dono atende | qualquer serviço do catálogo                    |
+| Rateio pesado pelo preço do dono         | **referência da casa** (`Servico.precoAvulso`)  |
+| Economia exibida variando por barbeiro   | uma economia só, igual para todo cliente        |
 
 ### A única regra que sobrou
 
@@ -3181,12 +3207,12 @@ agendar item de pacote de qualquer outro (e até em nome de terceiro). Corrigido
 primeiro, com 11 e2e que tentam exatamente esses requests diretos; só depois a tela escondeu aba,
 botão e ação.
 
-| Ação | Barbeiro | Admin |
-|---|---|---|
-| Listar pacotes | só os comprados COM ELE | todos |
-| Vender / confirmar pagamento | **403** | sim |
-| Catálogo de ofertas / reembolsos | **403** (aba nem aparece) | sim |
-| Agendar com crédito | só pacote DELE, em nome dele | qualquer |
+| Ação                             | Barbeiro                     | Admin    |
+| -------------------------------- | ---------------------------- | -------- |
+| Listar pacotes                   | só os comprados COM ELE      | todos    |
+| Vender / confirmar pagamento     | **403**                      | sim      |
+| Catálogo de ofertas / reembolsos | **403** (aba nem aparece)    | sim      |
+| Agendar com crédito              | só pacote DELE, em nome dele | qualquer |
 
 Pacote comprado **sem** barbeiro não é de ninguém: não aparece para barbeiro nenhum, só o admin
 distribui.
@@ -3244,7 +3270,7 @@ UPLOADS_REGION="us-east-1"            # cai em AWS_REGION se ausente
 UPLOADS_BASE_URL=""                   # vazio = URL virtual-hosted do S3
 ```
 
-Sem as duas primeiras, o upload responde *"não está configurado"* com mensagem clara e o resto do
+Sem as duas primeiras, o upload responde _"não está configurado"_ com mensagem clara e o resto do
 sistema segue normal — foto é opcional em todo lugar. `UPLOADS_BASE_URL` existe para o dia em que
 um CloudFront entrar na frente: as URLs já gravadas continuam respondendo, **sem migração de
 dado**.
@@ -3253,14 +3279,14 @@ Credenciais pela cadeia padrão do SDK (IAM Role em produção) — nenhuma chav
 
 ### Otimização — os números escolhidos e por quê
 
-| Parâmetro | Valor | Motivo |
-|---|---|---|
-| Formato de saída | **WebP** | tudo sai igual, independente do que entrou |
-| Dimensão máxima | **512×512**, `fit: cover` | as duas fotos aparecem em avatar redondo e miniatura de card; nenhuma passa de ~120 px na tela, e 512 dá folga para retina 2× |
-| Ampliação | **desligada** (`withoutEnlargement`) | ampliar não cria detalhe, só peso e borrão |
-| Qualidade | **80** | o joelho da curva do WebP — acima disso o arquivo cresce bem mais rápido que a qualidade percebida |
-| Orientação | EXIF aplicado (`.rotate()`) | sem isso, foto tirada de lado no celular chega deitada |
-| Tamanho máximo aceito | **8 MB** | cobre foto de celular moderno; acima é engano ou tentativa de estourar memória |
+| Parâmetro             | Valor                                | Motivo                                                                                                                        |
+| --------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Formato de saída      | **WebP**                             | tudo sai igual, independente do que entrou                                                                                    |
+| Dimensão máxima       | **512×512**, `fit: cover`            | as duas fotos aparecem em avatar redondo e miniatura de card; nenhuma passa de ~120 px na tela, e 512 dá folga para retina 2× |
+| Ampliação             | **desligada** (`withoutEnlargement`) | ampliar não cria detalhe, só peso e borrão                                                                                    |
+| Qualidade             | **80**                               | o joelho da curva do WebP — acima disso o arquivo cresce bem mais rápido que a qualidade percebida                            |
+| Orientação            | EXIF aplicado (`.rotate()`)          | sem isso, foto tirada de lado no celular chega deitada                                                                        |
+| Tamanho máximo aceito | **8 MB**                             | cobre foto de celular moderno; acima é engano ou tentativa de estourar memória                                                |
 
 Resultado típico: foto de celular de 3–5 MB vira **20–40 KB**. É o que o cliente baixa no 4G da
 rua, na tela de escolher barbeiro.
@@ -3349,7 +3375,7 @@ Com `UPLOADS_BUCKET`/`UPLOADS_REGION` no `.env` e a API reiniciada:
    mais importa: sem isso, cada troca deixa lixo pago.
 5. **Remover:** o card volta para as iniciais e o objeto sai do bucket.
 6. **Tente subir um arquivo que não é imagem** (renomeie um `.txt` para `.jpg`): tem que recusar
-   com *"Envie JPG, PNG ou WebP"*, e **nada** deve aparecer no bucket.
+   com _"Envie JPG, PNG ou WebP"_, e **nada** deve aparecer no bucket.
 7. **Entre como um barbeiro não-admin → Ajustes → Minha foto:** ele troca a própria e vê o avatar
    do topo atualizar. Em Usuários ele nem entra (aba admin-only), então não há como mexer na de
    outro.
@@ -3368,12 +3394,12 @@ O erro do S3 **não vira "Internal server error"**. A resposta diz que a imagem 
 problema é do servidor, com o código da AWS entre parênteses, e o log traz uma linha só com o
 conserto:
 
-| Código no log | O que fazer |
-|---|---|
+| Código no log                                                 | O que fazer                                                                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `ExpiredToken`, `InvalidAccessKeyId`, `SignatureDoesNotMatch` | credencial ausente ou vencida — em produção é a IAM Role; em dev, renove as credenciais temporárias do shell |
-| `AccessDenied` | a role não tem `s3:PutObject`/`s3:DeleteObject` neste bucket |
-| `NoSuchBucket` | `UPLOADS_BUCKET` não existe (ou não nessa região) |
-| `PermanentRedirect` | o bucket está em OUTRA região — confira `UPLOADS_REGION` |
+| `AccessDenied`                                                | a role não tem `s3:PutObject`/`s3:DeleteObject` neste bucket                                                 |
+| `NoSuchBucket`                                                | `UPLOADS_BUCKET` não existe (ou não nessa região)                                                            |
+| `PermanentRedirect`                                           | o bucket está em OUTRA região — confira `UPLOADS_REGION`                                                     |
 
 ⚠️ O log é montado campo a campo (código + `requestId`) de propósito: **o objeto de erro do SDK
 carrega a credencial inteira** — o campo `Token-0` é o session token do STS. Despejar o erro cru
@@ -3405,12 +3431,13 @@ usuário restrito ao bucket de uploads.
 - **IAM:** a role da EC2 precisa de `s3:PutObject` e `s3:DeleteObject` no bucket de uploads
   (`arn:aws:s3:::<bucket>/*`). Sem o `DeleteObject`, o upload funciona e a limpeza da foto antiga
   falha em silêncio — vira log de erro e objeto órfão, nunca erro na tela.
-- **Bucket:** público para leitura (`s3:GetObject` para todos), e o *Block Public Access* precisa
+- **Bucket:** público para leitura (`s3:GetObject` para todos), e o _Block Public Access_ precisa
   permitir isso — senão a foto sobe, a URL responde 403 e o funil cai no fallback de iniciais sem
   ninguém entender por quê.
 - **Docker:** nada a mudar. O `sharp` é instalado pelo `npm ci` dentro do container
   (`node:20-bookworm-slim`), que baixa o binário `linux-x64` certo, e os `.env` já são lidos por
   `env_file` nos composes. As credenciais vêm da IAM Role, como o resto.
+
 ## Pagamento manual por WhatsApp — ponte TEMPORÁRIA (2026-08-18) ✅
 
 A AbacatePay leva ~7 dias úteis para liberar produção. Até lá o "pagar online" não pode
@@ -3446,15 +3473,15 @@ Não foi escrito código novo pra isso; foi só não mexer no que já estava cer
 
 ### ON vs OFF — o que muda de fato
 
-| | Flag OFF (normal) | Flag ON (manual) |
-|---|---|---|
-| Resposta da API | `cobranca` (QR + copia-e-cola) | `pagamentoManual` (link `wa.me` + comanda) |
-| Tela do funil | `PixAguardando` | `PagamentoManualAguardando` |
-| Quem confirma | webhook da AbacatePay | admin, no painel |
-| Intenção de pagamento | criada, `AGUARDANDO`, com prazo | **igual** |
-| Reserva do avulso | `RESERVADO`, expira em 10 min | **igual** |
-| OTP | exigido | **igual** |
-| "Pagar na barbearia" | inalterado | **inalterado** |
+|                       | Flag OFF (normal)               | Flag ON (manual)                           |
+| --------------------- | ------------------------------- | ------------------------------------------ |
+| Resposta da API       | `cobranca` (QR + copia-e-cola)  | `pagamentoManual` (link `wa.me` + comanda) |
+| Tela do funil         | `PixAguardando`                 | `PagamentoManualAguardando`                |
+| Quem confirma         | webhook da AbacatePay           | admin, no painel                           |
+| Intenção de pagamento | criada, `AGUARDANDO`, com prazo | **igual**                                  |
+| Reserva do avulso     | `RESERVADO`, expira em 10 min   | **igual**                                  |
+| OTP                   | exigido                         | **igual**                                  |
+| "Pagar na barbearia"  | inalterado                      | **inalterado**                             |
 
 Só um dos dois campos vem preenchido, e quem decide é o servidor — o front nunca lê a flag para
 escolher fluxo (só para trocar o texto do botão, para não prometer "PIX na hora" e entregar outra
@@ -3547,13 +3574,13 @@ Substitui o `grep` às cegas quando a pergunta é "onde isso acontece?".
 
 ### O que foi instalado
 
-| O quê | Onde |
-|---|---|
-| `uv` 0.12.5 (gerenciador do pacote) | `~/.local/bin/` — binário oficial da Astral, checksum SHA-256 conferido |
-| `graphifyy` 0.9.47 (CLI `graphify`) | env isolado do `uv tool` |
-| Skill do assistente | `.claude/skills/graphify/` (escopo de PROJETO — versionado, o time recebe junto) |
-| Hooks `PreToolUse` | `.claude/settings.json` |
-| Grafo | `graphify-out/` |
+| O quê                               | Onde                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `uv` 0.12.5 (gerenciador do pacote) | `~/.local/bin/` — binário oficial da Astral, checksum SHA-256 conferido          |
+| `graphifyy` 0.9.47 (CLI `graphify`) | env isolado do `uv tool`                                                         |
+| Skill do assistente                 | `.claude/skills/graphify/` (escopo de PROJETO — versionado, o time recebe junto) |
+| Hooks `PreToolUse`                  | `.claude/settings.json`                                                          |
+| Grafo                               | `graphify-out/`                                                                  |
 
 O pacote no PyPI é **`graphifyy`** (dois "y") — o nome `graphify` não existe lá. Não é typosquat:
 o próprio README avisa disso, e o `graphifyy` aponta de volta para o repo nos `project_urls`.
@@ -3573,7 +3600,7 @@ reduza o `matcher` em `.claude/settings.json` (por exemplo, só `Grep`) ou remov
 resto do setup continua funcionando, só deixa de haver o empurrão automático.
 
 **Extração `--code-only`.** Código é lido com tree-sitter, 100% local, zero chamada de API,
-**nada sai da máquina**. A passagem de *documentos* manda o conteúdo para um LLM — não foi
+**nada sai da máquina**. A passagem de _documentos_ manda o conteúdo para um LLM — não foi
 rodada (ver "O que falta decidir" abaixo).
 
 **`.graphifyignore` com os segredos.** O `.gitignore` já é respeitado automaticamente, mas há
@@ -3672,12 +3699,12 @@ serviço tem que ficar bem acima da barra, com folga confortável, não colado.
 `--text-muted` deixou de apontar para `--neutral-400` (`#ab9a7c`) e virou **`#70634c`**, nos três
 apps.
 
-| Fundo | Antes | Depois |
-|---|---|---|
-| `--surface-card` #ffffff | 2,75 | **5,87** |
-| `--surface-app` #faf7f2 | 2,57 | **5,49** |
-| `--surface-sunken` #f3ede2 | 2,36 | **5,04** |
-| `--surface-brand-tint` #f3e2c2 | 2,08 | **4,60** |
+| Fundo                          | Antes | Depois   |
+| ------------------------------ | ----- | -------- |
+| `--surface-card` #ffffff       | 2,75  | **5,87** |
+| `--surface-app` #faf7f2        | 2,57  | **5,49** |
+| `--surface-sunken` #f3ede2     | 2,36  | **5,04** |
+| `--surface-brand-tint` #f3e2c2 | 2,08  | **4,60** |
 
 ★ **O pior caso não é o branco** — é o creme `#f3e2c2` dos cards de pacote e do banner do
 barbeiro. Na primeira tentativa eu escolhi `#74664f` testando só contra três superfícies e ficou
@@ -3738,15 +3765,15 @@ régua do serviço pode custar mais que a margem do produto.
 
 ### ⚠️ Antes de tudo: a premissa do pedido estava incorreta
 
-O pedido dizia *"hoje a comissão de PRODUTO usa a mesma taxa da de SERVIÇO"*. **Não usava.** O
+O pedido dizia _"hoje a comissão de PRODUTO usa a mesma taxa da de SERVIÇO"_. **Não usava.** O
 código já lia `barbeiro.comissaoProdutos`, um campo separado, nos dois únicos pontos que lançam
 comissão de produto. O que estava errado era outra coisa:
 
-| barbeiro | taxa de serviço | taxa de produto (antes) |
-|---|---|---|
-| Gabriel | 45% | 10% |
-| Erick Yan | 35% | **0%** |
-| Igor Molinho | 40% | **0%** |
+| barbeiro     | taxa de serviço | taxa de produto (antes) |
+| ------------ | --------------- | ----------------------- |
+| Gabriel      | 45%             | 10%                     |
+| Erick Yan    | 35%             | **0%**                  |
+| Igor Molinho | 40%             | **0%**                  |
 
 A taxa era **por barbeiro** e estava inconsistente — dois profissionais sem comissão nenhuma sobre
 produto, sem que ninguém tivesse decidido isso. A mudança pedida (taxa **global** da empresa)
@@ -3756,10 +3783,10 @@ resolve exatamente esse problema, então foi implementada como decidido.
 
 Dois pontos, ambos no módulo de payroll:
 
-| Arquivo | Cobre |
-|---|---|
-| `on-venda-de-produto-registrada.handler.ts` | venda avulsa ("entrou só pra comprar") |
-| `on-atendimento-concluido.handler.ts` | produto anexado ao atendimento — **inclui o que entrou pelo order-bump do funil** |
+| Arquivo                                     | Cobre                                                                             |
+| ------------------------------------------- | --------------------------------------------------------------------------------- |
+| `on-venda-de-produto-registrada.handler.ts` | venda avulsa ("entrou só pra comprar")                                            |
+| `on-atendimento-concluido.handler.ts`       | produto anexado ao atendimento — **inclui o que entrou pelo order-bump do funil** |
 
 Os dois trocaram `barbeiro.comissaoProdutos` por `parametros.comissaoProdutos(companyId)`. O
 order-bump não precisou de mudança própria: o produto do bump vira `ItemProdutoAtendido` e cai no
@@ -3849,22 +3876,22 @@ Duas variantes por papel, cada card com "ver tudo" pra seção completa. É tela
 
 **Home PESSOAL** (barbeiro não-admin):
 
-| Card | Fonte |
-|---|---|
-| Próximos 2 atendimentos | `Atendimento` do barbeiro, `AGENDADO`, do agora em diante |
-| Meu saldo na casa | ★ **`ComissaoQueryService.saldo()`** — a MESMA função que o Financeiro usa |
-| Últimas 2 comissões | `LancamentoComissao` tipo `COMISSAO` dele |
-| Últimos 2 pagamentos | `LancamentoComissao` tipo `PAGAMENTO` dele |
+| Card                    | Fonte                                                                      |
+| ----------------------- | -------------------------------------------------------------------------- |
+| Próximos 2 atendimentos | `Atendimento` do barbeiro, `AGENDADO`, do agora em diante                  |
+| Meu saldo na casa       | ★ **`ComissaoQueryService.saldo()`** — a MESMA função que o Financeiro usa |
+| Últimas 2 comissões     | `LancamentoComissao` tipo `COMISSAO` dele                                  |
+| Últimos 2 pagamentos    | `LancamentoComissao` tipo `PAGAMENTO` dele                                 |
 
 **Home de GESTÃO** (admin):
 
-| Card | Fonte |
-|---|---|
-| Agenda de hoje | `Atendimento` da empresa no dia civil local (todos os barbeiros) |
-| Entrou hoje | faturamento do dia — definição abaixo |
-| Concluídos hoje | `count` de `Atendimento` `CONCLUIDO` no dia |
-| Esperando você | `VendaDePacote` `AGUARDANDO` + `Atendimento` `RESERVADO` |
-| Ticket médio | faturamento do mês ÷ concluídos do mês |
+| Card            | Fonte                                                            |
+| --------------- | ---------------------------------------------------------------- |
+| Agenda de hoje  | `Atendimento` da empresa no dia civil local (todos os barbeiros) |
+| Entrou hoje     | faturamento do dia — definição abaixo                            |
+| Concluídos hoje | `count` de `Atendimento` `CONCLUIDO` no dia                      |
+| Esperando você  | `VendaDePacote` `AGUARDANDO` + `Atendimento` `RESERVADO`         |
+| Ticket médio    | faturamento do mês ÷ concluídos do mês                           |
 
 ★ **O saldo não é recalculado na home.** Tem teste que compara o número da home com o do extrato
 e falha se divergirem — porque um número diferente entre duas telas do mesmo dinheiro é bug, não
@@ -3932,11 +3959,11 @@ nem mexer nisso**.
 
 ### O que existia e o que faltava
 
-| | Antes |
-|---|---|
+|                                                   | Antes                 |
+| ------------------------------------------------- | --------------------- |
 | `PUT /barbeiros/:id/comissao` (padrão + exceções) | existia e era testado |
-| Campo "Comissão padrão" na CRIAÇÃO do usuário | existia |
-| Qualquer tela para EDITAR comissão depois | **não existia** |
+| Campo "Comissão padrão" na CRIAÇÃO do usuário     | existia               |
+| Qualquer tela para EDITAR comissão depois         | **não existia**       |
 
 Consequência observada em produção: as exceções foram gravadas fora da interface, e os
 percentuais ficaram inconsistentes entre os barbeiros (Erick 35% com exceção de 60% na barba,
@@ -3953,7 +3980,7 @@ Duas escolhas que não são cosméticas:
 (exceção)` ou `vale 35% (padrão)`. Foi exatamente a diferença entre dois percentuais no mesmo
 atendimento que gerou a dúvida — ver a matriz inteira é o que evita a surpresa no extrato.
 
-**Avisa do snapshot na própria tela:** *"Mudar aqui não altera comissão já lançada"*. Sem isso,
+**Avisa do snapshot na própria tela:** _"Mudar aqui não altera comissão já lançada"_. Sem isso,
 alguém baixa o percentual e vai conferir o extrato esperando o número antigo mudar.
 
 Serviço que o barbeiro **não atende** aparece marcado como tal — configurar comissão de algo que
@@ -3979,9 +4006,9 @@ lançamento antigo mudou**; (c) o próximo atendimento concluído sai com o perc
 
 ## Trava de conclusão antecipada (2026-08-20) ✅
 
-Origem, na voz do dono: *"precisamos incluir uma trava quando o barbeiro vai concluir um
+Origem, na voz do dono: _"precisamos incluir uma trava quando o barbeiro vai concluir um
 atendimento que teoricamente ainda não aconteceu (...) para que ele não saia concluindo
-atendimentos e poluindo a comissão."*
+atendimentos e poluindo a comissão."_
 
 O buraco era real: `POST /atendimentos/:id/concluir` não olhava o relógio. Um barbeiro podia
 abrir a agenda de sexta na terça, concluir tudo, e a comissão nascia — porque a comissão reage ao
@@ -3991,12 +4018,12 @@ evento `AtendimentoConcluido`, e o evento saía na hora.
 
 Estado novo: **`CONCLUSAO_PENDENTE`** (DOMAIN.md §4.1).
 
-| Quem | Quando | O que acontece |
-|---|---|---|
-| barbeiro (não-admin) | `agora < inicio` | 409 pedindo motivo → com motivo, vira `CONCLUSAO_PENDENTE` |
-| barbeiro (não-admin) | horário já começou | conclui direto, como sempre |
-| admin | qualquer horário | conclui direto — é ele quem aprovaria |
-| admin | sobre um pendente | **aprova** (→ `CONCLUIDO`) ou **recusa** (→ `AGENDADO`) |
+| Quem                 | Quando             | O que acontece                                             |
+| -------------------- | ------------------ | ---------------------------------------------------------- |
+| barbeiro (não-admin) | `agora < inicio`   | 409 pedindo motivo → com motivo, vira `CONCLUSAO_PENDENTE` |
+| barbeiro (não-admin) | horário já começou | conclui direto, como sempre                                |
+| admin                | qualquer horário   | conclui direto — é ele quem aprovaria                      |
+| admin                | sobre um pendente  | **aprova** (→ `CONCLUIDO`) ou **recusa** (→ `AGENDADO`)    |
 
 **O pedido não move dinheiro nenhum.** Nenhum evento é emitido na solicitação: a comissão nasce
 na aprovação, e o crédito de pacote é consumido lá também. Sem isso, a trava seria decorativa —
@@ -4013,10 +4040,10 @@ criaria uma sobreposição que o banco recusaria.
 o barbeiro. Descobrir que falta só no momento em que o admin aprova deixaria o pedido travado sem
 quem o resolvesse.
 
-**★ O motivo SOBREVIVE à aprovação.** Só a recusa limpa os campos. Um mês depois, *"por que o
-Erick concluiu 12 atendimentos antes do horário?"* precisa ter resposta — apagar o motivo ao
+**★ O motivo SOBREVIVE à aprovação.** Só a recusa limpa os campos. Um mês depois, _"por que o
+Erick concluiu 12 atendimentos antes do horário?"_ precisa ter resposta — apagar o motivo ao
 aprovar perderia exatamente o fato que a trava existe pra vigiar. Aparece no detalhe do
-atendimento concluído: *"Concluído antes do horário, aprovado. Motivo de …"*.
+atendimento concluído: _"Concluído antes do horário, aprovado. Motivo de …"_.
 
 ### Onde isso aparece
 
@@ -4050,7 +4077,7 @@ em ordem de importância:
 3. o barbeiro **não aprova o próprio pedido** (403), e pedir de novo sobre um pendente devolve
    409 dizendo que já está aguardando aprovação (não "informe o motivo", que ele já informou);
 4. o horário pendente **não é oferecido** na projeção pública de horários, e a constraint
-   `EXCLUDE` do banco rejeita sobreposição com ele (teste que verifica a *migration*, não o
+   `EXCLUDE` do banco rejeita sobreposição com ele (teste que verifica a _migration_, não o
    domínio — era o predicado mais fácil de esquecer);
 5. atendimento cujo horário já começou conclui sem modal (a trava não pega o caso normal);
 6. o motivo continua no atendimento depois de aprovado (auditoria).
@@ -4063,8 +4090,8 @@ motivo do admin).
 
 ### Smoke test manual
 
-Logado como **barbeiro não-admin**: Agenda → um atendimento de amanhã → o botão diz *"Concluir
-antes do horário…"* → clique → escreva o motivo → enviar. Confira no Financeiro que **nenhuma
+Logado como **barbeiro não-admin**: Agenda → um atendimento de amanhã → o botão diz _"Concluir
+antes do horário…"_ → clique → escreva o motivo → enviar. Confira no Financeiro que **nenhuma
 comissão** apareceu. Logado como **admin**: Home → "Esperando você" mostra a pendência com o
 motivo; Agenda → aba "A aprovar" → abra e **aprove** → agora a comissão aparece no extrato do
 barbeiro, e o detalhe do atendimento mostra o motivo registrado.
@@ -4092,11 +4119,11 @@ domínio que só o avulso exercitava.
 
 ### ★ Duração total no conflito — como é calculada e validada
 
-| Camada | Onde | O que garante |
-|---|---|---|
-| Domínio | `Atendimento.agendar()` | `itens.map(duracao).reduce(somar)` → intervalo total; recusa se não cabe na disponibilidade ou se sobrepõe atendimento ativo |
-| Banco | constraint `atendimento_sem_sobreposicao` (`EXCLUDE USING gist`) | recusa fisicamente sobreposição de `tstzrange(inicio, fim)`, mesmo sob concorrência e mesmo para escrita crua |
-| Leitura | `horarios-disponiveis-query.service.ts` | só oferece horário onde o bloco INTEIRO cabe (projeção, não fonte de verdade) |
+| Camada  | Onde                                                             | O que garante                                                                                                                |
+| ------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Domínio | `Atendimento.agendar()`                                          | `itens.map(duracao).reduce(somar)` → intervalo total; recusa se não cabe na disponibilidade ou se sobrepõe atendimento ativo |
+| Banco   | constraint `atendimento_sem_sobreposicao` (`EXCLUDE USING gist`) | recusa fisicamente sobreposição de `tstzrange(inicio, fim)`, mesmo sob concorrência e mesmo para escrita crua                |
+| Leitura | `horarios-disponiveis-query.service.ts`                          | só oferece horário onde o bloco INTEIRO cabe (projeção, não fonte de verdade)                                                |
 
 Testado explicitamente: uma visita de 50 min é recusada num vão de 30 min, **e** o mesmo crédito
 sozinho (30 min) entra naquele mesmo vão — é a prova de que a recusa é sobre duração, não sobre o
@@ -4146,7 +4173,7 @@ créditos apontando para o mesmo atendimento já era possível no schema.
 ### UI
 
 Conta do cliente → "Usar crédito do pacote" virou **"O que vai fazer nesta visita?"**: checkboxes
-por serviço do pacote, e um resumo *"Sua visita: Corte + Barba · 50 min — consome 2 créditos"*. As
+por serviço do pacote, e um resumo _"Sua visita: Corte + Barba · 50 min — consome 2 créditos"_. As
 duas travas do backend estão espelhadas na tela (um pacote por visita, um crédito por serviço), com
 a linha que explica por que uma opção ficou apagada — sem isso o cliente clica, nada acontece, e
 ele não descobre a regra. A lista de barbeiros passa a filtrar por TODOS os serviços da visita:
@@ -4225,14 +4252,14 @@ A gravação é por **reconciliação**, não por detecção no ponto de origem:
 `SincronizarStatusDoClubeUseCase` calcula o status, compara com o último registrado e grava **só se
 mudou**. Idempotência sai de graça — rodar duas vezes não grava duas linhas.
 
-| Fato de domínio | Por que dispara |
-|---|---|
-| `PacoteVendido` | pode ser a entrada no clube (se já vem pago) |
-| `PagamentoConfirmado` (ref. pacote) | é aqui que o crédito passa a existir, no caminho PIX/balcão |
-| `ItemDoPacoteConsumido` / `...Expirado` | pode ter sido o último crédito |
-| `AtendimentoAgendado` | avulso de quem está sem crédito = saída |
-| `ClienteFaltou` | a 2ª falta expira o crédito |
-| `AtendimentoCancelado` | devolve crédito: quem esgotou pode voltar |
+| Fato de domínio                         | Por que dispara                                             |
+| --------------------------------------- | ----------------------------------------------------------- |
+| `PacoteVendido`                         | pode ser a entrada no clube (se já vem pago)                |
+| `PagamentoConfirmado` (ref. pacote)     | é aqui que o crédito passa a existir, no caminho PIX/balcão |
+| `ItemDoPacoteConsumido` / `...Expirado` | pode ter sido o último crédito                              |
+| `AtendimentoAgendado`                   | avulso de quem está sem crédito = saída                     |
+| `ClienteFaltou`                         | a 2ª falta expira o crédito                                 |
+| `AtendimentoCancelado`                  | devolve crédito: quem esgotou pode voltar                   |
 
 **A propriedade que importa:** se nenhum evento disparar a reconciliação, o log **atrasa** — a
 linha aparece no próximo fato daquele cliente. O status mostrado **nunca fica errado**, porque é
@@ -4244,14 +4271,14 @@ de um pacote porque a linha de histórico não entrou seria pior.
 O tema é uma **classe no wrapper** (`.tema-clube`) que redefine tokens de superfície — os tokens
 fazem o resto, e nenhuma tela sabe que existe tema.
 
-| Estado | Tema | Faixa | Chamado |
-|---|---|---|---|
-| `MEMBRO_ATIVO` | clube | selo + "N créditos" + badge ATIVO | nenhum — quem comprou não precisa ser convencido |
-| `MEMBRO_INATIVO` | clube (mantém: esgotar não expulsa) | selo + "seus créditos acabaram" | "Continue no Bigod's Club" → Renovar |
-| `NAO_MEMBRO` | normal | — | convite discreto "Conheça o Bigod's Club" |
+| Estado           | Tema                                | Faixa                             | Chamado                                          |
+| ---------------- | ----------------------------------- | --------------------------------- | ------------------------------------------------ |
+| `MEMBRO_ATIVO`   | clube                               | selo + "N créditos" + badge ATIVO | nenhum — quem comprou não precisa ser convencido |
+| `MEMBRO_INATIVO` | clube (mantém: esgotar não expulsa) | selo + "seus créditos acabaram"   | "Continue no Bigod's Club" → Renovar             |
+| `NAO_MEMBRO`     | normal                              | —                                 | convite discreto "Conheça o Bigod's Club"        |
 
 Os dois gatilhos de conversão (esgotar e o estado inativo contínuo) são a **mesma superfície**, de
-propósito: `INATIVO` *é* o estado logo depois de esgotar. Duas mensagens exigiriam inventar um
+propósito: `INATIVO` _é_ o estado logo depois de esgotar. Duas mensagens exigiriam inventar um
 limite de tempo ("recém-esgotado" é até quando?) que ninguém decidiu.
 
 Tom conferido por teste: o texto do inativo não contém "perder", "última chance", "expira". O
@@ -4405,8 +4432,8 @@ cadastro de quem já era cliente ia junto.
 ### A causa
 
 `cliente.renomear(input.cliente.nome)` rodava SEMPRE para cliente existente, no avulso e na venda de
-pacote. O comentário assumia isso: *"o funil é a única fonte da verdade sobre o nome, então ele
-sempre vence"*. Fazia sentido quando o objetivo era corrigir o placeholder do login OTP; não fazia
+pacote. O comentário assumia isso: _"o funil é a única fonte da verdade sobre o nome, então ele
+sempre vence"_. Fazia sentido quando o objetivo era corrigir o placeholder do login OTP; não fazia
 sentido como política geral.
 
 ### A correção, em duas camadas
@@ -4488,19 +4515,19 @@ porta nova para o mesmo estrago, por outro caminho.
 `{ nome, email }`, com **`nome: null` quando ainda é o placeholder**. O funil passou a ler dali —
 nunca da sessão — e pergunta exatamente o que falta:
 
-| Cadastro | O que o funil mostra |
-|---|---|
+| Cadastro               | O que o funil mostra                                 |
+| ---------------------- | ---------------------------------------------------- |
 | sem nome (placeholder) | nome + e-mail + sobre você — mesmo com sessão válida |
-| com nome, sem e-mail | e-mail + sobre você |
-| com nome e e-mail | **só "Fale sobre você"** |
+| com nome, sem e-mail   | e-mail + sobre você                                  |
+| com nome e e-mail      | **só "Fale sobre você"**                             |
 
 E o que não é perguntado também não é ENVIADO — então não sobrescreve. A proteção passa a ser dupla:
 o front não manda, e o backend não aceita.
 
 ### ★ A terceira camada: o cliente nascia sem nome
 
-O dono insistiu, e a leitura dele estava certa: *"o sistema não salva o nome do cliente ao criar o
-cliente no banco, ele só tem a informação depois do OTP — é pela sequência das ações"*.
+O dono insistiu, e a leitura dele estava certa: _"o sistema não salva o nome do cliente ao criar o
+cliente no banco, ele só tem a informação depois do OTP — é pela sequência das ações"_.
 
 Reproduzindo o fluxo completo no navegador, o caminho feliz salvava certo. Mas na primeira tentativa
 **o agendamento falhou** (horário fora da disponibilidade) — e ali estava: o `Cliente` nasce na
@@ -4515,20 +4542,20 @@ como bônus a sessão já guarda o nome certo desde o início.
 
 Três camadas, agora, para o mesmo dado:
 
-| Camada | O que garante |
-|---|---|
-| nasce certo | o login cria o `Cliente` com o nome que o funil já tem |
-| não sobrescreve | `adotarNomeSeAusente` só completa quem está sem nome |
+| Camada               | O que garante                                                               |
+| -------------------- | --------------------------------------------------------------------------- |
+| nasce certo          | o login cria o `Cliente` com o nome que o funil já tem                      |
+| não sobrescreve      | `adotarNomeSeAusente` só completa quem está sem nome                        |
 | não pergunta de novo | `GET /conta/cadastro` diz o que já existe (com `nome: null` no placeholder) |
 
 ### Smoke test manual
 
-Navegador anônimo, funil:
-0. **Cliente que só fez login e nunca agendou** (nome ainda é o placeholder): mesmo com sessão
-   válida, o funil PRECISA pedir o nome. É a regressão de 2026-08-21.
+Navegador anônimo, funil: 0. **Cliente que só fez login e nunca agendou** (nome ainda é o placeholder): mesmo com sessão
+válida, o funil PRECISA pedir o nome. É a regressão de 2026-08-21.
+
 1. **Número novo** → "Continuar" → aparecem nome + opcionais, e o telefone trava com "usar outro
    número".
-2. **Número que já é cliente** → "Continuar" → modal *"Confirme que é você"*, sem nome à vista →
+2. **Número que já é cliente** → "Continuar" → modal _"Confirme que é você"_, sem nome à vista →
    confirme → "Olá, {nome}", sem campo de nome, e o resto do funil segue.
 3. Feche o agendamento e confira no painel que o **nome do cadastro não mudou**.
 4. **Sem tocar em nada**, repita o passo 2 no mesmo navegador: a sessão já está ativa, e nem o
@@ -4549,10 +4576,10 @@ Nada na API, nada no frontend, **nenhuma migration**. O envio do OTP vive na Lam
 dependências, `fetch` nativo do Node 20, erro limpo em vez de exceção crua. E
 `SMS_PROVIDER` escolhe quem envia:
 
-| `SMS_PROVIDER` | Entrega | Variáveis |
-|---|---|---|
+| `SMS_PROVIDER`          | Entrega                 | Variáveis                            |
+| ----------------------- | ----------------------- | ------------------------------------ |
 | `smsgate` (**default**) | celular Android pareado | `SMS_GATE_USER`, `SMS_GATE_PASSWORD` |
-| `gtisms` | GTI SMS, nuvem | `GTISMS_TOKEN` |
+| `gtisms`                | GTI SMS, nuvem          | `GTISMS_TOKEN`                       |
 
 **Default `smsgate` de propósito:** subir o código não muda o comportamento de quem está em
 produção. Virar a chave é um ato explícito — e voltar atrás é mudar a mesma variável no console,
@@ -4596,6 +4623,7 @@ cd infra/cognito-triggers
 zip -q create.zip create-auth-challenge.js sms-gate.js gti-sms.js
 aws lambda update-function-code --function-name bigods-cognito-create-auth --zip-file fileb://create.zip
 ```
+
 Depois, no console da Lambda: `GTISMS_TOKEN=<token>` e `SMS_PROVIDER=gtisms`. Rollback: `SMS_PROVIDER=smsgate`.
 
 ⚠️ O OTP passa a depender de saldo no provedor. Sem crédito, o login é **recusado** — corretamente
@@ -4618,12 +4646,12 @@ que é sensível" divergiriam no primeiro campo novo, e a que ficasse para trás
 
 Quatro camadas, porque uma só sempre deixa passar:
 
-| Camada | O que faz |
-|---|---|
-| Rotas mudas | corpo de `/auth/login`, `/conta/login`, `/conta/cadastro`, `/webhooks`, `/pagamentos` e `/barbeiros` **não vai**, ponto |
-| Chaves proibidas | `senha`, `hash`, `codigo`, `otp`, `token`, `authorization`, `telefone`, `email`, `cpf`… viram `[removido]` em qualquer profundidade |
-| Query string | `?token=…&clienteNome=…` perde o valor e mantém a chave e a rota |
-| Telefone em texto livre | número brasileiro em qualquer string vira `[telefone]` |
+| Camada                  | O que faz                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Rotas mudas             | corpo de `/auth/login`, `/conta/login`, `/conta/cadastro`, `/webhooks`, `/pagamentos` e `/barbeiros` **não vai**, ponto             |
+| Chaves proibidas        | `senha`, `hash`, `codigo`, `otp`, `token`, `authorization`, `telefone`, `email`, `cpf`… viram `[removido]` em qualquer profundidade |
+| Query string            | `?token=…&clienteNome=…` perde o valor e mantém a chave e a rota                                                                    |
+| Telefone em texto livre | número brasileiro em qualquer string vira `[telefone]`                                                                              |
 
 A última camada existe porque as três primeiras dependem de eu ter previsto o lugar. A varredura por
 texto não depende.
@@ -4762,12 +4790,12 @@ de cliente fica indistinguível uma semana depois, e contas de senha pública fi
 
 `apps/api/src/scripts/seed-producao.ts` cria **um admin**. Só.
 
-| | seed de dev | seed de produção |
-|---|---|---|
-| Comando | `npm run seed:dev -w @bigods/api` | `npm run seed:prod -w @bigods/api` |
-| Cria | barbearia fictícia completa | `Company` + um `Barbeiro` com papel `ADMIN` |
-| Senha | `bigods123`, no código | `ADMIN_SEED_SENHA`, **nunca** no código |
-| Em produção | **recusa rodar** (`NODE_ENV=production`) | é o único que roda |
+|             | seed de dev                              | seed de produção                            |
+| ----------- | ---------------------------------------- | ------------------------------------------- |
+| Comando     | `npm run seed:dev -w @bigods/api`        | `npm run seed:prod -w @bigods/api`          |
+| Cria        | barbearia fictícia completa              | `Company` + um `Barbeiro` com papel `ADMIN` |
+| Senha       | `bigods123`, no código                   | `ADMIN_SEED_SENHA`, **nunca** no código     |
+| Em produção | **recusa rodar** (`NODE_ENV=production`) | é o único que roda                          |
 
 **Por que a `Company` não é "algo além do admin".** `Barbeiro.companyId` é chave estrangeira: sem a
 linha da empresa o admin não pode nem ser inserido. E o sistema é multi-tenant por costura
@@ -4794,6 +4822,7 @@ e não conseguiria entrar nunca, com um 400 que não fala nada sobre tamanho de 
 antes, com a mensagem certa.
 
 **Duas proteções contra rodar o seed errado**, porque nome de comando não protege ninguém:
+
 1. o seed de dev **recusa** com `NODE_ENV=production` — que é exatamente o que a imagem Docker da API
    define no estágio de runtime, então um `seed:dev` disparado por engano dentro do container morre
    antes de escrever;
@@ -4871,12 +4900,12 @@ docker compose -f docker-compose.aws.yml run --rm api \
 
 **Por que este caminho e não `prisma migrate reset --force --skip-seed`:**
 
-| | `DROP SCHEMA` + `migrate deploy` | `migrate reset` |
-|---|---|---|
-| Comando de produção | **sim** — é o mesmo que o deploy já roda | não; a própria Prisma documenta como comando de desenvolvimento |
-| Roda seed | **impossível**, não há hook | roda o seed configurado; a segurança depende de lembrar `--skip-seed` |
-| Privilégio necessário | dono do schema | idem, mas com semântica de "resetar o banco" |
-| O que apaga | exatamente o schema `public` do banco da `DATABASE_URL` | idem, com menos controle sobre o passo |
+|                       | `DROP SCHEMA` + `migrate deploy`                        | `migrate reset`                                                       |
+| --------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
+| Comando de produção   | **sim** — é o mesmo que o deploy já roda                | não; a própria Prisma documenta como comando de desenvolvimento       |
+| Roda seed             | **impossível**, não há hook                             | roda o seed configurado; a segurança depende de lembrar `--skip-seed` |
+| Privilégio necessário | dono do schema                                          | idem, mas com semântica de "resetar o banco"                          |
+| O que apaga           | exatamente o schema `public` do banco da `DATABASE_URL` | idem, com menos controle sobre o passo                                |
 
 `DROP SCHEMA public CASCADE` apaga **todas as tabelas, a tabela de controle `_prisma_migrations` e a
 extensão `btree_gist`** — por isso o `migrate deploy` seguinte reaplica as 40+ migrations desde a
@@ -4935,12 +4964,12 @@ suba a API contra o banco restaurado e investigue com o sistema no ar. Um sistem
 sem admin logável não tem caminho de recuperação pela interface: **criar usuário exige um admin
 autenticado**.
 
-| Resposta | O que provavelmente é |
-|---|---|
-| `401` | senha diferente da que foi para o `ADMIN_SEED_SENHA` (aspas do shell, caractere especial) |
-| `400` | senha com menos de 4 caracteres — o seed deveria ter recusado antes; confira a saída do passo 4 |
-| `500` | API sem banco: confira `DATABASE_URL` e os logs |
-| timeout | API não subiu; `docker compose ... logs api` |
+| Resposta | O que provavelmente é                                                                           |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| `401`    | senha diferente da que foi para o `ADMIN_SEED_SENHA` (aspas do shell, caractere especial)       |
+| `400`    | senha com menos de 4 caracteres — o seed deveria ter recusado antes; confira a saída do passo 4 |
+| `500`    | API sem banco: confira `DATABASE_URL` e os logs                                                 |
+| timeout  | API não subiu; `docker compose ... logs api`                                                    |
 
 #### Se a senha inicial se perder
 
@@ -5010,12 +5039,12 @@ SQL
 grep -E 'IDENTITY_PROVIDER|PAGAMENTO_MANUAL_WHATSAPP|PAYMENT_GATEWAY|DEMO_MODE|SENTRY' .env
 ```
 
-| Variável | Valor esperado na virada |
-|---|---|
-| `DEMO_MODE` | ausente ou `false` — `true` em produção é recusado no boot |
-| `IDENTITY_PROVIDER` | `cognito` (SMS) ou `whatsapp` — o que estiver em uso |
+| Variável                    | Valor esperado na virada                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `DEMO_MODE`                 | ausente ou `false` — `true` em produção é recusado no boot                                  |
+| `IDENTITY_PROVIDER`         | `cognito` (SMS) ou `whatsapp` — o que estiver em uso                                        |
 | `PAGAMENTO_MANUAL_WHATSAPP` | `true` enquanto a AbacatePay não liberar; com `PAGAMENTO_MANUAL_WHATSAPP_NUMERO` preenchido |
-| `SENTRY_DSN` | preenchido — no boot a API imprime `[sentry] ativo` |
+| `SENTRY_DSN`                | preenchido — no boot a API imprime `[sentry] ativo`                                         |
 
 Depois do primeiro agendamento real, confirme no Sentry que **não** chegou erro nenhum — e que a
 navegação do cliente não levou telefone junto.
@@ -5059,16 +5088,16 @@ enquanto o defeito existia. Nenhum teste de backend teria encontrado isso — s�
 desconto que ele trazia. Isso exigiu guardar o que antes se perdia: `valorCobradoCentavos` já vem
 COM o desconto embutido, e de um total descontado não se reconstrói a escada. Duas colunas aditivas:
 
-| Coluna | Para quê |
-|---|---|
-| `precoCheioCentavos` | preço de referência do barbeiro quando o item entrou — a BASE da escada |
-| `precoPromocionalCentavos` | preço cravado do order-bump; não-nulo ⇒ item fora da escada (§8.13) |
+| Coluna                     | Para quê                                                                |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `precoCheioCentavos`       | preço de referência do barbeiro quando o item entrou — a BASE da escada |
+| `precoPromocionalCentavos` | preço cravado do order-bump; não-nulo ⇒ item fora da escada (§8.13)     |
 
 A base é o preço de **quando o item entrou**, não o de hoje: remover a barba não faz o corte "subir"
 porque a tabela mudou entre o agendamento e o atendimento. O cliente paga o que combinou, com o
 desconto que a composição final merece.
 
-**Item de crédito de pacote não entra na escada.** O `valorCobrado` dele é o rateado da venda — 
+**Item de crédito de pacote não entra na escada.** O `valorCobrado` dele é o rateado da venda —
 dinheiro já cobrado, em outra transação, com outra regra. Passá-lo pela escada de avulso inventaria
 um desconto sobre algo que já está pago.
 
@@ -5128,7 +5157,7 @@ incide.
 
 **O cálculo, passo a passo** (`payroll/domain/rateio-de-desconto.ts`):
 
-1. o desconto é repartido entre as linhas comissionáveis **na proporção do valor de cada uma** — 
+1. o desconto é repartido entre as linhas comissionáveis **na proporção do valor de cada uma** —
    mesmo critério do rateio de pacote (§3.6) e do desconto progressivo (§3.2.3), com o resíduo do
    arredondamento na última linha, de modo que `Σ pedaços == desconto` sempre;
 2. soma-se `pedaço × percentual_da_linha` em pontos-base;
@@ -5181,13 +5210,13 @@ deixou de existir, alguém apertou o botão errado. Está registrado no agregado
 
 ### Migrations (todas aditivas)
 
-| Migration | O que faz |
-|---|---|
-| `20260825010000_comanda_editavel` | `precoCheioCentavos`, `precoPromocionalCentavos` em `ItemAtendido` |
-| `20260825020000_caixinha_desconto_enums` | valores novos de enum, **sozinhos** (Postgres não deixa usar na mesma transação em que cria) |
-| `20260825020100_caixinha_desconto_campos` | `caixinhaCentavos`, `descontoConcedidoCentavos` em `Atendimento` |
-| `20260825030000_reativacao_de_cancelamento` | `reativadoPorId`, `reativadoEm` |
-| `20260825040000_ordem_dos_itens_da_comanda` | `ordem` em `ItemAtendido`/`ItemProdutoAtendido` |
+| Migration                                   | O que faz                                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `20260825010000_comanda_editavel`           | `precoCheioCentavos`, `precoPromocionalCentavos` em `ItemAtendido`                           |
+| `20260825020000_caixinha_desconto_enums`    | valores novos de enum, **sozinhos** (Postgres não deixa usar na mesma transação em que cria) |
+| `20260825020100_caixinha_desconto_campos`   | `caixinhaCentavos`, `descontoConcedidoCentavos` em `Atendimento`                             |
+| `20260825030000_reativacao_de_cancelamento` | `reativadoPorId`, `reativadoEm`                                                              |
+| `20260825040000_ordem_dos_itens_da_comanda` | `ordem` em `ItemAtendido`/`ItemProdutoAtendido`                                              |
 
 ### Testes
 
@@ -5219,38 +5248,45 @@ HTTP real do teste que falha, em vez de deduzir a causa.
 Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não bater, pare.
 
 **1. Remover serviço refaz o desconto**
+
 - Agende um avulso com **dois** serviços (com degrau de desconto configurado). Anote o total.
 - Fechar comanda → etapa 1 → remova o segundo serviço.
 - ✅ O total tem que cair para o **preço cheio do que sobrou** — o degrau some junto com o item.
   (Se cair só o valor do item removido, o desconto ficou embutido: pare.)
 
 **2. Remover crédito de pacote devolve o crédito**
+
 - Venda um pacote, agende um atendimento consumindo um crédito.
 - Fechar comanda → remova o serviço do crédito.
 - ✅ Em Pacotes, o crédito volta a **DISPONÍVEL** e pode ser agendado de novo.
 
 **3. Caixinha**
+
 - Feche uma comanda de R$100 (barbeiro a 45%) com **caixinha de R$7**.
 - ✅ Extrato do barbeiro: linha `Corte + R$45,00`, linha `Caixinha — 100% sua + R$7,00`.
 - ✅ Saldo subiu **exatamente R$52,00**.
 
 **4. Desconto rateado**
+
 - Feche outra comanda de R$100 com **desconto de R$10**.
 - ✅ Extrato: `Corte + R$45,00` (inteiro, não reduzido) e `Desconto concedido (sua parte) − R$4,50`.
 - ✅ Saldo subiu **R$40,50**. Se a comissão do corte aparecer como R$40,50 e não houver linha de
   desconto, a modelagem regrediu para "base reduzida": pare.
 
 **5. Snapshot**
+
 - Depois do passo 4, mude a comissão do barbeiro em Usuários e volte ao extrato.
 - ✅ Os lançamentos do atendimento já concluído **não mudam**.
 
 **6. Reativação**
+
 - Cancele um agendamento e reative pelo painel (como admin).
 - ✅ Volta para Agendado, e o detalhe mostra "reativado por …".
 - Agora cancele outro, **agende outra pessoa no mesmo horário**, e tente reativar.
 - ✅ Recusa com "este horário já foi ocupado". O primeiro continua cancelado.
 
 **7. Pago online**
+
 - Abra um atendimento pago online e tente remover um item.
 - ✅ O botão de remover **não aparece**, e a comanda avisa por quê. Adicionar continua funcionando.
 
@@ -5259,9 +5295,9 @@ Rodar **em staging** antes de subir. Cada passo tem o número esperado; se não 
 Um dia depois de a Fase 3 subir, o dono mudou a regra: os dois percentuais deixam de ser derivados e
 passam a ser **configuração de cada barbeiro**, editável no painel.
 
-| | Antes (2026-08-25) | Agora |
-|---|---|---|
-| Caixinha | 100% do barbeiro, cravado no código | `Barbeiro.percentualCaixinha` |
+|          | Antes (2026-08-25)                                          | Agora                                  |
+| -------- | ----------------------------------------------------------- | -------------------------------------- |
+| Caixinha | 100% do barbeiro, cravado no código                         | `Barbeiro.percentualCaixinha`          |
 | Desconto | a fração da COMISSÃO dele, rateada linha a linha da comanda | `Barbeiro.percentualDescontoAbsorvido` |
 
 **Por que a mudança faz sentido.** O modelo anterior respondia "quanto da receita perdida era dele",
@@ -5388,3 +5424,1229 @@ npm run dev -w @bigods/booking
 # Produção: IDENTITY_PROVIDER=whatsapp + vars do WhatsApp OTP (ver .env.example
 # e services/whatsapp-otp/README.md) + PAYMENT_GATEWAY=fake para presencial-only.
 ```
+
+## Mercado Pago via Orders API — levantamento da API (2026-08-26) 📋 PESQUISA, NADA IMPLEMENTADO
+
+Sessão de **leitura e decisão**, não de código. Nenhum arquivo de produção foi
+tocado. O objetivo era chegar ao ponto em que a implementação possa começar sem
+descobrir surpresa no meio do caminho. O que segue é o que a documentação
+oficial diz (fonte primária, transcrita), o que colide com o domínio atual, e
+como o Mercado Pago entra na arquitetura de ports/adapters que já existe.
+
+### Decisões do dono tomadas nesta sessão
+
+1. **A integração usa a Orders API (`POST /v1/orders`)**, não a Payments API
+   (`/v1/payments`). A documentação confirma a escolha: a árvore foi
+   reorganizada e hoje `checkout-api` **é** a Orders API, enquanto a antiga
+   virou `checkout-api-payments`. Não são alternativas equivalentes — a Orders
+   é o Checkout Transparente atual.
+2. **Cartão de débito sai do escopo.** Ver "Por que débito saiu" abaixo.
+3. **Meios: PIX e cartão de crédito à vista (`installments: 1`).**
+4. **A janela de pagamento do avulso online sobe de 10 para 30 minutos.**
+   Ponto único de mudança: `PRAZO_RESERVA_SEGUNDOS` em
+   `apps/api/src/modules/payments/domain/prazo-reserva.ts` (hoje `600`).
+5. **O AbacatePay e o pagamento manual por WhatsApp continuam.** O Mercado Pago
+   entra como **mais um adapter**, escolhido pela mesma env `PAYMENT_GATEWAY`.
+
+### Como a documentação foi levantada (repetível)
+
+O devsite do Mercado Pago é uma SPA: `curl` na URL normal devolve HTML vazio ou
+um shell de ~2,4 MB, e o conteúdo real não aparece. Três descobertas destravaram
+a extração e ficam registradas porque economizam horas:
+
+- **`llms.txt`** — o Mercado Pago publica um índice completo da documentação
+  feito para agentes: `https://www.mercadopago.com.br/developers/en/docs/llms.txt`
+  (390 KB, 1712 links). É o mapa autoritativo; adivinhar URL é desnecessário.
+- **Sufixo `.md`** — acrescentar `.md` a qualquer URL de doc **ou de referência**
+  devolve `text/plain` com o markdown completo da página.
+  Ex.: `.../reference/online-payments/checkout-api/create-order/post.md` → 46 KB
+  com a tabela inteira de request/response.
+- **Rate limit agressivo** — requisições em rajada devolvem `HTTP 200` com corpo
+  **vazio** (não um 429). Espaçar ~1,5–3 s e fazer retry. `curl --compressed`
+  também quebra e devolve 0 bytes.
+
+Corpus baixado nesta sessão: **42 guias** (`checkout-api-orders/*`) + **27
+endpoints de referência** (`online-payments/checkout-api/*`).
+
+Caminhos corretos hoje (os antigos `/docs/checkout-api/...` e
+`/reference/orders/...` estão **mortos**, HTTP 404):
+
+- Guias: `https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/<slug>`
+- Referência: `https://www.mercadopago.com.br/developers/en/reference/online-payments/checkout-api/<endpoint>/<verbo>`
+
+### Criar uma order — o contrato
+
+`POST https://api.mercadopago.com/v1/orders` → **201** em caso de sucesso.
+
+Headers: `Authorization: Bearer <ACCESS_TOKEN>`, `Content-Type: application/json`
+e **`X-Idempotency-Key` obrigatório** (1 a 64 caracteres; UUID v4 serve).
+
+```jsonc
+{
+  "type": "online", // único valor para pagamento online
+  "processing_mode": "automatic", // automatic | manual
+  "total_amount": "50.00", // ★ STRING, reais, 2 casas ou nenhuma
+  "external_reference": "ext_ref_1234", // ★ máx 64 chars, [A-Za-z0-9_-] apenas
+  "payer": { "email": "..." },
+  "transactions": {
+    "payments": [
+      {
+        // ★ NO MÁXIMO UMA transação por order
+        "amount": "50.00", // Σ amount DEVE bater com total_amount
+        "payment_method": {
+          /* ver abaixo */
+        },
+      },
+    ],
+  },
+}
+```
+
+**PIX:**
+
+```jsonc
+"payment_method": { "id": "pix", "type": "bank_transfer" },
+"expiration_time": "PT30M"             // duração ISO 8601; só PIX e boleto
+```
+
+`expiration_time` aceita **mínimo 30 minutos, máximo 30 dias**, default 24 h.
+É exatamente por isso que a janela do avulso subiu para 30 min: o mínimo do
+Mercado Pago é maior que os 10 min que pedíamos ao AbacatePay.
+
+Resposta do PIX: `status: "action_required"`, `status_detail: "waiting_transfer"`,
+e o QR em `transactions.payments[0].payment_method`:
+`qr_code` (copia-e-cola), `qr_code_base64` (imagem), `ticket_url` (página pronta).
+
+**Cartão de crédito à vista:**
+
+```jsonc
+"payment_method": {
+  "id": "master",                      // a BANDEIRA (visa|master|elo|amex|...)
+  "type": "credit_card",
+  "token": "<card token do SDK JS>",
+  "installments": 1,
+  "statement_descriptor": "BIGODS"     // até 50 chars, aparece na fatura
+}
+```
+
+Enums confirmados na referência:
+
+| campo                 | valores                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `payment_method.type` | `credit_card` · `debit_card` · `ticket` · `bank_transfer` |
+| `processing_mode`     | `automatic` · `manual`                                    |
+| `capture_mode`        | `automatic` · `manual` · `automatic_async`                |
+| `payer.entity_type`   | `individual` · `association`                              |
+| `installments`        | máx 36 (usaremos 1)                                       |
+
+Pré-requisito de conta para PIX: **chave PIX cadastrada** no Mercado Pago.
+
+### Status — vocabulário novo, não reaproveitável
+
+A Orders API **não usa** `pending/approved/rejected` da API antiga. São duas
+camadas: `order.status` e `transactions.payments[].status`.
+
+| order.status      | status_detail                       | significado                                  |
+| ----------------- | ----------------------------------- | -------------------------------------------- |
+| `created`         | `created`                           | criada, nada processado                      |
+| `processing`      | `in_process`                        | em processamento (inclui criação assíncrona) |
+| `action_required` | `waiting_transfer`                  | PIX aguardando pagamento                     |
+| `action_required` | `waiting_payment`                   | aguardando pagamento                         |
+| `action_required` | `waiting_capture`                   | autorizado, não capturado                    |
+| `action_required` | `pending_challenge`                 | 3DS em desafio (até 40 min)                  |
+| `processed`       | `accredited`                        | **pago e creditado**                         |
+| `processed`       | `partially_refunded`                | estorno parcial                              |
+| `refunded`        | `refunded`                          | estorno total                                |
+| `canceled`        | `canceled`                          | cancelada                                    |
+| `expired`         | `expired`                           | expirou sem pagamento                        |
+| `failed`          | `failed`                            | falhou                                       |
+| `charged_back`    | `in_process`/`settled`/`reimbursed` | chargeback                                   |
+
+`transaction.status_detail` em falha detalha o motivo: `bad_filled_card_data`,
+`invalid_card_token`, `high_risk`, `rejected_by_issuer`,
+`required_call_for_authorize`, `max_attempts_exceeded`, `cc_rejected_3ds_challenge`.
+
+**Colisão com o domínio:** nosso `StatusPagamento` tem 4 estados
+(`AGUARDANDO/PAGO/EXPIRADO/FALHOU`). O mapeamento óbvio cobre PIX bem, mas
+cartão traz `processing/in_process` (em análise) e `action_required/waiting_capture`,
+que **não têm correspondente**. Ver "Decisões pendentes".
+
+### Webhook — a diferença estrutural que mais afeta o código
+
+Configuração: painel → aplicação → **Webhooks > Configurar notificações**,
+evento **"Order (Mercado Pago)"**. Ao salvar, o painel gera um **secret por
+aplicação** (sem expiração). **Não existe `notification_url` no corpo do
+`POST /v1/orders`** — zero ocorrências de "notification" na referência do
+endpoint. A URL é por aplicação.
+
+> **Consequência operacional:** staging e produção precisam de **aplicações
+> separadas** no Mercado Pago, cada uma com credencial e secret próprios.
+> Diferente do AbacatePay, onde o secret ia na query string da URL.
+
+Payload recebido (`POST` com query `?data.id=ORD...&type=order`):
+
+```json
+{
+  "action": "order.action_required",
+  "api_version": "v1",
+  "application_id": "76506430185983",
+  "date_created": "2021-11-01T02:02:02Z",
+  "id": "123456",
+  "live_mode": false,
+  "type": "order",
+  "user_id": 2025701502,
+  "data": { "id": "ORD01JQ4S4KY8HWQ6NA5PXB65B3D3" }
+}
+```
+
+**★ O webhook NÃO diz se foi pago, e NÃO carrega o nosso `externalId`.**
+Ele carrega o **id da order do Mercado Pago**. Para saber o desfecho é
+obrigatório um `GET /v1/orders/{id}` depois de responder 200. Isso é uma
+diferença de natureza em relação ao AbacatePay, onde o nome do evento
+(`transparent.completed`) já era a verdade e o payload trazia
+`data.transparent.externalId` direto.
+
+Assinatura (`x-signature: ts=<ms>,v1=<hex>` + header `x-request-id`):
+
+```
+manifest = "id:<data.id MINÚSCULO>;request-id:<x-request-id>;ts:<ts>;"
+v1 == HMAC_SHA256_hex(secret_da_aplicacao, manifest)
+```
+
+Três armadilhas, todas documentadas: (a) o `data.id` vem do **query param**, não
+do corpo; (b) precisa ser **convertido para minúsculo** (`ORD01JQ...` →
+`ord01jq...`); (c) partes ausentes são **removidas** do manifest, não deixadas
+vazias. Comparar com `timingSafeEqual`.
+
+Resposta esperada: **200 ou 201 em até 22 segundos**. Sem isso, o Mercado Pago
+reenvia **a cada 15 minutos**; após a terceira tentativa o intervalo aumenta,
+mas as entregas continuam.
+
+### 3-D Secure (só cartão de crédito)
+
+Muito mais simples que na API antiga — sem `creq`, sem form POST montado à mão:
+
+```jsonc
+"config": { "online": { "transaction_security": {
+  "validation": "on_fraud_risk",   // on_fraud_risk | never (default never)
+  "liability_shift": "required"    // único valor aceito; PROIBIDO se validation=never
+}}}
+```
+
+Sem desafio → `status: processed`. Com desafio → `action_required` /
+`pending_challenge`, e a URL pronta em
+`transactions.payments[i].payment_method.transaction_security.url` — basta abrir
+num iframe. O comprador tem **40 minutos**; estourou, vira `canceled`/`expired`
+e é preciso criar outra order. O fim do desafio chega por `postMessage`
+(`e.data.status === "COMPLETE"`), mas a doc é explícita: **isso não garante
+status final** — confirmar por webhook ou `GET /v1/orders/{id}`.
+
+Não existe 3DS obrigatório: só `never` ou `on_fraud_risk` (baseado em risco).
+
+### Por que débito saiu do escopo
+
+Três fontes independentes da documentação oficial convergem para o mesmo lugar:
+
+1. Tabela comparativa de checkouts (overview): meios no Brasil são
+   "Credit card, Pix, boleto bancário and **Caixa virtual debit card**".
+2. Tabela de cartões de teste: **um único** cartão de débito, **Elo**
+   `5067 7667 8388 8311`.
+3. Enum de `payment_method.id` na API Reference: entre os valores de débito,
+   só **`debelo`** ("Elo debit"). Não há `debvisa` nem `debmaster`.
+
+Ou seja: `debit_card` existe na API, mas no Brasil o débito do Checkout
+Transparente é essencialmente o **débito virtual Caixa (Elo)** — não "qualquer
+cartão de débito". Ressalva honesta: esse enum é claramente parcial (omite `elo`
+crédito, `amex` e `hipercard`, que existem). A resposta definitiva por conta é
+`GET /v1/payment_methods` com o access token de produção, que devolve
+`payment_type_id`, `status`, `min_allowed_amount` e `deferred_capture` por
+bandeira. **Não foi executado nesta sessão** (exigiria as credenciais).
+
+Diante disso, o dono decidiu tirar débito do escopo. A decisão é reversível: o
+payload muda só em `payment_method.type` e `id`.
+
+### ★ Credenciais de teste NÃO funcionam na Orders API
+
+Achado de maior impacto operacional, transcrito da tabela de erros:
+
+> `401` · `invalid_credentials` — _"There is no support for test credentials.
+> Use **test users with production credentials** for the sandbox environment and
+> your production credentials for the production environment."_
+
+Traduzindo: as **credenciais de teste não valem** para a Orders API. Para testar
+usa-se **conta de teste (test user) com credencial de PRODUÇÃO**. Como o dono
+mencionou ter "credenciais de teste e de produção", isso precisa ser verificado
+antes de qualquer implementação — o par de credenciais de teste provavelmente
+não serve.
+
+Complemento: em sandbox o e-mail do pagador precisa conter `@testuser.com`
+(erro `invalid_email_for_sandbox`).
+
+### Erros relevantes
+
+| status | code                                 | quando                                              |
+| ------ | ------------------------------------ | --------------------------------------------------- |
+| 400    | `invalid_total_amount`               | `total_amount` ≠ Σ `transactions.payments[].amount` |
+| 400    | `exceeded_number_of_transactions`    | mais de uma transação na order                      |
+| 400    | `order_builder_without_transactions` | order sem transação                                 |
+| 400    | `invalid_idempotency_key_length`     | `X-Idempotency-Key` fora de 1–64 chars              |
+| 400    | `invalid_email_for_sandbox`          | e-mail sem `@testuser.com` em sandbox               |
+| 400    | `refund_amount_exceeds`              | estorno maior que o disponível                      |
+| 401    | `invalid_credentials`                | credencial de teste (ver acima)                     |
+| 402    | `failed`                             | erro ao processar a transação                       |
+| 429    | —                                    | rate limit; respeitar o header `Retry-After`        |
+
+### Cartões de teste e cenários
+
+| tipo    | bandeira   | número              | CVV  | validade |
+| ------- | ---------- | ------------------- | ---- | -------- |
+| Crédito | Mastercard | 5480 8328 0103 3311 | 123  | 11/30    |
+| Crédito | Visa       | 4235 6477 2802 5682 | 123  | 11/30    |
+| Crédito | Amex       | 3753 651535 56885   | 1234 | 11/30    |
+
+O resultado é controlado pelo **nome do titular**, não pelo cartão: `APRO`
+(aprovado), `OTHE` (recusa genérica), `CONT` (pendente), `CALL`, `FUND`, `SECU`,
+`EXPI`, `FORM`, `CARD`, `INST`, `DUPL`, `LOCK`, `CTNA`, `ATTE`, `BLAC`, `UNSU`,
+`TEST`. CPF de teste: `12345678909`.
+
+### Captura e estorno
+
+- Captura só **total** (parcial não existe hoje), prazo de **5 dias** da criação;
+  não capturou, cancela sozinho.
+- `POST /v1/orders/{id}/capture`, `/cancel`, `/refund` (total e parcial),
+  `/process` (só em `processing_mode: manual`), `GET /v1/orders/{id}`,
+  `GET /v1/orders/search`.
+- PIX: cancelar enquanto `status=action_required`. Passados 30 dias do
+  vencimento, o Mercado Pago considera expirado e **não** aceita cancelamento
+  manual.
+
+### Como o Mercado Pago entra na arquitetura (plano, não implementado)
+
+A arquitetura de ports/adapters já existente absorve o Mercado Pago sem reforma.
+O que existe hoje:
+
+- **Porta** `PaymentGateway` (`payments/domain/payment-gateway.ts`) — hoje só
+  `criarCobrancaPix()` + `expiraEmSegundos`.
+- **Token** `PAYMENT_GATEWAY` resolvido por factory em `payments.module.ts`,
+  com `gatewayAtivo()` lendo `process.env.PAYMENT_GATEWAY`
+  (`abacatepay` em produção, `fake` fora).
+- **Controllers montados condicionalmente**: o webhook só é exposto com o
+  gateway real; com `fake`, nenhuma superfície de webhook existe.
+- **`CobrancaOnlineService`** — o **único** ponto que decide _como_ a cobrança
+  acontece (gateway real vs ponte manual por WhatsApp).
+- **`ProcessarWebhookUseCase.executar({ externalId })`** — já é
+  **agnóstico de gateway**: recebe só o `externalId` e faz a transição
+  idempotente `AGUARDANDO → PAGO` liberando pacote/atendimento na mesma transação.
+- **`IntencaoDePagamento`** com `externalId` `@unique` e `expiraEm` local.
+
+O que o Mercado Pago exige acrescentar (a decidir na sessão de implementação):
+
+1. `gatewayAtivo()` passa a reconhecer `'mercadopago'`, sem remover
+   `'abacatepay'` nem `'fake'`, e a lista de controllers ganha o webhook do
+   Mercado Pago quando ele estiver ativo.
+2. **A porta precisa crescer** para cartão. Hoje ela só sabe PIX. Cartão de
+   crédito exige token vindo do frontend, e o retorno não é um QR — é um
+   desfecho (aprovado / em análise / recusado / desafio 3DS).
+3. **O webhook do Mercado Pago não cabe no `ProcessarWebhookUseCase` atual.**
+   Ele entrega o id da _order_, não o nosso `externalId`, e não diz o status.
+   São necessários: um passo de `GET /v1/orders/{id}` (nova capacidade na porta,
+   algo como `consultarCobranca(gatewayId)`) e uma forma de chegar na intenção —
+   ou lendo `external_reference` da resposta do GET, ou guardando o id do
+   Mercado Pago na `IntencaoDePagamento` (coluna nova) no momento da criação.
+   A primeira opção não mexe no schema; a segunda evita uma chamada de rede.
+4. **Guard de assinatura próprio**, espelhando o padrão incondicional do
+   `AbacatePayWebhookGuard` (validar antes de tocar em qualquer entidade, 401 em
+   falha, sem branch de "pular em dev"). Diferença: o do Mercado Pago lê **query
+   param + headers**, não o corpo cru.
+5. **Conversão de dinheiro só na borda de infra**: `Dinheiro` continua em
+   centavos inteiros no domínio (CLAUDE.md §3 proíbe float); o adapter converte
+   para a string `"50.00"` na hora de montar o payload, e de volta na leitura.
+   Nenhum float atravessa o domínio.
+6. **`X-Idempotency-Key`**: usar o próprio `externalId` da intenção é o candidato
+   natural — estável por intenção, dentro do limite de 64 chars, e faz o retry
+   de criação devolver a mesma order em vez de duplicar a cobrança.
+7. **`external_reference` = nosso `externalId`** (`randomUUID()`, 36 chars,
+   compatível com o charset exigido).
+8. **Frontend**: cartão exige tokenização no browser com MercadoPago.js V2. Hoje
+   `apps/booking` não tem nenhuma dependência além de React — essa é a primeira.
+   PIX não precisa de nada no frontend além de exibir o QR, como já faz.
+
+### Decisões pendentes levantadas (não resolvidas)
+
+1. **Estados de cartão sem correspondente.** `processing/in_process` (em análise)
+   e `action_required/waiting_capture` não existem no `StatusPagamento`. Criar
+   estados novos ou colapsar em `AGUARDANDO`? Colapsar é mais simples e mantém
+   a máquina de estados pequena, mas perde a distinção entre "cliente ainda não
+   pagou" e "banco ainda está decidindo".
+2. **Estorno e chargeback.** `refunded` e `charged_back` também não têm estado.
+   Hoje o AbacatePay tem o mesmo buraco (`transparent.lost` é no-op registrado
+   em DECISOES_PENDENTES #27). Vale resolver de uma vez para os dois gateways.
+3. **Expiração de PIX.** Com o AbacatePay não há webhook de expiração e usamos
+   timeout local. O Mercado Pago **tem** status `expired` — dá para continuar só
+   com timeout local (mais simples, já funciona) ou passar a confiar no webhook.
+4. **Uma aplicação por ambiente** no painel do Mercado Pago (consequência de não
+   existir `notification_url` por order).
+5. **Credenciais de teste** — confirmar se o que existe hoje serve (ver acima).
+
+### Plano de testes (a executar na implementação)
+
+Conforme CLAUDE.md, o valor está no domínio, não em controller/mapeamento:
+
+- **Unitários de domínio**: conversão `Dinheiro` ↔ string de reais (incluindo
+  centavos que terminam em 0, valores primos e arredondamento hostil);
+  construção do manifest de assinatura (minúsculo, partes ausentes removidas);
+  conversão de segundos para duração ISO 8601; mapeamento status do Mercado Pago
+  → `StatusPagamento`, cobrindo **todos** os valores das duas tabelas.
+- **Unitários do adapter** (com `fetch` injetado, como o `AbacatePayGateway` já
+  faz — nenhum teste chama o Mercado Pago de verdade): payload de PIX, payload
+  de crédito à vista, header de idempotência, tratamento de 4xx/5xx/429.
+- **Verificador de assinatura**: assinatura válida, inválida, header ausente,
+  `data.id` maiúsculo, `x-request-id` ausente, tolerância de `ts`.
+- **E2E de integração**: webhook idempotente (mesmo evento 2x → um efeito só);
+  webhook de order desconhecida; rollback completo quando o `GET` falha no meio;
+  expiração por timeout local continuando a valer.
+- **Regressão**: a suíte inteira verde com `PAYMENT_GATEWAY` em cada um dos três
+  valores, garantindo que AbacatePay e o modo manual não regrediram.
+- **Multi-fuso obrigatório**: `npm run test:multitz -w @bigods/api`
+  (`TZ=UTC`, `America/Sao_Paulo`, `Asia/Tokyo`) — exigência permanente do
+  projeto, e especialmente relevante aqui porque `expiration_time`,
+  `date_of_expiration` e o `ts` do webhook são todos temporais.
+
+### O que ficou faltando nesta pesquisa
+
+Honestidade sobre a cobertura: **8 dos 16 subagentes do aprofundamento e 7 dos
+33 da varredura geral morreram por limite de sessão**. As lacunas de PIX,
+crédito, 3DS, status, webhook, operações e schema foram preenchidas **direto da
+fonte primária** (corpus local), então o essencial está coberto. Continuam em
+aberto:
+
+- **SDK Node.js oficial** — se `mercadopago` (npm) já cobre a Orders API e com
+  que qualidade de tipagem. O projeto usa `fetch` puro no `AbacatePayGateway`,
+  então há precedente para não adotar o SDK; mas a doc mostra que o SDK exporta
+  `WebhookSignatureValidator`, que seria útil.
+- **Taxas e prazos de liberação** no Brasil (páginas de custo, fora da doc técnica).
+- **Changelog / avisos de deprecação** de 2025–2026.
+- **Device ID / antifraude** (`industry-data.md` e `recommendations.md` foram
+  baixados mas não lidos).
+- **`GET /v1/payment_methods` na conta real** — resolve débito e valores mínimos
+  de uma vez.
+
+### Decisões fechadas com o dono (2026-08-26, segunda rodada)
+
+A lista de pendências acima foi resolvida item a item. Consolidado:
+
+| #   | Decisão                                                                                                                                                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Mercado Pago faz **PIX e crédito**. Débito continua fora.                                                                                                             |
+| 2   | `PAYMENT_GATEWAY=mercadopago` **não convive** com `PAGAMENTO_MANUAL_WHATSAPP=true` — uma ou outra. App recusa subir com as duas (fail-fast, sem fallback silencioso). |
+| 3   | Novo status **`EM_ANALISE`** para `processing/in_process` do cartão.                                                                                                  |
+| 4   | Estorno e chargeback continuam **manuais** nesta fase (ver `followup.md` #3).                                                                                         |
+| 5   | Crédito disponível nas **duas trilhas** (pacote e avulso).                                                                                                            |
+| 6   | `capture_mode: automatic` — **cobra sempre na hora**.                                                                                                                 |
+| 7   | **3DS ligado** (`validation: on_fraud_risk`, `liability_shift: required`).                                                                                            |
+| 8   | Cartão recusado: cliente pode tentar outro, mas a **janela de 30 min não é renovada** — o tempo já gasto não volta.                                                   |
+| 9   | Access Token começa com `APP_USR` — credenciais atuais servem.                                                                                                        |
+| 10  | Chave PIX cadastrada na conta.                                                                                                                                        |
+| 11  | Aplicações de staging e produção criadas.                                                                                                                             |
+| 12  | **MCP Server oficial do Mercado Pago será conectado** nesta sessão de desenvolvimento.                                                                                |
+| 13  | `statement_descriptor` = **`BIGODS_BARBERSHOP_F1`**.                                                                                                                  |
+| 14  | Cartão salvo fora de escopo (`followup.md` #6).                                                                                                                       |
+| 15  | Reembolso integrado na tela de admin, **agendado para 31 dias**, prazo parametrizável e opcionalmente imediato (`followup.md` #1, #2, #5).                            |
+| 16  | Caixa do `data.id` na assinatura: seguir o que o Mercado Pago **de fato exigir**, validado empiricamente antes do adapter (`followup.md` #8).                         |
+| 17  | **Comissão incide sobre o valor LÍQUIDO** (descontada a taxa do Mercado Pago).                                                                                        |
+| 18  | 3DS pendente (`pending_challenge`) cai em **`AGUARDANDO`** — o cliente ainda precisa agir e a janela de 30 min segue correndo.                                        |
+| 19  | Invariante: **no máximo uma `IntencaoDePagamento` `AGUARDANDO` por referência**, com índice parcial no Postgres. Segundo pagamento vira log + revisão manual.         |
+| 20  | Pagamento que chega **depois** da janela expirar: **estorno automático** + avisar o cliente para reagendar (`followup.md` #4 — precisa ser idempotente).              |
+| 21  | Ver `followup.md` #1 e #2.                                                                                                                                            |
+| 22  | Confirmado: uma ou outra ligada, nunca as duas.                                                                                                                       |
+| 23  | CSP/CloudFront: especificação abaixo, aplicada pelo dono.                                                                                                             |
+
+**Item 17 tem peso arquitetural.** `LancamentoComissao` é um ledger **imutável** (CLAUDE.md
+item 6) — saldo é sempre derivado por soma, nunca coluna mutável. Comissionar sobre líquido
+significa que o `valorBase` do lançamento passa a depender da taxa efetivamente retida pelo
+Mercado Pago, que só é conhecida na resposta da order (`paid_amount`, distinto de `amount`).
+Isso precisa estar resolvido **antes** do primeiro lançamento em produção: depois, só por
+lançamento de ajuste.
+
+### Correções a afirmações anteriores desta seção
+
+1. **Idempotência — a recomendação anterior estava errada.** Foi escrito acima que o
+   `externalId` da intenção poderia servir como `X-Idempotency-Key`. **Não pode.** Reenviar a
+   mesma chave **não** devolve a order original: devolve **HTTP 409
+   `idempotency_key_already_used`**. Não existe semântica de replay na documentação do
+   Mercado Pago. Os dois papéis são distintos:
+   - `X-Idempotency-Key` → identifica **uma tentativa HTTP**. UUID v4 novo a cada POST,
+     persistido, nunca reutilizado.
+   - `external_reference` → identifica **a intenção de pagamento** (nosso `externalId`).
+
+2. **Credenciais de teste — o alarme era exagerado.** A tabela de erros diz que "não há
+   suporte a credenciais de teste", mas a `resources/test-accounts` esclarece: em Checkout
+   Transparente via Orders a conta de teste de _seller_ é criada junto com a aplicação e
+   _"its credentials become your test credentials"_. O par do painel **já é** credencial de
+   test user, em formato de produção (`APP_USR`). Não há host de sandbox — sempre
+   `api.mercadopago.com`; só o valor da env muda entre ambientes.
+
+   **Armadilha:** nunca detectar ambiente pelo prefixo do token — teste e produção começam
+   ambos com `APP_USR`. Usar env explícita.
+
+### Device ID — é header, não campo do corpo
+
+A pesquisa fechou como o Device ID entra na Orders API, e é diferente do que se supõe:
+
+- Usando o SDK JS do Mercado Pago, **não é preciso** adicionar o `security.js`: o Device ID
+  já é coletado por padrão.
+- A variável global gerada é `MP_DEVICE_SESSION_ID` (renomeável pelo atributo `output`, ou
+  via um elemento com `id="deviceID"`).
+- O envio ao criar a order é por **header**: `X-meli-session-id: <device_id>`.
+
+### CSP e CloudFront — especificação para aplicar
+
+| diretiva      | domínio                                                  | para quê                                                    |
+| ------------- | -------------------------------------------------------- | ----------------------------------------------------------- |
+| `script-src`  | `https://sdk.mercadopago.com`                            | SDK JS v2, carregado de `https://sdk.mercadopago.com/js/v2` |
+| `connect-src` | `https://api.mercadopago.com`                            | o browser chama a API direto ao tokenizar o cartão          |
+| `frame-src`   | `https://www.mercadopago.com.br`                         | iframe do desafio 3DS (`/auth/card/validation/...`)         |
+| `img-src`     | `https://http2.mlstatic.com`, `https://img.mlstatic.com` | logos de bandeira devolvidos pela API                       |
+
+O `security.js` do Device ID **não** precisa entrar: já vem pelo SDK.
+
+### Prazos de estorno por meio de pagamento
+
+Crédito **180 dias**, PIX **90 dias**, débito 24 h (irrelevante — débito fora de escopo). O
+agendamento de 31 dias do item 15 cabe com folga nos dois meios que usaremos. E o Mercado
+Pago **devolve a taxa de venda** junto com o estorno — ver `followup.md` #2.
+
+---
+
+## Fase 7 — checkout de cartão no funil (2026-08-27) ✅ IMPLEMENTADO
+
+O cliente passa a poder escolher **PIX ou cartão de crédito à vista** na tela de
+confirmação, e pagar o cartão sem que número, validade ou CVV toquem o nosso
+JavaScript.
+
+### A decisão de arquitetura que o plano não previa: escolher o trilho ANTES de confirmar
+
+O plano tratava a Fase 7 como front puro. Não dava: `AgendarAvulsoUseCase` e
+`VenderPacoteUseCase` criam a cobrança PIX **junto com a intenção**, então um
+cliente que fosse escolher cartão na tela seguinte já teria uma order de PIX viva.
+
+Isso não é desperdício, é **dois caminhos de pagamento abertos na mesma intenção**:
+o cliente poderia pagar o PIX e ter o cartão aprovado, e a trava de "uma tentativa
+viva por vez" só olha tentativas de cartão. Duas cobranças pelo mesmo agendamento.
+
+A correção é escolher o trilho antes de qualquer chamada ao gateway:
+
+| trilho | o que o backend devolve | order criada no gateway |
+|---|---|---|
+| `PIX` (default) | `cobranca` (QR + copia-e-cola) | sim, na hora |
+| `CARTAO_CREDITO` | `checkoutCartao` (`intencaoId`, `expiraEm`) | **nenhuma** — nasce no POST do cartão, uma por tentativa |
+| manual (WhatsApp) | `pagamentoManual` | nenhuma |
+
+`meioOnline` é opcional em toda a cadeia e ausente significa `PIX` — nenhum cliente
+antigo do funil muda de comportamento.
+
+### `suportaCartao` na porta, não `if (gateway === 'mercadopago')`
+
+O funil precisa saber se pode desenhar o botão de cartão. A resposta é do adapter,
+e vira uma capacidade declarada na porta `PaymentGateway`:
+
+- `MercadoPagoGateway.suportaCartao = true`
+- `AbacatePayGateway.suportaCartao = false`
+- `FakeAbacatePayGateway.suportaCartao = false` — **de propósito**, mesmo sendo o
+  gateway de desenvolvimento: um cartão "aprovado" pelo fake exercitaria um caminho
+  que não existe em produção (tokenização no browser, 3DS, antifraude).
+
+`typeof gateway.pagarComCartao` não serviria: o método está na porta para todos, e
+quem não suporta lança `RecursoNaoSuportadoPeloGatewayError`.
+
+`CobrancaOnlineService` ganhou `meiosDisponiveis` e `assertMeioSuportado`, chamado
+no **início** dos dois casos de uso — antes da primeira escrita. Recusar só na hora
+de cobrar já teria criado o `Atendimento` e RESERVADO o horário, e a exceção
+deixaria esse horário preso até expirar por erro de cliente.
+
+### A chave pública vem da API, nunca de uma `VITE_`
+
+`/public/empresa` passou a devolver `pagamentoOnline: { meios, mercadoPagoPublicKey }`.
+
+Ela é pública mas é **por ambiente**. Embutida no bundle por
+`VITE_MERCADOPAGO_PUBLIC_KEY`, um funil de staging apontado para a API de produção
+tokenizaria com a chave da aplicação errada e falharia só na hora de pagar, com erro
+genérico do gateway. Servida pela API, chave e Access Token vêm sempre da mesma
+aplicação porque vêm do mesmo processo.
+
+O risco espelhado é o Access Token vazar ali: ele tem o **mesmo prefixo `APP_USR-`**
+e é indistinguível a olho nu numa revisão de código, e essa rota é servida sem
+autenticação. Três defesas: `config-seguranca.ts` recusa o boot se as duas variáveis
+forem iguais; um teste-cadeado serializa a resposta inteira e afirma que nenhum
+segredo de gateway aparece; e o e2e repete a checagem sobre a resposta HTTP real.
+
+### O PAN não existe no nosso código
+
+`CartaoCheckout.tsx` usa **Secure Fields** do MercadoPago.js V2: número, validade e
+CVV são iframes de `sdk.mercadopago.com`. O componente também **não recebe `patch`** —
+sem acesso ao estado do funil, não há como dado de cartão acabar em `sessionStorage`.
+
+Duas travas sobre `funnel-state.ts`, que serializa o estado inteiro em
+`sessionStorage`:
+
+1. **Teste-cadeado** com a lista de chaves congelada **à mão** (não
+   `Object.keys(estadoInicial)`, que passaria automaticamente para qualquer chave
+   nova — o evento que precisa parar a build), mais um teste que recusa nome de
+   chave com cara de cartão.
+2. **Tripwire de runtime** (`contemNumeroDeCartao`): se algo no estado parece PAN,
+   `salvarEstado` **não persiste** e grita no console.
+
+O regex do plano (`/(?<!\d)\d{13,19}(?!\d)/`) teria disparado em **todo** estado do
+funil: um celular BR em E.164 (`5511912345678`) tem exatamente 13 dígitos, e um
+guarda que acusa sempre é um guarda que alguém desliga. Então: o campo `telefone`
+sai da varredura, e uma corrida longa só conta como cartão se passar no **Luhn**.
+
+O único ponto cego — um PAN digitado no campo `telefone` — está coberto por teste
+próprio, para que ninguém "resolva" o falso positivo movendo dado de cartão para lá.
+
+### Degradação quando o SDK não carrega
+
+A CSP do CloudFront é ação do dono (`followup.md` #7) e pode não estar aplicada
+quando o primeiro cliente clicar em cartão. O SDK é carregado **sob demanda** (não no
+`index.html`: quem paga por PIX não deve pagar uma requisição a terceiro), e a falha
+leva à tela "não foi possível abrir o cartão" com o PIX ao lado.
+
+Há **timeout explícito** de 10 s porque um bloqueio de CSP pode não disparar
+`onerror` em todo navegador — sem ele, o cliente ficaria num spinner eterno. E a
+injeção é deduplicada pelo `src` lido do DOM: dois cliques rápidos redefiniriam
+`window.MercadoPago` no meio do uso da primeira instância.
+
+O script do **antifraude** (Device ID) é best-effort por contrato: resolve com
+`undefined` se falhar. É o mais provável de ser bloqueado por extensão de
+privacidade, e trocar "cliente não consegue pagar" por "aprova um pouco menos" seria
+uma troca ruim.
+
+### OTP condicional
+
+Cartão com **telefone novo exige OTP**; telefone já cadastrado segue dispensado
+(decisão do dono).
+
+A dispensa no avulso online se sustentava numa assimetria do PIX: quem não paga só
+perde o horário e ninguém é cobrado. No cartão a cobrança é imediata — um telefone
+inventado permitiria testar cartões roubados contra a nossa conta, e o estrago
+(chargeback, taxa, risco de bloqueio de conta) recai na barbearia.
+
+### Quatro bugs de código que só o E2E encontrou
+
+Nenhum deles apareceria em teste de unidade: os quatro exigem HTTP real, Postgres
+real e concorrência real.
+
+**1. Cartão recusado ⇒ 503 em vez de "recusado".** A tabela de status era escrita no
+vocabulário da camada de `order` (`failed/high_risk`), mas o adapter lê
+`transactions.payments[0].status` **primeiro**, e essa camada usa
+`rejected/cc_rejected_*`. Combinação desconhecida **lança** de propósito — e o
+`throw` virava 503 no desfecho mais comum de um checkout que não é o caminho felizinho.
+
+Corrigido aceitando as duas grafias (49 entradas, com o cadeado de contagem
+atualizado e as duas listas separadas na spec). **Isto reverte uma decisão anterior
+desta mesma sessão**, que afirmava em teste que o vocabulário da camada de payment
+deveria explodir. A justificativa original — "apontar o mapa para `/v1/payments` tem
+que explodir" — não se sustenta: o que protege contra ler a resposta errada é
+`validarVinculo` e a checagem de VALOR, não a tabela. A tabela protege contra status
+**desconhecido**, e isso continua de pé. `followup.md` #12 registra a confirmação
+empírica pendente.
+
+**2. Janela expirada não gravava a expiração.** O caso de uso fazia
+`intencao.expirar()` e em seguida `throw ConflictException` **dentro** de
+`uow.transacao`. O throw dá rollback, e o `expirar()` ia junto: a intenção continuava
+`AGUARDANDO` e o polling do funil mostraria "reservado" por mais 30 minutos. O código
+dizia uma coisa e o banco guardava outra. Agora sai da transação com o dado gravado e
+lança depois do commit.
+
+**3. Duas cobranças simultâneas criavam DUAS orders.** A trava de "uma tentativa viva
+por vez" era read-then-write dentro de uma transação — em READ COMMITTED, as duas
+leem zero tentativas vivas e as duas inserem. Medido: duas orders no gateway para o
+mesmo agendamento, com `capture_mode: automatic`, isto é, cliente cobrado duas vezes.
+
+Corrigido com o índice parcial único
+`20260827030000_tentativa_viva_unica` — a mesma classe de invariante do
+`EXCLUDE USING gist` do conflito de horário (§7 do CLAUDE.md). Invariante de
+concorrência que vive só no código de aplicação não é invariante, é intenção.
+
+Aditiva e segura em produção: `TentativaDePagamento` é tabela nova e **vazia** — o
+checkout de cartão nunca rodou. Não há duplicata pré-existente, então esta não
+precisa do diagnóstico read-only que as da Fase 1c ainda esperam.
+
+Armadilha encontrada na tradução do erro: **`meta.target` do P2002 traz as COLUNAS,
+nunca o nome do índice** — verificado empiricamente contra o Postgres:
+
+```
+{ modelName: 'TentativaDePagamento', target: ['intencaoDePagamentoId'] }
+```
+
+A primeira versão do `catch` procurava o nome do índice e portanto **nunca casava**;
+o P2002 escapava e o cliente recebia 500. Passou despercebido porque o e2e afirmava
+`status >= 400`, e 500 satisfaz isso. Só um `toBe(409)` pegou.
+
+**4. O pior: segundo cartão aprovado ⇒ cliente cobrado sem agendamento.** Cartão
+recusado chamava `intencao.marcarFalha()`, levando a **intenção** a `FALHOU`. Daí:
+
+- a segunda tentativa estourava **422**, porque `marcarFalha()` recusava
+  `FALHOU → FALHOU` — o cliente com um cartão recusado ficava sem saída, contrariando
+  a decisão do dono de "pode tentar outro cartão";
+- e se a segunda tentativa fosse **aprovada**, `confirmarPagamento` recusava
+  `FALHOU → PAGO`: dinheiro capturado no emissor, agendamento não confirmado.
+
+A raiz era confundir **tentativa** com **intenção** — exatamente a distinção que
+`TentativaDePagamento` existe para manter. Uma recusa de cartão não mexe mais no
+status da intenção: a janela segue correndo, e quem está `FALHOU` é a tentativa.
+Além disso `marcarFalha()` ficou idempotente (reentrega do mesmo webhook não pode dar
+422, senão o Mercado Pago retenta a cada 15 min para sempre) e `confirmarPagamento`
+passou a aceitar `FALHOU → PAGO`.
+
+`EXPIRADO → PAGO` segue **recusado**: ali o horário já voltou para a agenda, e
+confirmar daria pagamento sem vaga — é o caso do estorno automático, não da
+confirmação. O que mantém tudo seguro é a checagem de valor, que roda **antes** de
+qualquer transição.
+
+### Throttle do cartão ficou configurável
+
+`CARTAO_LIMITE_POR_ORIGEM` (default 10 por 10 min por IP), no mesmo padrão que
+`OTP_LIMITE_POR_ORIGEM_HORA` já usava: lido a cada requisição, valor ≤ 0 ignorado
+para que um `.env` mal preenchido não abra a porta. Operadoras móveis usam CGNAT e
+clientes legítimos podem sair pelo mesmo IP público.
+
+O motivo imediato foi a suíte — todos os testes saem do mesmo IP e um único balde os
+cobre a todos —, mas a necessidade é de produção. **Nunca desligar**: é o único
+limite entre um `intencaoId` vazado e uma bateria de tentativas contra a nossa conta.
+
+### Testes
+
+| suíte | antes | depois |
+|---|---|---|
+| `apps/api` `src` (× 3 fusos) | 741 | **770** |
+| `apps/booking` | 49 | **101** |
+| E2E do Mercado Pago | 22 | **35** |
+| suíte completa com Postgres | 1245 / 95 arq. | **1301 / 97 arq.** |
+
+Novos: `cartao.spec.ts` (26), `mercadopago-sdk.spec.ts` (16), cadeado + tripwire em
+`funnel-state.spec.ts` (+16), `cobranca-online.service.spec.ts` (15),
+`empresa-publica-query.service.spec.ts` (9), retentativa de cartão em
+`intencao-de-pagamento.spec.ts` (+7), duas grafias em
+`motivo-publico-da-recusa.spec.ts` (+8), duas camadas em `mercadopago-status.spec.ts`.
+
+Os testes de cartão foram **acrescentados ao arquivo e2e existente**, não a um
+arquivo novo: a suíte roda 97 arquivos e2e no mesmo processo
+(`fileParallelism: false`), cada um com seu app Nest e seu pool do Prisma, e cada
+arquivo novo agrava a instabilidade medida em `followup.md` #11.
+
+---
+
+## Fase 8 — comissão sobre o líquido (2026-08-27) ✅ IMPLEMENTADO
+
+A fase bloqueante para produção: depois do primeiro lançamento, o ledger
+`LancamentoComissao` é imutável e corrigir custa um lançamento de ajuste por
+atendimento.
+
+### Duas decisões que contrariam o plano — e por quê
+
+**1. O plano mandava "adiar o lançamento" quando o líquido não fosse conhecido.
+Não adiamos.**
+
+A instrução era boa na intenção — não gravar número aproximado num ledger imutável.
+Mas a pergunta que ela não responde é: o que libera um lançamento adiado? **Nada.**
+Não há job, não há tela, não há evento. A comissão do barbeiro simplesmente não
+existiria, sem erro, e quem descobriria seria ele no dia do acerto, achando que o
+sistema comeu o dinheiro dele. Trocar "número aproximado" por "número nenhum" erra
+mais e erra em silêncio.
+
+A incerteza foi eliminada **antes** do runtime: com um gateway online ativo, a taxa
+é obrigatória no boot (`config-seguranca.ts`), e `scripts/deploy.sh` repete a
+checagem antes de subir container. Se ainda assim o líquido faltar, o handler lança
+o **bruto** e grita no log — o barbeiro recebe a mais, nunca a menos, e o erro fica
+visível.
+
+**⚠ Isto é um gate de deploy.** `PAYMENT_GATEWAY=abacatepay` sem
+`ABACATEPAY_TAXA_BASIS_POINTS` **não sobe**. É ação do dono: ler a taxa efetiva no
+extrato da conta e escrevê-la em pontos-base. `0` é resposta válida ("a casa banca a
+taxa") — mas tem que ser escrita: vazio significa "ninguém decidiu", e o ledger não
+perdoa isso.
+
+**2. O plano dizia "comissão sobre o líquido". Implementamos como LINHA, não como
+base reduzida.**
+
+As duas são aritmeticamente idênticas:
+
+```
+  Σ (baseᵢ − taxaᵢ) × pᵢ  ==  Σ baseᵢ × pᵢ  −  Σ taxaᵢ × pᵢ
+  └──── base reduzida ────┘   └── bruta ──┘   └─── a linha ───┘
+```
+
+A linha vence pelo motivo que a Fase 3 já estabeleceu para caixinha e desconto: uma
+base silenciosamente menor faz o barbeiro ver a comissão cair sem nada explicando.
+No extrato:
+
+```
+  Comissão corte simples             R$ 45,00
+  Taxa do pagamento online           − R$  1,35
+```
+
+Há um teste que fixa a identidade (`base bruta − absorção == Σ (base − fatia) × p`),
+porque se ela quebrar a escolha de transparência passa a custar dinheiro a alguém.
+
+### Por que a taxa é rateada ANTES de aplicar percentual
+
+Cada item tem o SEU percentual (matriz barbeiro×serviço; produto usa a taxa única da
+empresa). Não existe "um percentual" para aplicar sobre a taxa total — um barbeiro a
+50% no corte e 30% na barba absorve frações diferentes da mesma taxa. Então a taxa é
+rateada proporcionalmente às bases (método do maior resto, `Σ fatias == taxa` exato e
+**determinístico**) e cada fatia leva o percentual do seu item.
+
+Fora do rateio: **caixinha e desconto**, declarados no fechamento — o pagamento
+online aconteceu no agendamento e eles não passaram pelo gateway.
+
+Dentro do rateio, com imprecisão consciente: **itens adicionados no fechamento**. Um
+serviço acrescentado na cadeira e pago em dinheiro absorve fração de uma taxa que o
+gateway cobrou sobre outra coisa. Atribuir com precisão exigiria saber QUAIS itens a
+intenção cobriu, e o modelo guarda um valor, não uma lista. No caso comum as duas
+contas coincidem, e o erro é de centavos, a favor da casa.
+
+### `percentualAplicado` é `null` neste lançamento
+
+Não existe um percentual honesto para escrever: a taxa é rateada e cada fatia leva o
+percentual do seu serviço. É a mesma situação em que `criarDeDescontoConcedido`
+deixava o campo nulo antes de o desconto ganhar um percentual próprio no cadastro.
+Gravar a razão `parte / taxaTotal` como "percentual efetivo" seria um número derivado
+convidando alguém a recalcular a partir dele e chegar a outro resultado.
+
+### De onde vem a taxa
+
+| gateway | fonte | obrigatória? |
+|---|---|---|
+| Mercado Pago | `paid_amount` da order — o número real da transação | taxa configurada é **rede**, exigida só em produção |
+| AbacatePay | **não expõe líquido em resposta nenhuma** | taxa configurada é a **única** fonte, exigida sempre |
+| fake / manual | não cobra, não retém → zero **conhecido** | — |
+
+A distinção entre "taxa zero" e "taxa desconhecida" é o eixo do desenho: zero é um
+fato (sem pagamento online, gateway fake, ou a casa decidiu bancar); desconhecida é
+configuração faltando, e o único caminho que grita no log.
+
+O líquido informado **vence** a taxa configurada quando ambos existem: o número real
+inclui variações que nenhuma config acompanharia (promoção de tarifa, antecipação,
+bandeira).
+
+### `followup.md` #13 fechado no mesmo commit
+
+`IntencaoDePagamento` ganhou a coluna `meio`, preenchida na criação da cobrança —
+que é o instante em que o trilho fica decidido. `ConcluirAtendimentoUseCase` traduz:
+cartão grava `CARTAO_CREDITO`, PIX grava `PIX_ONLINE`, `null` (linha antiga ou modo
+manual) cai em `PIX_ONLINE`, que é o que essas linhas de fato foram.
+
+Foi feito junto porque é o mesmo arquivo e o mesmo caminho — abrir o ledger de
+comissão duas vezes é pior que abrir uma.
+
+### Validação da taxa no boot
+
+`"2.99"` no lugar de `"299"` seria 0,0299% e erraria toda comissão; `"29900"` seria
+999%. Os dois são recusados no boot, junto de vírgula, negativo e acima de 3000 pb
+(teto de sanidade: nenhum gateway brasileiro cobra 30% à vista). `"299.0"` é
+aceito — é a mesma unidade escrita de forma redundante, e rejeitar seria pedantismo.
+
+### Migrations
+
+Duas, aditivas, **separadas** — `ALTER TYPE ... ADD VALUE` não pode conviver com uso
+do valor na mesma transação, e este projeto já tropeçou nisso três vezes:
+
+- `20260827040000_comissao_liquida_tipos` — `TipoLancamento.TAXA_PAGAMENTO_ONLINE`
+- `20260827040100_comissao_liquida_campos` — `IntencaoDePagamento.meio` (nulável)
+
+`sinalDoTipo` não mudou: devolve `-1` para tudo que não é `COMISSAO`. Há um teste que
+prende isso, porque o dia em que alguém mexer ali a taxa do gateway aparece como
+ganho do barbeiro.
+
+### A instabilidade da suíte foi RESOLVIDA (era `followup.md` #11)
+
+O que faltava era o diagnóstico. A medição decisiva: rodando **só** a api,
+1362/1362 verde repetidamente; pelo **turbo** (5 pacotes de teste em paralelo), 2 a 4
+falhas por rodada, em arquivos diferentes, nunca por asserção. Dois sintomas, duas
+causas:
+
+- **`Test timed out in 5000ms`** com tempos de 5003 e 5006 ms, em testes que levam
+  <100 ms isolados. O limite de 5 s era aposta sobre a velocidade da máquina.
+  → `testTimeout: 20_000`. Não esconde lentidão: o vitest imprime a duração de cada
+  teste.
+- **`ECONNRESET` em 8 ms** — conexão recusada, não lentidão. `max_connections`
+  estava no default (100) e os 99 arquivos e2e acumulam pools mais rápido do que o
+  `app.close()` assíncrono os drena. → `postgres -c max_connections=300` no compose
+  de **desenvolvimento** (produção é RDS, parameter group próprio).
+
+- **A causa RAIZ, que as duas primeiras só mascaravam: `fsync`.** O log do Postgres
+  entregou o crime: `checkpoint complete: wrote 334 buffers (2.0%); total=34.650 s` —
+  **35 segundos para escrever 2 MB**, com 3% de CPU e 48 MB de RAM. O volume do
+  Docker Desktop no macOS é virtualizado e sincroniza mal. Enquanto o checkpoint roda,
+  toda escrita bloqueia, e falha o teste que teve o azar de coincidir com ele — daí a
+  aleatoriedade aparente. → `fsync=off`, `synchronous_commit=off`,
+  `full_page_writes=off`, `max_wal_size=2GB` no compose de desenvolvimento. Perder
+  durabilidade num banco cuja recuperação é `down -v && migrate deploy` não é risco, é
+  o procedimento normal.
+
+**Resultado:** 14 falhas → 1, checkpoints lentos sumiram do log. `npm run test` — a
+suíte canônica — passou a dar **1592/1592 verde repetidamente**.
+
+Sobra **uma** falha intermitente no `test:multitz`, que roda três suítes inteiras em
+sequência contra o mesmo banco: a primeira TZ passa limpa (1362/1362) e uma
+subsequente falha um teste de `sem-preferencia.e2e.spec.ts` em ~10 ms. Não é mais o
+mesmo problema, e ainda não capturei a mensagem de erro real dele — está registrado
+em `followup.md` #11 com o que já se sabe. A suíte canônica já é determinística e
+serve como gate; o `multitz` ainda não.
+
+### Testes
+
+| suíte | antes da Fase 8 | depois |
+|---|---|---|
+| `apps/api` (src + integração) | 1301 / 97 arq. | **1362 / 99 arq.** |
+| monorepo completo | 1531 | **1592** |
+
+Novos: `taxa-do-pagamento-online.spec.ts` (30, com fuzz determinístico da invariante
+de soma e o teste da identidade), `taxa-retida.spec.ts` (11), lançamento de taxa em
+`lancamento-comissao.spec.ts` (+8), gate de boot em `config-seguranca.spec.ts` (+7),
+e 7 e2e em `caixinha-e-desconto.e2e.spec.ts` — arquivo escolhido de propósito: já
+tinha os fixtures de comissão com os números que o dono conferiu, então a linha nova
+é comparável às de caixinha e desconto no mesmo extrato.
+
+---
+
+## Fase 9 — reembolso agendado (2026-08-27) ✅ BACKEND IMPLEMENTADO
+
+O reembolso do saldo residual deixa de ser "o admin devolve por fora e registra" e
+passa a ser estorno pelo gateway, **agendado**.
+
+### A decisão do dono, e a premissa que não se confirma
+
+31 dias entre decidir e executar, "para receber juros do valor e pagar a taxa do
+Mercado Pago que tivemos de prejuízo". A documentação diz que o **MP estorna a taxa
+de venda junto** e não cobra tarifa pelo processo — não há taxa perdida a compensar.
+O dono foi informado e manteve a decisão; o agendamento segue útil por outros
+motivos (janela de arrependimento, conferência antes de mover dinheiro). Está
+registrado em `followup.md` #2 e no cabeçalho de `reembolso.ts` para que a
+justificativa não vire fato técnico.
+
+O prazo é **por solicitação**, não configuração global escondida: a env define o
+padrão, a tela decide cada caso. `0` significa agora — e é assim que "antecipar" e
+"executar imediato" são expressos, sem um segundo campo booleano para a mesma coisa.
+
+### Uma transição para os três botões
+
+"Agendar (31 dias)", "antecipar" e "tentar de novo" são literalmente a mesma coisa —
+definir *quando* executar. Um endpoint, um caso de uso, uma transição de agregado
+(`SolicitacaoDeReembolso.agendar`). Três casos de uso quase idênticos seriam três
+lugares para a regra divergir.
+
+Quem decide de onde se pode sair é o agregado: `PENDENTE`, `AGENDADO` e `FALHOU`
+podem; **`REEMBOLSADO` não** — o dinheiro já saiu, e reagendar dali seria uma
+segunda devolução do mesmo valor.
+
+### Agendar NÃO chama o gateway. Nem com prazo zero.
+
+Parece um desvio e é deliberado: a execução é **só do job**. Um único caminho de
+execução significa um único lugar onde vivem a chave de idempotência estável, a
+contagem de tentativas e o backoff. Dois caminhos seriam duas chances de devolver o
+mesmo dinheiro duas vezes — e o segundo caminho é sempre o que esquece a chave.
+
+O custo é até 10 minutos de espera num botão que diz "agora", para dinheiro que já
+esperou 31 dias por decisão de negócio.
+
+### O estorno é PARCIAL, e a chave é estável
+
+O valor devolvido é o da solicitação (saldo residual), não o pagamento. A Orders API
+trata corpo vazio como estorno **total** — um total aqui devolveria créditos que o
+cliente já consumiu.
+
+A chave é `reembolso-<solicitacaoId>`, derivada só do id: nada de timestamp, nada de
+contador. Prefixo distinto do `estorno-<intencaoId>` do pagamento fora da janela,
+porque são devoluções diferentes sobre a mesma order em potencial — colidir faria a
+segunda ser silenciosamente ignorada pelo gateway.
+
+### Falha não some (era `followup.md` #1)
+
+Cada falha conta tentativa, guarda o erro cru e **reagenda** com backoff (30 min
+dobrando, teto de 6 h). Oito tentativas cobrem mais de 24 h — tempo para a causa
+provável, saldo insuficiente na conta, se resolver. No teto vai para `FALHOU` e
+**para**: retentar para sempre esconderia atrás de um log a única coisa que precisa
+de gente. O log sobe de WARN para ERROR nessa transição, e `FALHOU` é uma aba própria.
+
+`motivoOperacionalDoEstorno` (em `contracts`, compartilhado com a tela) classifica o
+erro cru em `SALDO_INSUFICIENTE` — o único que o dono resolve sozinho —,
+`PRAZO_VENCIDO`, `INDISPONIVEL` e `DESCONHECIDO`. O default é **desconhecido**, não
+indisponível: tratar erro novo como "retentar resolve" faria o job bater no gateway
+para sempre por um motivo que nunca vai passar.
+
+### A trava contra devolver duas vezes
+
+`marcarReembolsada` (o caminho manual) **recusa** uma solicitação `AGENDADO`: há uma
+execução a caminho, e dar por devolvida à mão pagaria duas vezes. A saída explícita é
+`cancelar-agendamento`, que volta a `PENDENTE` — e **não** desiste de devolver: o
+saldo do pacote segue reservado, só o *quando* e o *como* voltam a ser decisão do
+admin.
+
+Agendar exige pagamento **online**: um pacote pago no balcão não tem transação para
+estornar, e agendar criaria uma linha que o job varreria para sempre sem alvo. Esses
+seguem no caminho manual, e `estornoAutomatico` no DTO diz à tela qual é qual.
+
+### Um bug meu, achado pelo E2E
+
+A primeira versão envolvia `venda.confirmarReembolso()` num `try/catch` cego, com o
+comentário "tolerante a já-feito". O `catch` engolia também a **violação da
+invariante de soma do pacote** — e o desfecho era o pior possível: solicitação
+marcada `REEMBOLSADO`, dinheiro devolvido pelo gateway, e o saldo continuando
+reservado, oferecendo um abatimento que já não existia.
+
+Corrigido trocando tentar-e-capturar por **perguntar**
+(`saldoReservadoReembolso.ehPositivo()`). "Já movido" é sucesso; qualquer outro erro
+derruba a transação. Tem teste próprio.
+
+### Testes
+
+| suíte | antes | depois |
+|---|---|---|
+| `apps/api` | 1362 / 99 arq. | **1438 / 102 arq.** |
+| monorepo | 1592 | **1674** |
+
+Novos: `solicitacao-de-reembolso.spec.ts` (29), `executar-reembolso-agendado.spec.ts`
+(24), `reembolso.spec.ts` (13), `motivo-estorno.spec.ts` (6, em contracts), e 10 e2e
+acrescentados a `webhook-mercadopago.e2e.spec.ts` — que já tem o `fetch` mockado do
+gateway e onde a rota de refund coube naturalmente.
+
+### A suíte voltou a ser flaky, e a afirmação anterior foi corrigida
+
+Ao fim da Fase 8 registrei `npm run test` como determinístico. **Não se sustentou**:
+em 6 execuções desta fase, cerca de 1 falha a cada 3–4 rodadas — mesmo padrão de
+sempre (`sem-preferencia`, ocasionalmente outros; `socket hang up`, timeout ou 500 do
+Prisma; nunca asserção). Três rodadas verdes seguidas ao tentar reproduzir não
+provaram nada.
+
+Descartei o job novo como causa: a flakiness aparece em arquivos que não tocam
+reembolso, e `sem-preferencia` já falhava assim antes da Fase 7.
+
+**E a mensagem de erro finalmente foi capturada**, numa rodada de multi-tz:
+`ECONNRESET: Connection reset by peer`, com a pilha inteira em
+`supertest`/`superagent`. A conexão que morre é a **HTTP de loopback**, entre o
+supertest e o servidor Nest em processo — **não** uma conexão com o Postgres.
+
+★ Isso **corrige o diagnóstico da Fase 8**: eu atribuí o `ECONNRESET` a esgotamento
+de `max_connections` e subi o teto para 300 nessa base. A mudança é inofensiva e
+pode ter ajudado outros sintomas, mas a razão declarada estava errada para este
+erro. A investigação agora aponta para o lado do servidor HTTP (app fechado com
+requisição em voo, `keepAlive`, ou descritores esgotados com 102 servidores
+efêmeros no mesmo processo) — registrado em `followup.md` #11 com o próximo passo.
+
+---
+
+## Fase 10 — admin: reembolso e visibilidade (2026-08-27) ✅ IMPLEMENTADO
+
+A tela que a Fase 9 deixou faltando, e o caminho para a falha não depender de alguém
+lembrar de abrir uma aba.
+
+### Três abas, porque viraram três populações com ações diferentes
+
+Até aqui a tela era uma lista só, com um botão: "marquei como devolvido". Com o
+estorno pelo gateway, a decisão do admin virou *quando* executar:
+
+- **Pendentes** — decidir. `Agendar estorno` é o primário; `Já devolvi por fora`
+  segue disponível, e é o **único** caminho para pacote pago no balcão.
+- **Agendados** — a caminho. `Antecipar` e `Cancelar agendamento`.
+- **Falhados** — o gateway recusou e as tentativas acabaram. É a aba que
+  `followup.md` #1 exigia.
+
+### A decisão de quais botões aparecem virou uma tabela testável
+
+`apps/admin/src/lib/reembolso.ts` — `acoesDisponiveis(aba, solicitacao)`. Três abas
+× dois tipos de pagamento, e cada combinação errada custa: oferecer "agendar" num
+pacote pago no balcão leva o dono a um 400 depois de já ter decidido; esconder "já
+devolvi por fora" de uma devolução com prazo vencido deixa a solicitação **presa
+para sempre**.
+
+Espalhado em `&&` no JSX isso é invisível em revisão. Como tabela, tem dois testes
+que valem mais que os outros:
+
+- **toda combinação oferece pelo menos uma ação** — nenhuma linha fica sem saída;
+- **`agendar` e `cancelarAgendamento` nunca aparecem juntos** — seriam contraditórias.
+
+★ Isto não é trava de segurança. Quem recusa de verdade é o backend (o agregado
+rejeita `marcarReembolsada` em AGENDADO; o caso de uso rejeita agendar sem pagamento
+online). A tela só evita mostrar caminho que dá erro.
+
+### Um buraco da Fase 9 que a tela revelou
+
+Ao desenhar a aba "Falhados", ficou claro que um estorno com `PRAZO_VENCIDO` **nunca
+poderia ser fechado**: `marcarReembolsada` só aceitava `PENDENTE`, e não há caminho
+de `FALHOU` para lá. A solicitação ficaria presa para sempre, com o saldo do pacote
+eternamente reservado.
+
+Corrigido no agregado: `FALHOU → REEMBOLSADO` passou a ser permitido. É seguro
+porque `FALHOU` significa que **nenhum** estorno aconteceu — a chave de idempotência
+é estável, então um sucesso cuja resposta se perdeu teria voltado como
+`jaExistia: true` na retentativa e virado `REEMBOLSADO`, não `FALHOU`.
+`AGENDADO` continua recusado, que é onde a trava contra pagar duas vezes mora.
+
+### O erro cru, e onde ele NÃO aparece
+
+`ultimoErro` é texto do gateway: longo, em inglês, em vocabulário de API. Ele vive
+em três lugares com três formas:
+
+| onde | o quê | por quê |
+|---|---|---|
+| home do admin | rótulo de uma linha ("Sem saldo na conta do gateway — deixe o valor disponível e tente de novo") | tem que caber e dizer o que FAZER |
+| aba Falhados | o mesmo rótulo, mais o cru dentro de um `<details>` | indispensável quando o motivo é DESCONHECIDO e alguém vai abrir chamado |
+| cliente | **nada** | não é problema dele, e o texto não faria sentido |
+
+`rotuloDoMotivoDeEstorno` mora em `contracts` junto do classificador porque o par
+(classificar, nomear) só é útil completo — o texto só no front faria a home e a tela
+dizerem coisas diferentes sobre a mesma falha.
+
+### A falha não depende de alguém abrir a aba
+
+Duas superfícies, nenhum mecanismo novo:
+
+1. **Selo vermelho na aba "Falhados"**, com a contagem. A consulta roda mesmo fora
+   da aba — é o que permite o número aparecer sem o dono precisar clicar para
+   descobrir que há dinheiro parado. (`Tabs` passou a aceitar `ReactNode` como
+   label; embutir o número no texto funcionaria, mas perderia a cor, que é o que faz
+   o olho parar.)
+2. **Pendência na home**, em `HomePendenciaDTO.tipo = 'ESTORNO_FALHADO'` — a mesma
+   lista de "Esperando você" que já mostra pacote aguardando e conclusão antecipada.
+
+Na home é a **única pendência em vermelho**, e é proporcional: as outras são decisões
+esperando o admin; esta é dinheiro de cliente que já deveria ter voltado. Se ela se
+parecer com as outras, ela vira uma das outras.
+
+Ela também é a única **clicável**: o `ver tudo` do card aponta para Pacotes — certo
+para as demais, beco sem saída para esta, que mora em Financeiro > Reembolsos.
+Mostrar urgência sem oferecer o caminho seria pior que não mostrar.
+
+### Testes
+
+| suíte | antes | depois |
+|---|---|---|
+| `apps/admin` | 26 | **40** |
+| `apps/api` | 1438 | **1441** |
+| monorepo | 1674 | **1691** |
+
+Novos: `reembolso.spec.ts` (8, a tabela de ações), `FALHOU → REEMBOLSADO` no
+agregado (+2), e o e2e da pendência na home. **Todos verdes**, nas 6 tarefas do
+turbo.
+
+---
+
+## Fase 11 — a conta do cliente (2026-08-27) ✅ IMPLEMENTADO
+
+Até aqui o cliente pedia reembolso pelo cockpit e **nunca mais via nada**. A
+ansiedade de "cadê meu dinheiro" virava mensagem no WhatsApp da barbearia — que é o
+canal mais caro de todos.
+
+### As quatro regras do texto, e por que cada uma existe
+
+Tudo vem de `textoDoReembolso`, puro e testado em `apps/account/src/lib/textos.ts`.
+
+**1. Data explícita, nunca "em breve".** "Devolução programada para 27/09" é
+verificável; "em breve" é uma promessa que o cliente não consegue conferir — e que
+ele confere perguntando.
+
+**2. O meio muda a expectativa.** Crédito volta **na fatura** e pode entrar só no
+mês seguinte; PIX cai na conta. Dizer "vai cair na sua conta" para quem pagou no
+crédito produz exatamente o "não caiu" que o texto certo evita. É o `meio` da
+`IntencaoDePagamento`, adicionado na Fase 8, rendendo aqui.
+
+**3. `FALHOU` não diz "falhou".** O cliente não tem acesso à conta do gateway nem
+culpa nenhuma; chamar de falha só transfere ansiedade sobre algo que ele não pode
+resolver. O texto é "Estamos concluindo sua devolução", com botão de WhatsApp. Há um
+teste que varre o texto atrás de `falhou`, `erro`, `recusad`, `problema` e `saldo`.
+
+**4. Nenhuma ação além do WhatsApp.** O cliente não cancela nem antecipa reembolso
+(decisão do dono) — botão que não existe é pior que botão nenhum.
+
+### O card do estorno automático é o único que exige uma ação
+
+O cliente pagou, o dinheiro voltou, e **o horário não é dele**. Um aviso que termina
+em "seu pagamento chegou tarde" deixa alguém com um problema e nenhuma saída — e ele
+já pagou uma vez querendo vir.
+
+O card confirma o valor devolvido (primeira preocupação de quem pagou) e chama para
+remarcar com o serviço **já escolhido**, reusando o `onAgendar(servicoId)` que a tela
+já tinha. O CTA usa "o horário de {serviço}" pela mesma razão de
+`fraseSegundaChance`: o nome do serviço é texto livre do admin, sem gênero modelado.
+
+Corte de **7 dias**: um card que pede ação e fica semanas na tela depois de o cliente
+já ter remarcado vira ruído — e o sistema não tem como saber que ele remarcou (o novo
+agendamento é outro atendimento, sem vínculo com a intenção estornada).
+
+### O que o cliente NÃO recebe
+
+`ReembolsoDoClienteDTO` não tem `ultimoErro`, `tentativas` nem `gatewayRefundId`. E a
+omissão é feita no **`select` do Prisma**, não num `map` depois: um `map` que
+"esquece" de omitir um campo é fácil de escrever; um `select` que ganha um campo por
+acidente, não. Read model separado do admin pelo mesmo motivo — filtrar no front
+seria uma decisão de privacidade morando na camada mais fácil de contornar.
+
+O filtro por cliente também acontece **no banco**, não em memória: dado de outro
+cliente não deveria sair do banco para dentro deste processo, mesmo que o resultado
+final fosse o mesmo.
+
+### O WhatsApp passou a vir da API
+
+A conta precisava do número que só existia hardcoded no funil
+(`apps/booking/src/lib/barbearia.ts`). Em vez de copiá-lo para um segundo bundle,
+`EmpresaPublicaDTO` ganhou `whatsapp`, servido de `BARBEARIA_WHATSAPP` (com fallback
+para `PAGAMENTO_MANUAL_WHATSAPP_NUMERO`, que é o mesmo telefone). Menos de 12 dígitos
+vira `null` e a tela **esconde o botão** — link quebrado é pior que link nenhum.
+
+O funil ainda lê do arquivo; registrado em `followup.md` #14.
+
+---
+
+## Correção durante a sessão: o checkout de cartão recusava cartão válido
+
+O dono testou com `5151 4195 6389 3229` (Mastercard de teste do Mercado Pago) e
+recebeu **"Não reconhecemos a bandeira do cartão"** — sempre. Duas causas, as duas
+minhas.
+
+**1. Um `catch` que engolia tudo.** `bandeiraDoBin` era:
+
+```ts
+try {
+  const { results } = await sdk.getPaymentMethods({ bin });
+  return results[0]?.id ?? null;
+} catch { return null; }
+```
+
+Qualquer falha — CSP não aplicada, extensão de privacidade, formato de resposta
+diferente, método inexistente — virava `null`, e `null` travava o checkout inteiro
+com uma mensagem que **culpa o cliente por um problema nosso**. Sem nada no console.
+
+**2. Uma corrida.** `binChange` dispara a consulta em background; quem digitava
+rápido chegava ao submit com a bandeira ainda nula e via a mesma mensagem.
+
+**Três correções:**
+
+- o erro agora é **logado**, com a resposta crua junto. Silêncio ali custou uma
+  sessão de depuração;
+- o submit **resolve a bandeira esperando**, se ela ainda não chegou — o BIN fica
+  guardado justamente para isso;
+- e existe uma **tabela local de BIN** (`bandeiraPeloBin`) como rede. O SDK segue
+  sendo a fonte primária (autoritativa, conhece faixas novas); a tabela cobre o que
+  praticamente todo cartão brasileiro é, sem depender de rede.
+
+A tabela tem duas armadilhas que o teste prende: **Elo vem antes de Visa e
+Mastercard** (as faixas dele caem dentro do espaço `4…` e `5…`, e quem checar "começa
+com 4" primeiro classifica um Elo como Visa), e a **faixa nova da Mastercard,
+2221–2720**, sem a qual todo cartão emitido desde 2017 cairia em "desconhecida".
+
+`null` continua possível — Diners, JCB — e aí a mensagem passou a ser honesta:
+"tente outro cartão ou pague por PIX", em vez de mandar um id errado e colher uma
+recusa do gateway que o cliente leria como culpa dele.
+
+### Testes
+
+| suíte | antes | depois |
+|---|---|---|
+| `apps/account` | 21 | **35** |
+| `apps/booking` | 101 | **111** |
+| monorepo | 1691 | **1715** |
+
+Novos: 18 de `textoDoReembolso`/`textoDoEstornoAutomatico` (incluindo o cadeado de
+que `FALHOU` não usa a palavra), e 10 de `bandeiraPeloBin`. **Todos verdes.**

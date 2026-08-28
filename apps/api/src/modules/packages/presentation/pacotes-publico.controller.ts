@@ -16,6 +16,7 @@ import { MAX_SOBRE_VOCE } from '@bigods/contracts';
 import { EhEmail, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { Throttle } from '@nestjs/throttler';
 import {
+  MeioDePagamentoOnline,
   PacoteOfertaDTO,
   PagamentoStatusDTO,
   VenderPacotePublicoResponse,
@@ -52,6 +53,14 @@ class VenderPacotePublicoDto {
    * pacote. Ausente = "não tenho preferência": qualquer um atende.
    */
   @IsOptional() @IsString() barbeiroId?: string;
+  /**
+   * Trilho online (2026-08-27). Ausente = `'PIX'`. Pacote é sempre online — o
+   * que muda aqui é apenas COMO o cliente paga, nunca se ele paga.
+   *
+   * Sem campo de dinheiro, como sempre: o valor vem de `oferta.precoCentavos`,
+   * lido do catálogo pelo servidor.
+   */
+  @IsOptional() @IsIn(['PIX', 'CARTAO_CREDITO']) meioOnline?: MeioDePagamentoOnline;
 }
 
 /**
@@ -131,6 +140,7 @@ export class PacotesPublicoController {
       // nunca lido do request; o cliente não escolhe mais "pagar na barbearia"
       // aqui. Garante caixa adiantado antes de liberar crédito de pacote.
       gerarCobranca: true,
+      ...(body.meioOnline ? { meioOnline: body.meioOnline } : {}),
     });
 
     return {
@@ -138,6 +148,7 @@ export class PacotesPublicoController {
       clienteId: resultado.clienteId,
       intencaoId: resultado.intencaoId,
       cobranca: resultado.cobranca,
+      checkoutCartao: resultado.checkoutCartao,
       pagamentoManual: resultado.pagamentoManual,
     };
   }

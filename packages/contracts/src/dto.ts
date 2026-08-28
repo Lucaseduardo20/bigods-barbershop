@@ -13,7 +13,10 @@ import {
   StatusSolicitacaoReembolso,
   StatusVale,
   TipoLancamento,
+  MotivoPublicoDaRecusa,
+  ResultadoDoCartao,
 } from './enums';
+import type { MeioDePagamentoOnline } from './enums';
 
 // ---------- Auth ----------
 export interface LoginRequest {
@@ -360,6 +363,27 @@ export interface CobrancaDTO {
   /** Prazo da reserva/intenção (ISO) — sessão de OTP+reserva, front mostra contagem regressiva. */
   expiraEm: string;
 }
+
+/**
+ * O cliente escolheu CARTÃO: não existe QR, e **nenhuma order existe no gateway
+ * ainda**. Ela nasce no `POST /public/pagamentos/:intencaoId/cartao`, uma por
+ * tentativa.
+ *
+ * ★ Por que não criar a order junto com a intenção, como o PIX faz: uma order de
+ * PIX e uma de cartão vivas para a mesma intenção seriam DOIS caminhos de
+ * pagamento abertos ao mesmo tempo — o cliente poderia pagar o PIX e ter o cartão
+ * aprovado, e a trava de "uma tentativa viva por vez" só cobre cartão. Escolher o
+ * trilho ANTES de cobrar fecha isso sem nenhuma trava nova.
+ */
+export interface CheckoutCartaoDTO {
+  intencaoId: string;
+  /**
+   * Fim da janela de pagamento (ISO). ★ NÃO renova entre tentativas de cartão:
+   * quem gastou 10 dos 30 minutos tem 20.
+   */
+  expiraEm: string;
+}
+
 export interface AgendarResponse {
   atendimentoId: string;
   cobranca: CobrancaDTO | null;
@@ -421,7 +445,122 @@ export interface SolicitacaoDeReembolsoDTO {
   criadaEm: string;
   prazoLimiteEm: string;
   status: StatusSolicitacaoReembolso;
+  /**
+   * Quando o admin deu por devolvido. É o ato ADMINISTRATIVO — no fluxo manual, o
+   * dinheiro voltou por fora do sistema e alguém registrou isso aqui.
+   */
   reembolsadaEm: string | null;
+
+  // ── Estorno agendado (2026-08-27) ──────────────────────────────────────────
+  /**
+   * Quando a execução pelo gateway deve acontecer. `null` = ainda não agendado,
+   * ou é um reembolso manual (sem pagamento online por trás).
+   */
+  agendadaPara: string | null;
+  /** Quando o GATEWAY confirmou a devolução. Distinto de `reembolsadaEm`. */
+  executadaEm: string | null;
+  /** Quantas vezes a execução foi tentada e falhou. */
+  tentativas: number;
+  /**
+   * Mensagem CRUA do gateway na última falha. **Admin-only.**
+   *
+   * Nunca vai para o cliente: pode conter nome de conta, id interno e vocabulário
+   * do gateway. A tela do admin traduz com `motivoOperacionalDoEstorno`.
+   */
+  ultimoErro: string | null;
+  /**
+   * Este reembolso pode ser executado PELO GATEWAY?
+   *
+   * `false` quando o pacote foi pago presencialmente (dinheiro, maquininha) ou
+   * por um gateway sem estorno: não há transação online para devolver, e o
+   * caminho é o manual de sempre — o admin devolve e registra. Agendar aqui não
+   * teria o que executar, e a tela precisa saber disso para não oferecer o botão.
+   */
+  estornoAutomatico: boolean;
+}
+
+/**
+ * Motivos de falha de um estorno agendado, em linguagem de OPERAÇÃO.
+ *
+ * O `ultimoErro` é texto cru do gateway, em inglês, com vocabulário de API. Quem
+ * lê a tela é o dono da barbearia, e a diferença entre "saldo insuficiente" (ele
+ * precisa deixar dinheiro na conta) e "prazo de estorno vencido" (não tem mais
+ * jeito por essa via) muda completamente o que ele faz a seguir.
+ *
+ * Mora em `contracts` porque é a MESMA classificação que o admin renderiza e que
+ * a API usa para decidir se vale retentar — duas implementações divergiriam
+ * exatamente no caso que importa.
+ */
+export enum MotivoDaFalhaDeEstorno {
+  /**
+   * Não havia saldo na conta do gateway no momento da execução. É o motivo mais
+   * provável, e o único que o dono resolve sozinho: a documentação do Mercado
+   * Pago exige saldo disponível, e a operação saca o saldo para pagar barbeiro.
+   */
+  SALDO_INSUFICIENTE = 'SALDO_INSUFICIENTE',
+  /** O prazo de estorno do meio de pagamento passou (crédito 180d, PIX 90d). */
+  PRAZO_VENCIDO = 'PRAZO_VENCIDO',
+  /** Gateway fora do ar, timeout, 5xx. Retentar resolve. */
+  INDISPONIVEL = 'INDISPONIVEL',
+  /** Qualquer outro. Precisa de olho humano no `ultimoErro` cru. */
+  DESCONHECIDO = 'DESCONHECIDO',
+}
+
+/**
+ * Classifica o erro cru do gateway. Pura, sem I/O.
+ *
+ * O default é `DESCONHECIDO` e NÃO `INDISPONIVEL`: tratar erro novo como
+ * "retentar resolve" faria o job bater no gateway para sempre por um motivo que
+ * nunca vai passar. Desconhecido pede um humano — que é a resposta honesta.
+ */
+export function motivoOperacionalDoEstorno(ultimoErro: string | null): MotivoDaFalhaDeEstorno {
+  const e = (ultimoErro ?? '').toLowerCase();
+  if (!e) return MotivoDaFalhaDeEstorno.DESCONHECIDO;
+  if (/insufficient|saldo|balance|funds/.test(e)) return MotivoDaFalhaDeEstorno.SALDO_INSUFICIENTE;
+  // `[ _]` porque o gateway alterna entre `not_refundable` (código) e "not
+  // refundable" (mensagem) para o MESMO motivo, e um espaço literal deixaria
+  // metade dos casos cair em DESCONHECIDO.
+  if (/expired|deadline|too old|prazo|not[ _]refundable|period/.test(e)) {
+    return MotivoDaFalhaDeEstorno.PRAZO_VENCIDO;
+  }
+  if (/timeout|unavailable|503|502|504|econn|network|internal_error/.test(e)) {
+    return MotivoDaFalhaDeEstorno.INDISPONIVEL;
+  }
+  return MotivoDaFalhaDeEstorno.DESCONHECIDO;
+}
+
+/**
+ * O motivo da falha em UMA LINHA, para o dono ler.
+ *
+ * Mora aqui junto do classificador porque o par (classificar, nomear) só é útil
+ * completo: a home mostra o rótulo, a tela de reembolsos mostra o rótulo E o erro
+ * cru. Deixar o texto só no front faria a home e a tela dizerem coisas diferentes
+ * sobre a mesma falha.
+ *
+ * Cada texto diz o que FAZER, não o que aconteceu — é a diferença entre o dono
+ * resolver sozinho e ele abrir um chamado.
+ */
+export function rotuloDoMotivoDeEstorno(motivo: MotivoDaFalhaDeEstorno): string {
+  switch (motivo) {
+    case MotivoDaFalhaDeEstorno.SALDO_INSUFICIENTE:
+      return 'Sem saldo na conta do gateway — deixe o valor disponível e tente de novo';
+    case MotivoDaFalhaDeEstorno.PRAZO_VENCIDO:
+      return 'Prazo de estorno vencido — devolva por fora e registre aqui';
+    case MotivoDaFalhaDeEstorno.INDISPONIVEL:
+      return 'O gateway não respondeu — tente de novo em alguns minutos';
+    case MotivoDaFalhaDeEstorno.DESCONHECIDO:
+      return 'Falha não reconhecida — veja o detalhe técnico abaixo';
+  }
+}
+
+/** Corpo de `POST /pacotes/reembolsos/:id/agendar`. */
+export interface AgendarReembolsoRequest {
+  /**
+   * Em quantos dias executar. Ausente = o padrão do deploy
+   * (`REEMBOLSO_PRAZO_DIAS`, 31). **`0` = agora**, e é assim que "antecipar" e
+   * "executar imediato" são expressos — sem endpoint próprio para cada um.
+   */
+  prazoDias?: number;
 }
 export interface VenderPacoteRequest {
   barbeiroId: string;
@@ -582,12 +721,31 @@ export interface HomePessoalDTO {
 
 /** Uma pendência esperando decisão do admin. */
 export interface HomePendenciaDTO {
-  tipo: 'PACOTE_AGUARDANDO' | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO' | 'CONCLUSAO_ANTECIPADA';
+  tipo:
+    | 'PACOTE_AGUARDANDO'
+    | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO'
+    | 'CONCLUSAO_ANTECIPADA'
+    /**
+     * Estorno agendado que esgotou as tentativas (2026-08-27).
+     *
+     * ★ Entra na home pelo mesmo motivo da conclusão antecipada: se o admin não
+     * vê, a trava não protege nada. Aqui é pior — é dinheiro de cliente que NÃO
+     * voltou, e quem descobriria primeiro seria ele. Depender de alguém lembrar
+     * de abrir a aba "Falhados" é exatamente o silêncio que `followup.md` #1
+     * existia para evitar.
+     */
+    | 'ESTORNO_FALHADO';
   id: string;
   clienteNome: string;
   valorCentavos: number;
   /** Só em CONCLUSAO_ANTECIPADA: quem pediu, e por quê. */
   barbeiroNome?: string;
+  /**
+   * CONCLUSAO_ANTECIPADA: a justificativa do barbeiro.
+   * ESTORNO_FALHADO: o motivo em linguagem de operação (ver
+   * `motivoOperacionalDoEstorno`) — nunca o erro cru do gateway, que é longo e
+   * em inglês. O cru fica na tela de reembolsos.
+   */
   motivo?: string;
   /** Instante UTC (ISO) do fato que gerou a pendência. */
   desde: string;
@@ -663,6 +821,41 @@ export interface EmpresaPublicaDTO {
    * texto do botão — quem decide de fato é o backend.
    */
   pagamentoManualWhatsapp?: boolean;
+  /** O que o checkout online deste deploy aceita (2026-08-27). */
+  pagamentoOnline: PagamentoOnlineDTO;
+  /**
+   * WhatsApp da barbearia em E.164 sem `+` (ex.: `5511990036469`), para montar
+   * `https://wa.me/<numero>`. `null` quando não configurado — e aí a tela **não
+   * mostra o botão**, em vez de mostrar um link quebrado.
+   *
+   * Servido pela API, e não hardcoded no front, porque duas telas precisam dele
+   * (o funil e a conta do cliente) e um número de telefone repetido em dois
+   * bundles é a definição de "mesma coisa em dois lugares".
+   */
+  whatsapp: string | null;
+}
+
+/**
+ * Capacidades do checkout online, do ponto de vista do funil.
+ *
+ * O funil usa isto só para DESENHAR a tela (que botões existem, se carrega o SDK
+ * do Mercado Pago). Quem decide de fato o que é aceito é o backend, na resposta
+ * da confirmação — o front nunca escolhe o meio por conta própria.
+ */
+export interface PagamentoOnlineDTO {
+  /** Meios que este deploy aceita. Vazio = sem pagamento online (modo manual). */
+  meios: MeioDePagamentoOnline[];
+  /**
+   * Chave **pública** do Mercado Pago (`APP_USR-…`), usada apenas para tokenizar
+   * o cartão no browser.
+   *
+   * ★ Aqui entra a chave PÚBLICA e mais nada. O `MERCADOPAGO_ACCESS_TOKEN` tem o
+   * mesmo prefixo `APP_USR-` e é indistinguível a olho nu — trocar um pelo outro
+   * publicaria a credencial de servidor em toda resposta de `/public/empresa`.
+   * `config-seguranca.ts` recusa o boot se as duas forem iguais, e
+   * `empresa-publica-query.service.spec.ts` tem um teste-cadeado sobre este campo.
+   */
+  mercadoPagoPublicKey: string | null;
 }
 export interface BarbeiroPublicoDTO {
   id: string;
@@ -706,8 +899,17 @@ export interface AgendarPublicoRequest {
   data: string; // YYYY-MM-DD, dia civil local
   horaInicio: string; // "HH:mm", horário de parede LOCAL
   cliente: { nome: string; telefone: string };
-  /** online → gera cobrança PIX; presencial (default) → pagar na barbearia. */
+  /** online → cobra agora (PIX ou cartão); presencial (default) → pagar na barbearia. */
   formaPagamento?: FormaPagamentoFunil;
+  /**
+   * Qual trilho online, quando `formaPagamento = 'online'`. Default `'PIX'` —
+   * é o comportamento anterior a 2026-08-27, e clientes antigos do funil que não
+   * mandam o campo continuam recebendo QR.
+   *
+   * ★ Isto NÃO é um campo de dinheiro. Escolher cartão não muda o valor: ele sai
+   * da `IntencaoDePagamento` no servidor, nos dois trilhos.
+   */
+  meioOnline?: MeioDePagamentoOnline;
 }
 export interface AgendarPublicoResponse {
   atendimentoId: string;
@@ -715,8 +917,10 @@ export interface AgendarPublicoResponse {
   pagamentoManual?: PagamentoManualDTO | null;
   /** intenção de pagamento quando online (para consultar status); null se presencial. */
   intencaoId: string | null;
-  /** cobrança PIX quando online; null se presencial. */
+  /** cobrança PIX quando online e `meioOnline = 'PIX'`; null nos outros casos. */
   cobranca: CobrancaDTO | null;
+  /** Presente (no lugar de `cobranca`) quando `meioOnline = 'CARTAO_CREDITO'`. */
+  checkoutCartao?: CheckoutCartaoDTO | null;
   /**
    * Barbeiro que vai atender. Sempre presente — inclusive (e principalmente)
    * quando o cliente escolheu "não tenho preferência" e a atribuição foi do
@@ -904,6 +1108,71 @@ export interface PerfilClienteDTO {
    * confirmação"). Nada daqui aparece no histórico, e vice-versa.
    */
   proximosAgendamentos: AgendamentoClienteDTO[];
+  /**
+   * Reembolsos que o cliente pediu e ainda estão vivos, ou foram concluídos há
+   * pouco. Ele pede pelo cockpit e, até 2026-08-27, nunca mais via nada — a
+   * ansiedade de "cadê meu dinheiro" virava mensagem no WhatsApp da barbearia.
+   */
+  reembolsos: ReembolsoDoClienteDTO[];
+  /**
+   * Pagamentos que chegaram DEPOIS da janela de 30 min e foram devolvidos
+   * automaticamente. O cliente pagou e perdeu o horário — precisa saber, e
+   * precisa de um caminho para remarcar.
+   */
+  estornosAutomaticos: EstornoAutomaticoDTO[];
+}
+
+/**
+ * Um reembolso, do ponto de vista do CLIENTE.
+ *
+ * ## O que este DTO deliberadamente NÃO tem
+ *
+ * `ultimoErro`, `tentativas` e `gatewayRefundId`. Nenhum dos três é problema do
+ * cliente, e o primeiro é texto cru de gateway em inglês — mostrá-lo transformaria
+ * "estamos concluindo sua devolução" em "insufficient_funds", que o cliente leria
+ * como "a barbearia não tem dinheiro". O detalhe fica no admin.
+ *
+ * Também não há ação nenhuma aqui: o cliente **não** cancela nem antecipa
+ * reembolso (decisão do dono). A ação dele é o WhatsApp.
+ */
+export interface ReembolsoDoClienteDTO {
+  id: string;
+  valorCentavos: number;
+  status: StatusSolicitacaoReembolso;
+  criadaEm: string;
+  /**
+   * Quando a devolução está programada. ★ Vai como DATA, e a tela mostra a data
+   * — nunca "em breve". Quem espera dinheiro quer saber o dia.
+   */
+  agendadaPara: string | null;
+  /** Quando voltou de fato. */
+  reembolsadaEm: string | null;
+  /**
+   * Por onde o dinheiro volta. Muda o TEXTO e a expectativa: crédito volta **na
+   * fatura** do cartão (e pode aparecer só no mês seguinte), PIX cai na conta.
+   * Dizer "vai cair na sua conta" para quem pagou no crédito gera exatamente a
+   * mensagem de "não caiu" que o texto certo evitaria.
+   *
+   * `null` = pago no balcão, ou linha anterior à coluna `meio`.
+   */
+  meio: MeioDePagamentoOnline | null;
+}
+
+/**
+ * Pagamento que chegou depois da janela e foi devolvido automaticamente.
+ *
+ * O cliente pagou, o dinheiro voltou, e o horário **não é dele**. Isso não pode
+ * ser um aviso passivo: a tela precisa oferecer remarcar, com o serviço já
+ * escolhido.
+ */
+export interface EstornoAutomaticoDTO {
+  intencaoId: string;
+  valorCentavos: number;
+  /** Quando o estorno foi solicitado ao gateway. */
+  estornadoEm: string;
+  /** Para o CTA de remarcar já vir com o serviço certo. `null` se não der para saber. */
+  servicoId: string | null;
+  servicoNome: string | null;
 }
 
 // ---------- Ofertas de pacote (agregado PacoteOferta — sessão-B) ----------
@@ -974,6 +1243,11 @@ export interface VenderPacotePublicoRequest {
    * pacote (2026-08-18). Ausente = "não tenho preferência": qualquer um atende.
    */
   barbeiroId?: string | null;
+  /**
+   * Trilho online escolhido. Default `'PIX'` — pacote é sempre online (decisão do
+   * dono), o que muda aqui é só como o cliente paga.
+   */
+  meioOnline?: MeioDePagamentoOnline;
 }
 export interface VenderPacotePublicoResponse {
   vendaId: string;
@@ -984,10 +1258,12 @@ export interface VenderPacotePublicoResponse {
   intencaoId: string;
   /**
    * Cobrança PIX. Pagamento online é obrigatório no pacote, então vem
-   * preenchida — EXCETO no modo de pagamento manual, onde `pagamentoManual`
-   * toma o lugar dela.
+   * preenchida — EXCETO no modo de pagamento manual (onde `pagamentoManual`
+   * toma o lugar dela) e no cartão (onde é `checkoutCartao`).
    */
   cobranca: CobrancaDTO | null;
+  /** Presente (no lugar de `cobranca`) quando `meioOnline = 'CARTAO_CREDITO'`. */
+  checkoutCartao?: CheckoutCartaoDTO | null;
 }
 
 // ---------- Status de pagamento (polling do funil online) ----------
@@ -1096,4 +1372,83 @@ export interface WebhookAbacatePayRequest {
     [k: string]: unknown;
   };
   [k: string]: unknown;
+}
+
+// ---------- Webhook Mercado Pago (Orders API, tópico `order`) ----------
+// Formato transcrito da documentação oficial (checkout-api-orders/notifications).
+//
+// ★ Este payload é um PING, e é aí que ele difere em NATUREZA do da AbacatePay:
+// `data` tem UM único campo (`id`, o id da order — `ORD01…`), e o corpo NÃO traz
+// status, NÃO traz valor e NÃO traz o nosso `external_reference`. Saber o que
+// aconteceu exige um `GET /v1/orders/{id}` — a própria doc manda fazer isso
+// depois de responder.
+//
+// O mesmo id também vem nos query params (`?data.id=…&type=order`), e é a versão
+// do QUERY que entra no manifesto da assinatura.
+//
+// Payload deliberadamente frouxo (campos extras tolerados), mesma disciplina do
+// webhook da AbacatePay: validar contra schema rígido quebraria com qualquer
+// campo novo que o Mercado Pago acrescente.
+export interface WebhookMercadoPagoRequest {
+  /** Ex.: "order.created", "order.updated", "order.action_required". */
+  action?: string;
+  api_version?: string;
+  /** Conferido contra MERCADOPAGO_APPLICATION_ID — pega URL cruzada entre ambientes. */
+  application_id?: string | number;
+  date_created?: string;
+  /** id do EVENTO (idempotência do lado deles), não da order. */
+  id?: string | number;
+  /** false em teste, true em produção. Conferido contra MERCADOPAGO_ENV. */
+  live_mode?: boolean;
+  /** "order" para o tópico que nos interessa. */
+  type?: string;
+  /** id do vendedor. */
+  user_id?: string | number;
+  data?: {
+    /** id da ORDER (`ORD01…`) — a única chave que a notificação entrega. */
+    id?: string;
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+// ---------- Pagamento com cartão de crédito (Mercado Pago, Orders API) ----------
+
+/**
+ * Corpo de `POST /public/pagamentos/:intencaoId/cartao`.
+ *
+ * ★ Note o que NÃO existe aqui: **nenhum campo de dinheiro**. O valor vem da
+ * `IntencaoDePagamento` já persistida no servidor. A ausência do campo é a
+ * proteção contra "assinar um valor e pagar outro" — o `whitelist` do
+ * ValidationPipe descarta o que não está no DTO, mas quem garante é a ausência.
+ *
+ * `installments` também não existe: à vista é constante do adapter.
+ */
+export interface PagarComCartaoRequest {
+  companyId: string;
+  /** Token gerado no BROWSER pelo MercadoPago.js. O PAN nunca chega ao backend. */
+  token: string;
+  /** Bandeira (`master`, `visa`, `elo`…), que o SDK deduz do BIN. */
+  paymentMethodId: string;
+  /** `MP_DEVICE_SESSION_ID` do antifraude, se o SDK o coletou. */
+  deviceId?: string;
+}
+
+export interface PagarComCartaoResponse {
+  intencaoId: string;
+  resultado: ResultadoDoCartao;
+  /**
+   * Só em `RECUSADO`. Enum pequeno e vago de propósito — o `status_detail` cru do
+   * gateway nunca sai daqui (ver `MotivoPublicoDaRecusa`).
+   */
+  motivoPublico?: MotivoPublicoDaRecusa;
+  /** Só em `DESAFIO_3DS`: abrir num iframe. O comprador tem 40 minutos. */
+  urlDoDesafio3ds?: string;
+  /**
+   * O cliente pode tentar outro cartão? A janela de 30 min NÃO é renovada em
+   * nenhum caso — quem gastou 10 minutos tem 20.
+   */
+  podeTentarNovamente: boolean;
+  /** Fim da janela de pagamento, inalterado por esta tentativa. */
+  expiraEm: string | null;
 }

@@ -36,13 +36,18 @@ for chave in AUTH_SECRET WHATSAPP_OTP_INTERNAL_TOKEN DATABASE_URL; do
   echo "    $chave ok"
 done
 
-echo "==> Buscando segredos OPCIONAIS (só existem depois de ligar PAYMENT_GATEWAY=abacatepay)"
-for chave in ABACATEPAY_API_KEY ABACATEPAY_WEBHOOK_SECRET; do
+echo "==> Buscando segredos OPCIONAIS (só existem depois de ligar um gateway real)"
+# Os dois conjuntos convivem de propósito: só UM gateway está ativo por vez
+# (PAYMENT_GATEWAY), mas manter as chaves do outro no SSM permite voltar atrás
+# trocando uma variável, sem redeploy de segredo.
+for chave in ABACATEPAY_API_KEY ABACATEPAY_WEBHOOK_SECRET \
+             MERCADOPAGO_ACCESS_TOKEN MERCADOPAGO_PUBLIC_KEY \
+             MERCADOPAGO_WEBHOOK_SECRET MERCADOPAGO_CLIENT_SECRET; do
   if valor=$(buscar "$chave"); then
     atualizar_env "$chave" "$valor"
     echo "    $chave ok"
   else
-    echo "    $chave não encontrado no SSM — pulado (normal se PAYMENT_GATEWAY ainda for \"fake\")"
+    echo "    $chave não encontrado no SSM — pulado (normal se este gateway não estiver ativo)"
   fi
 done
 

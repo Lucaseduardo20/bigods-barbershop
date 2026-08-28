@@ -49,6 +49,19 @@ export enum StatusPagamento {
   PAGO = 'PAGO',
   EXPIRADO = 'EXPIRADO',
   FALHOU = 'FALHOU',
+  /**
+   * Cartão de crédito em análise pelo emissor (Mercado Pago, 2026-08-27):
+   * `status=processing` / `status_detail=in_process` na Orders API. Não é
+   * AGUARDANDO (o cliente já fez a parte dele) nem FALHOU.
+   *
+   * O desafio 3DS (`pending_challenge`) NÃO usa este valor: ali o cliente ainda
+   * tem ação a tomar e a janela de 30 min segue correndo, então é AGUARDANDO.
+   *
+   * Precisa existir aqui, e não só no schema do Prisma: o mapeamento de infra é
+   * `StatusPagamento[row.status]`, então um valor que o banco tem e este enum
+   * não teria viraria `undefined` em runtime, sem erro.
+   */
+  EM_ANALISE = 'EM_ANALISE',
 }
 
 export enum FormaPagamento {
@@ -93,6 +106,22 @@ export enum OrigemDisponibilidade {
 export enum StatusSolicitacaoReembolso {
   PENDENTE = 'PENDENTE',
   REEMBOLSADO = 'REEMBOLSADO',
+  /**
+   * Estorno decidido pelo admin, com execução AGENDADA (2026-08-27). Prazo
+   * default de 31 dias, parametrizável por solicitação; 0 = imediato.
+   */
+  AGENDADO = 'AGENDADO',
+  /**
+   * A execução agendada chamou o gateway e falhou. Motivo mais provável: saldo
+   * insuficiente na conta do Mercado Pago no dia da execução — a documentação é
+   * explícita que o estorno exige saldo disponível, e a operação saca o saldo
+   * para pagar barbeiro.
+   *
+   * Sem este estado o estorno agendado sumiria em silêncio e o cliente cobraria
+   * a barbearia (followup.md #1). O texto mostrado ao CLIENTE nunca diz
+   * "falhou" — quem precisa agir é a barbearia, não ele.
+   */
+  FALHOU = 'FALHOU',
 }
 
 /**
@@ -114,6 +143,30 @@ export enum TipoLancamento {
    * tipo próprio é o que permite dizer isso no extrato.
    */
   DESCONTO_CONCEDIDO = 'DESCONTO_CONCEDIDO',
+  /**
+   * Taxa que o gateway retém de um pagamento online (2026-08-27): a PARTE DELA
+   * que sai do barbeiro, proporcional à comissão que ele receberia sobre aquele
+   * valor.
+   *
+   * ## Por que é uma linha, e não uma base menor
+   *
+   * "Comissão sobre o líquido" (decisão do dono) pode ser implementado de dois
+   * jeitos aritmeticamente idênticos: reduzir a base de cada item pela fração da
+   * taxa, ou manter a base bruta e lançar a absorção como linha própria. O total
+   * é o mesmo ao centavo.
+   *
+   * A linha própria vence pelo mesmo motivo que caixinha e desconto ganharam
+   * linhas em 2026-08-25: uma base silenciosamente menor faria o barbeiro ver a
+   * comissão dele cair sem nada explicando por quê, e desconfiança sobre
+   * dinheiro é caro numa barbearia. Como linha, o extrato lê:
+   *
+   *     Comissão corte simples             R$ 18,00
+   *     Taxa do pagamento online           − R$  0,79
+   *
+   * Subtrai no saldo, como VALE, PAGAMENTO e DESCONTO_CONCEDIDO — e, como o
+   * desconto, não é dinheiro que a casa entregou: é comissão que ele não ganhou.
+   */
+  TAXA_PAGAMENTO_ONLINE = 'TAXA_PAGAMENTO_ONLINE',
 }
 
 /**
@@ -161,4 +214,49 @@ export enum TipoEventoClube {
   SAIU_CLUBE = 'SAIU_CLUBE',
   /** INATIVO ou NÃO-MEMBRO que já foi membro antes → ATIVO (comprou de novo). */
   RENOVOU = 'RENOVOU',
+}
+
+/**
+ * Motivo de recusa de cartão que pode ser MOSTRADO ao cliente.
+ *
+ * ★ Pequeno e propositalmente vago. O `status_detail` cru do gateway NUNCA vai
+ * para uma resposta pública: `high_risk` diria ao fraudador "fomos pegos pelo
+ * modelo de risco" e `max_attempts_exceeded` diria "o bloqueio é por tentativas,
+ * espere e volte" — calibração de graça para quem está testando cartões.
+ *
+ * O detalhe cru fica persistido e visível só no admin.
+ */
+export enum MotivoPublicoDaRecusa {
+  /** Algo no cartão foi digitado errado — o cliente consegue corrigir. */
+  DADOS = 'DADOS',
+  /** Saldo ou limite insuficiente. */
+  SALDO = 'SALDO',
+  /** O banco do cliente não autorizou, e não temos o porquê. */
+  EMISSOR = 'EMISSOR',
+  /** Qualquer outro motivo. É onde caem antifraude e motivos novos. */
+  GENERICO = 'GENERICO',
+}
+
+/**
+ * Por qual trilho online o cliente escolheu pagar.
+ *
+ * União de literais, e não `enum`, de propósito: o domínio da API já usa estas
+ * strings cruas (`TentativaDePagamento.meio`) e o valor no banco é a mesma
+ * string. Um `enum` aqui obrigaria conversão em cada ponto de uso sem ganhar
+ * nada — diferente de `StatusPagamento`, onde a infra faz `Enum[row.status]` e
+ * um valor faltando viraria `undefined` silencioso.
+ *
+ * ★ NÃO confundir com `FormaPagamento`, que é como o cliente pagou no BALCÃO
+ * (dinheiro, débito, crédito na maquininha…). Aqui é o trilho do checkout online.
+ */
+export type MeioDePagamentoOnline = 'PIX' | 'CARTAO_CREDITO';
+
+/** Desfecho de uma tentativa de pagamento com cartão, do ponto de vista do funil. */
+export enum ResultadoDoCartao {
+  APROVADO = 'APROVADO',
+  /** O emissor aceitou processar e ainda não decidiu. */
+  EM_ANALISE = 'EM_ANALISE',
+  /** Precisa autenticar no banco: abrir `urlDoDesafio3ds` num iframe. */
+  DESAFIO_3DS = 'DESAFIO_3DS',
+  RECUSADO = 'RECUSADO',
 }

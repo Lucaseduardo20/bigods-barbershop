@@ -51,6 +51,29 @@ export const ROTAS_COM_CORPO_SENSIVEL: readonly string[] = [
  * Nomes de campo que nunca saem, em qualquer profundidade. Comparação
  * case-insensitive e por CONTÉM — `senhaHash`, `novaSenha` e `password_confirm`
  * caem todos na mesma rede.
+ *
+ * ## Sobre o grupo de pagamento (2026-08-26, Mercado Pago)
+ *
+ * Cartão e assinatura de webhook entraram aqui, mas o "por CONTÉM" obriga
+ * escolher os termos com cuidado — chave curta demais apaga diagnóstico legítimo:
+ *
+ * - **`pan` NÃO entra.** Está dentro de `expandido`, `expandirTudo` e afins. O
+ *   número do cartão é coberto por `cardnumber`/`card_number`/`numerocartao`,
+ *   que são os nomes reais usados pelo SDK do Mercado Pago e por nós.
+ * - **`expiration` NÃO entra**, `cardexpiration` entra. O Mercado Pago usa
+ *   `expiration_time` (duração do PIX) e `date_of_expiration` — ambos são
+ *   diagnóstico, não segredo. Só a validade do CARTÃO é sensível, e ela vem como
+ *   `cardExpirationMonth`/`cardExpirationYear`.
+ * - **`public_key` NÃO entra**: é pública por definição, e apagá-la cegaria a
+ *   depuração do SDK no frontend.
+ * - **`x-request-id` NÃO entra**: é o identificador que o suporte do Mercado Pago
+ *   pede para investigar uma notificação. Apagá-lo custa a investigação.
+ * - `session` e `device` são termos ingleses e nosso código é português
+ *   (`sessao`), então miram exatamente `X-meli-session-id` e `MP_DEVICE_SESSION_ID`
+ *   sem colidir com o que é nosso.
+ *
+ * O copia-e-cola do PIX (`qr_code`, `brCode`) é instrumento de pagamento ao
+ * portador: quem o tem paga a cobrança de outro. Por isso sai daqui também.
  */
 export const CHAVES_SENSIVEIS: readonly string[] = [
   'senha',
@@ -70,6 +93,26 @@ export const CHAVES_SENSIVEIS: readonly string[] = [
   'celular',
   'email',
   'cpf',
+  // ── Pagamento: assinatura, idempotência, cartão e instrumento de cobrança ──
+  'signature',
+  'idempotency',
+  'cvv',
+  'securitycode',
+  'security_code',
+  'cardnumber',
+  'card_number',
+  'numerocartao',
+  'numero_cartao',
+  'cardholder',
+  'titular',
+  'cardexpiration',
+  'validade',
+  'qrcode',
+  'qr_code',
+  'copiaecola',
+  'brcode',
+  'device',
+  'session',
 ];
 
 export const REMOVIDO = '[removido]';

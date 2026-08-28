@@ -8,6 +8,7 @@ import {
   StatusAtendimento,
   TipoLancamento,
 } from '@bigods/contracts';
+import { motivoOperacionalDoEstorno, rotuloDoMotivoDeEstorno } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { Timezone } from '../../../shared/domain/timezone';
 import { diaCivilChave, limitesDoDiaCivil } from '../../../shared/domain/calendario';
@@ -192,7 +193,7 @@ export class HomeQueryService {
    * há algo pra decidir.
    */
   private async pendencias(companyId: string): Promise<HomePendenciaDTO[]> {
-    const [pacotes, atendimentos, conclusoes] = await Promise.all([
+    const [pacotes, atendimentos, conclusoes, estornosFalhados] = await Promise.all([
       this.prisma.vendaDePacote.findMany({
         where: { companyId, statusPagamento: 'AGUARDANDO' },
         orderBy: { compradoEm: 'desc' },
@@ -210,6 +211,14 @@ export class HomeQueryService {
         include: { itens: true, produtos: true },
         take: 5,
       }),
+      // Estornos que esgotaram as tentativas (2026-08-27). Ordenados do mais
+      // ANTIGO primeiro — ao contrário dos pacotes, aqui o que envelhece é
+      // dinheiro do cliente que não voltou, e o mais velho é o mais urgente.
+      this.prisma.solicitacaoDeReembolso.findMany({
+        where: { companyId, status: 'FALHOU' },
+        orderBy: { agendadaPara: 'asc' },
+        take: 5,
+      }),
     ]);
 
     const clienteIds = [
@@ -217,6 +226,7 @@ export class HomeQueryService {
         ...pacotes.map((p) => p.clienteId),
         ...atendimentos.map((a) => a.clienteId),
         ...conclusoes.map((a) => a.clienteId),
+        ...estornosFalhados.map((e) => e.clienteId),
       ]),
     ];
     const [clientes, barbeiros] = await Promise.all([
@@ -259,6 +269,21 @@ export class HomeQueryService {
           desde: (a.conclusaoSolicitadaEm ?? a.inicio).toISOString(),
           barbeiroNome: nomeBarbeiro.get(a.barbeiroId) ?? '—',
           motivo: a.conclusaoAntecipadaMotivo ?? '',
+        }),
+      ),
+      ...estornosFalhados.map(
+        (e): HomePendenciaDTO => ({
+          tipo: 'ESTORNO_FALHADO',
+          id: e.id,
+          clienteNome: nome.get(e.clienteId) ?? '—',
+          valorCentavos: e.valorCentavos,
+          // `desde` = quando a última execução deveria ter acontecido. É o que
+          // envelhece: dinheiro do cliente parado desde então.
+          desde: (e.agendadaPara ?? e.criadaEm).toISOString(),
+          // Motivo em linguagem de OPERAÇÃO, nunca o erro cru do gateway — que é
+          // longo, em inglês, e não cabe numa linha de home. O cru fica na tela
+          // de reembolsos, que é onde alguém vai investigar.
+          motivo: rotuloDoMotivoDeEstorno(motivoOperacionalDoEstorno(e.ultimoErro)),
         }),
       ),
     ];

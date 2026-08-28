@@ -425,3 +425,129 @@ describe('★ snapshot: concluído é imutável', () => {
     expect(await lancamentosDe(id)).toEqual(antes);
   });
 });
+
+/**
+ * ★★ FASE 8 (2026-08-27) — COMISSÃO SOBRE O LÍQUIDO, ao centavo.
+ *
+ * Decisão do dono: em todo pagamento online, a comissão incide sobre o que
+ * ENTROU, não sobre o que foi cobrado. Implementado como LINHA própria no extrato,
+ * não como base reduzida — as duas dão o mesmo total, só a linha explica o total.
+ *
+ * O que este bloco prova com banco de verdade:
+ *
+ *  1. ★★ a linha aparece, e a comissão líquida bate EXATAMENTE com "percentual
+ *     aplicado sobre o líquido" — é a identidade que justifica a escolha;
+ *  2. ★  pagamento presencial NÃO gera linha nenhuma (não houve taxa);
+ *  3. ★  `FormaPagamento` deixa de mentir: cartão grava CARTAO_CREDITO, não
+ *        PIX_ONLINE (era o followup.md #13);
+ *  4. ★  barbeiro a 0% não recebe linha de zero.
+ */
+describe('★★ comissão sobre o líquido (Fase 8)', () => {
+  /** Agenda com cobrança ONLINE, confirma o pagamento e grava o líquido. */
+  async function atendimentoPagoOnline(opts: {
+    liquidoCentavos: number | null;
+    meio?: 'PIX' | 'CARTAO_CREDITO';
+  }): Promise<string> {
+    const res = await http
+      .post('/atendimentos')
+      .set(auth())
+      .send({
+        barbeiroId,
+        servicoIds: [corteId],
+        data: DIA,
+        horaInicio: horaDoProximoSlot(),
+        cliente: { nome: 'Cliente Liquido', telefone: novoFone() },
+        gerarCobranca: true,
+      })
+      .expect(201);
+    const atendimentoId = res.body.atendimentoId as string;
+
+    // Confirma pelo caminho REAL (mesmo caso de uso do webhook) — é ele que tira
+    // a reserva de RESERVADO, e sem isso a conclusão nem seria permitida.
+    await http.post(`/atendimentos/${atendimentoId}/confirmar-pagamento`).set(auth()).expect(201);
+
+    // O líquido e o trilho: no fluxo real vêm do gateway (`paid_amount`) e da
+    // criação da cobrança. Aqui são plantados direto, porque o que está sob teste
+    // é a CONCLUSÃO, não a confirmação — e o gateway fake não tem taxa.
+    await prisma.intencaoDePagamento.updateMany({
+      where: { atendimentoId },
+      data: {
+        valorLiquidoCentavos: opts.liquidoCentavos,
+        ...(opts.meio ? { meio: opts.meio } : {}),
+      },
+    });
+    return atendimentoId;
+  }
+
+  const taxaDe = (lancs: { tipo: string; valorComissaoCentavos: number; valorBaseCentavos: number | null }[]) =>
+    lancs.find((l) => l.tipo === 'TAXA_PAGAMENTO_ONLINE');
+
+  it('★★ R$100 pagos online com R$3,00 de taxa: barbeiro a 45% absorve R$1,35', async () => {
+    // 45% de 10000 = 4500 bruto. Taxa 300, parte dele 135. Líquido do bolso: 4365.
+    // E 45% de 9700 (o líquido) = 4365. Os dois caminhos coincidem, ao centavo —
+    // é a razão pela qual "linha própria" não custa dinheiro a ninguém.
+    const id = await atendimentoPagoOnline({ liquidoCentavos: 9700 });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+
+    const lancs = await lancamentosDe(id);
+    const taxa = taxaDe(lancs);
+    expect(taxa, 'a linha de taxa tem que existir').toBeDefined();
+    expect(taxa!.valorBaseCentavos).toBe(300); // a taxa INTEIRA, para a linha ser auditável
+    expect(taxa!.valorComissaoCentavos).toBe(135); // 45% dela
+
+    const comissao = lancs.find((l) => l.tipo === 'COMISSAO')!;
+    expect(comissao.valorComissaoCentavos).toBe(COMISSAO_CHEIA);
+
+    // ★★ O saldo do atendimento: bruto − absorção == percentual sobre o líquido.
+    expect(comissao.valorComissaoCentavos - taxa!.valorComissaoCentavos).toBe(4365);
+    expect(Math.round((9700 * COMISSAO_BP) / 10000)).toBe(4365);
+  });
+
+  it('★ presencial NÃO gera linha de taxa — não houve gateway', async () => {
+    const id = await agendar();
+    await concluir(id).expect(201);
+    expect(taxaDe(await lancamentosDe(id))).toBeUndefined();
+  });
+
+  it('★ online SEM líquido informado e gateway fake: sem linha, comissão no bruto', async () => {
+    // O gateway fake não cobra taxa, então a taxa é CONHECIDA e é zero — não
+    // "desconhecida". Sem isto, todo atendimento de desenvolvimento entraria no
+    // caminho de erro e encheria o log.
+    const id = await atendimentoPagoOnline({ liquidoCentavos: null });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+    const lancs = await lancamentosDe(id);
+    expect(taxaDe(lancs)).toBeUndefined();
+    expect(lancs.find((l) => l.tipo === 'COMISSAO')!.valorComissaoCentavos).toBe(COMISSAO_CHEIA);
+  });
+
+  it('taxa que não chega a um centavo da parte dele não gera linha de zero', async () => {
+    // Taxa de 1 centavo, 45% dela = 0,45 → arredonda para 0. Um lançamento de zero
+    // só sujaria o extrato.
+    const id = await atendimentoPagoOnline({ liquidoCentavos: PRECO_CORTE - 1 });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+    expect(taxaDe(await lancamentosDe(id))).toBeUndefined();
+  });
+
+  it('★ followup #13 fechado: cartão grava CARTAO_CREDITO, não PIX_ONLINE', async () => {
+    const id = await atendimentoPagoOnline({ liquidoCentavos: 9700, meio: 'CARTAO_CREDITO' });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+    const at = await prisma.atendimento.findUnique({ where: { id } });
+    expect(at!.formaPagamento).toBe('CARTAO_CREDITO');
+  });
+
+  it('PIX online continua gravando PIX_ONLINE (não-regressão)', async () => {
+    const id = await atendimentoPagoOnline({ liquidoCentavos: 9700, meio: 'PIX' });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+    const at = await prisma.atendimento.findUnique({ where: { id } });
+    expect(at!.formaPagamento).toBe('PIX_ONLINE');
+  });
+
+  it('★ a linha entra no extrato como DÉBITO — o saldo cai', async () => {
+    const antes = (await extrato()).saldo.saldoRealCentavos as number;
+    const id = await atendimentoPagoOnline({ liquidoCentavos: 9700 });
+    await http.post(`/atendimentos/${id}/concluir`).set(auth()).send({}).expect(201);
+    const depois = (await extrato()).saldo.saldoRealCentavos as number;
+    // Subiu 4500 de comissão e caiu 135 de taxa.
+    expect(depois - antes).toBe(COMISSAO_CHEIA - 135);
+  });
+});

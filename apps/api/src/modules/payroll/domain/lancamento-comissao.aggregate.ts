@@ -190,6 +190,71 @@ export class LancamentoComissao extends AggregateRoot {
   }
 
   /**
+   * TAXA DO PAGAMENTO ONLINE (2026-08-27) — a parte da taxa do gateway que o
+   * barbeiro absorve. É como "comissão sobre o líquido" foi implementado.
+   *
+   * `valorBase` é a taxa INTEIRA que o gateway retém do pagamento;
+   * `valorComissao` é a parte dele. Os dois juntos deixam a linha auditável sem
+   * consultar mais nada: "Taxa de R$ 1,60 · sua parte R$ 0,79".
+   *
+   * ## `percentualAplicado` é NULL de propósito
+   *
+   * Não existe UM percentual honesto aqui. A taxa é rateada entre os itens da
+   * comanda e cada fatia leva o percentual do SEU serviço — um barbeiro a 50% no
+   * corte e 30% na barba absorve frações diferentes da mesma taxa. É exatamente a
+   * situação em que `criarDeDescontoConcedido` deixava o campo nulo antes de o
+   * desconto ganhar um percentual próprio no cadastro do barbeiro.
+   *
+   * Poderíamos gravar a razão `parteDoBarbeiro / taxaTotal` como "percentual
+   * efetivo", mas seria um número derivado convidando alguém a recalcular a partir
+   * dele e chegar a outro resultado. `null` é mais honesto; a tela sabe lidar
+   * (lançamentos de desconto anteriores a 2026-08-26 também não têm percentual).
+   */
+  static criarDeTaxaDePagamentoOnline(params: {
+    id: LancamentoId;
+    companyId: CompanyId;
+    barbeiroId: BarbeiroId;
+    atendimentoId: AtendimentoId;
+    /** A taxa inteira retida pelo gateway neste pagamento. */
+    taxaTotal: Dinheiro;
+    /** A fatia absorvida pelo barbeiro (ver `absorcaoDaTaxaPeloBarbeiro`). */
+    parteDoBarbeiro: Dinheiro;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    if (!params.parteDoBarbeiro.ehPositivo()) {
+      // Zero significa "a casa bancou a taxa inteira" (barbeiro a 0%, ou taxa
+      // menor que meio centavo da parte dele). Um lançamento de zero só sujaria o
+      // extrato, então quem chama não deve criar — e aqui recusamos para que a
+      // decisão não fique só na convenção do chamador.
+      throw new InvarianteVioladaError(
+        'Lançamento de taxa exige parte do barbeiro maior que zero',
+      );
+    }
+    if (params.parteDoBarbeiro.centavos > params.taxaTotal.centavos) {
+      throw new InvarianteVioladaError(
+        'A parte do barbeiro não pode ser maior que a taxa retida pelo gateway',
+      );
+    }
+    return new LancamentoComissao(
+      params.id,
+      params.companyId,
+      params.barbeiroId,
+      TipoLancamento.TAXA_PAGAMENTO_ONLINE,
+      null,
+      params.atendimentoId,
+      null,
+      null,
+      null,
+      null,
+      null,
+      params.taxaTotal,
+      null,
+      params.parteDoBarbeiro,
+      params.ocorridoEm,
+    );
+  }
+
+  /**
    * Produto vendido junto de um Atendimento (add-on, item 4a) OU numa
    * VendaDeProduto avulsa (item 4b) — exatamente um dos dois ids é passado.
    */
