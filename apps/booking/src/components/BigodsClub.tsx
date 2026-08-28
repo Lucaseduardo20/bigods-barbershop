@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { PacoteOfertaDTO } from '@bigods/contracts';
+import { descricaoDosDias, permiteTodosOsDias } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { MarcaBigodsClub } from './LogoBigodsClub';
 import { COMPANY_ID } from '../lib/config';
@@ -130,6 +131,14 @@ export function BigodsClub({
             <div className="text-[12.5px]" style={{ opacity: 0.8 }}>
               {composicaoTexto}
             </div>
+            {/* ★ A restrição de dias aparece ANTES da compra (2026-08-28), e a
+                frase é DERIVADA dos dias da oferta — nunca um texto digitado à
+                parte, que divergiria da regra e enganaria quem está comprando. */}
+            {!permiteTodosOsDias(o.diasPermitidos) && (
+              <div className="text-[12px] font-bold" style={{ opacity: 0.95 }}>
+                {descricaoDosDias(o.diasPermitidos)}
+              </div>
+            )}
             {o.economiaCentavos > 0 && (
               <div className="flex justify-between items-center text-[12px] gap-2">
                 <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>

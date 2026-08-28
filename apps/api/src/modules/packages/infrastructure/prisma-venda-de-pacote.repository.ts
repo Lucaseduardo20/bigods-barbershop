@@ -29,6 +29,7 @@ function paraDominio(row: Row): VendaDePacote {
     origemLinkBarbeiroId: row.origemLinkBarbeiroId,
     ofertaId: row.ofertaId,
     nomeOferta: row.nomeOferta,
+    diasPermitidos: row.diasPermitidos,
     itens: row.itens.map((i) => ({
       id: i.id,
       servicoId: i.servicoId,
@@ -99,6 +100,9 @@ export class PrismaVendaDePacoteRepository implements VendaDePacoteRepository {
       origemLinkBarbeiroId: venda.origemLinkBarbeiroId,
       ofertaId: venda.ofertaId,
       nomeOferta: venda.nomeOferta,
+      // SNAPSHOT: gravado na venda e nunca reescrito depois — o `update` do
+      // upsert só o repassa igual, porque o agregado não o altera.
+      diasPermitidos: venda.diasPermitidos,
     };
     await this.db.vendaDePacote.upsert({
       where: { id: venda.id },

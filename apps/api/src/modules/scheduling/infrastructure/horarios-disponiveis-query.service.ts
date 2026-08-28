@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DiasDisponiveisDTO, HorariosDisponiveisDTO } from '@bigods/contracts';
 import { somarDias } from '../domain/regra-janela-agendamento';
-import { diaCivilChave } from '../../../shared/domain/calendario';
+import { diaCivilChave, diaDaSemanaCivil } from '../../../shared/domain/calendario';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import {
   PARAMETROS_DA_EMPRESA_REPOSITORY,
@@ -25,6 +25,17 @@ const PASSO_MINUTOS = 15;
  * a nenhum `Atendimento` AGENDADO (mesmo critério da invariante e da EXCLUDE).
  *
  * Fonte de verdade continua sendo a escrita — aqui é só o que exibir ao cliente.
+ *
+ * ## Dias permitidos do pacote (2026-08-28)
+ *
+ * Quando a consulta é para gastar um crédito, `diasPermitidos` chega com o
+ * SNAPSHOT da venda e os dias fora dele simplesmente NÃO são oferecidos. É de
+ * propósito que não exista mensagem de erro no meio do fluxo: o cliente escolhe
+ * entre o que dá, em vez de escolher e ser recusado. A explicação do porquê
+ * ("Válido de segunda a quinta") fica na tela, ANTES da escolha.
+ *
+ * O bloqueio real continua na escrita (`VendaDePacote.agendarItem`) — isto aqui
+ * é leitura, e leitura não guarda regra.
  */
 @Injectable()
 export class HorariosDisponiveisQueryService {
@@ -39,6 +50,8 @@ export class HorariosDisponiveisQueryService {
     barbeiroId: string;
     data: string; // YYYY-MM-DD, dia civil local
     servicoIds: string[];
+    /** Snapshot da venda quando a consulta é para gastar crédito (2026-08-28). */
+    diasPermitidos?: number[];
     agora?: Date;
   }): Promise<HorariosDisponiveisDTO> {
     if (params.servicoIds.length === 0) {
@@ -47,6 +60,10 @@ export class HorariosDisponiveisQueryService {
     // timezone() também valida que a empresa existe (sem fallback de tenant, §2.4)
     const tz = await this.parametros.timezone(params.companyId);
     const agora = params.agora ?? new Date();
+    // Dia bloqueado pelo pacote: some inteiro, sem erro e sem query.
+    if (this.diaBloqueado(params.data, params.diasPermitidos)) {
+      return { data: params.data, horarios: [] };
+    }
 
     const servicos = await this.prisma.servico.findMany({
       where: { id: { in: params.servicoIds }, companyId: params.companyId },
@@ -134,6 +151,8 @@ export class HorariosDisponiveisQueryService {
     de: string; // YYYY-MM-DD (inclusivo), dia civil local
     ate: string; // YYYY-MM-DD (inclusivo)
     servicoIds: string[];
+    /** Snapshot da venda quando a consulta é para gastar crédito (2026-08-28). */
+    diasPermitidos?: number[];
     agora?: Date;
   }): Promise<DiasDisponiveisDTO> {
     if (params.servicoIds.length === 0) {
@@ -192,9 +211,29 @@ export class HorariosDisponiveisQueryService {
     const dias: DiasDisponiveisDTO['dias'] = [];
     for (let dia = params.de; dia <= params.ate; dia = somarDias(dia, 1)) {
       const doDia = janelasPorDia.get(dia) ?? [];
-      dias.push({ data: dia, disponivel: this.temAlgumSlot(doDia, ocupados, duracaoTotalMs, agora) });
+      dias.push({
+        data: dia,
+        disponivel:
+          !this.diaBloqueado(dia, params.diasPermitidos) &&
+          this.temAlgumSlot(doDia, ocupados, duracaoTotalMs, agora),
+      });
     }
     return { dias };
+  }
+
+  /**
+   * ★ O dia da semana vem do dia CIVIL da empresa, nunca do instante UTC.
+   *
+   * `data` já É o dia civil no fuso da empresa (todo slot listado nasce dentro
+   * de `limitesDoDiaCivil(data, tz)`), então `diaDaSemanaCivil` só lê a data —
+   * não há como um horário de sexta 23h ser contado como sábado aqui.
+   *
+   * Sem restrição (`undefined`) = consulta que não é de crédito de pacote:
+   * avulso, saldo residual. Nada é filtrado.
+   */
+  private diaBloqueado(data: string, diasPermitidos: number[] | undefined): boolean {
+    if (!diasPermitidos) return false;
+    return !diasPermitidos.includes(diaDaSemanaCivil(data));
   }
 
   /** Igual ao laço de `disponiveis`, mas para no primeiro slot que serve. */
@@ -257,8 +296,13 @@ export class HorariosDisponiveisQueryService {
     companyId: string;
     data: string;
     servicoIds: string[];
+    /** Snapshot da venda quando a consulta é para gastar crédito (2026-08-28). */
+    diasPermitidos?: number[];
     agora?: Date;
   }): Promise<HorariosDisponiveisDTO> {
+    if (this.diaBloqueado(params.data, params.diasPermitidos)) {
+      return { data: params.data, horarios: [] };
+    }
     const { duracaoTotalMs, tz } = await this.prepararCarrinho(params.companyId, params.servicoIds);
     const agora = params.agora ?? new Date();
     const barbeiroIds = await this.barbeirosQueAtendem(params.companyId, params.servicoIds);
@@ -316,6 +360,8 @@ export class HorariosDisponiveisQueryService {
     de: string;
     ate: string;
     servicoIds: string[];
+    /** Snapshot da venda quando a consulta é para gastar crédito (2026-08-28). */
+    diasPermitidos?: number[];
     agora?: Date;
   }): Promise<DiasDisponiveisDTO> {
     if (params.de > params.ate) throw new BadRequestException('Período inválido');
@@ -367,7 +413,9 @@ export class HorariosDisponiveisQueryService {
     }
 
     for (let dia = params.de; dia <= params.ate; dia = somarDias(dia, 1)) {
-      const doDia = janelasPorDia.get(dia) ?? [];
+      const doDia = this.diaBloqueado(dia, params.diasPermitidos)
+        ? []
+        : janelasPorDia.get(dia) ?? [];
       const disponivel = doDia.some(
         (janela) =>
           this.slotsLivres(

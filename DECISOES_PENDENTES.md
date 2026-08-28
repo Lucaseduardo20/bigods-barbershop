@@ -1065,7 +1065,7 @@ numa tela que ninguém quer que seja lenta, e não vale pagar por um caso que ta
 
 ## 60. Desfazer um consumo de crédito registrado por engano (2026-08-28)
 
-O consumo no balcão (§8.15) cria um atendimento **CONCLUIDO**, que é estado final: se o
+O consumo no balcão (§8.16) cria um atendimento **CONCLUIDO**, que é estado final: se o
 admin registrar o crédito errado, o barbeiro errado ou a caixinha errada, não há caminho de
 volta pelo painel.
 

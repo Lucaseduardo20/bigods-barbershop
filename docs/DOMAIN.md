@@ -650,6 +650,7 @@ itens individuais, cada um com ciclo de vida próprio.
 | `compradoEm` | Timestamp | |
 | `statusPagamento` | StatusPagamento | ver §3.8 |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
+| `diasPermitidos` | List\<0..6\> | **SNAPSHOT** dos dias da semana em que os créditos podem ser usados (2026-08-28) — 0=domingo … 6=sábado; os sete = sem restrição. Congelado na compra, ver §8.15 |
 
 **`barbeiroId` = o barbeiro que o CLIENTE escolheu ao comprar (2026-08-18).** Não é dono
 do pacote e não é base de preço: a oferta é da empresa e o rateio usa a referência da casa
@@ -659,6 +660,11 @@ do pacote e não é base de preço: a oferta é da empresa e o rateio usa a refe
 - `barbeiroId !== null` ⇒ **só ele** atende os serviços daquele pacote. Foi com ele que o
   cliente decidiu se tratar; agendar com outro é `InvarianteVioladaError`.
 - `barbeiroId === null` (comprou sem escolher) ⇒ qualquer barbeiro pode.
+
+**`agendarItem` também recusa dia da semana fora de `diasPermitidos`** (2026-08-28, §8.15).
+O dia é o **CIVIL da empresa**, resolvido por quem chama (o agregado é puro e não conhece
+fuso) — 23h de sexta em São Paulo é sábado em UTC, e é a data civil que vale.
+
 
 "O barbeiro atende este serviço" **não** é verificado aqui: é a MESMA invariante que
 `Atendimento.agendar()` já aplica a qualquer atendimento (§3.5), e o use case cria os dois
@@ -989,6 +995,7 @@ rateio, só é a fonte da composição e do preço que alimentam a venda.
 | `nome` | string | |
 | `composicao` | List\<{servicoId, quantidade}\> | **MISTA**: N serviços distintos, cada um com sua quantidade (ex.: 2 cortes + 2 barbas no mesmo pacote) |
 | `preco` | Dinheiro | **única fonte de verdade persistida** — ver regra de precificação abaixo |
+| `diasPermitidos` | List\<0..6\> | dias da semana em que os créditos vendidos poderão ser usados (2026-08-28) — 0=domingo … 6=sábado; os sete = sem restrição (default). A VENDA congela, ver §8.15 |
 | `ativo` | boolean | soft-disable, como `Servico`/`Produto` |
 | `statusAprovacao` | StatusAprovacaoPacoteOferta | workflow de aprovação (§4.3, Fase 3) |
 | `motivoRejeicao` | string \| null | preenchido só quando `REJEITADO` |
@@ -1019,6 +1026,11 @@ pacote para todos, então a economia exibida é a mesma para todos. Override de 
 - `preco` **não pode ser maior** que a soma dos preços de referência da composição — um
   "pacote" mais caro que comprar os mesmos serviços separado é erro de cadastro, não um
   desconto negativo.
+- `diasPermitidos`: todo elemento inteiro em 0..6. Vazio/ausente = **todos os dias** (o
+  default e o comportamento anterior a 2026-08-28). Valor fora da faixa é **erro**, nunca
+  descarte silencioso: engolir um `7` transformaria o erro de digitação do admin numa
+  configuração diferente da que ele quis — e a frase que o cliente lê sairia igualmente
+  errada.
 
 **Autorização (2026-08-18): cadastro é ADMIN-ONLY.** Sem dono, não existe "as minhas
 ofertas" para escopar — catálogo da empresa é responsabilidade do admin. O workflow de
@@ -2279,7 +2291,85 @@ ATUAL — sem isso, uma sessão esquecida aberta trancaria o dono para fora da p
 
 ---
 
-### 8.15 Consumir crédito de pacote no balcão (2026-08-28)
+### 8.15 Dias da semana em que o crédito de pacote vale (2026-08-28)
+
+**O problema real:** o pacote econômico é barato porque o cliente aceita flexibilidade. Sem
+nenhuma trava, ele consome exatamente a agenda mais disputada da casa — sexta e sábado —, e
+aí o desconto sai do horário que a barbearia venderia cheio de qualquer jeito.
+
+A regra é **por oferta**: cada pacote decide em que dias os créditos dele podem ser usados.
+Default: **todos os dias** — é o que valia antes desta regra, e é o que continua valendo para
+toda oferta e toda venda que já existiam.
+
+#### As três peças, e por que são três
+
+```
+PacoteOferta.diasPermitidos   a regra ATUAL do catálogo — o admin edita quando quiser
+VendaDePacote.diasPermitidos  o SNAPSHOT da compra    — nunca muda depois
+descricaoDosDias(dias)        a FRASE que o cliente lê — sempre derivada
+```
+
+**★ A venda congela (§3.5, a mesma disciplina de `valorRateado` e `valorCobrado`).** O cliente
+comprou uma coisa e leva aquela coisa. Apertar a oferta para "segunda a quinta" amanhã não
+alcança quem comprou hoje sem restrição — e afrouxá-la não libera quem comprou restrito. A
+regra que vale é a que estava escrita na tela no momento da compra.
+
+**★ A frase é DERIVADA, nunca digitada.** "Válido de segunda a quinta" sai de
+`descricaoDosDias`, no `packages/contracts`, do MESMO conjunto que o sistema usa para
+bloquear. Um campo de texto livre ao lado divergiria da regra no primeiro ajuste — e é
+justamente esse texto que o cliente usa para decidir a compra. Três formas, da mais natural
+para a mais literal: `todos os sete → "Válido todos os dias"`; `faixa contígua → "Válido de
+segunda a quinta"`; `avulsos → "Válido às segundas, quartas e sextas"`. A contiguidade é
+medida na ordem de LEITURA (segunda→domingo): `sáb, dom, seg` não vira "de sábado a segunda",
+que faria o leitor pensar que a terça também vale.
+
+#### Bloqueio limpo: o dia não aparece, não dá erro
+
+A projeção de horários (`/public/horarios` e `/public/dias`) aceita `creditoId` — o crédito
+que a visita vai gastar. Com ele, a projeção devolve só os dias que **aquela venda** permite:
+o dia bloqueado simplesmente **não tem horário**, e o seletor de dias apaga o botão.
+
+O cliente escolhe entre o que dá, em vez de escolher e ser recusado no fim do fluxo. A
+explicação de POR QUE fica na tela **antes** da escolha (a frase derivada), nunca numa
+mensagem de erro depois dela.
+
+**A projeção é leitura (§2.1) e leitura não guarda regra.** O bloqueio de verdade é
+`VendaDePacote.agendarItem`, que recusa dia fora do snapshot — e a mensagem dele também usa
+`descricaoDosDias`, dos mesmos dias que barraram. Quem chama a API direto, ou chega com uma
+tela aberta desde antes da mudança, esbarra ali.
+
+#### ★ Fuso: o dia da semana é o CIVIL da empresa
+
+Um horário às **23h de sexta em São Paulo é sábado em UTC**. Ler o dia da semana do instante
+bruto (`getUTCDay()`) roubaria do cliente uma sexta legítima num pacote "segunda a sexta" — e
+liberaria um sábado num pacote que o proíbe.
+
+O caminho é sempre o mesmo, e é o único:
+
+```
+diaCivilChave(instante, tz)  →  "2026-09-04"   (dia civil no fuso da empresa)
+diaDaSemanaCivil("2026-09-04")  →  5           (sexta; tz-agnóstico, só lê a data)
+```
+
+O agregado **não** deriva o dia sozinho: ele é puro e não conhece fuso, então recebe o dia da
+semana já resolvido de quem tem o fuso em mãos (o use case, a projeção). Na projeção o `data`
+consultado **já é** o dia civil da empresa — todo slot listado nasce dentro de
+`limitesDoDiaCivil(data, tz)` —, então basta lê-lo.
+
+#### Onde isso aparece
+
+- **Admin** (`Pacotes` → oferta): sete botões na ordem de leitura, e embaixo a frase exata que
+  o cliente vai ler. Editar avisa que vale só para as próximas vendas.
+- **Funil** (Bigod's Club): a frase aparece no card da oferta, **antes** da compra.
+- **Conta do cliente**: a frase no card do pacote, junto dos créditos — onde ele decide usar.
+- **Agendar/reagendar com crédito**: dias bloqueados apagados, sem horário nenhum.
+
+#### O que NÃO foi feito
+
+Reagendar um atendimento de pacote passa pelo mesmo `AgendarComCredito`, então herda a trava
+sem código novo. Atendimento **já agendado** antes de a oferta mudar não é revisto — o
+snapshot da venda dele não mudou, e revisar o passado contrariaria §3.5.
+### 8.16 Consumir crédito de pacote no balcão (2026-08-28)
 
 **O incidente que trouxe isto.** O cliente agendou avulso; na cadeira, resolveu comprar um
 pacote. A operação cancelou o avulso, vendeu o pacote pelo painel e consumiu o crédito
@@ -2362,7 +2452,10 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
-- Registro de atendimento já ocorrido (§8.15): nasce CONCLUIDO, emite `AtendimentoConcluido`
+- Dias permitidos do pacote (§8.15): a venda congela e a oferta muda sem alcançá-la; dia fora de
+  0..6 é erro; e a composição `diaCivilChave → diaDaSemanaCivil` acerta a sexta 23h de São Paulo
+  que é sábado em UTC (`dias-permitidos-do-pacote.spec.ts`).
+- Registro de atendimento já ocorrido (§8.16): nasce CONCLUIDO, emite `AtendimentoConcluido`
   e NÃO `AtendimentoAgendado`, conta o intervalo para trás a partir do fim, e não depende de
   expediente cadastrado.
 - Fuso horário (§2.6): conversão local↔UTC robusta a horário de verão (caso real cruzando a
@@ -2381,6 +2474,9 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   correto, nunca no dia seguinte.
 - Job de expiração não erra a virada de dia por causa do fuso (prazo vence "hoje" local mesmo
   quando o instante UTC já é outro dia).
+- Dia bloqueado por pacote some da projeção (`/public/horarios` e `/public/dias` com `creditoId`)
+  E é recusado pela escrita — as duas pontas, porque a projeção é leitura e não guarda regra
+  (`dias-permitidos.e2e.spec.ts`).
 
 **Não perseguir cobertura alta em controllers e mapeamento de infra.** O valor está no domínio.
 

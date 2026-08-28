@@ -98,6 +98,8 @@ export class PacotesQueryService {
         compradoEm: v.compradoEm.toISOString(),
         statusPagamento: StatusPagamento[v.statusPagamento],
         nomeOferta: v.nomeOferta,
+        // SNAPSHOT dos dias (2026-08-28) — a tela deriva a frase a partir daqui.
+        diasPermitidos: v.diasPermitidos,
         origemLinkBarbeiroId: v.origemLinkBarbeiroId,
         origemLinkBarbeiroNome: v.origemLinkBarbeiroId ? (barbeiroPorId.get(v.origemLinkBarbeiroId)?.nome ?? null) : null,
         itens: v.itens.map((i) => ({
