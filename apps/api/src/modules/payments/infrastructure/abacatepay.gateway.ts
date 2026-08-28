@@ -37,6 +37,9 @@ export class AbacatePayGateway implements PaymentGateway {
   /** A AbacatePay é PIX-only nesta integração — `pagarComCartao` recusa. */
   readonly suportaCartao = false;
 
+  /** Sem piso: a AbacatePay aceita a janela curta da reserva de horário. */
+  readonly janelaPixMinimaSegundos = 0;
+
   /**
    * A AbacatePay não tem estorno nesta integração — `estornar` recusa. Reembolso
    * com ela segue MANUAL: o dono devolve por fora e registra no admin.

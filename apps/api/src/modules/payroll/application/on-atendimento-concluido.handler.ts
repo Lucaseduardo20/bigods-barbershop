@@ -1,16 +1,18 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
-import { LancamentoComissao } from '../domain/lancamento-comissao.aggregate';
 import {
   LANCAMENTO_COMISSAO_REPOSITORY,
   LancamentoComissaoRepository,
 } from '../domain/lancamento-comissao.repository';
 import { BARBEIRO_REPOSITORY, BarbeiroRepository } from '../../staff/domain/barbeiro.repository';
-import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { AtendimentoConcluido } from '../../scheduling/domain/atendimento.events';
+import { lancamentosDoAtendimentoConcluido } from '../domain/lancamentos-do-atendimento';
+// Ainda necessarios para a linha da TAXA do pagamento online, que continua no
+// handler: `lancamentosDoAtendimentoConcluido` nao conhece o pagamento.
+import { LancamentoComissao } from '../domain/lancamento-comissao.aggregate';
+import { Barbeiro } from '../../staff/domain/barbeiro.aggregate';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
-import { repartirEntreBarbeiroECasa } from '../domain/rateio-do-acerto';
 import {
   absorcaoDaTaxaPeloBarbeiro,
   type BaseComissionavel,
@@ -55,45 +57,44 @@ export class OnAtendimentoConcluidoHandler {
       return;
     }
 
-    for (const item of evento.itens) {
-      const lancamento = LancamentoComissao.criarDeServico({
-        id: randomUUID(),
-        companyId: evento.companyId,
-        barbeiroId: evento.barbeiroId,
-        atendimentoId: evento.atendimentoId,
-        servicoId: item.servicoId,
-        valorBase: Dinheiro.deCentavos(item.valorCobradoCentavos),
-        percentualAplicado: barbeiro.percentualPara(item.servicoId),
-        ocorridoEm: evento.ocorridoEm,
-      });
-      await this.lancamentos.salvar(lancamento);
-    }
-
     // Taxa lida AGORA, na conclusão, e congelada em cada lançamento (§3.5):
     // mudar a taxa depois não mexe em nada já lançado. Só consulta se houver
     // produto — atendimento só de serviço é o caso comum e não paga essa ida ao
     // banco.
-    const taxaDaEmpresa = evento.produtos.length
+    const taxaDeProduto = evento.produtos.length
       ? await this.parametros.comissaoProdutos(evento.companyId)
       : null;
 
-    for (const produto of evento.produtos) {
-      const valorBase = Dinheiro.deCentavos(produto.valorUnitarioCentavos).multiplicarPorInteiro(produto.quantidade);
-      const lancamento = LancamentoComissao.criarDeProduto({
-        id: randomUUID(),
-        companyId: evento.companyId,
-        barbeiroId: evento.barbeiroId,
-        atendimentoId: evento.atendimentoId,
-        produtoId: produto.produtoId,
-        valorBase,
-        percentualAplicado: taxaDaEmpresa!,
-        ocorridoEm: evento.ocorridoEm,
-      });
+    // A conta em si mora em `lancamentos-do-atendimento.ts`, compartilhada com
+    // a CORREÇÃO de barbeiro (2026-08-27): quando a comissão foi lançada para
+    // quem não atendeu, ela nasce de novo no nome de quem atendeu, pela taxa
+    // dele — pela MESMA conta. Duas implementações divergiriam, e o sintoma
+    // seria dinheiro diferente dependendo do caminho.
+    const lancamentos = lancamentosDoAtendimentoConcluido({
+      companyId: evento.companyId,
+      atendimentoId: evento.atendimentoId,
+      barbeiro,
+      itens: evento.itens.map((i) => ({
+        servicoId: i.servicoId,
+        valorCobradoCentavos: i.valorCobradoCentavos,
+      })),
+      produtos: evento.produtos.map((p) => ({
+        produtoId: p.produtoId,
+        valorUnitarioCentavos: p.valorUnitarioCentavos,
+        quantidade: p.quantidade,
+      })),
+      taxaDeProduto,
+      caixinhaCentavos: evento.caixinhaCentavos,
+      descontoConcedidoCentavos: evento.descontoConcedidoCentavos,
+      ocorridoEm: evento.ocorridoEm,
+      novoId: randomUUID,
+    });
+
+    for (const lancamento of lancamentos) {
       await this.lancamentos.salvar(lancamento);
     }
 
-    await this.lancarAjustesDoFechamento(evento, barbeiro);
-    await this.lancarTaxaDoPagamentoOnline(evento, barbeiro, taxaDaEmpresa);
+    await this.lancarTaxaDoPagamentoOnline(evento, barbeiro, taxaDeProduto);
   }
 
   /**
@@ -147,70 +148,5 @@ export class OnAtendimentoConcluidoHandler {
         ocorridoEm: evento.ocorridoEm,
       }),
     );
-  }
-
-  /**
-   * FASE 3 (2026-08-25): caixinha e desconto viram lançamentos PRÓPRIOS.
-   *
-   * Poderiam ser embutidos — somar a caixinha na comissão do serviço, reduzir a
-   * base pelo desconto — e o saldo daria o mesmo. Mas o barbeiro veria o número
-   * dele mudar sem nada explicando por quê, e desconfiança sobre dinheiro é
-   * cara. Como linhas separadas, o extrato lê:
-   *
-   *     Comissão corte simples + barba      R$ 28,34
-   *     Caixinha                          + R$  7,00
-   *     Desconto concedido (sua parte)     − R$  4,50
-   */
-  private async lancarAjustesDoFechamento(
-    evento: AtendimentoConcluido,
-    barbeiro: Barbeiro,
-  ): Promise<void> {
-    // ★ Os dois percentuais são lidos do barbeiro AGORA, na conclusão, e
-    // congelados no lançamento (§3.5). Mudar o cadastro depois não mexe em
-    // nada já lançado — o extrato guarda o acordo do dia do atendimento.
-    if (evento.caixinhaCentavos > 0) {
-      const caixinha = repartirEntreBarbeiroECasa(
-        evento.caixinhaCentavos,
-        barbeiro.percentualCaixinha.pontosBase,
-      );
-      // Zero quando o barbeiro está a 0% de caixinha: a casa ficou com tudo, e
-      // um lançamento de valor zero só sujaria o extrato dele.
-      if (caixinha.doBarbeiroCentavos > 0) {
-        await this.lancamentos.salvar(
-          LancamentoComissao.criarDeCaixinha({
-            id: randomUUID(),
-            companyId: evento.companyId,
-            barbeiroId: evento.barbeiroId,
-            atendimentoId: evento.atendimentoId,
-            valorTotal: Dinheiro.deCentavos(evento.caixinhaCentavos),
-            percentualDoBarbeiro: barbeiro.percentualCaixinha,
-            parteDoBarbeiro: Dinheiro.deCentavos(caixinha.doBarbeiroCentavos),
-            ocorridoEm: evento.ocorridoEm,
-          }),
-        );
-      }
-    }
-
-    if (evento.descontoConcedidoCentavos > 0) {
-      const desconto = repartirEntreBarbeiroECasa(
-        evento.descontoConcedidoCentavos,
-        barbeiro.percentualDescontoAbsorvido.pontosBase,
-      );
-      // Zero quando o barbeiro não absorve nada: a casa bancou sozinha.
-      if (desconto.doBarbeiroCentavos > 0) {
-        await this.lancamentos.salvar(
-          LancamentoComissao.criarDeDescontoConcedido({
-            id: randomUUID(),
-            companyId: evento.companyId,
-            barbeiroId: evento.barbeiroId,
-            atendimentoId: evento.atendimentoId,
-            descontoTotal: Dinheiro.deCentavos(evento.descontoConcedidoCentavos),
-            percentualAbsorvido: barbeiro.percentualDescontoAbsorvido,
-            parteDoBarbeiro: Dinheiro.deCentavos(desconto.doBarbeiroCentavos),
-            ocorridoEm: evento.ocorridoEm,
-          }),
-        );
-      }
-    }
   }
 }

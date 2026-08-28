@@ -23,6 +23,15 @@ export class FakeAbacatePayGateway implements PaymentGateway {
   readonly suportaCartao = false;
 
   /**
+   * Sem piso — e é por isso que o fake não pega o problema sozinho.
+   *
+   * Toda a suíte de agendamento roda com este adapter, e foi exatamente por isso
+   * que o piso de 30 min do Mercado Pago só apareceu quando o `.env` local trocou
+   * de gateway (2026-08-27). Ver `PaymentGateway.janelaPixMinimaSegundos`.
+   */
+  readonly janelaPixMinimaSegundos = 0;
+
+  /**
    * `false` pelo mesmo motivo de `suportaCartao`: um estorno "executado" pelo fake
    * marcaria a solicitação como REEMBOLSADO sem nenhum dinheiro ter se movido, e
    * o extrato passaria a mentir no ambiente onde o time confere as coisas.

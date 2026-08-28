@@ -344,3 +344,81 @@ describe('★ taxa do pagamento online (Fase 8) — comissão sobre o líquido c
     expect(Percentual.dePontosBase(4500).aplicarEm(Dinheiro.deCentavos(3840)).centavos).toBe(1728);
   });
 });
+
+/**
+ * Estorno da correção de barbeiro × taxa do pagamento online.
+ *
+ * Estes dois recursos nasceram em paralelo (2026-08-27) e só se encontraram no
+ * merge. O encontro tinha um erro de SINAL que nenhum dos dois lados podia ver
+ * sozinho, e é o que estes testes travam.
+ */
+describe('★ criarDeEstorno — o sinal vem do sinal do original', () => {
+  const estornar = (original: LancamentoComissao) =>
+    LancamentoComissao.criarDeEstorno({
+      id: 'lc-estorno',
+      original,
+      registradoPorId: 'bar-admin',
+      ocorridoEm,
+    });
+
+  it('estorno de COMISSÃO subtrai — tira de quem não atendeu', () => {
+    const estorno = estornar(criar('svc-corte', 4000));
+    expect(estorno.tipo).toBe(TipoLancamento.ESTORNO_COMISSAO);
+    expect(sinalDoTipo(estorno.tipo)).toBe(-1);
+  });
+
+  it('estorno de DESCONTO_CONCEDIDO soma — devolve o que ele absorveu', () => {
+    const desconto = LancamentoComissao.criarDeDescontoConcedido({
+      id: 'lc-desc',
+      companyId: 'co-1',
+      barbeiroId: barbeiro.id,
+      atendimentoId: 'at-1',
+      descontoTotal: Dinheiro.deCentavos(1000),
+      percentualAbsorvido: Percentual.dePorcentagem(50),
+      parteDoBarbeiro: Dinheiro.deCentavos(500),
+      ocorridoEm,
+    });
+    expect(sinalDoTipo(estornar(desconto).tipo)).toBe(1);
+  });
+
+  it('★ estorno de TAXA_PAGAMENTO_ONLINE SOMA — o bug que o merge criou', () => {
+    // A regra anterior era `DESCONTO_CONCEDIDO ? somar : subtrair`, correta
+    // enquanto o desconto era o único tipo que subtraía. A taxa também subtrai
+    // e caía no `else`: o estorno dela subtrairia DE NOVO, cobrando duas vezes
+    // de quem não atendeu uma taxa que ele não devia nem uma vez.
+    const taxa = LancamentoComissao.criarDeTaxaDePagamentoOnline({
+      id: 'lc-taxa',
+      companyId: 'co-1',
+      barbeiroId: barbeiro.id,
+      atendimentoId: 'at-1',
+      taxaTotal: Dinheiro.deCentavos(160),
+      parteDoBarbeiro: Dinheiro.deCentavos(79),
+      ocorridoEm,
+    });
+    expect(sinalDoTipo(taxa.tipo)).toBe(-1); // a taxa subtrai...
+    expect(sinalDoTipo(estornar(taxa).tipo)).toBe(1); // ...logo o estorno soma
+  });
+
+  it('★ o saldo volta EXATAMENTE ao que era — é a prova que importa', () => {
+    // Um teste sobre o tipo do estorno pode passar com a regra errada se alguém
+    // trocar as duas pontas. Este não: soma o ledger inteiro e exige zero.
+    const lancamentos = [
+      criar('svc-corte', 4000),
+      LancamentoComissao.criarDeTaxaDePagamentoOnline({
+        id: 'lc-taxa',
+        companyId: 'co-1',
+        barbeiroId: barbeiro.id,
+        atendimentoId: 'at-1',
+        taxaTotal: Dinheiro.deCentavos(160),
+        parteDoBarbeiro: Dinheiro.deCentavos(79),
+        ocorridoEm,
+      }),
+    ];
+    const comEstornos = [...lancamentos, ...lancamentos.map(estornar)];
+    expect(calcularSaldoCentavos(comEstornos)).toBe(0);
+  });
+
+  it('um estorno não pode ser estornado', () => {
+    expect(() => estornar(estornar(criar('svc-corte', 4000)))).toThrow(InvarianteVioladaError);
+  });
+});

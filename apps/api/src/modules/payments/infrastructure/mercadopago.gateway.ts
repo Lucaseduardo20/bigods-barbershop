@@ -93,6 +93,9 @@ export class MercadoPagoGateway implements PaymentGateway {
   /** Único adapter que cobra cartão nesta integração. */
   readonly suportaCartao = true;
 
+  /** Piso do PIX no Mercado Pago: 30 minutos. Abaixo disso a order é recusada. */
+  readonly janelaPixMinimaSegundos = 1800;
+
   /** `POST /v1/orders/{id}/refund` — total ou parcial. */
   readonly suportaEstorno = true;
 

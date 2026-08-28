@@ -75,6 +75,9 @@ function paraDominio(row: Row): Atendimento {
     descontoConcedido: Dinheiro.deCentavos(row.descontoConcedidoCentavos),
     reativadoPorId: row.reativadoPorId,
     reativadoEm: row.reativadoEm,
+    reatribuidoDeId: row.reatribuidoDeId,
+    reatribuidoPorId: row.reatribuidoPorId,
+    reatribuidoEm: row.reatribuidoEm,
   });
 }
 
@@ -161,6 +164,9 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       descontoConcedidoCentavos: atendimento.descontoConcedido.centavos,
       reativadoPorId: atendimento.reativadoPorId,
       reativadoEm: atendimento.reativadoEm,
+      reatribuidoDeId: atendimento.reatribuidoDeId,
+      reatribuidoPorId: atendimento.reatribuidoPorId,
+      reatribuidoEm: atendimento.reatribuidoEm,
     };
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {

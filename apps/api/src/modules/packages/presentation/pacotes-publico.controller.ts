@@ -36,8 +36,24 @@ import { ClienteAtual, ContaCliente } from '../../identity/presentation/cliente.
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 
 class ClientePublicoDto {
-  // Mesmas regras do funil de agendamento — o formulário de cliente é o mesmo.
-  @EhNomeDeCliente() nome!: string;
+  /**
+   * ★ OPCIONAL (2026-08-27) — e obrigatório era um bug de produção.
+   *
+   * Desde 2026-08-21 o funil NÃO manda o nome de quem já tem cadastro: o nome
+   * vem do registro dele, e mandá-lo de volta só serviria para o funil
+   * sobrescrever o próprio cadastro. O DTO do agendamento avulso foi ajustado
+   * junto; ESTE, da compra de pacote, ficou para trás.
+   *
+   * Resultado: todo cliente cadastrado que tentava comprar um pacote tomava
+   * `cliente.Informe seu nome.` ao ir para o pagamento — a compra de maior
+   * ticket do funil, e justamente para o cliente mais fiel. Não aparecia no
+   * Sentry porque 400 é `HttpException` e o filtro só reporta 5xx.
+   *
+   * Aqui a sessão é obrigatória (`@ContaCliente`), então o nome nunca precisa
+   * vir no corpo: quem o tem é o cadastro. Ele só é lido para completar quem
+   * ainda está com o placeholder do login por OTP — mesma regra do avulso.
+   */
+  @IsOptional() @EhNomeDeCliente() nome?: string;
   @IsOptional() @EhEmail() email?: string;
   @IsOptional() @IsString() @MaxLength(MAX_SOBRE_VOCE) sobreVoce?: string;
 }
@@ -120,10 +136,18 @@ export class PacotesPublicoController {
     const oferta = await this.ofertas.porId(body.companyId, body.ofertaId);
     if (!oferta) throw new NotFoundException('Oferta de pacote não encontrada');
 
+    // O nome sai do CADASTRO, não do corpo — o corpo só completa quem ainda
+    // está com o placeholder do login por OTP. Cópia deliberada da regra do
+    // avulso (`booking-publico.controller.ts`): as duas trilhas do funil
+    // resolvem o nome do mesmo jeito, e foi divergirem que causou o bug.
+    const nome = cliente.nomeEhPlaceholder
+      ? (body.cliente.nome ?? cliente.nome)
+      : cliente.nome;
+
     const resultado = await this.venderPacote.executar({
       companyId: body.companyId,
       cliente: {
-        nome: body.cliente.nome,
+        nome,
         telefone: cliente.telefone.e164,
         email: body.cliente.email ?? null,
         sobreVoce: body.cliente.sobreVoce ?? null,
@@ -134,6 +158,10 @@ export class PacotesPublicoController {
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       // expande a composição nos serviços reais (o rateio congela por cima destes)
       servicoIds: oferta.servicoIds,
+      // ...e o nome vai junto, senão some aqui: daqui pra frente o use case só
+      // vê uma lista de serviços. É o que faz a conta do cliente dizer "Combo 4
+      // Cortes Simples" em vez de "Pacote".
+      oferta: { id: oferta.id, nome: oferta.nome },
       valorPagoCentavos: oferta.precoCentavos,
       pagamentoImediato: false,
       // Pagamento online é OBRIGATÓRIO na trilha de pacote (decisão do dono) —

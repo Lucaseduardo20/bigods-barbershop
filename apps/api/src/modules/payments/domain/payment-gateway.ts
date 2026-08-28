@@ -152,6 +152,34 @@ export interface PaymentGateway {
   readonly expiraEmSegundos: number;
 
   /**
+   * Menor janela de PIX que este gateway aceita, em segundos.
+   *
+   * ## Por que a porta precisa saber disto (2026-08-27)
+   *
+   * O agendamento avulso segura o horário por 10 minutos e pedia ao gateway um
+   * PIX com a MESMA janela — de propósito, para que um PIX pago no minuto 15 não
+   * confirmasse uma reserva morta no minuto 10. A AbacatePay aceita 600s; o
+   * Mercado Pago tem piso de 1800s e **recusa a criação da order**. Ou seja: com
+   * o Mercado Pago ativo, agendar com PIX falhava com 422 em 100% das tentativas.
+   *
+   * Descoberto ao trocar o gateway do `.env`, não por teste — todos os testes de
+   * agendamento rodavam com o gateway fake, que não tem piso.
+   *
+   * ## Como fica resolvido
+   *
+   * `CobrancaOnlineService` eleva a janela pedida até este piso. A reserva LOCAL
+   * continua de 10 minutos: quem não pagou em 10 perde o horário, como sempre.
+   * O que muda é que o gateway pode aceitar um pagamento depois disso — e esse
+   * caso já tem dono desde a Fase 5, o estorno automático de pagamento fora da
+   * janela, com aviso ao cliente para remarcar. A alternativa (esticar a reserva
+   * para 30 min) prenderia o horário três vezes mais tempo por uma limitação de
+   * um intermediário, o que é deixar o rabo abanar o cachorro.
+   *
+   * Zero = sem piso (AbacatePay, fake).
+   */
+  readonly janelaPixMinimaSegundos: number;
+
+  /**
    * Este adapter cobra cartão de crédito?
    *
    * Existe para o funil poder DESENHAR a tela certa (`/public/empresa` anuncia os

@@ -198,3 +198,73 @@ describe('CobrancaOnlineService — gerar', () => {
     ).rejects.toThrow(/não cobra cartão/i);
   });
 });
+
+/**
+ * Piso da janela de PIX.
+ *
+ * Nasceu de um bug de PRODUÇÃO em potencial, encontrado ao trocar o gateway do
+ * `.env` local (2026-08-27): o agendamento avulso pede 600s — a mesma duração da
+ * reserva do horário — e o Mercado Pago recusa qualquer PIX abaixo de 1800s. Com
+ * ele ativo, TODO agendamento com PIX respondia 422.
+ *
+ * Nenhum teste pegava porque a suíte de agendamento roda com o gateway fake, que
+ * não tem piso. Daí estes testes serem sobre o serviço, com o piso sob controle.
+ */
+describe('★ CobrancaOnlineService — piso da janela de PIX', () => {
+  function comPiso(piso: number) {
+    const gw = gatewayFalso(true) as PaymentGateway & {
+      criarCobrancaPix: ReturnType<typeof vi.fn>;
+      janelaPixMinimaSegundos: number;
+    };
+    (gw as { janelaPixMinimaSegundos: number }).janelaPixMinimaSegundos = piso;
+    return gw;
+  }
+
+  const gerar = (gw: PaymentGateway, expiraEmSegundos: number) =>
+    new CobrancaOnlineService(gw, MANUAL_DESLIGADO, uowFalso()).gerar({
+      intencao: intencao(),
+      descricao: 'Atendimento at-1',
+      expiraEmSegundos,
+      comanda,
+    });
+
+  it('eleva 600s até o piso de 1800s do gateway', async () => {
+    const gw = comPiso(1800);
+    await gerar(gw, 600);
+    expect(gw.criarCobrancaPix).toHaveBeenCalledWith(
+      expect.objectContaining({ expiraEmSegundos: 1800 }),
+    );
+  });
+
+  it('não mexe numa janela que já satisfaz o piso', async () => {
+    const gw = comPiso(1800);
+    await gerar(gw, 3600);
+    expect(gw.criarCobrancaPix).toHaveBeenCalledWith(
+      expect.objectContaining({ expiraEmSegundos: 3600 }),
+    );
+  });
+
+  it('gateway sem piso recebe exatamente o que foi pedido (AbacatePay não regride)', async () => {
+    const gw = comPiso(0);
+    await gerar(gw, 600);
+    expect(gw.criarCobrancaPix).toHaveBeenCalledWith(
+      expect.objectContaining({ expiraEmSegundos: 600 }),
+    );
+  });
+
+  it('★ o expiraEm da INTENÇÃO não se move junto — ele acompanha a reserva', async () => {
+    // É o ponto todo da correção: a janela do GATEWAY sobe, a reserva local não.
+    // Se os dois subissem, o horário ficaria preso 30 min por causa do piso de um
+    // intermediário. Quem trata o pagamento que chega tarde é o estorno
+    // automático da Fase 5.
+    const gw = comPiso(1800);
+    const int = intencao();
+    await new CobrancaOnlineService(gw, MANUAL_DESLIGADO, uowFalso()).gerar({
+      intencao: int,
+      descricao: 'Atendimento at-1',
+      expiraEmSegundos: 600,
+      comanda,
+    });
+    expect(int.expiraEm).toEqual(EXPIRA);
+  });
+});

@@ -3,6 +3,9 @@ import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Percentual } from '../../../shared/domain/percentual';
 import { InvarianteVioladaError } from '../../../shared/errors/domain-error';
+// Fonte ÚNICA do sinal de cada tipo. O estorno a consulta em vez de repetir a
+// regra — ver `criarDeEstorno`.
+import { sinalDoTipo } from './saldo-do-barbeiro';
 import {
   AtendimentoId,
   BarbeiroId,
@@ -52,6 +55,8 @@ export class LancamentoComissao extends AggregateRoot {
     /** Magnitude do lançamento (sempre positiva) — o sinal no saldo vem de `tipo`, ver `sinalDoTipo`. */
     readonly valorComissao: Dinheiro,
     readonly ocorridoEm: Date,
+    /** Qual lançamento este estorno anula. Null em tudo que não é estorno. */
+    readonly estornoDeId: LancamentoId | null = null,
   ) {
     super();
   }
@@ -255,6 +260,74 @@ export class LancamentoComissao extends AggregateRoot {
   }
 
   /**
+   * ★★ ESTORNO (2026-08-27) — anula um lançamento sem apagá-lo.
+   *
+   * O caso: a comissão foi lançada para o barbeiro errado (o cliente marcou com
+   * o A, quem atendeu foi o B, e ninguém corrigiu antes de concluir). O ledger
+   * é imutável por requisito de governança (§3.7): cada centavo tem um
+   * lançamento rastreável, e apagar o errado apagaria justamente o rastro de que
+   * houve um erro.
+   *
+   * Então o errado FICA, e ao lado dele nasce este — mesma magnitude, sinal
+   * oposto, apontando para ele por `estornoDeId`. O saldo do barbeiro volta ao
+   * que era; o histórico conta o que aconteceu.
+   *
+   * O TIPO do estorno é o oposto do que ele anula, porque é o tipo que decide o
+   * sinal: estornar um DESCONTO_CONCEDIDO (que subtraiu) tem que SOMAR de volta.
+   *
+   * `servicoId`/`produtoId`/`origem` são copiados do original para a linha do
+   * extrato dizer o que está sendo estornado ("estorno da comissão do Corte"),
+   * em vez de um valor solto sem assunto.
+   */
+  static criarDeEstorno(params: {
+    id: LancamentoId;
+    original: LancamentoComissao;
+    /** O admin que fez a correção — é ele quem responde por este ajuste. */
+    registradoPorId: BarbeiroId;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    const { original } = params;
+    if (original.estornoDeId !== null) {
+      throw new InvarianteVioladaError('Um estorno não pode ser estornado');
+    }
+    // ★ O tipo do estorno vem do SINAL do original, não de uma lista de tipos
+    // (2026-08-27, ao juntar esta feature com a taxa do pagamento online).
+    //
+    // A versão anterior era `DESCONTO_CONCEDIDO ? ESTORNO_DESCONTO :
+    // ESTORNO_COMISSAO` — correta enquanto DESCONTO_CONCEDIDO era o único tipo
+    // que subtraía. TAXA_PAGAMENTO_ONLINE também subtrai, e caía no `else`: o
+    // estorno dela subtrairia DE NOVO, cobrando duas vezes de quem não atendeu
+    // uma taxa que ele não devia nem uma.
+    //
+    // Derivar do sinal fecha a categoria inteira: qualquer tipo futuro que
+    // subtraia é estornado somando, sem ninguém precisar lembrar de vir aqui.
+    const tipo =
+      sinalDoTipo(original.tipo) === -1
+        ? TipoLancamento.ESTORNO_DESCONTO // anula algo que subtraiu ⇒ soma
+        : TipoLancamento.ESTORNO_COMISSAO; // anula algo que somou ⇒ subtrai
+
+    return new LancamentoComissao(
+      params.id,
+      original.companyId,
+      original.barbeiroId,
+      tipo,
+      original.origem,
+      original.atendimentoId,
+      original.vendaDeProdutoId,
+      original.servicoId,
+      original.produtoId,
+      original.valeId,
+      params.registradoPorId,
+      original.valorBase,
+      original.percentualAplicado,
+      // Mesma magnitude: o que muda é o sinal, e o sinal vem do tipo.
+      original.valorComissao,
+      params.ocorridoEm,
+      original.id,
+    );
+  }
+
+  /**
    * Produto vendido junto de um Atendimento (add-on, item 4a) OU numa
    * VendaDeProduto avulsa (item 4b) — exatamente um dos dois ids é passado.
    */
@@ -382,6 +455,7 @@ export class LancamentoComissao extends AggregateRoot {
     percentualAplicado: Percentual | null;
     valorComissao: Dinheiro;
     ocorridoEm: Date;
+    estornoDeId?: LancamentoId | null;
   }): LancamentoComissao {
     return new LancamentoComissao(
       params.id,
@@ -399,6 +473,7 @@ export class LancamentoComissao extends AggregateRoot {
       params.percentualAplicado,
       params.valorComissao,
       params.ocorridoEm,
+      params.estornoDeId ?? null,
     );
   }
 }

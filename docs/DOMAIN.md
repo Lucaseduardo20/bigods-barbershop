@@ -561,6 +561,72 @@ dois mecanismos representando o mesmo fato. Aqui: **o status é a única verdade
 soft-delete para representar cancelamento. Soft-delete, se existir, é para remoção administrativa,
 que é um conceito diferente.
 
+#### 3.5.1 Quem atendeu não foi quem estava marcado (2026-08-27)
+
+Caso corriqueiro na barbearia: o cliente marca com o A, o A atrasa num atendimento anterior, e o
+cliente aceita ser atendido pelo B. Até 2026-08-27 a comissão nascia (ou já tinha nascido) no nome
+do A — dinheiro para quem não trabalhou, e o financeiro desbalanceado.
+
+São **dois fluxos**, porque o problema é diferente antes e depois de a comissão existir.
+
+##### Antes de concluir — reatribuição simples
+
+| | |
+|---|---|
+| **Quem** | o barbeiro DONO do atendimento, ou um admin. Não exige admin |
+| **Estado** | só `AGENDADO` |
+| **Efeito** | troca `barbeiroId`. Nada de dinheiro acontece |
+| **Preço** | **não muda** |
+| **Comissão** | não existe ainda; nasce na conclusão, já no nome certo e pela taxa do novo |
+
+Não exige admin porque nada foi lançado: é rotina de operação, e exigir o dono para cada troca de
+cadeira transformaria o normal em exceção. A trava que importa é outra — um barbeiro só transfere os
+**próprios** atendimentos; puxar o de outro é 403.
+
+**★ O preço é compromisso com o CLIENTE.** `ItemAtendido.valorCobrado` fica como está mesmo que o
+novo barbeiro tenha preço diferente (§3.2.2). O cliente marcou vendo um valor; uma troca interna da
+casa não renegocia com ele. O que muda é a comissão, que é relação casa↔barbeiro.
+
+**Valida:** o novo barbeiro atende todos os serviços da comanda, e o horário dele está livre — a
+mesma invariante de `agendar()`, com a constraint `EXCLUDE` como rede contra a corrida.
+
+**Recusa** quando o atendimento veio de um pacote comprado COM um barbeiro específico (§3.6): a
+promessa é que só ele atende aqueles serviços, e furá-la por dentro seria quebrá-la sem o cliente
+saber. Ver DECISOES_PENDENTES #58.
+
+##### Depois de concluir — estorno e novo lançamento
+
+| | |
+|---|---|
+| **Quem** | **só ADMIN** — é correção de dinheiro já registrado |
+| **Estado** | só `CONCLUIDO` |
+| **Efeito** | troca `barbeiroId` **e** acrescenta lançamentos no ledger |
+| **Preço** | **não muda** (é snapshot do atendimento) |
+| **Comissão** | estornada de quem estava, **recalculada** pela taxa de quem atendeu |
+
+**O ledger não é editado; ele é acrescentado.** Apagar o lançamento errado apagaria justamente o
+rastro de que houve um erro, e um ledger que se reescreve não é auditável (§3.7). Em três atos, na
+mesma transação:
+
+```
+1. lançamento original        fica onde está, intocado
+2. estorno, sinal oposto      → o saldo de quem não atendeu volta ao que era
+3. lançamento novo            → para quem atendeu, pela taxa DELE
+```
+
+**★ Recalcular é o ponto.** Comissão é a relação entre a casa e AQUELE barbeiro: serviço de R$50 com
+o A a 35% (R$17,50 estornados) vira R$22,50 com o B a 45%. Caixinha e desconto acompanham pela mesma
+lógica — a caixinha era de quem atendeu, e o desconto é absorvido pelo percentual de quem atendeu.
+
+**Não valida conflito de horário**, de propósito: o atendimento já aconteceu, não há cadeira a
+disputar (a constraint `EXCLUDE` nem cobre `CONCLUIDO`). Exigir agenda livre recusaria a correção de
+um atendimento que o novo barbeiro de fato fez, enquanto atendia os outros dele no mesmo dia. O que
+continua valendo é a competência: ele precisa atender os serviços da comanda.
+
+**Auditoria:** os dois fluxos gravam `reatribuidoDeId` / `reatribuidoPorId` / `reatribuidoEm` — em
+trocas sucessivas, `reatribuidoDeId` guarda o dono ORIGINAL, que é a pergunta que interessa ("com
+quem o cliente marcou?"). O estorno guarda em `registradoPorId` o admin que o fez.
+
 ---
 
 ### 3.6 `VendaDePacote` (raiz)
@@ -669,8 +735,18 @@ sempre.
 direções**: `tipo` é o eixo que decide o sinal no saldo.
 
 ```
-saldo(barbeiro) = Σ valorComissao(COMISSAO) − Σ valorComissao(VALE) − Σ valorComissao(PAGAMENTO)
+saldo(barbeiro) = Σ(+) − Σ(−)
+
+  somam    (+)  COMISSAO · ESTORNO_DESCONTO
+  subtraem (−)  VALE · PAGAMENTO · DESCONTO_CONCEDIDO · ESTORNO_COMISSAO
 ```
+
+Os **estornos** (2026-08-27, §3.5.1) são dois porque o sinal do estorno é o oposto do que ele anula,
+e o sinal vem do TIPO, nunca do valor — `valorComissao` é magnitude e é sempre positiva.
+`ESTORNO_COMISSAO` desfaz o que somou (serviço, produto, caixinha); `ESTORNO_DESCONTO` devolve o que
+foi subtraído. Um tipo só, de sinal fixo, devolveria o desconto ao contrário: tiraria do barbeiro
+dinheiro que ele nunca chegou a ganhar. `estornoDeId` aponta para o lançamento anulado, e o original
+**permanece** — é o que torna o percurso auditável.
 
 `tipo` (COMISSAO `+` | VALE `−` | PAGAMENTO `−`) é um eixo **ortogonal** a `origem`
 (SERVICO | PRODUTO) — não é o mesmo campo generalizado de novo. `origem` responde "o que

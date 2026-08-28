@@ -76,6 +76,42 @@ export class CobrancaOnlineService {
   }
 
   /**
+   * Eleva a janela pedida até o piso do gateway ativo.
+   *
+   * ## O que isto conserta (2026-08-27)
+   *
+   * O agendamento avulso pede 600s — a mesma duração da reserva local do
+   * horário, deliberadamente. O Mercado Pago recusa qualquer PIX abaixo de
+   * 1800s, então com ele ativo **todo agendamento com PIX falhava**, com um 422
+   * que o cliente lia como erro nosso. Não apareceu em teste porque a suíte de
+   * agendamento roda com o gateway fake, que não tem piso.
+   *
+   * ## Por que elevar a janela, e não esticar a reserva
+   *
+   * As duas eram iguais de propósito: um PIX pago no minuto 15 não deveria
+   * confirmar uma reserva morta no minuto 10. Elevar a janela quebra essa
+   * coincidência — mas o caso já tem dono desde a Fase 5, o estorno automático
+   * de pagamento fora da janela, com aviso ao cliente para remarcar.
+   *
+   * Esticar a reserva para 30 minutos manteria a coincidência, e prenderia todo
+   * horário três vezes mais tempo por causa do piso de um intermediário. Numa
+   * agenda de barbearia, horário preso é receita perdida — o custo cai sobre a
+   * casa, todo dia, para evitar um caso que já é tratado.
+   *
+   * O `expiraEm` da INTENÇÃO não muda: ele acompanha a reserva, não o gateway.
+   * É ele que decide se o pagamento chegou tarde.
+   */
+  private janelaAceitavel(pedida: number): number {
+    const piso = this.gateway.janelaPixMinimaSegundos;
+    if (pedida >= piso) return pedida;
+    this.logger.log(
+      `Janela de PIX elevada de ${pedida}s para ${piso}s (piso do ${this.gateway.provedor}). ` +
+        'A reserva local segue com o prazo original; pagamento após ela cai no estorno automático.',
+    );
+    return piso;
+  }
+
+  /**
    * Recusa um trilho que este deploy não aceita — chamado no INÍCIO dos casos de
    * uso de compra, antes de qualquer escrita.
    *
@@ -174,7 +210,9 @@ export class CobrancaOnlineService {
       valor: params.intencao.valor,
       descricao: params.descricao,
       externalId: params.intencao.externalId,
-      ...(params.expiraEmSegundos ? { expiraEmSegundos: params.expiraEmSegundos } : {}),
+      ...(params.expiraEmSegundos
+        ? { expiraEmSegundos: this.janelaAceitavel(params.expiraEmSegundos) }
+        : {}),
       ...(params.emailDoPagador ? { emailDoPagador: params.emailDoPagador } : {}),
     });
 

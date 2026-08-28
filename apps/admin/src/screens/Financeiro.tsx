@@ -70,8 +70,16 @@ function ehDebito(tipo: TipoLancamento): boolean {
     // FASE 8 (2026-08-27): a parte da taxa do gateway que o barbeiro absorve.
     // Sem esta linha ela apareceria com "+" e em dourado, como se a taxa que o
     // Mercado Pago cobrou fosse um ganho dele.
-    tipo === TipoLancamento.TAXA_PAGAMENTO_ONLINE
+    tipo === TipoLancamento.TAXA_PAGAMENTO_ONLINE ||
+    // Correção de barbeiro (2026-08-27): o estorno de uma COMISSÃO tira; o de
+    // um DESCONTO devolve. O sinal do estorno é o oposto do que ele anula.
+    tipo === TipoLancamento.ESTORNO_COMISSAO
   );
+}
+
+/** Estorno da correção de barbeiro — as duas pontas. */
+function ehEstorno(tipo: TipoLancamento): boolean {
+  return tipo === TipoLancamento.ESTORNO_COMISSAO || tipo === TipoLancamento.ESTORNO_DESCONTO;
 }
 
 function Extrato({ usuario }: { usuario: UsuarioDTO }) {
@@ -241,7 +249,49 @@ function LinhaDoExtrato({
             aria-label="Ver detalhes do atendimento"
             onClick={() => aoVerAtendimento(l.atendimentoId!)}
           >
-            →
+            ⓘ
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /**
+   * ★ ESTORNO (2026-08-27): o atendimento foi corrigido para outro barbeiro. O
+   * lançamento original CONTINUA no extrato, logo acima — e esta linha é o que
+   * explica por que o saldo voltou. Sem ela, o barbeiro veria a comissão
+   * aparecer e o número não bater, sem nada dizendo o motivo.
+   */
+  if (ehEstorno(l.tipo)) {
+    const item = l.produtoNome ?? l.servicoNome;
+    return (
+      <div className="card flex items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <div className="text-[13px] font-bold truncate">
+              Estorno · atendimento de outro barbeiro
+            </div>
+          </div>
+          <div className="text-[12px] truncate" style={{ color: 'var(--text-secondary)' }}>
+            {item ? `${item} · ` : ''}
+            {l.clienteNome ?? '?'} · {dataRotulo}
+          </div>
+          <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            Este atendimento foi atribuído a quem realmente atendeu
+            {l.registradoPorNome ? ` — ajuste de ${l.registradoPorNome}` : ''}.
+          </div>
+        </div>
+        <div className="font-extrabold text-[15px] flex-shrink-0" style={{ color: cor }}>
+          {debito ? '− ' : '+ '}
+          {dinheiro(l.valorComissaoCentavos)}
+        </div>
+        {l.atendimentoId && (
+          <button
+            className="btn btn-ghost btn-sm flex-shrink-0"
+            aria-label="Ver detalhes do atendimento"
+            onClick={() => aoVerAtendimento(l.atendimentoId!)}
+          >
+            ⓘ
           </button>
         )}
       </div>

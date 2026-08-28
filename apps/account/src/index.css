@@ -220,18 +220,56 @@ body {
 }
 
 /* ---- Fichas de crédito (cada unidade tem estado real) ---- */
+/* ---- Créditos do pacote ----
+ *
+ * Grid, e não `flex-wrap` com largura fixa de 62px (2026-08-26): nome de
+ * serviço longo ("Corte Simples", "Corte Navalhado") estourava o card de 62px e
+ * quebrava feio. `auto-fill` com mínimo de 96px dá duas colunas no celular
+ * estreito e três a partir de ~380px, sem media query e sem última linha
+ * desalinhada.
+ */
+.credit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
 .credit {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  width: 62px; padding: 10px 0 8px; border-radius: var(--radius-md);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 12px 6px 10px; border-radius: var(--radius-md);
   position: relative; border: 1.5px solid var(--border-subtle);
   background: var(--surface-card);
+  min-width: 0; /* sem isto o conteúdo largo impede a coluna de encolher */
+  text-align: center;
 }
 .credit.disponivel { border-color: var(--accent-primary); background: var(--surface-brand-tint); }
 .credit.agendado { border-color: var(--accent-primary); background: var(--surface-card); }
 .credit.urgente { border-color: var(--state-warning); background: var(--surface-card); }
 .credit.consumido { border-color: var(--border-subtle); background: var(--surface-sunken); opacity: 0.55; }
-.credit-nome { font-size: 10px; font-weight: 700; color: var(--text-primary); }
+/* A marca herda o estado do crédito: apagada no consumido, cheia nos demais —
+   é o mesmo sinal que a borda e o texto já davam, agora também no símbolo. */
+.credit-marca { width: 26px; height: auto; display: block; }
+.credit.consumido .credit-marca { filter: grayscale(1); opacity: 0.6; }
+.credit-nome {
+  font-size: 10.5px; font-weight: 700; color: var(--text-primary);
+  line-height: 1.25;
+  /* Duas linhas no máximo; da terceira em diante, reticências. Sem isto um
+     nome longo empurrava a data para fora do card. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere;
+}
 .credit.consumido .credit-nome { color: var(--text-muted); text-decoration: line-through; }
+.credit-quando {
+  font-size: 8.5px; font-weight: 700; line-height: 1.3;
+  color: var(--accent-primary);
+  display: flex; flex-direction: column; align-items: center;
+}
+/* No consumido a data é passado, não compromisso: fica no tom neutro para não
+   competir com os créditos que o cliente ainda pode usar. */
+.credit.consumido .credit-quando { color: var(--text-muted); }
+.credit-quando-rotulo {
+  font-size: 7.5px; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-muted);
+}
 .credit-badge {
   position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
   background: var(--state-warning); color: #fff;

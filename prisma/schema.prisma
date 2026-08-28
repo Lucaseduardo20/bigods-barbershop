@@ -519,6 +519,14 @@ model Atendimento {
   reativadoPorId String?
   reativadoEm    DateTime? @db.Timestamptz(3)
 
+  // Reatribuição de barbeiro ANTES de concluir (2026-08-27): de quem era, quem
+  // transferiu e quando. `barbeiroId` segue sendo a verdade sobre quem atende;
+  // isto é o rastro de que ele mudou — e o que responde "por que a comissão
+  // deste atendimento é do B se o cliente marcou com o A?".
+  reatribuidoDeId           String?
+  reatribuidoPorId          String?
+  reatribuidoEm             DateTime? @db.Timestamptz(3)
+
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
   produtos ItemProdutoAtendido[]
@@ -607,6 +615,15 @@ model VendaDePacote {
   // Fase 4c: registro do link pessoal de barbeiro que originou a compra — só
   // registro, sem tela de relatório nesta sessão.
   origemLinkBarbeiroId            String?
+  // De qual oferta esta venda veio (2026-08-26). `nomeOferta` é SNAPSHOT do
+  // nome no momento da compra: renomear a oferta no catálogo não reescreve o
+  // que o cliente comprou (§3.5). `ofertaId` é só rastro — sem @relation, pela
+  // mesma razão dos outros ids de auditoria do schema: a oferta pode ser
+  // apagada e a venda continua existindo.
+  // NULL nas vendas anteriores à migration que não casaram no backfill por
+  // composição; a tela deriva um rótulo dos serviços nesse caso.
+  ofertaId                        String?
+  nomeOferta                      String?
 
   company               Company                  @relation(fields: [companyId], references: [id])
   barbeiro              Barbeiro?                @relation(fields: [barbeiroId], references: [id])
@@ -799,6 +816,10 @@ model LancamentoComissao {
   // vale como PAGO, ou que registrou o pagamento (FASE 2). Null quando
   // tipo=COMISSAO (gerado pelo sistema, não por uma ação humana pontual).
   registradoPorId       String?
+  // Qual lançamento este estorno anula (2026-08-27). Sem @relation, mesmo
+  // padrão dos outros ids de auditoria: referência de leitura, não FK rígida.
+  // NULL em tudo que não é estorno.
+  estornoDeId           String?
   valorBaseCentavos     Int?
   percentualAplicadoBp  Int?
   valorComissaoCentavos Int
@@ -809,6 +830,7 @@ model LancamentoComissao {
   @@index([barbeiroId])
   @@index([atendimentoId])
   @@index([valeId])
+  @@index([estornoDeId])
 }
 
 // Vale/adiantamento de comissão (sessão de vale/pagamento) — item antes fora
@@ -829,6 +851,13 @@ enum TipoLancamento {
   // sobre o LÍQUIDO, implementada como linha própria para o extrato dele
   // explicar a diferença. Ver o comentário do enum em contracts.
   TAXA_PAGAMENTO_ONLINE
+  // Estornos da correção de barbeiro (2026-08-27). O ledger é imutável: o
+  // lançamento errado não é apagado, é ANULADO por um de sinal oposto.
+  // São dois porque o sinal do estorno é o oposto do que ele anula:
+  //   ESTORNO_COMISSAO (−) anula o que somou    (serviço, produto, caixinha)
+  //   ESTORNO_DESCONTO (+) anula o que subtraiu (o desconto absorvido)
+  ESTORNO_COMISSAO
+  ESTORNO_DESCONTO
 }
 
 enum StatusVale {

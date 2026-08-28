@@ -1,0 +1,21 @@
+-- CORREÇÃO DE BARBEIRO DEPOIS DE CONCLUÍDO (2026-08-27) — os dois tipos de
+-- estorno.
+--
+-- O ledger é IMUTÁVEL: comissão lançada para o barbeiro errado não é apagada
+-- nem editada. Ela é ANULADA por um lançamento de sinal oposto, e o histórico
+-- fica legível de ponta a ponta — lançou para A, estornou de A, lançou para B.
+--
+-- São DOIS tipos porque o sinal do estorno é o oposto do que ele anula, e o
+-- sinal no saldo vem do TIPO (§3.7), nunca do valor:
+--
+--   ESTORNO_COMISSAO (−)  anula o que somou   (comissão de serviço, produto, caixinha)
+--   ESTORNO_DESCONTO (+)  anula o que subtraiu (o desconto que o barbeiro absorveu)
+--
+-- Um tipo só, com sinal fixo, devolveria o desconto ao contrário — tirando do
+-- barbeiro errado dinheiro que ele nunca ganhou.
+--
+-- Em migration separada da que os USA: no Postgres, um valor criado por
+-- ALTER TYPE ... ADD VALUE não pode ser utilizado na MESMA transação, e o
+-- Prisma roda cada migration numa transação.
+ALTER TYPE "TipoLancamento" ADD VALUE IF NOT EXISTS 'ESTORNO_COMISSAO';
+ALTER TYPE "TipoLancamento" ADD VALUE IF NOT EXISTS 'ESTORNO_DESCONTO';
