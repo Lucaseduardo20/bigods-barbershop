@@ -1027,3 +1027,20 @@ FECHAMENTO/repasse não é: no primeiro caso a casa já "pagou" sem passar pelo 
 
 **O que falta decidir:** se o fechamento precisa dessa distinção. Se precisar, o caminho é a caixinha
 carregar a forma de pagamento dela (não a da comanda) e o fechamento abater a que veio em espécie.
+
+## 58. Desfazer um consumo de crédito registrado por engano (2026-08-28)
+
+O consumo no balcão (§8.15) cria um atendimento **CONCLUIDO**, que é estado final: se o
+admin registrar o crédito errado, o barbeiro errado ou a caixinha errada, não há caminho de
+volta pelo painel.
+
+Existe meio caminho: `CorrigirBarbeiroDoAtendimentoUseCase` já sabe estornar comissão e
+relançar no nome certo. Falta o resto — devolver o crédito para DISPONIVEL e anular o
+atendimento sem apagá-lo do ledger.
+
+**Por que não entrou agora:** a feature subiu como correção urgente de um caso em produção,
+e o desfazer dobraria o tamanho dela.
+
+**O risco de deixar assim, dito com todas as letras:** o jeito de corrigir um consumo errado
+continua sendo mexer no banco — que é exatamente o que causou o incidente que originou a
+feature. Se acontecer uma vez, é sinal de que isto virou prioridade.
