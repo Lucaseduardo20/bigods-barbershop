@@ -150,9 +150,13 @@ export function QuemAtendeu({
                 onChange={(e) => setEscolhido(e.target.value)}
               >
                 <option value="">Quem atendeu de verdade…</option>
+                {/* Só o nome: a comissão de um barbeiro não é assunto do
+                    colega (2026-08-27). Esta lista aparece para barbeiro comum
+                    na troca antes de concluir, e mostrar o percentual dos
+                    outros aqui expõe a negociação individual de cada um. */}
                 {candidatos.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.nome} · comissão {b.comissaoPadrao}%
+                    {b.nome}
                   </option>
                 ))}
               </select>
