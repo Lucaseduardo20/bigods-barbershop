@@ -1,4 +1,4 @@
-import { StatusAprovacaoPacoteOferta } from '@bigods/contracts';
+import { StatusAprovacaoPacoteOferta, diasNormalizados } from '@bigods/contracts';
 import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { CompanyId, PacoteOfertaId, ServicoId } from '../../../shared/domain/ids';
@@ -29,6 +29,18 @@ export interface PacoteOfertaProps {
    * snapshot do resto do sistema).
    */
   preco: Dinheiro;
+  /**
+   * DIAS DA SEMANA em que os créditos deste pacote podem ser usados
+   * (2026-08-28) — 0=domingo … 6=sábado, os sete = sem restrição.
+   *
+   * Existe porque um pacote econômico não deveria consumir a agenda de sexta e
+   * sábado: o preço baixo não se justifica no horário mais disputado da casa.
+   *
+   * ★ Isto é a regra ATUAL do catálogo, e NÃO alcança pacote já vendido: a
+   * `VendaDePacote` congela os dias que valiam no dia da compra (§3.5). Mudar
+   * aqui vale só para as próximas vendas.
+   */
+  diasPermitidos: number[];
   ativo: boolean;
   /** Workflow de aprovação (Fase 3) — só APROVADO aparece no funil público. */
   statusAprovacao: StatusAprovacaoPacoteOferta;
@@ -64,17 +76,21 @@ export class PacoteOferta extends AggregateRoot {
    * separado de "enviar pra aprovação" — não estava especificado.
    */
   static criar(
-    props: Omit<PacoteOfertaProps, 'ativo' | 'statusAprovacao' | 'motivoRejeicao'> & {
+    props: Omit<PacoteOfertaProps, 'ativo' | 'statusAprovacao' | 'motivoRejeicao' | 'diasPermitidos'> & {
       ativo?: boolean;
       statusAprovacao?: StatusAprovacaoPacoteOferta;
+      /** Omitido = todos os dias, que é o comportamento de antes desta regra. */
+      diasPermitidos?: number[];
     },
     contexto: ContextoValidacaoPacoteOferta,
   ): PacoteOferta {
     PacoteOferta.validar(props.nome, props.composicao, props.preco, contexto);
+    PacoteOferta.validarDias(props.diasPermitidos);
     return new PacoteOferta({
       ...props,
       nome: props.nome.trim(),
       composicao: props.composicao.map((i) => ({ ...i })),
+      diasPermitidos: diasNormalizados(props.diasPermitidos),
       ativo: props.ativo ?? true,
       statusAprovacao: props.statusAprovacao ?? StatusAprovacaoPacoteOferta.PENDENTE_APROVACAO,
       motivoRejeicao: null,
@@ -93,13 +109,20 @@ export class PacoteOferta extends AggregateRoot {
    * sozinho; editar um pendente não pula fila).
    */
   atualizar(
-    dados: { nome: string; composicao: ItemComposicaoPacote[]; preco: Dinheiro },
+    dados: {
+      nome: string;
+      composicao: ItemComposicaoPacote[];
+      preco: Dinheiro;
+      diasPermitidos?: number[];
+    },
     contexto: ContextoValidacaoPacoteOferta,
   ): void {
     PacoteOferta.validar(dados.nome, dados.composicao, dados.preco, contexto);
+    PacoteOferta.validarDias(dados.diasPermitidos);
     this.props.nome = dados.nome.trim();
     this.props.composicao = dados.composicao.map((i) => ({ ...i }));
     this.props.preco = dados.preco;
+    this.props.diasPermitidos = diasNormalizados(dados.diasPermitidos);
     if (
       this.props.statusAprovacao === StatusAprovacaoPacoteOferta.APROVADO ||
       this.props.statusAprovacao === StatusAprovacaoPacoteOferta.REJEITADO
@@ -145,6 +168,30 @@ export class PacoteOferta extends AggregateRoot {
     }
     this.props.statusAprovacao = StatusAprovacaoPacoteOferta.REJEITADO;
     this.props.motivoRejeicao = motivo.trim();
+  }
+
+  /**
+   * ★ Dia fora de 0–6 é ERRO, nunca descarte silencioso.
+   *
+   * `diasNormalizados` filtra o que não serve — o que é certo na LEITURA (dado
+   * velho não pode quebrar a tela). Na ESCRITA, engolir um `7` transformaria um
+   * erro de digitação do admin numa configuração diferente da que ele quis, e a
+   * frase que o cliente lê sairia igualmente errada.
+   *
+   * Vazio/ausente continua sendo "todos os dias" — é o default de toda oferta
+   * anterior a esta regra, e o que o formulário manda quando ninguém restringe
+   * nada. O que NÃO existe é oferta com zero dias: seria um pacote impossível
+   * de usar, à venda.
+   */
+  private static validarDias(dias: number[] | null | undefined): void {
+    if (!dias) return;
+    for (const dia of dias) {
+      if (!Number.isInteger(dia) || dia < 0 || dia > 6) {
+        throw new InvarianteVioladaError(
+          `Dia da semana inválido na oferta: ${dia} (esperado 0=domingo … 6=sábado)`,
+        );
+      }
+    }
   }
 
   private static validar(
@@ -204,6 +251,9 @@ export class PacoteOferta extends AggregateRoot {
   }
   get ativo() {
     return this.props.ativo;
+  }
+  get diasPermitidos(): number[] {
+    return [...this.props.diasPermitidos];
   }
   get statusAprovacao() {
     return this.props.statusAprovacao;

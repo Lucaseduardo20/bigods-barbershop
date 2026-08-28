@@ -1,4 +1,9 @@
-import { StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import {
+  StatusItemPacote,
+  StatusPagamento,
+  descricaoDosDias,
+  diasNormalizados,
+} from '@bigods/contracts';
 import { AggregateRoot } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
 import { Timezone } from '../../../shared/domain/timezone';
@@ -91,6 +96,21 @@ export interface VendaDePacoteProps {
    */
   ofertaId: string | null;
   nomeOferta: string | null;
+  /**
+   * ★ SNAPSHOT dos dias da semana em que estes créditos podem ser usados
+   * (2026-08-28) — 0=domingo … 6=sábado, os sete = sem restrição.
+   *
+   * Congelado na venda pela mesma razão que `valorRateado` (§3.5): o cliente
+   * comprou uma coisa e leva aquela coisa. Se o dono restringir a oferta para
+   * "segunda a quinta" amanhã, quem comprou hoje sem restrição continua podendo
+   * marcar no sábado — e quem comprou restrito não é liberado por a oferta ter
+   * afrouxado. A regra que vale é a que estava escrita na tela no momento da
+   * compra.
+   *
+   * As vendas anteriores a esta mudança nasceram com os sete dias (DEFAULT da
+   * migration), que é exatamente o que valia para elas: nenhuma restrição.
+   */
+  diasPermitidos: number[];
 }
 
 export interface ItemParaVenda {
@@ -121,6 +141,11 @@ export class VendaDePacote extends AggregateRoot {
     compradoEm: Date;
     origemLinkBarbeiroId?: BarbeiroId | null;
     oferta?: { id: string; nome: string } | null;
+    /**
+     * Os dias que valiam na OFERTA neste instante. Omitido = todos os dias —
+     * é o caso da venda avulsa pelo painel, que não parte de oferta nenhuma.
+     */
+    diasPermitidos?: number[];
   }): VendaDePacote {
     if (params.itens.length === 0) {
       throw new InvarianteVioladaError('Pacote exige ao menos um item');
@@ -173,6 +198,7 @@ export class VendaDePacote extends AggregateRoot {
       origemLinkBarbeiroId: params.origemLinkBarbeiroId ?? null,
       ofertaId: params.oferta?.id ?? null,
       nomeOferta: params.oferta?.nome ?? null,
+      diasPermitidos: diasNormalizados(params.diasPermitidos),
     });
     venda.verificarInvarianteDeSoma();
     venda.adicionarEvento(
@@ -219,8 +245,21 @@ export class VendaDePacote extends AggregateRoot {
    * que `Atendimento.agendar()` já aplica a qualquer atendimento (§3.5), e o
    * use case cria os dois agregados na mesma transação.
    */
-  agendarItem(itemId: ItemDoPacoteId, atendimentoId: AtendimentoId, barbeiroId: BarbeiroId): void {
+  agendarItem(
+    itemId: ItemDoPacoteId,
+    atendimentoId: AtendimentoId,
+    barbeiroId: BarbeiroId,
+    /**
+     * Dia da semana CIVIL do início do atendimento (0=domingo … 6=sábado),
+     * resolvido no fuso da empresa por quem chama. Não é derivado aqui de
+     * propósito: o agregado é puro e não conhece timezone — 23h de sexta em
+     * São Paulo é sábado em UTC, e quem sabe qual dos dois vale é a camada que
+     * tem o fuso da empresa em mãos.
+     */
+    diaDaSemana: number,
+  ): void {
     this.exigirPago();
+    this.exigirDiaPermitido(diaDaSemana);
     if (this.props.barbeiroId !== null && barbeiroId !== this.props.barbeiroId) {
       throw new InvarianteVioladaError(
         'Este pacote foi comprado com um barbeiro específico — só ele pode atender estes serviços',
@@ -451,6 +490,28 @@ export class VendaDePacote extends AggregateRoot {
   get compradoEm() { return this.props.compradoEm; }
   get statusPagamento() { return this.props.statusPagamento; }
   get origemLinkBarbeiroId() { return this.props.origemLinkBarbeiroId; }
+  /**
+   * ★ A trava de dia da semana (2026-08-28), contra o SNAPSHOT da venda.
+   *
+   * No caminho normal isto nunca dispara: a projeção de horários já não oferece
+   * os dias bloqueados, então o cliente não chega aqui com um sábado na mão.
+   * Existe porque a projeção é leitura (§2.1) e leitura não guarda regra — quem
+   * chama a API direto, ou chega com uma tela aberta desde antes, tem que
+   * esbarrar na escrita.
+   */
+  private exigirDiaPermitido(diaDaSemana: number): void {
+    if (this.props.diasPermitidos.includes(diaDaSemana)) return;
+    // A frase é DERIVADA dos mesmos dias que acabaram de barrar — nunca um
+    // texto escrito à parte, que divergiria da regra no primeiro ajuste.
+    throw new InvarianteVioladaError(
+      `Os créditos deste pacote não valem neste dia da semana. ${descricaoDosDias(
+        this.props.diasPermitidos,
+      )}.`,
+    );
+  }
+
   get ofertaId() { return this.props.ofertaId; }
+  /** SNAPSHOT dos dias permitidos — o que o cliente comprou, não o que a oferta virou. */
+  get diasPermitidos(): number[] { return [...this.props.diasPermitidos]; }
   get nomeOferta() { return this.props.nomeOferta; }
 }

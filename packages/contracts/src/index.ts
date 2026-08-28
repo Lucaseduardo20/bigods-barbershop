@@ -12,3 +12,8 @@ export * from './desconto';
 // coisas. Duas listas de "o que é sensível" divergem no primeiro campo novo, e
 // a que ficar para trás vaza telefone de cliente num relatório de erro.
 export * from './sentry-scrubbing';
+// Dias em que um crédito de pacote pode ser usado, e a FRASE que descreve isso
+// (2026-08-28). Mora aqui porque as três pontas precisam da mesma frase — o
+// funil antes da compra, a conta depois, o admin ao configurar — e porque ela é
+// DERIVADA do mesmo conjunto que bloqueia: um texto livre ao lado divergiria.
+export * from './dias-da-semana';

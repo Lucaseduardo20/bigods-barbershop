@@ -56,6 +56,12 @@ export interface VenderPacoteInput {
    * venda avulsa pelo painel não parte de oferta nenhuma.
    */
   oferta?: { id: string; nome: string } | null;
+  /**
+   * Dias da semana em que os créditos poderão ser usados (2026-08-28) — os que
+   * valiam NA OFERTA no instante da compra. Omitido = todos os dias, que é o
+   * caso da venda avulsa pelo painel (não parte de oferta nenhuma).
+   */
+  diasPermitidos?: number[];
 }
 
 export interface VenderPacoteOutput {
@@ -164,6 +170,7 @@ export class VenderPacoteUseCase {
         compradoEm: new Date(),
         origemLinkBarbeiroId: input.origemLinkBarbeiroId,
         oferta: input.oferta ?? null,
+        diasPermitidos: input.diasPermitidos,
       });
 
       const intencao = IntencaoDePagamento.criar({

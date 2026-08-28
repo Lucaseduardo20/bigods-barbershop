@@ -14,8 +14,11 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsOptional,
   IsPositive,
   IsString,
+  Max,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -58,6 +61,17 @@ class CriarPacoteOfertaDto implements CriarPacoteOfertaRequest {
   @Type(() => ItemComposicaoDto)
   composicao!: ItemComposicaoDto[];
   @IsInt() @IsPositive({ message: 'Preço do pacote deve ser maior que zero' }) precoCentavos!: number;
+  /**
+   * Dias em que os créditos valem (2026-08-28). Ausente ou vazio = todos os
+   * dias. `each: true` porque o que precisa estar entre 0 e 6 é cada ELEMENTO,
+   * não o tamanho do array.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true, message: 'Dia da semana deve ser um número inteiro' })
+  @Min(0, { each: true, message: 'Dia da semana vai de 0 (domingo) a 6 (sábado)' })
+  @Max(6, { each: true, message: 'Dia da semana vai de 0 (domingo) a 6 (sábado)' })
+  diasPermitidos?: number[];
 }
 
 class AtualizarPacoteOfertaDto implements AtualizarPacoteOfertaRequest {
@@ -68,6 +82,17 @@ class AtualizarPacoteOfertaDto implements AtualizarPacoteOfertaRequest {
   @Type(() => ItemComposicaoDto)
   composicao!: ItemComposicaoDto[];
   @IsInt() @IsPositive({ message: 'Preço do pacote deve ser maior que zero' }) precoCentavos!: number;
+  /**
+   * Dias em que os créditos valem (2026-08-28). Ausente ou vazio = todos os
+   * dias. `each: true` porque o que precisa estar entre 0 e 6 é cada ELEMENTO,
+   * não o tamanho do array.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true, message: 'Dia da semana deve ser um número inteiro' })
+  @Min(0, { each: true, message: 'Dia da semana vai de 0 (domingo) a 6 (sábado)' })
+  @Max(6, { each: true, message: 'Dia da semana vai de 0 (domingo) a 6 (sábado)' })
+  diasPermitidos?: number[];
 }
 
 class AtualizarStatusPacoteOfertaDto implements AtualizarStatusPacoteOfertaRequest {
@@ -95,6 +120,7 @@ function paraDTO(oferta: PacoteOferta, servicos: Map<ServicoId, Servico>): Pacot
     nome: oferta.nome,
     composicao,
     precoCentavos: oferta.preco.centavos,
+    diasPermitidos: oferta.diasPermitidos,
     precoAvulsoTotalCentavos: precoAvulsoTotal.centavos,
     economiaCentavos: economia,
     economiaPercentual:
@@ -149,6 +175,7 @@ export class PacoteOfertasController {
         nome: body.nome,
         composicao: body.composicao,
         preco: Dinheiro.deCentavos(body.precoCentavos),
+        diasPermitidos: body.diasPermitidos,
       },
       { somaAvulsos: somaDeReferenciaDaCasa(body.composicao, servicos) },
     );
@@ -165,7 +192,12 @@ export class PacoteOfertasController {
     const oferta = await this.carregar(id, usuario.companyId);
     const servicos = await this.servicosMap(body.composicao.map((i) => i.servicoId));
     oferta.atualizar(
-      { nome: body.nome, composicao: body.composicao, preco: Dinheiro.deCentavos(body.precoCentavos) },
+      {
+        nome: body.nome,
+        composicao: body.composicao,
+        preco: Dinheiro.deCentavos(body.precoCentavos),
+        diasPermitidos: body.diasPermitidos,
+      },
       { somaAvulsos: somaDeReferenciaDaCasa(body.composicao, servicos) },
     );
     await this.ofertas.salvar(oferta);

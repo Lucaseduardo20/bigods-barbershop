@@ -201,6 +201,10 @@ export function AtendimentoDetalhe({
                   tz={tz}
                   barbeiroId={a.barbeiro.id}
                   servicoIds={a.itens.map((i) => i.servicoId)}
+                  // Reagendar um atendimento de pacote respeita os dias do
+                  // pacote (2026-08-28): o reagendamento passa pelo mesmo
+                  // AgendarComCredito, então a projeção precisa filtrar igual.
+                  creditoId={a.itens.find((i) => i.itemDoPacoteId)?.itemDoPacoteId ?? null}
                   data={novaData}
                   hora={novaHora}
                   onDia={(d) => {

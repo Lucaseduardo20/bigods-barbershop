@@ -297,6 +297,11 @@ model PacoteOferta {
   // numa migration futura — ver DECISOES_PENDENTES.
   barbeiroId      String?
   nome            String
+  // Dias da semana em que os créditos deste pacote podem ser usados
+  // (2026-08-28) — 0=domingo … 6=sábado. Os sete = sem restrição, que é o
+  // default e o comportamento de antes desta regra. A VENDA congela isto: mudar
+  // aqui não afeta pacote já comprado.
+  diasPermitidos  Int[]                       @default([0, 1, 2, 3, 4, 5, 6])
   precoCentavos   Int
   ativo           Boolean                     @default(true)
   // Workflow de aprovação (Fase 3): só APROVADO aparece no funil público.
@@ -624,6 +629,9 @@ model VendaDePacote {
   // composição; a tela deriva um rótulo dos serviços nesse caso.
   ofertaId                        String?
   nomeOferta                      String?
+  // SNAPSHOT dos dias permitidos no momento da compra (2026-08-28). O cliente
+  // leva o que comprou; editar a oferta depois não muda o pacote dele.
+  diasPermitidos                  Int[]           @default([0, 1, 2, 3, 4, 5, 6])
 
   company               Company                  @relation(fields: [companyId], references: [id])
   barbeiro              Barbeiro?                @relation(fields: [barbeiroId], references: [id])
