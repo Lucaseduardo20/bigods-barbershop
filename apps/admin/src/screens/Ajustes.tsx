@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { BarbeiroDTO, ParametrosDTO, TabelaDeDescontoDTO, UsuarioDTO } from '@bigods/contracts';
+import type {
+  BarbeiroDTO,
+  OtpAuditoriaDTO,
+  ParametrosDTO,
+  TabelaDeDescontoDTO,
+  UsuarioDTO,
+} from '@bigods/contracts';
 import { Papel } from '@bigods/contracts';
 import { api, limparSessao } from '../lib/api';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from '../components/ui';
@@ -61,8 +67,93 @@ export function Ajustes({ usuario }: { usuario: UsuarioDTO }) {
         <>
           <Parametros />
           <DescontoProgressivo />
+          <CodigosEnviados />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * ★ CÓDIGOS ENVIADOS (2026-08-28) — para quando o cliente diz "não recebi".
+ *
+ * O provedor de SMS não entrega mais que ~2 códigos por número em curto
+ * período, e foi por isso que o login virou senha. Sobrou o caminho raro
+ * (recuperar senha), e nele o dono precisa conseguir responder: o código saiu?
+ * alguém usou? — para então ligar de volta e resolver na mão.
+ *
+ * ★ O código NUNCA aparece, aqui nem em lugar nenhum: ele existe só como HMAC
+ * no banco e não é recuperável. Esta tela responde "saiu" e "foi usado", não
+ * "qual era".
+ */
+function CodigosEnviados() {
+  const [telefone, setTelefone] = useState('');
+  const [busca, setBusca] = useState('');
+  const { dados, erro, carregando, recarregar } = useApi(
+    () => api<OtpAuditoriaDTO[]>(`/otp/auditoria${busca ? `?telefone=${encodeURIComponent(busca)}` : ''}`),
+    [busca],
+  );
+
+  const rotulo: Record<string, string> = {
+    CONFIRMAR_AGENDAMENTO: 'confirmar agendamento',
+    RECUPERAR_SENHA: 'recuperar senha',
+    ACESSO_A_CONTA: 'acesso à conta',
+  };
+
+  return (
+    <div className="card mb-4">
+      <div className="text-[15px] font-bold mb-1">Códigos enviados</div>
+      <div className="text-[12px] mb-3" style={{ color: 'var(--text-muted)' }}>
+        Quando um cliente disser que não recebeu o SMS, confira aqui se o código saiu e se alguém
+        chegou a usar. O código em si não é guardado — nem aqui, nem no banco.
+      </div>
+      <div className="flex gap-2 mb-3">
+        <input
+          className="input flex-1"
+          placeholder="Telefone do cliente (ou vazio: os últimos)"
+          value={telefone}
+          onChange={(e) => setTelefone(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && setBusca(telefone)}
+        />
+        <button className="btn btn-sm" onClick={() => setBusca(telefone)}>
+          Buscar
+        </button>
+      </div>
+
+      {carregando && <Loading />}
+      {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
+      {dados && dados.length === 0 && (
+        <div className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
+          Nenhum código encontrado.
+        </div>
+      )}
+      <div className="flex flex-col gap-2">
+        {(dados ?? []).map((c) => (
+          <div
+            key={c.id}
+            className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2"
+            style={{ background: 'var(--surface-sunken)' }}
+          >
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold">{c.telefone}</div>
+              <div className="text-[11.5px]" style={{ color: 'var(--text-secondary)' }}>
+                {new Date(c.geradoEm).toLocaleString('pt-BR')}
+                {c.finalidade && <> · {rotulo[c.finalidade] ?? c.finalidade}</>}
+                {c.tentativas > 0 && <> · {c.tentativas} tentativa(s)</>}
+              </div>
+            </div>
+            {/* Três estados, e o do meio é o que importa: gerado e ninguém
+                usou é exatamente o sintoma de SMS não entregue. */}
+            {c.usadoEm ? (
+              <Badge tone="success">usado</Badge>
+            ) : c.expirado ? (
+              <Badge tone="neutral">expirou sem uso</Badge>
+            ) : (
+              <Badge tone="warning">não usado</Badge>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

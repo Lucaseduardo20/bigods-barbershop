@@ -66,7 +66,9 @@ export function OtpVerificacao({
     try {
       const r = await api<IniciarLoginClienteResponse>('/conta/login/iniciar', {
         method: 'POST',
-        body: { companyId: COMPANY_ID, telefone },
+        // Auditoria (2026-08-28): este código é o da confirmação do
+        // agendamento — o dono precisa distinguir do de recuperar senha.
+        body: { companyId: COMPANY_ID, telefone, finalidade: 'CONFIRMAR_AGENDAMENTO' },
       });
       setDesafio(r.desafio);
       setCodigoDemo(r.codigoDemo);

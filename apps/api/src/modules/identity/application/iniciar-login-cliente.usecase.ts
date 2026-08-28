@@ -1,10 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Telefone } from '../../../shared/domain/telefone';
-import { IDENTITY_PROVIDER, IdentityProvider } from '../domain/identity-provider';
+import {
+  FinalidadeDoCodigo,
+  IDENTITY_PROVIDER,
+  IdentityProvider,
+} from '../domain/identity-provider';
 
 export interface IniciarLoginClienteInput {
   companyId: string;
   telefone: string;
+  /** Só auditoria — ver `FinalidadeDoCodigo`. */
+  finalidade?: FinalidadeDoCodigo;
 }
 
 export interface IniciarLoginClienteOutput {
@@ -33,6 +39,7 @@ export class IniciarLoginClienteUseCase {
     const desafio = await this.identity.iniciarLogin({
       companyId: input.companyId,
       telefoneE164: telefone.e164,
+      finalidade: input.finalidade,
     });
     return {
       desafio: desafio.desafio,

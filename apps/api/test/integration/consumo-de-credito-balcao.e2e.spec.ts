@@ -248,7 +248,9 @@ describe('★★ o consumo no balcão faz acontecer tudo o que o UPDATE na mão 
     }).expect(201);
 
     const lancamentos = await lancamentosDe(res.body.atendimentoId);
-    expect(lancamentos.map((l) => l.valorBaseCentavos).sort((a, b) => b - a)).toEqual([
+    // `valorBaseCentavos` é nulável no ledger (vale/pagamento não têm base).
+    const bases = lancamentos.map((l) => l.valorBaseCentavos ?? 0).sort((a, b) => b - a);
+    expect(bases).toEqual([
       RATEADO_CORTE,
       RATEADO_BARBA,
     ]);

@@ -87,6 +87,10 @@ export class ConfirmarLoginClienteUseCase {
       clienteId: cliente.id,
       companyId: cliente.companyId,
       sub: resultado.sub,
+      // ★ Este é o instante em que a posse do telefone foi provada. É ele que
+      // deixa o cliente definir a senha do primeiro acesso sem um segundo
+      // código — e que expira em 30 min (§8.16).
+      verificadoEm: Date.now(),
     });
     return {
       token,

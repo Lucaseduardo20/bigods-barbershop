@@ -922,6 +922,19 @@ export interface PerfilClienteDTO {
    * confirmação"). Nada daqui aparece no histórico, e vice-versa.
    */
   proximosAgendamentos: AgendamentoClienteDTO[];
+  /**
+   * Estado da senha do cliente (2026-08-28). A tela usa isto para escolher o
+   * que oferecer, sem precisar perguntar nada ao servidor sobre outra pessoa.
+   */
+  senha: {
+    /** Já escolheu uma senha? Quem não escolheu vê o convite de primeiro acesso. */
+    definida: boolean;
+    /**
+     * A verificação do telefone desta sessão ainda está fresca (30 min)? É o
+     * que permite definir a senha sem um segundo código.
+     */
+    podeDefinirAgora: boolean;
+  };
 }
 
 // ---------- Ofertas de pacote (agregado PacoteOferta — sessão-B) ----------
@@ -1114,4 +1127,25 @@ export interface WebhookAbacatePayRequest {
     [k: string]: unknown;
   };
   [k: string]: unknown;
+}
+
+// ---------- Auditoria de códigos (OTP) — 2026-08-28 ----------
+/**
+ * Uma linha do log de códigos enviados. O CÓDIGO NUNCA aparece aqui: ele só
+ * existe como HMAC no banco e não é recuperável. Isto responde "saiu?" e "foi
+ * usado?", que é o que o dono precisa quando o cliente diz que não recebeu.
+ */
+export interface OtpAuditoriaDTO {
+  id: string;
+  /** E.164 — a política de PII do sistema já trata telefone como dado do cliente. */
+  telefone: string;
+  /** `null` nos códigos anteriores a esta distinção. */
+  finalidade: 'CONFIRMAR_AGENDAMENTO' | 'RECUPERAR_SENHA' | 'ACESSO_A_CONTA' | null;
+  geradoEm: string;
+  /** `null` = gerado e nunca usado — o caso que interessa investigar. */
+  usadoEm: string | null;
+  /** Quantas vezes alguém tentou um código para este desafio. */
+  tentativas: number;
+  /** Derivado do prazo, não persistido. */
+  expirado: boolean;
 }

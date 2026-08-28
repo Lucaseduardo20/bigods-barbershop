@@ -83,6 +83,10 @@ export abstract class OtpIdentityProviderBase implements IdentityProvider {
         telefone: input.telefoneE164,
         codigoHash: this.hash(input.companyId, input.telefoneE164, codigo),
         expiraEm,
+        // Auditoria (2026-08-28): PARA QUE o código foi pedido. `undefined`
+        // vira NULL — chamada que não informou, e inventar finalidade seria
+        // inventar dado.
+        finalidade: input.finalidade ?? null,
       },
     });
 

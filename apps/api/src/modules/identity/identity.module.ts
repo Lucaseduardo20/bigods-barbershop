@@ -9,10 +9,14 @@ import { CognitoIdentityProvider } from './infrastructure/cognito-identity.provi
 import { ClienteSessaoService } from './infrastructure/cliente-sessao.service';
 import { AuthController } from './presentation/auth.controller';
 import { ContaClienteController } from './presentation/conta-cliente.controller';
+import { OtpAuditoriaController } from './presentation/otp-auditoria.controller';
 import { ClienteGuard, ClienteGuardOpcional } from './presentation/cliente.guard';
 import { OnPacoteVendidoHandler } from './application/on-pacote-vendido.handler';
 import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
+import { LoginComSenhaClienteUseCase } from './application/login-com-senha-cliente.usecase';
+import { DefinirSenhaClienteUseCase } from './application/definir-senha-cliente.usecase';
+import { RedefinirSenhaComCodigoUseCase } from './application/redefinir-senha-com-codigo.usecase';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { PrismaService } from '../../shared/infrastructure/prisma.service';
 import { PackagesModule } from '../packages/packages.module';
@@ -80,7 +84,7 @@ function exigir(nome: string, kind: string): string {
 @Global()
 @Module({
   imports: [PackagesModule, SchedulingModule],
-  controllers: [AuthController, ContaClienteController],
+  controllers: [AuthController, ContaClienteController, OtpAuditoriaController],
   providers: [
     { provide: AUTH_PROVIDER, useClass: LocalAuthProvider },
     { provide: IDENTITY_PROVIDER, useFactory: criarIdentityProvider, inject: [PrismaService] },
@@ -89,6 +93,9 @@ function exigir(nome: string, kind: string): string {
     ClienteGuardOpcional,
     IniciarLoginClienteUseCase,
     ConfirmarLoginClienteUseCase,
+    LoginComSenhaClienteUseCase,
+    DefinirSenhaClienteUseCase,
+    RedefinirSenhaComCodigoUseCase,
     OnPacoteVendidoHandler,
   ],
   // ClienteGuard exportado (sessão de OTP+reserva): agora usado também fora

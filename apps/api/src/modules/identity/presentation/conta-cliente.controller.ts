@@ -9,7 +9,16 @@ import {
   Post,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
+import {
+  IsArray,
+  ArrayNotEmpty,
+  IsIn,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MinLength,
+} from 'class-validator';
 import {
   CadastroDoClienteDTO,
   AgendamentoClienteDTO,
@@ -18,9 +27,16 @@ import {
   ConfirmarLoginClienteResponse,
   IniciarLoginClienteResponse,
   PerfilClienteDTO,
+  SENHA_MAX,
+  SENHA_MIN,
 } from '@bigods/contracts';
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
+import { LoginComSenhaClienteUseCase } from '../application/login-com-senha-cliente.usecase';
+import { DefinirSenhaClienteUseCase } from '../application/definir-senha-cliente.usecase';
+import { RedefinirSenhaComCodigoUseCase } from '../application/redefinir-senha-com-codigo.usecase';
+import { ClienteSessaoService } from '../infrastructure/cliente-sessao.service';
+import { FinalidadeDoCodigo } from '../domain/identity-provider';
 import { Publico } from './auth.decorators';
 import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
@@ -62,6 +78,17 @@ const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const THROTTLE_LOGIN = { default: { limit: 5, ttl: 600_000 } };
 
 /**
+ * As três finalidades que a auditoria distingue (§8.16). Opcional porque o app
+ * publicado durante a janela de deploy ainda não manda — e NULL ali é a
+ * verdade ("não informado"), não um chute.
+ */
+const FINALIDADES: FinalidadeDoCodigo[] = [
+  'CONFIRMAR_AGENDAMENTO',
+  'RECUPERAR_SENHA',
+  'ACESSO_A_CONTA',
+];
+
+/**
  * O telefone é validado como CELULAR brasileiro aqui, e não só como "string com
  * 8+ caracteres": é por este endpoint que sai a mensagem de WhatsApp, e telefone
  * fixo nunca vai receber o código. Barrar na borda evita gastar envio (e cota de
@@ -70,6 +97,8 @@ const THROTTLE_LOGIN = { default: { limit: 5, ttl: 600_000 } };
 class IniciarLoginDto {
   @IsString() @MinLength(1) companyId!: string;
   @EhCelularBrasileiro() telefone!: string;
+  /** Só auditoria (§8.16) — não muda nada do envio nem da validação. */
+  @IsOptional() @IsIn(FINALIDADES) finalidade?: FinalidadeDoCodigo;
 }
 
 class ConfirmarLoginDto {
@@ -83,6 +112,41 @@ class ConfirmarLoginDto {
    * Usado SÓ na criação — nunca renomeia quem já existe.
    */
   @IsOptional() @EhNomeDeCliente() nome?: string;
+}
+
+/**
+ * Senha do cliente. O tamanho é conferido aqui para o erro sair como 400 com
+ * texto amigável; a regra COMPLETA (senha óbvia, senha igual ao telefone) mora
+ * em `validarSenhaDeCliente`, compartilhada com o front, e roda no caso de uso
+ * — porque depende do telefone do cliente, que o DTO não conhece.
+ */
+class SenhaDto {
+  @IsString() @Length(SENHA_MIN, SENHA_MAX, {
+    message: `A senha precisa ter entre ${SENHA_MIN} e ${SENHA_MAX} caracteres.`,
+  })
+  senha!: string;
+}
+
+class LoginComSenhaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @IsString() @MinLength(1) senha!: string;
+}
+
+class RecuperarSenhaIniciarDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+}
+
+class RecuperarSenhaConfirmarDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @Matches(/^\d{6}$/) codigo!: string;
+  @IsString() @Length(0, 4096) desafio!: string;
+  @IsString() @Length(SENHA_MIN, SENHA_MAX, {
+    message: `A senha precisa ter entre ${SENHA_MIN} e ${SENHA_MAX} caracteres.`,
+  })
+  senha!: string;
 }
 
 class AgendarComCreditoContaDto {
@@ -120,6 +184,10 @@ export class ContaClienteController {
   constructor(
     private readonly iniciarLogin: IniciarLoginClienteUseCase,
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
+    private readonly loginComSenha: LoginComSenhaClienteUseCase,
+    private readonly definirSenha: DefinirSenhaClienteUseCase,
+    private readonly redefinirSenha: RedefinirSenhaComCodigoUseCase,
+    private readonly sessaoService: ClienteSessaoService,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly clube: ClubeQueryService,
@@ -139,7 +207,11 @@ export class ContaClienteController {
   @EnviaOtp()
   @Post('login/iniciar')
   async iniciar(@Body() body: IniciarLoginDto): Promise<IniciarLoginClienteResponse> {
-    const r = await this.iniciarLogin.executar({ companyId: body.companyId, telefone: body.telefone });
+    const r = await this.iniciarLogin.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      finalidade: body.finalidade,
+    });
     return { desafio: r.desafio, expiraEm: r.expiraEm.toISOString(), codigoDemo: r.codigoDemo };
   }
 
@@ -153,6 +225,99 @@ export class ContaClienteController {
       codigo: body.codigo,
       desafio: body.desafio,
       nome: body.nome,
+    });
+  }
+
+  /**
+   * ★★ LOGIN DO DIA A DIA (2026-08-28): telefone + senha, sem gastar SMS.
+   *
+   * Antes o login era 100% código, e o provedor de SMS não entrega mais que
+   * ~2 por número em curto período — quem precisava de um segundo código no
+   * mesmo dia ficava trancado para fora da própria conta. Este caminho não
+   * envia nada.
+   *
+   * Mesmo rate limit do código (5 por telefone / 10 min): aqui ele não protege
+   * contra gasto de SMS, protege contra tentativa de senha em série.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('login/senha')
+  async loginSenha(@Body() body: LoginComSenhaDto): Promise<ConfirmarLoginClienteResponse> {
+    return this.loginComSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      senha: body.senha,
+    });
+  }
+
+  /**
+   * ★ PRIMEIRO ACESSO — define a senha de quem acabou de verificar o telefone.
+   *
+   * Exige sessão E verificação recente (30 min). O caminho normal é a ponte do
+   * funil: o cliente confirmou o agendamento por código e chega aqui com a
+   * sessão fresca, sem um segundo código. Sessão antiga cai no 403 com o
+   * recado de refazer a verificação — é o que impede um aparelho esquecido
+   * aberto de virar a senha de outra pessoa.
+   */
+  @ContaCliente()
+  @Post('senha')
+  async definirSenhaDoCliente(
+    @Body() body: SenhaDto,
+    @ClienteAtual() atual: ClienteAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.definirSenha.executar({ sessao: atual, senha: body.senha });
+    return { ok: true };
+  }
+
+  /**
+   * ★ ESQUECI MINHA SENHA, passo 1: manda o código.
+   *
+   * É o ÚNICO envio de código fora do agendamento, e por isso leva
+   * `@EnviaOtp()` (conta no limite por origem) e a finalidade própria — quando
+   * o cliente ligar dizendo que não recebeu, o dono precisa distinguir este
+   * caso do código de confirmação de horário.
+   *
+   * Responde igual para telefone com e sem conta: quem não tem conta recebe um
+   * código que não leva a lugar nenhum, e a tela de login não vira consulta de
+   * "fulano é cliente daqui?".
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @EnviaOtp()
+  @Post('senha/recuperar/iniciar')
+  async recuperarSenhaIniciar(
+    @Body() body: RecuperarSenhaIniciarDto,
+  ): Promise<IniciarLoginClienteResponse> {
+    const r = await this.iniciarLogin.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      finalidade: 'RECUPERAR_SENHA',
+    });
+    return { desafio: r.desafio, expiraEm: r.expiraEm.toISOString(), codigoDemo: r.codigoDemo };
+  }
+
+  /**
+   * ★ ESQUECI MINHA SENHA, passo 2: confere o código e grava a senha nova.
+   *
+   * Também é o caminho de PRIMEIRO ACESSO de quem já era cliente antes desta
+   * mudança e nunca passou pela ponte do funil — por isso não exige senha
+   * anterior. Ninguém fica trancado para fora por não ter tido senha um dia.
+   *
+   * Devolve sessão: o cliente sai daqui já dentro da conta, sem digitar a
+   * senha que acabou de escolher.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('senha/recuperar/confirmar')
+  async recuperarSenhaConfirmar(
+    @Body() body: RecuperarSenhaConfirmarDto,
+  ): Promise<ConfirmarLoginClienteResponse> {
+    return this.redefinirSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      codigo: body.codigo,
+      desafio: body.desafio,
+      senha: body.senha,
     });
   }
 
@@ -175,6 +340,13 @@ export class ContaClienteController {
       clube,
       pacotes,
       proximosAgendamentos,
+      // A conta se descreve para a tela decidir o que oferecer (2026-08-28):
+      // quem ainda não tem senha vê o convite do primeiro acesso, e ele só é
+      // acionável enquanto a verificação do telefone estiver fresca.
+      senha: {
+        definida: cliente.temSenha,
+        podeDefinirAgora: this.sessaoService.verificacaoRecente(atual),
+      },
     };
   }
 

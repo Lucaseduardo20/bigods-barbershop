@@ -14,6 +14,14 @@ export interface ClienteProps {
   email: string | null;
   /** "Fale sobre você": preferências que o BARBEIRO usa no atendimento. Opcional. */
   sobreVoce: string | null;
+  /**
+   * Senha do cliente (2026-08-28) — já HASHEADA. `null` = ainda não definiu.
+   *
+   * O domínio guarda o hash e nunca a senha: o formato é decisão de
+   * armazenamento (`infrastructure/senha.ts`, o mesmo motor scrypt do login de
+   * staff), e o agregado só sabe que existe ou não existe uma credencial.
+   */
+  senhaHash: string | null;
 }
 
 /**
@@ -28,7 +36,9 @@ export class Cliente extends AggregateRoot {
     super();
   }
 
-  static criar(props: Omit<ClienteProps, 'cognitoSub' | 'email' | 'sobreVoce'>): Cliente {
+  static criar(
+    props: Omit<ClienteProps, 'cognitoSub' | 'email' | 'sobreVoce' | 'senhaHash'>,
+  ): Cliente {
     if (!props.nome.trim()) {
       throw new InvarianteVioladaError('Cliente exige nome');
     }
@@ -38,6 +48,10 @@ export class Cliente extends AggregateRoot {
       cognitoSub: null,
       email: null,
       sobreVoce: null,
+      // Nasce SEM senha: o cliente que acabou de agendar ainda não escolheu
+      // uma, e todo cliente que já existia também está assim. Quem não tem
+      // senha entra pelo primeiro acesso, com o telefone verificado.
+      senhaHash: null,
     });
   }
 
@@ -106,6 +120,27 @@ export class Cliente extends AggregateRoot {
     this.props.cognitoSub = cognitoSub;
   }
 
+  /**
+   * Define (ou redefine) a senha. Recebe o hash PRONTO — quem calcula é a
+   * infraestrutura, com o mesmo motor do login de staff.
+   *
+   * Serve aos dois caminhos: primeiro acesso e "esqueci a senha". São telas
+   * diferentes e regras de AUTORIZAÇÃO diferentes (quem pode chegar aqui é
+   * decidido na aplicação), mas o efeito sobre o cliente é o mesmo — e um
+   * segundo método faria a mesma coisa com outro nome.
+   */
+  definirSenha(hash: string): void {
+    if (!hash.trim()) {
+      throw new InvarianteVioladaError('Senha do cliente exige hash');
+    }
+    this.props.senhaHash = hash;
+  }
+
+  /** Já escolheu uma senha? É o que separa o primeiro acesso do login normal. */
+  get temSenha(): boolean {
+    return this.props.senhaHash !== null;
+  }
+
   get ehUsuario(): boolean {
     return this.props.cognitoSub !== null;
   }
@@ -117,4 +152,5 @@ export class Cliente extends AggregateRoot {
   get cognitoSub() { return this.props.cognitoSub; }
   get email() { return this.props.email; }
   get sobreVoce() { return this.props.sobreVoce; }
+  get senhaHash() { return this.props.senhaHash; }
 }

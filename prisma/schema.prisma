@@ -421,6 +421,12 @@ model Cliente {
   nome       String
   telefone   String
   cognitoSub String?
+  /**
+   * Senha do cliente (2026-08-28) — MESMO formato e mesmo motor do login de
+   * staff (`senha.ts`: scrypt, `sal:hash`). NULL = ainda não definiu; entra
+   * pelo caminho de primeiro acesso, com o telefone verificado.
+   */
+  senhaHash  String?
   // Opcionais, coletados no funil (nunca obrigatórios — atrito no funil custa
   // conversão). Só são gravados quando o cliente preenche; um agendamento
   // posterior com o campo em branco NÃO apaga o que já havia.
@@ -779,6 +785,13 @@ enum TipoLancamento {
   DESCONTO_CONCEDIDO
 }
 
+/** Para que um código de verificação foi enviado (2026-08-28) — ver §8.16. */
+enum FinalidadeOtp {
+  CONFIRMAR_AGENDAMENTO
+  RECUPERAR_SENHA
+  ACESSO_A_CONTA
+}
+
 enum StatusVale {
   PENDENTE
   APROVADO
@@ -857,6 +870,12 @@ model DemoDesafioLogin {
   consumidoEm DateTime? @db.Timestamptz(3)
   tentativas  Int       @default(0)
   criadoEm    DateTime  @default(now()) @db.Timestamptz(3)
+  /**
+   * Para que o código foi pedido (2026-08-28). NULL nos desafios anteriores a
+   * esta distinção. O código em si continua só como HMAC — a auditoria diz
+   * QUANDO foi gerado e SE foi usado, nunca QUAL era.
+   */
+  finalidade  FinalidadeOtp?
 
   @@index([companyId, telefone])
 }

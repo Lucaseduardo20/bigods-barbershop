@@ -1,0 +1,91 @@
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Telefone } from '../../../shared/domain/telefone';
+import { InvarianteVioladaError } from '../../../shared/errors/domain-error';
+import { CLIENTE_REPOSITORY, ClienteRepository } from '../../customers/domain/cliente.repository';
+import { verificaSenha } from '../infrastructure/senha';
+import { ClienteSessaoService } from '../infrastructure/cliente-sessao.service';
+
+export interface LoginComSenhaClienteInput {
+  companyId: string;
+  telefone: string;
+  senha: string;
+}
+
+export interface LoginComSenhaClienteOutput {
+  token: string;
+  cliente: { id: string; nome: string; telefone: string };
+}
+
+/**
+ * Hash descartável com o formato real, para gastar o mesmo scrypt quando não há
+ * cliente ou não há senha definida.
+ *
+ * Sem isto, "telefone que não existe" responderia visivelmente mais rápido que
+ * "senha errada", e o tempo de resposta viraria um oráculo de quem é cliente da
+ * barbearia. A resposta já é a mesma; o tempo também precisa ser.
+ */
+const HASH_FANTASMA =
+  '00000000000000000000000000000000:' +
+  '0000000000000000000000000000000000000000000000000000000000000000';
+
+/**
+ * ★★ LOGIN DO CLIENTE POR SENHA (2026-08-28) — o caminho de todo dia, sem SMS.
+ *
+ * Nasceu de um incidente: o provedor de SMS não entrega mais que ~2 códigos por
+ * número em curto período. Com o login 100% OTP, o cliente que precisava de um
+ * segundo código no mesmo dia ficava trancado para fora da própria conta. Com
+ * senha, o login normal não gasta envio nenhum — e o código volta a ser o que
+ * deveria ser: prova de posse do telefone, usada uma vez.
+ *
+ * ## Resposta neutra, sempre
+ *
+ * Telefone inexistente, cliente sem senha definida e senha errada dão
+ * exatamente a MESMA resposta. Diferenciar transformaria a tela de login numa
+ * consulta de "fulano é cliente daqui?" — que, numa barbearia de bairro, é
+ * informação sobre a vida de pessoas reais.
+ */
+@Injectable()
+export class LoginComSenhaClienteUseCase {
+  constructor(
+    @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
+    private readonly sessao: ClienteSessaoService,
+  ) {}
+
+  async executar(input: LoginComSenhaClienteInput): Promise<LoginComSenhaClienteOutput> {
+    const recusar = () => new UnauthorizedException('Telefone ou senha incorretos.');
+
+    let telefone: Telefone;
+    try {
+      telefone = Telefone.de(input.telefone);
+    } catch (erro) {
+      // Número malformado também é "telefone ou senha incorretos": dizer
+      // "telefone inválido" aqui não ajuda quem errou a senha e ajuda quem
+      // está varrendo formatos.
+      if (erro instanceof InvarianteVioladaError) throw recusar();
+      throw erro;
+    }
+
+    const cliente = await this.clientes.porTelefone(input.companyId, telefone);
+    const hash = cliente?.senhaHash ?? null;
+
+    // Gasta o scrypt mesmo quando não há o que conferir — ver HASH_FANTASMA.
+    const confere = verificaSenha(input.senha, hash ?? HASH_FANTASMA);
+    if (!cliente || !hash || !confere) {
+      throw recusar();
+    }
+
+    const token = this.sessao.emitir({
+      clienteId: cliente.id,
+      companyId: cliente.companyId,
+      sub: cliente.cognitoSub ?? cliente.id,
+      // ★ `null` de propósito: entrar com senha NÃO é provar posse do
+      // telefone. Quem entrou assim e quiser trocar a senha passa pelo código,
+      // como qualquer um que perdeu o acesso.
+      verificadoEm: null,
+    });
+    return {
+      token,
+      cliente: { id: cliente.id, nome: cliente.nome, telefone: cliente.telefone.e164 },
+    };
+  }
+}

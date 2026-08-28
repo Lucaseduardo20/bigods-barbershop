@@ -16,7 +16,7 @@ import {
   type SessaoCliente,
 } from './lib/session';
 import { ErroEstado, Loading, useApi } from './components/ui';
-import { Login, Otp } from './screens/Auth';
+import { AvisoSemSenha, DefinirSenha, Login, RecuperarSenha } from './screens/Auth';
 import { Home } from './screens/Home';
 import { BookCredit } from './screens/BookCredit';
 import { Historico } from './screens/Historico';
@@ -25,7 +25,12 @@ import { UsarSaldoResidual } from './screens/UsarSaldoResidual';
 import { Header } from './screens/Header';
 import { ehMembro } from './components/Clube';
 
-type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo';
+/**
+ * `recuperar` e `definir-senha` são telas próprias, e não modos de uma tela só,
+ * porque são momentos diferentes na cabeça do cliente (2026-08-28): um é
+ * "perdi o acesso", o outro é "acabei de agendar e vou criar minha senha".
+ */
+type Tela = 'login' | 'recuperar' | 'definir-senha' | 'home' | 'book' | 'historico' | 'saldo';
 
 export function App() {
   return (
@@ -60,10 +65,13 @@ function Conta() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Estado do login OTP
+  // Telefone digitado no login — reaproveitado ao pular para a recuperação,
+  // para o cliente não redigitar o que acabou de escrever.
   const [telefone, setTelefone] = useState('');
   const [desafio, setDesafio] = useState('');
-  const [codigoDemo, setCodigoDemo] = useState<string | null>(null);
+  /** Quem dispensou o convite de criar senha não é perguntado de novo nesta sessão. */
+  const [adiouSenha, setAdiouSenha] = useState(false);
+  const [estadoDaSenha, setEstadoDaSenha] = useState<PerfilClienteDTO['senha'] | null>(null);
 
   // Serviço pré-selecionado ao entrar no fluxo de agendamento (reagendar item específico)
   const [servicoPreselecionado, setServicoPreselecionado] = useState<string | null>(null);
@@ -78,49 +86,104 @@ function Conta() {
     limparSessao();
     setSessao(null);
     setDesafio('');
-    setCodigoDemo(null);
+    setAdiouSenha(false);
     setTela('login');
   }, []);
 
-  async function iniciarLogin(tel: string): Promise<void> {
-    const r = await api<IniciarLoginClienteResponse>('/conta/login/iniciar', {
+  /** ★ O login de todo dia: telefone + senha, sem gastar SMS (2026-08-28). */
+  async function entrarComSenha(tel: string, senha: string): Promise<void> {
+    const r = await api<ConfirmarLoginClienteResponse>('/conta/login/senha', {
+      method: 'POST',
+      body: { companyId: COMPANY_ID, telefone: tel, senha },
+    });
+    setTelefone(tel);
+    entrar({ token: r.token, cliente: r.cliente });
+  }
+
+  /** Esqueci a senha, passo 1 — o único SMS que esta tela ainda dispara. */
+  async function pedirCodigoDeRecuperacao(tel: string): Promise<{ codigoDemo: string | null }> {
+    const r = await api<IniciarLoginClienteResponse>('/conta/senha/recuperar/iniciar', {
       method: 'POST',
       body: { companyId: COMPANY_ID, telefone: tel },
     });
     setTelefone(tel);
     setDesafio(r.desafio);
-    setCodigoDemo(r.codigoDemo);
-    setTela('otp');
+    return { codigoDemo: r.codigoDemo };
   }
 
-  async function confirmarLogin(codigo: string): Promise<void> {
-    const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
+  /** Passo 2: o servidor confere o código e grava a senha nova de uma vez. */
+  async function confirmarRecuperacao(codigo: string, senha: string): Promise<void> {
+    const r = await api<ConfirmarLoginClienteResponse>('/conta/senha/recuperar/confirmar', {
       method: 'POST',
-      body: { companyId: COMPANY_ID, telefone, codigo, desafio },
+      body: { companyId: COMPANY_ID, telefone, codigo, desafio, senha },
     });
     entrar({ token: r.token, cliente: r.cliente });
   }
 
-  if (tela === 'login') {
-    return <Login onEnviar={iniciarLogin} />;
+  /** Primeiro acesso: a sessão da ponte já provou o telefone, então não há código. */
+  async function salvarPrimeiraSenha(senha: string): Promise<void> {
+    await api('/conta/senha', {
+      method: 'POST',
+      body: { senha },
+      token: sessao?.token ?? null,
+    });
+    setAdiouSenha(true); // já tem senha: o convite não volta
+    setTela('home');
   }
-  if (tela === 'otp') {
+
+  /**
+   * ★ O primeiro acesso se oferece sozinho: cliente sem senha, com o telefone
+   * verificado agora (veio da ponte do funil), cai direto na criação. É o
+   * único momento em que dá para criar senha sem gastar um SMS, e perdê-lo
+   * significa depender do SMS depois — que é o que quebrou.
+   */
+  if (
+    sessao &&
+    tela === 'home' &&
+    !adiouSenha &&
+    estadoDaSenha &&
+    !estadoDaSenha.definida &&
+    estadoDaSenha.podeDefinirAgora
+  ) {
     return (
-      <Otp
-        telefone={telefone}
-        codigoDemo={codigoDemo}
-        // desafio vazio = telefone sem conta → resposta neutra (não vaza quem é cliente)
-        semConta={desafio === ''}
-        onConfirmar={confirmarLogin}
-        onReenviar={() => iniciarLogin(telefone)}
-        onTrocarNumero={() => setTela('login')}
+      <DefinirSenha
+        telefone={sessao.cliente.telefone}
+        onSalvar={salvarPrimeiraSenha}
+        onDepois={() => setAdiouSenha(true)}
+      />
+    );
+  }
+
+  if (tela === 'login') {
+    return <Login onEntrar={entrarComSenha} onEsqueci={(tel) => { setTelefone(tel); setTela('recuperar'); }} />;
+  }
+  if (tela === 'recuperar') {
+    return (
+      <RecuperarSenha
+        telefoneInicial={telefone}
+        onIniciar={pedirCodigoDeRecuperacao}
+        onConfirmar={confirmarRecuperacao}
+        onVoltar={() => setTela('login')}
       />
     );
   }
 
   if (!sessao) {
     // sessão perdida entre telas — volta ao login
-    return <Login onEnviar={iniciarLogin} />;
+    return <Login onEntrar={entrarComSenha} onEsqueci={(tel) => { setTelefone(tel); setTela('recuperar'); }} />;
+  }
+
+  if (tela === 'definir-senha') {
+    return (
+      <DefinirSenha
+        telefone={sessao.cliente.telefone}
+        onSalvar={salvarPrimeiraSenha}
+        onDepois={() => {
+          setAdiouSenha(true);
+          setTela('home');
+        }}
+      />
+    );
   }
 
   return (
@@ -151,6 +214,12 @@ function Conta() {
           setTela('home');
         }}
         aoDeslogar={sair}
+        aoSaberDaSenha={setEstadoDaSenha}
+        // Sem verificação recente não dá para criar senha direto: o caminho
+        // seguro é o mesmo do "esqueci", com código.
+        onCriarSenha={() =>
+          setTela(estadoDaSenha?.podeDefinirAgora ? 'definir-senha' : 'recuperar')
+        }
       />
       </main>
     </div>
@@ -169,6 +238,8 @@ function CockpitOuBook({
   onVoltarHome,
   aoDeslogar,
   aoSaberDoClube,
+  aoSaberDaSenha,
+  onCriarSenha,
 }: {
   sessao: SessaoCliente;
   empresaTz: string;
@@ -186,6 +257,10 @@ function CockpitOuBook({
    * vezes, e duas fontes para o mesmo fato.
    */
   aoSaberDoClube: (ehMembroDoClube: boolean) => void;
+  /** Idem para o estado da senha (2026-08-28) — quem decide a tela é o pai. */
+  aoSaberDaSenha: (senha: PerfilClienteDTO['senha']) => void;
+  /** Abre a criação de senha a partir do aviso na home. */
+  onCriarSenha: () => void;
 }) {
   const perfil = useApi(
     () => api<PerfilClienteDTO>('/conta/perfil', { token: sessao.token }),
@@ -201,6 +276,11 @@ function CockpitOuBook({
   useEffect(() => {
     if (clube) aoSaberDoClube(ehMembro(clube));
   }, [clube, aoSaberDoClube]);
+
+  const senha = perfil.dados?.senha;
+  useEffect(() => {
+    if (senha) aoSaberDaSenha(senha);
+  }, [senha, aoSaberDaSenha]);
 
   if (perfil.carregando) {
     return (
@@ -259,6 +339,15 @@ function CockpitOuBook({
     );
   } else {
     corpo = (
+      <>
+        {/* Quem ainda não criou senha vê o convite na home — não some se ele
+            disser "agora não" no primeiro acesso, porque sem senha ele depende
+            de SMS para voltar, que é justamente o que quebrou (2026-08-28). */}
+        {!perfil.dados.senha.definida && (
+          <div style={{ padding: '0 20px' }}>
+            <AvisoSemSenha onDefinir={onCriarSenha} />
+          </div>
+        )}
       <Home
         perfil={perfil.dados}
         tz={empresaTz}
@@ -267,6 +356,7 @@ function CockpitOuBook({
         onUsarSaldo={onUsarSaldo}
         onAbrirAtendimento={setAtendimentoAbertoId}
       />
+      </>
     );
   }
 

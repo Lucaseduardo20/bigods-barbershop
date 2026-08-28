@@ -14,9 +14,19 @@ export interface ProvisionarUsuarioInput {
   telefoneE164: string;
 }
 
+/**
+ * Para que o código foi pedido (2026-08-28). Só AUDITORIA: não muda o envio,
+ * nem o formato do código, nem a validação. Serve para o dono responder "o
+ * código saiu?" quando um cliente liga dizendo que não recebeu — e para saber
+ * se era o caminho raro (recuperar senha) ou o de todo dia.
+ */
+export type FinalidadeDoCodigo = 'CONFIRMAR_AGENDAMENTO' | 'RECUPERAR_SENHA' | 'ACESSO_A_CONTA';
+
 export interface IniciarLoginInput {
   companyId: string;
   telefoneE164: string;
+  /** Ausente = não informado (chamada anterior a 2026-08-28); grava NULL. */
+  finalidade?: FinalidadeDoCodigo;
 }
 
 export interface ConfirmarLoginInput {

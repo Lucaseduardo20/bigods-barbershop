@@ -5527,6 +5527,114 @@ tinha o mesmo defeito, passou a mostrar qual modo está ativo.
 
 ---
 
+## ★★ Identidade do cliente: telefone + SENHA (2026-08-28) ✅
+
+**O incidente.** O provedor de SMS (GtiSMS) não entrega mais que ~2 códigos por número em
+curto período — confirmado testando direto no painel deles, não é o nosso texto. Com o login
+do cliente 100% OTP, quem precisava de um segundo código no mesmo dia **ficava trancado para
+fora da própria conta**.
+
+A saída não foi brigar com o provedor: foi parar de depender dele. O código passa a existir
+só onde é insubstituível — provar posse do telefone — e o login do dia a dia vira telefone +
+senha, que não gasta envio nenhum.
+
+### Onde o código entra, e onde não entra mais
+
+| momento | usa código? |
+|---|---|
+| confirmar agendamento no funil | **sim** — 1 envio |
+| primeiro acesso (criar senha) após agendar | **não** — a ponte do funil já trouxe a verificação |
+| login na conta | **não** — telefone + senha |
+| esqueci a senha / nunca tive | **sim** — o caminho raro |
+
+### Três fluxos, três telas, três textos
+
+Separados de propósito, porque são momentos diferentes na cabeça do cliente:
+
+1. **Confirmar agendamento** (funil) — "digite o código para confirmar seu horário".
+2. **Crie sua senha** (conta, logo após a ponte) — "seu telefone já está confirmado".
+   ★ **Não menciona SMS**, porque nenhum vai chegar. Era o jeito mais fácil de fazer o
+   cliente esperar por uma mensagem que não existe.
+3. **Recuperar acesso** (conta) — "vamos mandar um código para confirmar que o telefone é
+   seu; depois você escolhe uma senha nova".
+
+### A senha reusa o MOTOR do staff
+
+`Cliente.senhaHash` guarda o hash no MESMO formato do login do painel: `senha.ts`, scrypt com
+sal por senha e comparação em tempo constante. **Não existe uma segunda implementação de hash
+neste sistema** — e não seria numa correção às pressas que ela ia nascer. O que muda é só a
+fachada: o identificador é o telefone, e as telas são as do cliente.
+
+Força da senha (`validarSenhaDeCliente`, em `packages/contracts`, **a mesma função nas duas
+pontas**): mínimo de 8, recusa as óbvias e recusa **o próprio telefone** — que é o login, e o
+primeiro palpite de quem tem o número. Sem exigir maiúscula e símbolo: isso só empurra todo
+mundo para "Senha@123".
+
+### ★ Definir senha exige verificação RECENTE
+
+A sessão vale 30 dias. Se qualquer sessão válida pudesse definir a senha, um celular
+esquecido numa mesa viraria a senha da conta de outra pessoa. A sessão passou a carregar
+`verificadoEm`, e criar senha só vale por **30 minutos** depois da verificação.
+
+Três coisas NÃO contam como verificação recente, de propósito: token do **login por senha**
+(entrar com senha não prova posse do telefone), token **anterior a esta mudança** e sessão
+vencida. Todas caem no fluxo do código — o caminho seguro.
+
+### Cliente que já existia não fica trancado
+
+Todo cliente de hoje está sem senha, e continua entrando: o fluxo "esqueci minha senha" é o
+**primeiro acesso** dele, e por isso não exige senha anterior. A home mostra o convite de
+criar senha enquanto ele não criar.
+
+### Anti-enumeração
+
+Telefone inexistente, cliente sem senha e senha errada dão a **mesma** resposta — e gastam o
+mesmo scrypt (`HASH_FANTASMA`), para o tempo de resposta também não virar oráculo. Numa
+barbearia de bairro, "fulano é cliente daqui?" é informação sobre a vida de pessoas reais.
+
+### Auditoria — o que o dono vê quando o cliente diz "não recebi"
+
+A tabela de desafios já guardava `criadoEm`, `consumidoEm` e `tentativas`, e o código sempre
+foi só HMAC. Faltavam a **finalidade** (agora gravada) e um lugar para olhar:
+`GET /otp/auditoria` (admin-only) e o card **Ajustes → Códigos enviados**. O dono vê "gerado
+às 14:02, recuperar senha, **nunca usado**" e liga de volta — o fallback aceito para o caso
+raro de SMS não entregue.
+
+★ O código **nunca** aparece: nem na tela, nem na API, nem recuperável do banco.
+
+### Migration aditiva
+
+```sql
+ALTER TABLE "Cliente" ADD COLUMN "senhaHash" TEXT;                -- NULL = ainda não definiu
+CREATE TYPE "FinalidadeOtp" AS ENUM (...);
+ALTER TABLE "DemoDesafioLogin" ADD COLUMN "finalidade" "FinalidadeOtp";  -- NULL nos antigos
+```
+
+Nada é reescrito, nada é removido, e a API anterior funciona com este banco durante a janela
+de deploy. `senhaHash IS NULL` é o estado de todo mundo hoje — e é um estado válido.
+
+### Testes
+
+**977 verdes** (958 antes: +19 e2e de identidade), idênticos sob `TZ=UTC`,
+`America/Sao_Paulo` e `Asia/Tokyo`. **80 em `packages/contracts`** (+6 da política de senha).
+`turbo run build` verde nos 5 pacotes. Roteiro manual em
+[`docs/SMOKE_SENHA_DO_CLIENTE.md`](docs/SMOKE_SENHA_DO_CLIENTE.md).
+
+**Um flake honesto:** o e2e novo falhou duas vezes (11 de 19) durante o desenvolvimento,
+sempre com a mesma assinatura — o app subindo sem modo demo porque outro arquivo apaga
+`IDENTITY_PROVIDER`/`DEMO_MODE` no `afterAll` e os arquivos dividem o processo (a armadilha
+que o próprio `test/setup-env.ts` documenta). Mudei a ligação das variáveis para o
+`beforeAll`, e desde então foram 9 execuções verdes seguidas — mas como observei uma falha
+DEPOIS da correção, **não afirmo que está resolvido**. Deixei um guard que faz o teste falhar
+dizendo a causa ("o app subiu SEM modo demo") em vez de "esperava 201, veio 400".
+
+### O que ficou em aberto
+
+DECISOES_PENDENTES **#59** (trocar a senha estando logado, sem gastar código) e **#60** (a
+sessão do cliente não é revogável — trocar a senha não derruba outros aparelhos).
+
+---
+
 ## Como rodar localmente
 
 ```bash

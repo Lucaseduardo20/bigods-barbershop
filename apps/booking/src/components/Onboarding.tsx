@@ -65,7 +65,9 @@ export function Onboarding({
     try {
       const r = await api<IniciarLoginClienteResponse>('/conta/login/iniciar', {
         method: 'POST',
-        body: { companyId: COMPANY_ID, telefone },
+        // Auditoria (2026-08-28): aqui o código é para entrar na conta, não
+        // para confirmar horário.
+        body: { companyId: COMPANY_ID, telefone, finalidade: 'ACESSO_A_CONTA' },
       });
       setDesafio(r.desafio);
       setCodigoDemo(r.codigoDemo);

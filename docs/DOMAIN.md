@@ -2274,6 +2274,98 @@ ver DECISOES_PENDENTES #58. Um consumo errado hoje só se corrige como antes: no
 
 ---
 
+### 8.16 Identidade do cliente: telefone + SENHA (2026-08-28)
+
+**O incidente.** O provedor de SMS (GtiSMS) não entrega mais que ~2 códigos por número em
+curto período — confirmado testando direto no painel deles, não é o nosso texto. Com o
+login do cliente 100% OTP, quem precisava de um segundo código no mesmo dia ficava
+**trancado para fora da própria conta**.
+
+A saída não é brigar com o provedor: é parar de depender dele. O código passa a existir só
+onde ele é insubstituível — provar posse do telefone — e o login do dia a dia vira
+**telefone + senha**, que não gasta envio nenhum.
+
+#### Onde o código entra, e onde não entra mais
+
+| momento | usa código? |
+|---|---|
+| confirmar agendamento no funil | **sim** — 1 envio, prova a posse do telefone |
+| primeiro acesso (criar senha) logo após agendar | **não** — a ponte do funil já trouxe a verificação |
+| login na conta | **não** — telefone + senha |
+| esqueci a senha / nunca tive | **sim** — o caminho raro |
+
+#### Três fluxos, três textos
+
+São telas separadas de propósito, com texto próprio, porque são momentos diferentes na
+cabeça do cliente e confundi-los é o que gera ligação para a barbearia:
+
+1. **Confirmar agendamento** (funil): "digite o código para confirmar seu horário".
+2. **Criar sua senha** (conta, após a ponte): "seu telefone já está confirmado — escolha
+   uma senha". **Não menciona SMS**, porque nenhum vai chegar.
+3. **Recuperar acesso** (conta): "vamos mandar um código para confirmar que o telefone é
+   seu, depois você escolhe uma senha nova".
+
+#### A senha reusa o MOTOR do staff
+
+`Cliente.senhaHash` guarda o hash no MESMO formato do login do painel — `senha.ts`, scrypt
+com sal de 16 bytes por senha e comparação em tempo constante. **Não existe uma segunda
+implementação de hash neste sistema**, e não é numa correção às pressas que ela vai
+nascer: criptografia reescrita é onde as vulnerabilidades moram.
+
+O que muda em relação ao staff é só a **fachada**: o identificador é o telefone (não um
+login), e as telas são as do cliente. O motor é o mesmo módulo.
+
+**Força da senha** (`validarSenhaDeCliente`, em `packages/contracts`): mínimo de 8
+caracteres, recusa as senhas óbvias e recusa **o próprio telefone** — que é o login, e o
+primeiro palpite de quem tem o número em mãos. Sem exigir maiúscula/símbolo: isso empurra
+todo mundo para "Senha@123", que não é mais segura, só mais irritante. A regra roda nas
+duas pontas, da MESMA função.
+
+#### ★ Definir senha exige verificação RECENTE
+
+A sessão do cliente vale 30 dias. Se qualquer sessão válida pudesse definir a senha, um
+celular emprestado ou esquecido numa mesa viraria a senha da conta de outra pessoa — e o
+dono legítimo descobriria ao não conseguir mais entrar.
+
+Por isso a sessão carrega `verificadoEm`, e `POST /conta/senha` só aceita dentro de
+**30 minutos** (`JANELA_DE_VERIFICACAO_MS`). Cobre com folga o caminho real (confirmou o
+agendamento → leu a tela de sucesso → foi para a conta) e fecha a janela.
+
+Três sessões NÃO são verificação recente, e é intencional:
+- token emitido pelo **login por senha** (entrar com senha não prova posse do telefone);
+- token **anterior a esta mudança** (não tem o campo — lido como `null`);
+- token verificado há mais de 30 min.
+
+Quem cai nesses casos usa o fluxo 3 (código), que é o caminho seguro.
+
+#### Cliente que já existia
+
+Todo cliente de hoje está sem senha (`senhaHash IS NULL`), e continua entrando: o fluxo 3
+serve como **primeiro acesso** dele — confirma o telefone por código e escolhe a senha. Não
+exige senha anterior justamente por isso. **Ninguém fica trancado do lado de fora**, e a
+home mostra o convite de criar senha enquanto ele não criar.
+
+#### Anti-enumeração
+
+Telefone inexistente, cliente sem senha e senha errada dão a **mesma** resposta — e gastam
+o mesmo scrypt (`HASH_FANTASMA`), para o tempo de resposta também não virar oráculo. Numa
+barbearia de bairro, "fulano é cliente daqui?" é informação sobre a vida de pessoas reais.
+
+#### Auditoria de código
+
+Cada desafio já registrava `criadoEm`, `consumidoEm` e `tentativas`, e o código sempre foi
+só HMAC. Faltava a **finalidade** — agora gravada — e um lugar para o dono olhar:
+`GET /otp/auditoria` (admin-only) e o card "Códigos enviados" em Ajustes.
+
+Serve a um caso concreto: o cliente liga dizendo que não recebeu. O dono vê **gerado às
+14:02, recuperar senha, nunca usado**, e resolve na mão. É o fallback aceito para o caso
+raro em que o SMS não chega.
+
+**O código NUNCA aparece** — nem na tela, nem na API, nem recuperável do banco. Um endpoint
+que o revelasse transformaria o painel numa porta para a conta de qualquer cliente.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -2286,6 +2378,8 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
+- Política de senha do cliente (§8.16): mínimo, senhas óbvias e senha igual ao telefone —
+  a MESMA função que o front usa (`validarSenhaDeCliente`).
 - Registro de atendimento já ocorrido (§8.15): nasce CONCLUIDO, emite `AtendimentoConcluido`
   e NÃO `AtendimentoAgendado`, conta o intervalo para trás a partir do fim, e não depende de
   expediente cadastrado.
@@ -2298,6 +2392,11 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Constraint `EXCLUDE` do Postgres realmente rejeita sobreposição sob concorrência.
 - Transação de "agendar com crédito" faz rollback completo se qualquer passo falhar.
 - Webhook de pagamento é idempotente (processar 2x não gera efeito duplo).
+- Identidade do cliente (§8.16): define senha no primeiro acesso e entra depois SEM gastar
+  código; "esqueci a senha" troca a senha e invalida a antiga; sessão não-recente NÃO define
+  senha; cliente pré-existente entra pelo caminho do código; resposta neutra a telefone
+  inexistente; auditoria registra gerado/usado sem nunca expor o código
+  (`senha-do-cliente.e2e.spec.ts`).
 - Consumo de crédito no balcão gera comissão sobre o valor RATEADO, consome o crédito e não
   rouba o horário de um agendamento existente (`consumo-de-credito-balcao.e2e.spec.ts`).
 - Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).

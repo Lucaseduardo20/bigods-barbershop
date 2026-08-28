@@ -1044,3 +1044,29 @@ e o desfazer dobraria o tamanho dela.
 **O risco de deixar assim, dito com todas as letras:** o jeito de corrigir um consumo errado
 continua sendo mexer no banco — que é exatamente o que causou o incidente que originou a
 feature. Se acontecer uma vez, é sinal de que isto virou prioridade.
+
+## 59. Trocar a senha estando logado, sabendo a senha atual (2026-08-28)
+
+Hoje o cliente define a senha em dois momentos: primeiro acesso (com verificação recente) e
+"esqueci a senha" (com código). **Não existe** "trocar minha senha" dentro da conta para
+quem já está logado e lembra da atual.
+
+Quem quiser trocar por precaução passa pelo fluxo do código — que gasta um SMS, justamente
+o recurso escasso que motivou toda esta mudança.
+
+**O que falta decidir:** se vale um `PUT /conta/senha` que aceite `senhaAtual` + `senhaNova`
+sem código, como o `PUT /auth/senha` do staff já faz. É barato e reusa o mesmo motor; ficou
+de fora porque a urgência era destravar o login, e ninguém pediu troca voluntária ainda.
+
+## 60. Sessão do cliente não é revogável (2026-08-28)
+
+O token de sessão do cliente é um HMAC autocontido de 30 dias: não há lista de sessões
+ativas nem revogação. Trocar a senha (inclusive por "esqueci") **não derruba** as sessões
+antigas daquele cliente — quem estiver logado em outro aparelho continua logado.
+
+Isso não era gritante quando a única forma de entrar era um código de uso único. Com senha,
+o cenário "emprestei o celular e quero cortar o acesso" fica pensável.
+
+**O que falta decidir:** se a conta do cliente precisa de revogação (ex.: um `tokenVersao` no
+`Cliente`, incrementado ao trocar a senha, conferido pelo guard). É uma coluna e uma
+checagem; não entrou porque exige migration e mais superfície num deploy de urgência.
