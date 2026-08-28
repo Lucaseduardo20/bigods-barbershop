@@ -36,6 +36,7 @@ import {
 } from '@bigods/contracts';
 import { AgendarAvulsoUseCase } from '../application/agendar-avulso.usecase';
 import { AgendarComCreditoUseCase } from '../application/agendar-com-credito.usecase';
+import { RegistrarConsumoDeCreditoUseCase } from '../application/registrar-consumo-de-credito.usecase';
 import { ConcluirAtendimentoUseCase } from '../application/concluir-atendimento.usecase';
 import { creditosDaRequisicao } from '../application/agendar-com-credito.usecase';
 import {
@@ -98,6 +99,30 @@ class AgendarComCreditoDto {
   @Matches(HORA_HHMM) horaInicio!: string;
 }
 
+class ProdutoDoConsumoDto {
+  @IsString() @MinLength(1) produtoId!: string;
+  @IsInt() @IsPositive() quantidade!: number;
+}
+
+/**
+ * Consumo de crédito no balcão (2026-08-28) — o atendimento já aconteceu.
+ *
+ * Não tem `data`/`horaInicio`: o que se sabe no balcão é que acabou agora, e o
+ * início sai da soma das durações. Pedir o horário seria pedir para digitar o
+ * que o sistema já sabe, na pior hora para digitar.
+ */
+class RegistrarConsumoDeCreditoDto {
+  @IsString() @MinLength(1) vendaId!: string;
+  @IsArray() @ArrayNotEmpty() @IsString({ each: true }) itemIds!: string[];
+  @IsString() @MinLength(1) barbeiroId!: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProdutoDoConsumoDto)
+  produtos?: ProdutoDoConsumoDto[];
+  @IsOptional() @IsInt() @Min(0) caixinhaCentavos?: number;
+  @IsOptional() @IsInt() @Min(0) descontoCentavos?: number;
+  /** Exigida pelo domínio quando há produto; crédito sozinho não cobra nada. */
+  @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
+}
+
 class ConcluirDto {
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
   /** Obrigatório apenas quando o horário do atendimento ainda não começou. */
@@ -130,6 +155,7 @@ export class AtendimentosController {
   constructor(
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
+    private readonly registrarConsumo: RegistrarConsumoDeCreditoUseCase,
     private readonly concluir: ConcluirAtendimentoUseCase,
     private readonly aprovarConclusao: AprovarConclusaoAntecipadaUseCase,
     private readonly recusarConclusao: RecusarConclusaoAntecipadaUseCase,
@@ -256,6 +282,48 @@ export class AtendimentosController {
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
     });
     return { atendimentoId: resultado.atendimentoId, cobranca: null };
+  }
+
+  /**
+   * ★★ CONSUMO DE CRÉDITO NO BALCÃO (2026-08-28) — o corte já aconteceu.
+   *
+   * Cria o atendimento já CONCLUIDO e consome o crédito na mesma transação, de
+   * modo que a comissão, o histórico do cliente, o faturamento do dia e o status
+   * do clube aconteçam exatamente como acontecem em qualquer conclusão. Existe
+   * porque a alternativa que a operação encontrou foi mexer no banco à mão — e
+   * ali o barbeiro fica sem comissão sem ninguém perceber.
+   *
+   * Mesma ACL do agendamento com crédito: admin faz qualquer um; barbeiro só
+   * gasta crédito de pacote comprado COM ELE, e só em nome próprio.
+   */
+  @Post('consumo-de-credito')
+  async registrarConsumoDeCredito(
+    @Body() body: RegistrarConsumoDeCreditoDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ atendimentoId: string }> {
+    const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+    if (!ehAdmin) {
+      const venda = await this.vendasDePacote.porId(body.vendaId);
+      if (!venda || venda.companyId !== usuario.companyId) {
+        throw new NotFoundException('Pacote não encontrado');
+      }
+      if (venda.barbeiroId !== usuario.barbeiroId) {
+        throw new ForbiddenException('Este pacote não foi comprado com você');
+      }
+      if (body.barbeiroId !== usuario.barbeiroId) {
+        throw new ForbiddenException('Você só pode registrar atendimento em seu próprio nome');
+      }
+    }
+    return this.registrarConsumo.executar({
+      companyId: usuario.companyId,
+      vendaId: body.vendaId,
+      itemIds: body.itemIds,
+      barbeiroId: body.barbeiroId,
+      produtos: body.produtos,
+      caixinhaCentavos: body.caixinhaCentavos,
+      descontoCentavos: body.descontoCentavos,
+      formaPagamento: body.formaPagamento,
+    });
   }
 
   /** Item 3 da sessão 2026-07-16 (walk-in add-on): adiciona serviço ANTES de concluir. */
