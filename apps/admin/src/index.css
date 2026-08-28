@@ -152,6 +152,29 @@ body {
   margin: 0 0 6px;
 }
 
+/* Botão de escolha (chip). A classe já era usada pelo painel — nos dias
+   permitidos da oferta de pacote e no modo de preço — mas NUNCA existiu neste
+   CSS: o clique mudava o estado e a tela não mostrava nada, então quem clicava
+   num dia não via o dia marcar. */
+.selectable {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font: 600 13px var(--font-ui);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.selectable:hover:not(:disabled) { border-color: var(--accent-primary); }
+/* Borda E fundo: só a borda dourada some no meio de sete chips lado a lado. */
+.selectable.selected {
+  border-color: var(--accent-primary);
+  background: var(--brand-gold-100);
+  color: var(--brand-gold-700);
+  font-weight: 800;
+}
+
 .tabs { display: flex; gap: 6px; background: var(--surface-sunken); padding: 4px; border-radius: 12px; }
 .tab {
   flex: 1;

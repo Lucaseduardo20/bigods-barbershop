@@ -26,7 +26,12 @@ describe('descrição derivada dos dias', () => {
   });
 
   it('dias avulsos viram lista', () => {
-    expect(descricaoDosDias([1, 3, 5])).toBe('Válido às segundas, às quartas e às sextas');
+    expect(descricaoDosDias([1, 3, 5])).toBe('Válido às segundas, quartas e sextas');
+  });
+
+  it('★ dois dias contíguos são LISTA, não faixa — ninguém diz "de terça a quarta"', () => {
+    expect(descricaoDosDias([2, 3])).toBe('Válido às terças e quartas');
+    expect(descricaoCurtaDosDias([2, 3])).toBe('ter e qua');
   });
 
   it('um dia só', () => {
@@ -37,7 +42,7 @@ describe('descrição derivada dos dias', () => {
   it('★ sábado+domingo+segunda NÃO vira faixa — "de sábado a segunda" enganaria', () => {
     // Na ordem de leitura (seg→dom) esses dias não são contíguos, e dizer
     // "de sábado a segunda" faria o cliente achar que terça também vale.
-    expect(descricaoDosDias([6, 0, 1])).toBe('Válido às segundas, aos sábados e aos domingos');
+    expect(descricaoDosDias([6, 0, 1])).toBe('Válido às segundas, sábados e domingos');
   });
 
   it('a faixa que termina no domingo é contígua na ordem de leitura', () => {

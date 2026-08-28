@@ -84,21 +84,27 @@ export function permiteTodosOsDias(dias: readonly number[] | null | undefined): 
  * alguém descreveria a semana em voz alta. `seg, ter, qua` é uma faixa;
  * `sáb, dom, seg` não é — e dizer "de sábado a segunda" faria o leitor pensar
  * que a terça também vale.
+ *
+ * DOIS dias contíguos saem como lista, não como faixa: ninguém diz "de terça a
+ * quarta" — diz "às terças e quartas". Faixa só a partir de três, onde ela de
+ * fato encurta a leitura.
+ *
+ * A preposição aparece UMA vez, no primeiro dia ("às segundas, quartas e
+ * sextas"); repetida em cada item a frase fica truncada de ler.
  */
 export function descricaoDosDias(dias: readonly number[] | null | undefined): string {
   const normalizados = diasNormalizados(dias);
   if (normalizados.length === 7) return 'Válido todos os dias';
   if (normalizados.length === 1) return `Válido só ${aos(normalizados[0]!)}`;
 
-  const posicoes = normalizados.map((d) => ORDEM_DE_LEITURA.indexOf(d));
-  const contigua = posicoes.every((p, i) => i === 0 || p === posicoes[i - 1]! + 1);
-  if (contigua) {
+  if (ehFaixa(normalizados)) {
     const primeiro = normalizados[0]!;
     const ultimo = normalizados[normalizados.length - 1]!;
     return `Válido de ${nomeDoDia(primeiro)} a ${nomeDoDia(ultimo)}`;
   }
 
-  const nomes = normalizados.map((d) => aos(d));
+  // Só o primeiro leva a preposição; o resto vai no plural puro.
+  const nomes = [aos(normalizados[0]!), ...normalizados.slice(1).map((d) => `${NOME_LONGO[d]}s`)];
   const ultimo = nomes.pop()!;
   return `Válido ${nomes.join(', ')} e ${ultimo}`;
 }
@@ -109,14 +115,22 @@ export function descricaoCurtaDosDias(dias: readonly number[] | null | undefined
   if (normalizados.length === 7) return 'todos os dias';
   if (normalizados.length === 1) return nomeCurtoDoDia(normalizados[0]!);
 
-  const posicoes = normalizados.map((d) => ORDEM_DE_LEITURA.indexOf(d));
-  const contigua = posicoes.every((p, i) => i === 0 || p === posicoes[i - 1]! + 1);
-  if (contigua) {
+  if (ehFaixa(normalizados)) {
     return `${nomeCurtoDoDia(normalizados[0]!)} a ${nomeCurtoDoDia(normalizados[normalizados.length - 1]!)}`;
   }
   const nomes = normalizados.map(nomeCurtoDoDia);
   const ultimo = nomes.pop()!;
   return `${nomes.join(', ')} e ${ultimo}`;
+}
+
+/**
+ * Dias em sequência na ordem de leitura, e ao menos TRÊS — com dois, "de terça
+ * a quarta" é mais comprido e menos natural que "às terças e quartas".
+ */
+function ehFaixa(normalizados: readonly number[]): boolean {
+  if (normalizados.length < 3) return false;
+  const posicoes = normalizados.map((d) => ORDEM_DE_LEITURA.indexOf(d));
+  return posicoes.every((p, i) => i === 0 || p === posicoes[i - 1]! + 1);
 }
 
 /** "às segundas", "aos sábados" — concordância que a frase avulsa precisa. */

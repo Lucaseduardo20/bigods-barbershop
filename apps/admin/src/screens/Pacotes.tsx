@@ -710,9 +710,16 @@ function OfertaDialog({
   const [modo, setModo] = useState<'percentual' | 'preco'>('percentual');
   const [percentual, setPercentual] = useState('20');
   const [precoCentavos, setPrecoCentavos] = useState(0);
-  // Dias em que os créditos vão valer (2026-08-28). Começa com os sete: um
-  // pacote sem restrição é o caso normal, e restringir é a exceção deliberada.
-  const [dias, setDias] = useState<number[]>([...TODOS_OS_DIAS]);
+  /**
+   * Dias em que os créditos vão valer (2026-08-28).
+   *
+   * ★ `[]` significa SEM RESTRIÇÃO (todos os dias) — não "nenhum dia". É o
+   * mesmo que o backend entende por vazio, e é o que faz o clique funcionar do
+   * jeito que a mão espera: começar com os sete marcados transformava o
+   * primeiro clique num DESMARCAR, e quem clica em "sex" está dizendo que quer
+   * a sexta, não que quer tirá-la.
+   */
+  const [dias, setDias] = useState<number[]>([]);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -726,14 +733,16 @@ function OfertaDialog({
       setLinhas(editando.composicao.map((i) => ({ servicoId: i.servicoId, quantidade: String(i.quantidade) })));
       setModo('preco');
       setPrecoCentavos(editando.precoCentavos);
-      setDias(diasNormalizados(editando.diasPermitidos));
+      // Oferta sem restrição volta como campo vazio, não como sete marcados —
+      // senão o primeiro clique aqui também desmarcaria.
+      setDias(permiteTodosOsDias(editando.diasPermitidos) ? [] : diasNormalizados(editando.diasPermitidos));
     } else {
       setNome('');
       setLinhas([{ servicoId: '', quantidade: '1' }]);
       setModo('percentual');
       setPercentual('20');
       setPrecoCentavos(0);
-      setDias([...TODOS_OS_DIAS]);
+      setDias([]);
     }
     setErroSalvar(null);
   }, [aberto, editando]);
@@ -885,35 +894,47 @@ function OfertaDialog({
           <div className="flex gap-1.5 flex-wrap">
             {/* Ordem de leitura (segunda→domingo) — `diasNormalizados` já a impõe. */}
             {diasNormalizados(TODOS_OS_DIAS).map((d) => {
-                const ligado = dias.includes(d);
-                return (
-                  <button
-                    key={d}
-                    className={`selectable ${ligado ? 'selected' : ''}`}
-                    style={{ padding: '6px 10px', minWidth: 46, textTransform: 'capitalize' }}
-                    aria-pressed={ligado}
-                    onClick={() =>
-                      setDias((atual) =>
-                        // Nunca deixa zerar: um pacote sem nenhum dia seria
-                        // impossível de usar, e o domínio recusaria depois de o
-                        // admin já ter preenchido o resto.
-                        ligado
-                          ? atual.length > 1
-                            ? atual.filter((x) => x !== d)
-                            : atual
-                          : diasNormalizados([...atual, d]),
-                      )
-                    }
-                  >
+              // Sem restrição, NENHUM botão fica aceso: o campo está vazio, e o
+              // primeiro clique começa a restrição pelo dia clicado.
+              const ligado = dias.includes(d);
+              return (
+                <button
+                  key={d}
+                  className={`selectable ${ligado ? 'selected' : ''}`}
+                  style={{ padding: '6px 10px', minWidth: 46, textTransform: 'capitalize' }}
+                  aria-pressed={ligado}
+                  onClick={() =>
+                    setDias((atual) =>
+                      ligado
+                        ? // Tirar o último dia volta para "sem restrição" — é a
+                          // saída natural de quem se arrependeu, em vez de um
+                          // beco onde o botão para de responder.
+                          atual.filter((x) => x !== d)
+                        : diasNormalizados([...atual, d]),
+                    )
+                  }
+                >
                   {nomeCurtoDoDia(d)}
                 </button>
               );
             })}
           </div>
           <div className="text-[12px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-            {permiteTodosOsDias(dias)
-              ? 'Sem restrição — o cliente marca em qualquer dia.'
-              : `O cliente vai ler: "${descricaoDosDias(dias)}". Os outros dias nem aparecem para ele.`}
+            {dias.length === 0 ? (
+              'Sem restrição — o cliente marca em qualquer dia. Clique nos dias para limitar.'
+            ) : (
+              <>
+                O cliente vai ler: <strong>"{descricaoDosDias(dias)}"</strong>. Os outros dias nem
+                aparecem para ele.{' '}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: '0 4px', height: 'auto', verticalAlign: 'baseline' }}
+                  onClick={() => setDias([])}
+                >
+                  liberar todos
+                </button>
+              </>
+            )}
           </div>
           {editando && (
             <div className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>
