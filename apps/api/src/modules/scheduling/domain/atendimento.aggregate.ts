@@ -159,6 +159,27 @@ export interface AjustesDoFechamento {
   descontoConcedido: Dinheiro;
 }
 
+/**
+ * Registro de um atendimento que JÁ ACONTECEU (2026-08-28) — ver
+ * `Atendimento.registrarConcluido`. Não tem `disponibilidades` nem
+ * `atendimentosAtivos` de propósito: não há horário a reservar.
+ */
+export interface RegistrarConcluidoParams {
+  id: AtendimentoId;
+  companyId: CompanyId;
+  clienteId: ClienteId;
+  barbeiro: Barbeiro;
+  itens: ItemAtendido[];
+  produtos?: ItemProdutoAtendido[];
+  /** Instante em que TERMINOU (no balcão, agora). O início sai daqui menos a duração. */
+  fim: Date;
+  origem: OrigemAtendimento;
+  /** Caixinha e desconto do fechamento, como em qualquer conclusão. */
+  ajustes?: AjustesDoFechamento;
+  /** Exigida quando há item avulso ou produto — crédito de pacote sozinho não cobra nada. */
+  formaPagamento?: FormaPagamento;
+}
+
 export interface AgendarParams {
   id: AtendimentoId;
   companyId: CompanyId;
@@ -199,24 +220,7 @@ export class Atendimento extends AggregateRoot {
   static agendar(params: AgendarParams): Atendimento {
     const { barbeiro, itens, origem } = params;
 
-    if (itens.length === 0) {
-      throw new InvarianteVioladaError('Atendimento exige ao menos um item');
-    }
-    for (const item of itens) {
-      if (!barbeiro.atende(item.servicoId)) {
-        throw new InvarianteVioladaError(
-          `Barbeiro ${barbeiro.nome} não atende o serviço ${item.servicoId}`,
-        );
-      }
-      if (origem === OrigemAtendimento.CREDITO_PACOTE && item.itemDoPacoteId === null) {
-        throw new InvarianteVioladaError(
-          'Atendimento de crédito de pacote exige itemDoPacoteId em todos os itens',
-        );
-      }
-      if (origem === OrigemAtendimento.AVULSO && item.itemDoPacoteId !== null) {
-        throw new InvarianteVioladaError('Atendimento avulso não pode referenciar item de pacote');
-      }
-    }
+    Atendimento.validarComposicao(barbeiro, itens, origem);
 
     const duracaoTotal = itens
       .map((i) => i.duracao)
@@ -248,14 +252,7 @@ export class Atendimento extends AggregateRoot {
       );
     }
 
-    const produtos = params.produtos ?? [];
-    for (const produto of produtos) {
-      if (!Number.isInteger(produto.quantidade) || produto.quantidade <= 0) {
-        throw new InvarianteVioladaError(
-          `Quantidade deve ser inteiro positivo: ${produto.quantidade}`,
-        );
-      }
-    }
+    const produtos = Atendimento.validarProdutos(params.produtos);
 
     const reservaOnlineExpiraEm = params.reservaOnlineExpiraEm ?? null;
     const atendimento = new Atendimento({
@@ -306,6 +303,140 @@ export class Atendimento extends AggregateRoot {
 
   static reconstituir(props: AtendimentoProps): Atendimento {
     return new Atendimento(props);
+  }
+
+  /**
+   * O que vale para QUALQUER atendimento, agendado ou registrado depois do
+   * fato. Extraído de `agendar()` em 2026-08-28 para o `registrarConcluido()`
+   * usar a mesma régua — duas cópias divergiriam, e a divergência apareceria
+   * como comissão diferente dependendo de por onde o atendimento entrou.
+   */
+  private static validarComposicao(
+    barbeiro: Barbeiro,
+    itens: ItemAtendido[],
+    origem: OrigemAtendimento,
+  ): void {
+    if (itens.length === 0) {
+      throw new InvarianteVioladaError('Atendimento exige ao menos um item');
+    }
+    for (const item of itens) {
+      if (!barbeiro.atende(item.servicoId)) {
+        throw new InvarianteVioladaError(
+          `Barbeiro ${barbeiro.nome} não atende o serviço ${item.servicoId}`,
+        );
+      }
+      if (origem === OrigemAtendimento.CREDITO_PACOTE && item.itemDoPacoteId === null) {
+        throw new InvarianteVioladaError(
+          'Atendimento de crédito de pacote exige itemDoPacoteId em todos os itens',
+        );
+      }
+      if (origem === OrigemAtendimento.AVULSO && item.itemDoPacoteId !== null) {
+        throw new InvarianteVioladaError('Atendimento avulso não pode referenciar item de pacote');
+      }
+    }
+  }
+
+  private static validarProdutos(produtos?: ItemProdutoAtendido[]): ItemProdutoAtendido[] {
+    const lista = produtos ?? [];
+    for (const produto of lista) {
+      if (!Number.isInteger(produto.quantidade) || produto.quantidade <= 0) {
+        throw new InvarianteVioladaError(
+          `Quantidade deve ser inteiro positivo: ${produto.quantidade}`,
+        );
+      }
+    }
+    return lista;
+  }
+
+  /**
+   * ★★ ATENDIMENTO QUE JÁ ACONTECEU (2026-08-28) — nasce CONCLUIDO, sem nunca
+   * ter sido agendado.
+   *
+   * O caso que trouxe isto, e que já custou dinheiro: o cliente agendou avulso,
+   * na cadeira resolveu comprar um pacote. O pacote foi vendido pelo painel, o
+   * avulso cancelado, e o crédito foi consumido **na mão, no banco**. O crédito
+   * mudou de status e mais nada aconteceu: o barbeiro não recebeu comissão, o
+   * atendimento não entrou no histórico do cliente nem no faturamento do dia, e
+   * o status do clube não foi recalculado. Tudo isso pendura no `Atendimento` —
+   * sem ele, não existe o fato de onde o dinheiro nasce.
+   *
+   * ## Por que não é `agendar()` + `concluir()`
+   *
+   * `agendar()` exige que o intervalo caiba numa `Disponibilidade` do barbeiro e
+   * não sobreponha outro atendimento ativo. As duas travas são certas para
+   * reservar horário FUTURO e erradas para registrar um fato PASSADO: o corte
+   * pode ter saído fora do expediente cadastrado, ou em cima de um horário que
+   * o barbeiro remarcou — e recusar aqui seria o sistema se recusando a
+   * registrar a verdade, que é justamente o que empurra a operação pro banco.
+   *
+   * Nada disso afrouxa dinheiro: a composição (barbeiro atende o serviço,
+   * coerência entre origem e crédito) passa pela MESMA `validarComposicao` do
+   * agendamento, e o `valorCobrado` de cada item continua sendo o rateado
+   * congelado do crédito.
+   *
+   * ## Não disputa horário com ninguém
+   *
+   * A constraint `atendimento_sem_sobreposicao` do Postgres cobre apenas
+   * AGENDADO, RESERVADO e CONCLUSAO_PENDENTE. Um registro que nasce CONCLUIDO
+   * não bloqueia agenda de ninguém — que é o correto: ele não reserva nada,
+   * apenas conta o que houve.
+   *
+   * ## `AtendimentoAgendado` NÃO é emitido
+   *
+   * Nunca houve agendamento. O único evento é `AtendimentoConcluido`, que é o
+   * que faz nascer a comissão. O status do clube é recalculado assim mesmo, pelo
+   * `ItemDoPacoteConsumido` que o consumo do crédito emite.
+   */
+  static registrarConcluido(params: RegistrarConcluidoParams): Atendimento {
+    const { barbeiro, itens, origem } = params;
+    Atendimento.validarComposicao(barbeiro, itens, origem);
+    const produtos = Atendimento.validarProdutos(params.produtos);
+
+    // O intervalo é contado PARA TRÁS a partir do fim: o que se sabe no balcão é
+    // que acabou agora, e a duração é a soma dos serviços — a mesma que o
+    // agendamento usaria.
+    const duracaoTotal = itens.map((i) => i.duracao).reduce((acc, d) => acc.somar(d));
+    const inicio = new Date(params.fim.getTime() - duracaoTotal.minutos * 60_000);
+
+    const atendimento = new Atendimento({
+      id: params.id,
+      companyId: params.companyId,
+      clienteId: params.clienteId,
+      barbeiroId: barbeiro.id,
+      itens,
+      produtos,
+      intervalo: IntervaloDeTempo.aPartirDe(inicio, duracaoTotal),
+      // Nasce AGENDADO só para `concluir()` poder aplicar a MESMA transição de
+      // sempre logo abaixo, dentro deste construtor. Nenhum estado intermediário
+      // chega ao banco: o agregado é salvo uma vez, já CONCLUIDO.
+      status: StatusAtendimento.AGENDADO,
+      origem,
+      formaPagamento: null,
+      motivoCancelamento: null,
+      origemLinkBarbeiroId: null,
+      valorAbatidoSaldo: Dinheiro.zero(),
+      vendaAbatidaId: null,
+      reservaOnlineExpiraEm: null,
+      conclusaoAntecipadaMotivo: null,
+      conclusaoSolicitadaPorId: null,
+      conclusaoSolicitadaEm: null,
+      conclusaoFormaPagamento: null,
+      caixinha: Dinheiro.zero(),
+      descontoConcedido: Dinheiro.zero(),
+      reativadoPorId: null,
+      reativadoEm: null,
+      // Nasce sem rastro de reatribuição: não foi marcado com ninguém antes —
+      // quem atendeu é quem está sendo informado agora. Trocar depois é o
+      // caminho de `corrigirBarbeiro`, com estorno, como em qualquer concluído.
+      reatribuidoDeId: null,
+      reatribuidoPorId: null,
+      reatribuidoEm: null,
+    });
+    // Caixinha, desconto, teto do desconto, exigência de forma de pagamento
+    // quando há produto e o evento `AtendimentoConcluido`: tudo pelo caminho
+    // normal de fechamento, sem uma segunda regra de conclusão.
+    atendimento.concluir(params.formaPagamento, params.ajustes);
+    return atendimento;
   }
 
   /**

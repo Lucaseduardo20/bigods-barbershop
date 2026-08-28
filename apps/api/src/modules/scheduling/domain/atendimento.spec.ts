@@ -699,3 +699,124 @@ describe('Atendimento — comanda editável', () => {
     expect(() => a.reprecificarAvulsos(TABELA_VAZIA)).toThrow(TransicaoDeEstadoInvalidaError);
   });
 });
+
+/**
+ * ★★ ATENDIMENTO QUE JÁ ACONTECEU (2026-08-28) — o consumo de crédito no
+ * balcão. Nasce CONCLUIDO, sem nunca ter sido agendado.
+ *
+ * O que estes testes seguram: que registrar um fato passado NÃO passa pelas
+ * travas de reserva de horário (expediente e conflito), e que mesmo assim ele
+ * emite o evento que faz nascer a comissão — foi exatamente a comissão que
+ * sumiu quando a operação resolveu isso com um UPDATE no banco.
+ */
+describe('Atendimento — registrar o que já aconteceu (balcão, 2026-08-28)', () => {
+  const creditoDeCorte = (): ItemAtendido => ({
+    servicoId: 'svc-corte',
+    // Rateado do pacote, não o preço avulso: é sobre ele que a comissão incide.
+    valorCobrado: Dinheiro.deCentavos(3600),
+    duracao: Duracao.deMinutos(30),
+    itemDoPacoteId: 'item-1',
+  });
+
+  const registrar = (
+    sobrescrever: Partial<Parameters<typeof Atendimento.registrarConcluido>[0]> = {},
+  ) =>
+    Atendimento.registrarConcluido({
+      id: 'at-balcao',
+      companyId: 'co-1',
+      clienteId: 'cli-1',
+      barbeiro,
+      itens: [creditoDeCorte()],
+      fim: t(14),
+      origem: OrigemAtendimento.CREDITO_PACOTE,
+      ...sobrescrever,
+    });
+
+  it('★ nasce CONCLUIDO, sem passar por AGENDADO', () => {
+    expect(registrar().status).toBe(StatusAtendimento.CONCLUIDO);
+  });
+
+  it('★★ emite AtendimentoConcluido — é dele que a comissão nasce', () => {
+    const eventos = registrar().puxarEventos();
+    expect(eventos.map((e) => e.constructor.name)).toEqual(['AtendimentoConcluido']);
+  });
+
+  it('★ NÃO emite AtendimentoAgendado: nunca houve agendamento', () => {
+    const nomes = registrar().puxarEventos().map((e) => e.constructor.name);
+    expect(nomes).not.toContain('AtendimentoAgendado');
+  });
+
+  it('★ o intervalo é contado para TRÁS a partir do fim', () => {
+    const atendimento = registrar({ fim: t(14) });
+    expect(atendimento.intervalo.fim.toISOString()).toBe(t(14).toISOString());
+    expect(atendimento.intervalo.inicio.toISOString()).toBe(t(13, 30).toISOString());
+  });
+
+  it('★ a duração é a SOMA dos serviços, como em qualquer visita', () => {
+    const atendimento = registrar({
+      itens: [
+        creditoDeCorte(),
+        {
+          servicoId: 'svc-barba',
+          valorCobrado: Dinheiro.deCentavos(2700),
+          duracao: Duracao.deMinutos(20),
+          itemDoPacoteId: 'item-2',
+        },
+      ],
+    });
+    expect(atendimento.intervalo.inicio.toISOString()).toBe(t(13, 10).toISOString());
+  });
+
+  it('★★ não exige expediente nem horário livre — é fato passado, não reserva', () => {
+    // Nenhuma `disponibilidade` e nenhum `atendimentosAtivos` são pedidos: o
+    // construtor sequer os aceita. Registrar às 3h da manhã, fora de qualquer
+    // janela cadastrada, funciona — e é o ponto da feature.
+    expect(() => registrar({ fim: t(3) })).not.toThrow();
+  });
+
+  it('a composição continua valendo: barbeiro tem que atender o serviço', () => {
+    expect(() =>
+      registrar({
+        itens: [{ ...creditoDeCorte(), servicoId: 'svc-massagem' }],
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('crédito de pacote exige itemDoPacoteId em todos os itens', () => {
+    expect(() => registrar({ itens: [{ ...creditoDeCorte(), itemDoPacoteId: null }] })).toThrow(
+      InvarianteVioladaError,
+    );
+  });
+
+  it('caixinha e desconto entram como em qualquer fechamento', () => {
+    const atendimento = registrar({
+      ajustes: { caixinha: Dinheiro.deCentavos(700), descontoConcedido: Dinheiro.deCentavos(500) },
+    });
+    expect(atendimento.caixinha.centavos).toBe(700);
+    expect(atendimento.descontoConcedido.centavos).toBe(500);
+  });
+
+  it('★ desconto maior que a comanda é recusado aqui também', () => {
+    expect(() =>
+      registrar({
+        ajustes: { caixinha: Dinheiro.zero(), descontoConcedido: Dinheiro.deCentavos(3601) },
+      }),
+    ).toThrow(InvarianteVioladaError);
+  });
+
+  it('★ produto exige forma de pagamento — o crédito cobre o serviço, não a pomada', () => {
+    const comProduto = {
+      produtos: [
+        { produtoId: 'prd-1', quantidade: 1, valorUnitario: Dinheiro.deCentavos(2500) },
+      ],
+    };
+    expect(() => registrar(comProduto)).toThrow(InvarianteVioladaError);
+    expect(() =>
+      registrar({ ...comProduto, formaPagamento: FormaPagamento.DINHEIRO }),
+    ).not.toThrow();
+  });
+
+  it('crédito de pacote sozinho NÃO exige forma de pagamento — já foi pago', () => {
+    expect(registrar().formaPagamento).toBeNull();
+  });
+});

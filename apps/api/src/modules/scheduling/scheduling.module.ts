@@ -4,6 +4,7 @@ import { BookingPublicoController } from './presentation/booking-publico.control
 import { AgendarAvulsoUseCase } from './application/agendar-avulso.usecase';
 import { CancelarReservaOnlineUseCase } from './application/cancelar-reserva-online.usecase';
 import { AgendarComCreditoUseCase } from './application/agendar-com-credito.usecase';
+import { RegistrarConsumoDeCreditoUseCase } from './application/registrar-consumo-de-credito.usecase';
 import { ConcluirAtendimentoUseCase } from './application/concluir-atendimento.usecase';
 import {
   AprovarConclusaoAntecipadaUseCase,
@@ -32,6 +33,7 @@ import { PaymentsModule } from '../payments/payments.module';
     AgendarAvulsoUseCase,
     CancelarReservaOnlineUseCase,
     AgendarComCreditoUseCase,
+    RegistrarConsumoDeCreditoUseCase,
     ConcluirAtendimentoUseCase,
     AprovarConclusaoAntecipadaUseCase,
     RecusarConclusaoAntecipadaUseCase,

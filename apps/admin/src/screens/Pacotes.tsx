@@ -4,11 +4,18 @@ import type {
   ItemComposicaoPacoteRequest,
   ItemDoPacoteDTO,
   PacoteOfertaDTO,
+  ProdutoDTO,
   ServicoDTO,
   UsuarioDTO,
   VendaDePacoteDTO,
 } from '@bigods/contracts';
-import { Papel, StatusAprovacaoPacoteOferta, StatusItemPacote, StatusPagamento } from '@bigods/contracts';
+import {
+  FormaPagamento,
+  Papel,
+  StatusAprovacaoPacoteOferta,
+  StatusItemPacote,
+  StatusPagamento,
+} from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
@@ -74,6 +81,8 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   const [venderAberto, setVenderAberto] = useState(false);
   const [agendarItem, setAgendarItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
+  /** Consumo no balcão (2026-08-28): o atendimento já aconteceu, não vai ser marcado. */
+  const [consumirItem, setConsumirItem] = useState<{ venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null>(null);
   const [confirmando, setConfirmando] = useState<string | null>(null);
   const { dados, erro, carregando, recarregar } = useApi(() => api<VendaDePacoteDTO[]>('/pacotes'), []);
 
@@ -167,9 +176,18 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
                     {(i.status === StatusItemPacote.DISPONIVEL ||
                       i.status === StatusItemPacote.SEGUNDA_CHANCE) &&
                       v.statusPagamento === StatusPagamento.PAGO && (
-                        <button className="btn btn-sm" onClick={() => setAgendarItem({ venda: v, item: i })}>
-                          Agendar
-                        </button>
+                        <>
+                          {/* Dois verbos diferentes, e a diferença importa:
+                              "Agendar" reserva um horário futuro; "Usar agora"
+                              registra o que ACABOU de acontecer no balcão e
+                              fecha o atendimento na hora (2026-08-28). */}
+                          <button className="btn btn-sm" onClick={() => setConsumirItem({ venda: v, item: i })}>
+                            Usar agora
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setAgendarItem({ venda: v, item: i })}>
+                            Agendar
+                          </button>
+                        </>
                       )}
                   </div>
                 </div>
@@ -184,6 +202,15 @@ function PacotesVendidos({ usuario }: { usuario: UsuarioDTO }) {
         aoFechar={() => setVenderAberto(false)}
         aoSalvar={() => {
           setVenderAberto(false);
+          recarregar();
+        }}
+      />
+      <ConsumirCreditoDialog
+        alvo={consumirItem}
+        usuario={usuario}
+        aoFechar={() => setConsumirItem(null)}
+        aoSalvar={() => {
+          setConsumirItem(null);
           recarregar();
         }}
       />
@@ -450,6 +477,274 @@ function AgendarCreditoDialog({
         {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
         <button className="btn" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
           {salvando ? 'Agendando…' : 'Agendar com crédito'}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+
+const FORMAS_DE_PAGAMENTO: { valor: FormaPagamento; rotulo: string }[] = [
+  { valor: FormaPagamento.PIX, rotulo: 'PIX' },
+  { valor: FormaPagamento.DINHEIRO, rotulo: 'Dinheiro' },
+  { valor: FormaPagamento.CARTAO_DEBITO, rotulo: 'Débito' },
+  { valor: FormaPagamento.CARTAO_CREDITO, rotulo: 'Crédito' },
+];
+
+/**
+ * ★★ USAR O CRÉDITO AGORA (2026-08-28) — o atendimento já aconteceu.
+ *
+ * Existe por um caso que custou dinheiro de verdade: o cliente agendou avulso,
+ * na cadeira resolveu comprar um pacote, e a operação resolveu isso vendendo o
+ * pacote pelo painel e consumindo o crédito **na mão, no banco**. O crédito
+ * mudou de status e mais nada aconteceu — o barbeiro ficou sem comissão.
+ *
+ * Por isso esta tela é UMA só e fecha tudo de uma vez: os créditos gastos, a
+ * caixinha, o desconto e o produto que saiu junto. É o mesmo fechamento de
+ * qualquer atendimento, sem a etapa de marcar horário — que não faz sentido
+ * para algo que já terminou.
+ *
+ * O horário não é perguntado de propósito: terminou agora, e a duração é a soma
+ * dos serviços. Pedir para digitar o que o sistema já sabe, na correria do
+ * balcão, é como se erra.
+ */
+function ConsumirCreditoDialog({
+  alvo,
+  usuario,
+  aoFechar,
+  aoSalvar,
+}: {
+  alvo: { venda: VendaDePacoteDTO; item: ItemDoPacoteDTO } | null;
+  usuario: UsuarioDTO;
+  aoFechar: () => void;
+  aoSalvar: () => void;
+}) {
+  const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const barbeirosReq = useApi(() => api<BarbeiroDTO[]>('/barbeiros'), []);
+  const produtosReq = useApi(() => api<ProdutoDTO[]>('/produtos'), []);
+  const [extras, setExtras] = useState<string[]>([]);
+  const [barbeiroId, setBarbeiroId] = useState('');
+  const [caixinha, setCaixinha] = useState(0);
+  const [desconto, setDesconto] = useState(0);
+  const [produtos, setProdutos] = useState<{ produtoId: string; quantidade: number }[]>([]);
+  const [forma, setForma] = useState<FormaPagamento>(FormaPagamento.PIX);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExtras([]);
+    setBarbeiroId('');
+    setCaixinha(0);
+    setDesconto(0);
+    setProdutos([]);
+    setErro(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alvo?.item.id]);
+
+  /**
+   * Os outros créditos livres do MESMO pacote — corte e barba na mesma ida são
+   * uma visita só, e a API recusa dois créditos do mesmo serviço.
+   */
+  const disponiveisNoPacote = (alvo?.venda.itens ?? []).filter(
+    (i) =>
+      i.id !== alvo?.item.id &&
+      (i.status === StatusItemPacote.DISPONIVEL || i.status === StatusItemPacote.SEGUNDA_CHANCE),
+  );
+  const escolhidos = alvo ? [alvo.item, ...disponiveisNoPacote.filter((i) => extras.includes(i.id))] : [];
+  const servicoIdsEscolhidos = escolhidos.map((i) => i.servicoId);
+  const totalDaComanda =
+    escolhidos.reduce((acc, i) => acc + i.valorRateadoCentavos, 0) +
+    produtos.reduce(
+      (acc, p) =>
+        acc + (produtosReq.dados ?? []).find((x) => x.id === p.produtoId)!.precoCentavos * p.quantidade,
+      0,
+    );
+
+  const barbeirosQueAtendem = (barbeirosReq.dados ?? []).filter(
+    (b) => b.ativo && servicoIdsEscolhidos.every((s) => b.servicosAtendidos.includes(s)),
+  );
+  const presoAoBarbeiroDaCompra = !!alvo?.venda.barbeiroId;
+  const opcoesBarbeiro = presoAoBarbeiroDaCompra
+    ? barbeirosQueAtendem.filter((b) => b.id === alvo!.venda.barbeiroId)
+    : ehAdmin
+      ? barbeirosQueAtendem
+      : barbeirosQueAtendem.filter((b) => b.id === usuario.barbeiroId);
+  const barbeiroIdEfetivo = idEfetivo(barbeiroId || alvo?.venda.barbeiroId, opcoesBarbeiro);
+
+  if (!alvo) return null;
+
+  const salvar = async () => {
+    if (!barbeiroIdEfetivo) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      await api('/atendimentos/consumo-de-credito', {
+        method: 'POST',
+        body: {
+          vendaId: alvo.venda.id,
+          itemIds: escolhidos.map((i) => i.id),
+          barbeiroId: barbeiroIdEfetivo,
+          ...(produtos.length > 0 ? { produtos, formaPagamento: forma } : {}),
+          caixinhaCentavos: caixinha,
+          descontoCentavos: desconto,
+        },
+      });
+      aoSalvar();
+    } catch (e) {
+      setErro(String((e as Error).message));
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={aoFechar} title="Usar crédito agora">
+      <div className="flex flex-col gap-3">
+        <div className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+          O atendimento de <strong>{alvo.venda.cliente.nome}</strong> já aconteceu — isto registra e
+          fecha na hora: o crédito é consumido e a comissão do barbeiro é lançada.
+        </div>
+
+        <div>
+          <label className="label">O que foi feito</label>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="font-semibold">{alvo.item.servicoNome}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{dinheiro(alvo.item.valorRateadoCentavos)}</span>
+            </div>
+            {disponiveisNoPacote.map((i) => {
+              const ligado = extras.includes(i.id);
+              const mesmoServico = servicoIdsEscolhidos.filter((s) => s === i.servicoId).length > 0 && !ligado;
+              return (
+                <button
+                  key={i.id}
+                  className={`selectable ${ligado ? 'selected' : ''}`}
+                  disabled={mesmoServico}
+                  style={mesmoServico ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                  title={mesmoServico ? 'Já há um crédito deste serviço nesta visita' : undefined}
+                  onClick={() =>
+                    setExtras((atual) =>
+                      ligado ? atual.filter((x) => x !== i.id) : [...atual, i.id],
+                    )
+                  }
+                >
+                  + {i.servicoNome} · {dinheiro(i.valorRateadoCentavos)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            Vários créditos do mesmo pacote na mesma ida viram um atendimento só.
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Quem atendeu</label>
+          {opcoesBarbeiro.length === 0 ? (
+            <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>
+              {presoAoBarbeiroDaCompra
+                ? `${alvo.venda.barbeiroNome ?? 'O barbeiro da compra'} não atende tudo o que foi marcado aqui.`
+                : 'Nenhum barbeiro ativo atende todos os serviços escolhidos.'}
+            </div>
+          ) : presoAoBarbeiroDaCompra ? (
+            <div className="text-[14px] font-semibold">{alvo.venda.barbeiroNome}</div>
+          ) : (
+            <select className="select" value={barbeiroIdEfetivo ?? ''} onChange={(e) => setBarbeiroId(e.target.value)}>
+              {opcoesBarbeiro.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nome}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Caixinha</label>
+            <CurrencyInput centavos={caixinha} onChange={setCaixinha} />
+          </div>
+          <div>
+            <label className="label">Desconto</label>
+            <CurrencyInput centavos={desconto} onChange={setDesconto} />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Produto levado junto (opcional)</label>
+          <div className="flex flex-col gap-1.5">
+            {produtos.map((p, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <span className="text-[13px] flex-1">
+                  {(produtosReq.dados ?? []).find((x) => x.id === p.produtoId)?.nome}
+                  {p.quantidade > 1 ? ` ×${p.quantidade}` : ''}
+                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setProdutos((atual) => atual.filter((_, idx) => idx !== i))}
+                >
+                  remover
+                </button>
+              </div>
+            ))}
+            <select
+              className="select"
+              value=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setProdutos((atual) => {
+                  const existente = atual.find((p) => p.produtoId === e.target.value);
+                  return existente
+                    ? atual.map((p) =>
+                        p.produtoId === e.target.value ? { ...p, quantidade: p.quantidade + 1 } : p,
+                      )
+                    : [...atual, { produtoId: e.target.value, quantidade: 1 }];
+                });
+              }}
+            >
+              <option value="">+ adicionar produto…</option>
+              {(produtosReq.dados ?? [])
+                .filter((p) => p.ativo)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome} · {dinheiro(p.precoCentavos)}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Forma de pagamento só quando há produto: o serviço já foi pago no
+            pacote, a pomada não. É a mesma exigência que o domínio faz. */}
+        {produtos.length > 0 && (
+          <div>
+            <label className="label">Como pagou o produto</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {FORMAS_DE_PAGAMENTO.map((f) => (
+                <button
+                  key={f.valor}
+                  className={`selectable ${forma === f.valor ? 'selected' : ''}`}
+                  onClick={() => setForma(f.valor)}
+                >
+                  {f.rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="text-[12px] p-2.5 rounded-lg" style={{ background: 'var(--surface-sunken)' }}>
+          Comanda: <strong>{dinheiro(totalDaComanda)}</strong>
+          {desconto > 0 && <> · desconto {dinheiro(desconto)}</>}
+          {caixinha > 0 && <> · caixinha {dinheiro(caixinha)}</>}
+          <div style={{ color: 'var(--text-muted)' }}>
+            O serviço já está pago no pacote — o cliente não paga nada por ele agora.
+          </div>
+        </div>
+
+        {erro && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erro}</div>}
+        <button className="btn" disabled={salvando || !barbeiroIdEfetivo} onClick={salvar}>
+          {salvando ? 'Registrando…' : 'Registrar e fechar'}
         </button>
       </div>
     </Dialog>

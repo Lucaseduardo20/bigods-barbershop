@@ -1062,3 +1062,20 @@ qualquer acerto.
 **O que falta decidir:** se aparecer na prática o caso da gorjeta em mãos. A saída seria a correção
 perguntar ao admin ("a caixinha fica com quem?") em vez de assumir — mas isso é uma pergunta a mais
 numa tela que ninguém quer que seja lenta, e não vale pagar por um caso que talvez não exista.
+
+## 60. Desfazer um consumo de crédito registrado por engano (2026-08-28)
+
+O consumo no balcão (§8.15) cria um atendimento **CONCLUIDO**, que é estado final: se o
+admin registrar o crédito errado, o barbeiro errado ou a caixinha errada, não há caminho de
+volta pelo painel.
+
+Existe meio caminho: `CorrigirBarbeiroDoAtendimentoUseCase` já sabe estornar comissão e
+relançar no nome certo. Falta o resto — devolver o crédito para DISPONIVEL e anular o
+atendimento sem apagá-lo do ledger.
+
+**Por que não entrou agora:** a feature subiu como correção urgente de um caso em produção,
+e o desfazer dobraria o tamanho dela.
+
+**O risco de deixar assim, dito com todas as letras:** o jeito de corrigir um consumo errado
+continua sendo mexer no banco — que é exatamente o que causou o incidente que originou a
+feature. Se acontecer uma vez, é sinal de que isto virou prioridade.

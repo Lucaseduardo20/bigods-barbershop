@@ -2279,6 +2279,77 @@ ATUAL — sem isso, uma sessão esquecida aberta trancaria o dono para fora da p
 
 ---
 
+### 8.15 Consumir crédito de pacote no balcão (2026-08-28)
+
+**O incidente que trouxe isto.** O cliente agendou avulso; na cadeira, resolveu comprar um
+pacote. A operação cancelou o avulso, vendeu o pacote pelo painel e consumiu o crédito
+**na mão, direto no banco**. O crédito mudou de status e mais nada aconteceu: o barbeiro
+ficou sem comissão, o atendimento não entrou no histórico do cliente nem no faturamento do
+dia, e o status do clube não foi recalculado.
+
+Nada disso foi falha do banco. É que **tudo isso pendura no `Atendimento`**:
+
+| o que | de onde vem |
+|---|---|
+| comissão | evento `AtendimentoConcluido` (§3.7) |
+| crédito CONSUMIDO + `deixouDeExistirEm` | mesma transação da conclusão (§8.3 passo 5) |
+| status do Bigod's Club | `ItemDoPacoteConsumido` (§4.5) |
+| histórico do cliente, agenda, ticket médio | projeções de `Atendimento` |
+| caixinha, desconto, produto | só existem dentro de um atendimento |
+
+**O vínculo crédito↔atendimento não é obstáculo: é o mecanismo.** Consumir crédito sem
+atendimento seria uma SEGUNDA origem de dinheiro, com a comissão calculada fora do único
+lugar onde ela é calculada — o antipadrão do §10 ("mesma regra em dois lugares"), e a
+divergência apareceria como comissão diferente dependendo de por onde o consumo entrou.
+Então o registro **cria** o atendimento.
+
+#### `Atendimento.registrarConcluido()` — nasce CONCLUIDO
+
+Construtor irmão de `agendar()`, e a diferença é exatamente uma: **não valida
+disponibilidade nem conflito de horário**. As duas travas são certas para reservar horário
+FUTURO e erradas para registrar um fato PASSADO — o corte pode ter saído fora do expediente
+cadastrado, ou em cima de um horário remarcado, e recusar seria o sistema se recusando a
+registrar a verdade. Que é o que empurra a operação de volta pro banco.
+
+Nada de dinheiro é afrouxado: a composição (barbeiro atende o serviço, coerência entre
+origem e crédito) passa pela MESMA validação do agendamento, e o `valorCobrado` continua
+sendo o `valorRateado` congelado do crédito.
+
+**Não disputa horário com ninguém**: a constraint `atendimento_sem_sobreposicao` cobre só
+AGENDADO, RESERVADO e CONCLUSAO_PENDENTE. Um registro que nasce CONCLUIDO não bloqueia
+agenda — correto, porque ele não reserva nada, apenas conta o que houve.
+
+**`AtendimentoAgendado` não é emitido** — nunca houve agendamento. Sai só
+`AtendimentoConcluido`, que é o que gera comissão; o clube é recalculado pelo
+`ItemDoPacoteConsumido` do consumo.
+
+#### O horário: "acabou agora"
+
+`fim = agora`, `início = fim − soma das durações`. Não se pergunta horário: no balcão o que
+se sabe é que acabou agora, e pedir para digitar o que o sistema já sabe, na correria, é
+como se erra. (Um atendimento que cruza a meia-noite pertence ao dia em que COMEÇOU, como
+todo atendimento do sistema.)
+
+#### Uma tela, uma transação
+
+O consumo fecha tudo de uma vez — créditos gastos, caixinha, desconto e produto levado
+junto. É o mesmo fechamento de qualquer atendimento, sem a etapa de marcar horário. O
+crédito percorre a máquina de estado inteira (DISPONIVEL → AGENDADO → CONSUMIDO) dentro da
+transação, e é isso que mantém valendo as invariantes de `agendarItem`: pacote PAGO, e
+pacote comprado com barbeiro específico só ele atende (§8.14).
+
+Produto exige forma de pagamento; crédito de pacote sozinho não cobra nada (já foi pago).
+
+**ACL** idêntica à do agendamento com crédito: admin faz qualquer um; barbeiro só gasta
+crédito de pacote comprado COM ELE, e só em nome próprio.
+
+#### O que ficou de fora
+
+**Desfazer o consumo.** CONCLUIDO é estado final e não há caminho de volta pelo painel —
+ver DECISOES_PENDENTES #60. Um consumo errado hoje só se corrige como antes: no banco.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -2291,6 +2362,9 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
+- Registro de atendimento já ocorrido (§8.15): nasce CONCLUIDO, emite `AtendimentoConcluido`
+  e NÃO `AtendimentoAgendado`, conta o intervalo para trás a partir do fim, e não depende de
+  expediente cadastrado.
 - Fuso horário (§2.6): conversão local↔UTC robusta a horário de verão (caso real cruzando a
   transição de DST em `America/New_York`); dia civil vs. dia UTC bruto do instante (disponibilidade,
   agenda do dia, prazo de reagendamento). A suíte inteira roda idêntica sob `TZ=UTC`,
@@ -2300,6 +2374,8 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Constraint `EXCLUDE` do Postgres realmente rejeita sobreposição sob concorrência.
 - Transação de "agendar com crédito" faz rollback completo se qualquer passo falhar.
 - Webhook de pagamento é idempotente (processar 2x não gera efeito duplo).
+- Consumo de crédito no balcão gera comissão sobre o valor RATEADO, consome o crédito e não
+  rouba o horário de um agendamento existente (`consumo-de-credito-balcao.e2e.spec.ts`).
 - Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).
 - Atendimento marcado perto da meia-noite local aparece na consulta de agenda do seu dia civil
   correto, nunca no dia seguinte.

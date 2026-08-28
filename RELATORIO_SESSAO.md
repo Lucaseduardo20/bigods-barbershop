@@ -5498,6 +5498,71 @@ backfill, "USADO EM ter, 25 de ago. · 09:15" no consumido, "qua, 26 de ago. · 
 serviço de nome longo em duas linhas sem quebrar o grid, medalha no topo para membro e símbolo
 clássico para quem não é.
 
+## Consumir crédito de pacote no balcão (2026-08-28) ✅
+
+**O incidente.** Cliente agendou avulso; na cadeira, resolveu comprar um pacote. A operação
+cancelou o avulso, vendeu o pacote pelo painel e consumiu o crédito **na mão, direto no
+banco**. O crédito mudou de status e mais nada aconteceu — **o barbeiro ficou sem comissão**,
+o atendimento não entrou no histórico do cliente nem no faturamento, e o clube não foi
+recalculado.
+
+Não foi falha do banco: é que tudo isso pendura no `Atendimento`. A comissão nasce do evento
+`AtendimentoConcluido`; o histórico, a agenda e o ticket médio são projeções dele. Consumir
+crédito sem atendimento é consumir sem o fato que explica o consumo.
+
+### A decisão de projeto: criar o atendimento, não contornar o vínculo
+
+A pergunta do dono foi como resolver o vínculo `ItemDoPacote → atendimentoId`. A resposta é
+que ele não é obstáculo, é o mecanismo — e desviar dele criaria uma **segunda origem de
+dinheiro**, com a comissão calculada fora do único lugar onde ela é calculada hoje
+(antipadrão do CLAUDE.md).
+
+`Atendimento.registrarConcluido()` é irmão de `agendar()` e difere em exatamente uma coisa:
+**não valida disponibilidade nem conflito de horário**. As duas travas são certas para
+reservar horário futuro e erradas para registrar um fato passado — recusar seria o sistema se
+recusando a registrar a verdade, que é o que empurra a operação de volta pro banco. A
+composição (barbeiro atende o serviço, coerência origem↔crédito) passa pela MESMA validação
+do agendamento, extraída para não existirem duas réguas.
+
+Não disputa horário com ninguém: a constraint `atendimento_sem_sobreposicao` cobre só
+AGENDADO/RESERVADO/CONCLUSAO_PENDENTE — um registro que nasce CONCLUIDO não bloqueia agenda.
+E não emite `AtendimentoAgendado`, porque nunca houve agendamento.
+
+### Quatro decisões tomadas com o dono
+
+| decisão | escolha |
+|---|---|
+| horário | **"acabou agora"** — fim = agora, início = agora − soma das durações. Nada a digitar no balcão |
+| fluxo | **uma tela, um POST** — créditos + caixinha + desconto + produto, numa transação |
+| desfazer | **fica para depois** (DECISOES_PENDENTES #60), com o risco dito por escrito |
+| permissão | **admin + barbeiro dono do pacote**, espelhando o `/atendimentos/com-credito` |
+
+### Sem migration
+
+Nenhuma coluna nova. `POST /atendimentos/consumo-de-credito` e um construtor no agregado.
+
+### Testes
+
+**958 verdes** (933 antes: +12 de domínio, +13 e2e), idênticos sob `TZ=UTC`,
+`America/Sao_Paulo` e `Asia/Tokyo`. O e2e reproduz o incidente inteiro: prova que o consumo
+**gera comissão sobre o valor rateado**, consome o crédito, deixa um atendimento CONCLUIDO
+por trás, funciona **sem nenhum expediente cadastrado** e **não rouba o horário** de um
+agendamento que exista no mesmo intervalo.
+
+Conferido também no navegador contra a API real, com dois créditos numa visita só: créditos
+`CONSUMIDO`, atendimento CONCLUIDO de 50min (30+20), e o ledger com `SERVICO:1215 |
+SERVICO:1620 | CAIXINHA:1000` — exatamente os 45% do barbeiro sobre cada rateado, mais a
+caixinha inteira.
+
+### Um detalhe do painel que veio junto
+
+A classe `.selectable/.selected` era usada pelo painel mas **nunca existiu no CSS do admin** —
+o clique mudava o estado e a tela não mostrava nada. A tela nova depende dela, então o estilo
+entrou aqui. De quebra, o seletor "% de desconto / preço em R$" da oferta de pacote, que
+tinha o mesmo defeito, passou a mostrar qual modo está ativo.
+
+---
+
 ## Quem atendeu não foi quem estava marcado (2026-08-27) ✅
 
 Caso corriqueiro na barbearia, e que já custou dinheiro: o cliente marca com o A, o A atrasa, e o
