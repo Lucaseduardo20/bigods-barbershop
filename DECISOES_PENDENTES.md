@@ -1027,3 +1027,38 @@ FECHAMENTO/repasse não é: no primeiro caso a casa já "pagou" sem passar pelo 
 
 **O que falta decidir:** se o fechamento precisa dessa distinção. Se precisar, o caminho é a caixinha
 carregar a forma de pagamento dela (não a da comanda) e o fechamento abater a que veio em espécie.
+
+## 58. Reatribuir um atendimento de pacote comprado COM barbeiro (2026-08-27)
+
+A reatribuição (§3.5.1) recusa quando o atendimento veio de um pacote que o cliente comprou COM um
+barbeiro específico. A regra existente (§3.6, 2026-08-18) é do dono: "se o cliente comprou com um
+barbeiro selecionado, só ele atende os serviços daquele pacote — foi com ele que o cliente decidiu se
+tratar".
+
+Só que o caso que motivou a reatribuição é exatamente o cliente ali, na cadeira, aceitando trocar. A
+recusa protege a promessa, mas atrapalha quando o próprio cliente já abriu mão dela.
+
+**O que foi feito:** recusa com mensagem que diz o que fazer (cancelar e reagendar, ou atender como
+avulso). Nada de furar a regra por dentro — o cliente não saberia.
+
+**O que falta decidir:** se o dono quer permitir. Se quiser, o caminho honesto não é ignorar a
+checagem aqui: é a reatribuição mexer TAMBÉM na `VendaDePacote` (trocar ou limpar o `barbeiroId`
+dela), porque senão o pacote seguiria prometendo um barbeiro que não atende mais aqueles créditos.
+
+## 59. Caixinha e desconto na correção pós-conclusão (2026-08-27)
+
+Quando um atendimento concluído é corrigido para outro barbeiro (§3.5.1), a caixinha e o desconto vão
+junto: estornados de quem estava, relançados para quem atendeu, pelos percentuais DELE.
+
+Para o desconto isso é claramente certo — quem concede absorve a fração dele. Para a caixinha há uma
+leitura possível em que ela deveria ficar onde estava: se o cliente entregou a gorjeta em mãos ao
+barbeiro A antes de alguém perceber a troca, o dinheiro já está com o A, e o sistema mover a caixinha
+para o B cria uma dívida entre eles que o sistema não sabe cobrar.
+
+**O que foi feito:** a caixinha acompanha o atendimento, pela leitura simples de que ela é de quem
+atendeu — e é o caso mais comum, já que a correção normalmente acontece no mesmo dia, antes de
+qualquer acerto.
+
+**O que falta decidir:** se aparecer na prática o caso da gorjeta em mãos. A saída seria a correção
+perguntar ao admin ("a caixinha fica com quem?") em vez de assumir — mas isso é uma pergunta a mais
+numa tela que ninguém quer que seja lenta, e não vale pagar por um caso que talvez não exista.

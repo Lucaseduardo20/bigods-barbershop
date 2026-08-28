@@ -52,6 +52,8 @@ export class LancamentoComissao extends AggregateRoot {
     /** Magnitude do lançamento (sempre positiva) — o sinal no saldo vem de `tipo`, ver `sinalDoTipo`. */
     readonly valorComissao: Dinheiro,
     readonly ocorridoEm: Date,
+    /** Qual lançamento este estorno anula. Null em tudo que não é estorno. */
+    readonly estornoDeId: LancamentoId | null = null,
   ) {
     super();
   }
@@ -190,6 +192,63 @@ export class LancamentoComissao extends AggregateRoot {
   }
 
   /**
+   * ★★ ESTORNO (2026-08-27) — anula um lançamento sem apagá-lo.
+   *
+   * O caso: a comissão foi lançada para o barbeiro errado (o cliente marcou com
+   * o A, quem atendeu foi o B, e ninguém corrigiu antes de concluir). O ledger
+   * é imutável por requisito de governança (§3.7): cada centavo tem um
+   * lançamento rastreável, e apagar o errado apagaria justamente o rastro de que
+   * houve um erro.
+   *
+   * Então o errado FICA, e ao lado dele nasce este — mesma magnitude, sinal
+   * oposto, apontando para ele por `estornoDeId`. O saldo do barbeiro volta ao
+   * que era; o histórico conta o que aconteceu.
+   *
+   * O TIPO do estorno é o oposto do que ele anula, porque é o tipo que decide o
+   * sinal: estornar um DESCONTO_CONCEDIDO (que subtraiu) tem que SOMAR de volta.
+   *
+   * `servicoId`/`produtoId`/`origem` são copiados do original para a linha do
+   * extrato dizer o que está sendo estornado ("estorno da comissão do Corte"),
+   * em vez de um valor solto sem assunto.
+   */
+  static criarDeEstorno(params: {
+    id: LancamentoId;
+    original: LancamentoComissao;
+    /** O admin que fez a correção — é ele quem responde por este ajuste. */
+    registradoPorId: BarbeiroId;
+    ocorridoEm: Date;
+  }): LancamentoComissao {
+    const { original } = params;
+    if (original.estornoDeId !== null) {
+      throw new InvarianteVioladaError('Um estorno não pode ser estornado');
+    }
+    const tipo =
+      original.tipo === TipoLancamento.DESCONTO_CONCEDIDO
+        ? TipoLancamento.ESTORNO_DESCONTO
+        : TipoLancamento.ESTORNO_COMISSAO;
+
+    return new LancamentoComissao(
+      params.id,
+      original.companyId,
+      original.barbeiroId,
+      tipo,
+      original.origem,
+      original.atendimentoId,
+      original.vendaDeProdutoId,
+      original.servicoId,
+      original.produtoId,
+      original.valeId,
+      params.registradoPorId,
+      original.valorBase,
+      original.percentualAplicado,
+      // Mesma magnitude: o que muda é o sinal, e o sinal vem do tipo.
+      original.valorComissao,
+      params.ocorridoEm,
+      original.id,
+    );
+  }
+
+  /**
    * Produto vendido junto de um Atendimento (add-on, item 4a) OU numa
    * VendaDeProduto avulsa (item 4b) — exatamente um dos dois ids é passado.
    */
@@ -317,6 +376,7 @@ export class LancamentoComissao extends AggregateRoot {
     percentualAplicado: Percentual | null;
     valorComissao: Dinheiro;
     ocorridoEm: Date;
+    estornoDeId?: LancamentoId | null;
   }): LancamentoComissao {
     return new LancamentoComissao(
       params.id,
@@ -334,6 +394,7 @@ export class LancamentoComissao extends AggregateRoot {
       params.percentualAplicado,
       params.valorComissao,
       params.ocorridoEm,
+      params.estornoDeId ?? null,
     );
   }
 }

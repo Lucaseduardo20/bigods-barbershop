@@ -759,6 +759,10 @@ model LancamentoComissao {
   // vale como PAGO, ou que registrou o pagamento (FASE 2). Null quando
   // tipo=COMISSAO (gerado pelo sistema, não por uma ação humana pontual).
   registradoPorId       String?
+  // Qual lançamento este estorno anula (2026-08-27). Sem @relation, mesmo
+  // padrão dos outros ids de auditoria: referência de leitura, não FK rígida.
+  // NULL em tudo que não é estorno.
+  estornoDeId           String?
   valorBaseCentavos     Int?
   percentualAplicadoBp  Int?
   valorComissaoCentavos Int
@@ -769,6 +773,7 @@ model LancamentoComissao {
   @@index([barbeiroId])
   @@index([atendimentoId])
   @@index([valeId])
+  @@index([estornoDeId])
 }
 
 // Vale/adiantamento de comissão (sessão de vale/pagamento) — item antes fora
@@ -785,6 +790,13 @@ enum TipoLancamento {
   // VALE/PAGAMENTO, mas é outro fato — comissão que ele deixou de ganhar, não
   // dinheiro que a casa lhe entregou.
   DESCONTO_CONCEDIDO
+  // Estornos da correção de barbeiro (2026-08-27). O ledger é imutável: o
+  // lançamento errado não é apagado, é ANULADO por um de sinal oposto.
+  // São dois porque o sinal do estorno é o oposto do que ele anula:
+  //   ESTORNO_COMISSAO (−) anula o que somou    (serviço, produto, caixinha)
+  //   ESTORNO_DESCONTO (+) anula o que subtraiu (o desconto absorvido)
+  ESTORNO_COMISSAO
+  ESTORNO_DESCONTO
 }
 
 enum StatusVale {

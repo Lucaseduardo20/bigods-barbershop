@@ -17,6 +17,7 @@ import { AdicionarItemAtendimentoUseCase } from './application/adicionar-item-at
 import { EditarComandaUseCase } from './application/editar-comanda.usecase';
 import { ReativarAtendimentoUseCase } from './application/reativar-atendimento.usecase';
 import { ReatribuirBarbeiroUseCase } from './application/reatribuir-barbeiro.usecase';
+import { PayrollModule } from '../payroll/payroll.module';
 import { AdicionarProdutoAtendimentoUseCase } from './application/adicionar-produto-atendimento.usecase';
 import { AgendaQueryService } from './infrastructure/agenda-query.service';
 import { EmpresaPublicaQueryService } from './infrastructure/empresa-publica-query.service';
@@ -25,7 +26,7 @@ import { AgendamentosClienteQueryService } from './infrastructure/agendamentos-c
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [PaymentsModule],
+  imports: [PayrollModule, PaymentsModule],
   controllers: [AtendimentosController, BookingPublicoController],
   providers: [
     AgendarAvulsoUseCase,

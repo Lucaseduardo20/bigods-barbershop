@@ -50,6 +50,7 @@ import { AgendaQueryService } from '../infrastructure/agenda-query.service';
 import { EditarComandaUseCase } from '../application/editar-comanda.usecase';
 import { ReativarAtendimentoUseCase } from '../application/reativar-atendimento.usecase';
 import { ReatribuirBarbeiroUseCase } from '../application/reatribuir-barbeiro.usecase';
+import { CorrigirBarbeiroDoAtendimentoUseCase } from '../../payroll/application/corrigir-barbeiro-do-atendimento.usecase';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
 import {
   INTENCAO_DE_PAGAMENTO_REPOSITORY,
@@ -146,6 +147,7 @@ export class AtendimentosController {
     private readonly editarComanda: EditarComandaUseCase,
     private readonly reativar: ReativarAtendimentoUseCase,
     private readonly reatribuir: ReatribuirBarbeiroUseCase,
+    private readonly corrigirBarbeiroDoAtendimento: CorrigirBarbeiroDoAtendimentoUseCase,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
     private readonly processarWebhook: ProcessarWebhookUseCase,
@@ -444,6 +446,25 @@ export class AtendimentosController {
       usuario,
     });
     return { ok: true };
+  }
+
+  /**
+   * FASE 2 (2026-08-27): o atendimento JÁ foi concluído e a comissão foi para o
+   * barbeiro errado. Estorna e relança — só admin, é dinheiro já registrado.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post(':id/corrigir-barbeiro')
+  async corrigirBarbeiro(
+    @Param('id') id: string,
+    @Body() body: ReatribuirDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true; estornados: number; lancados: number }> {
+    const r = await this.corrigirBarbeiroDoAtendimento.executar({
+      atendimentoId: id,
+      novoBarbeiroId: body.barbeiroId,
+      usuario,
+    });
+    return { ok: true, ...r };
   }
 
   @Post(':id/nao-compareceu')

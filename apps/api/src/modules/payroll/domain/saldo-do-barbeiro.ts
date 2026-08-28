@@ -7,8 +7,24 @@ import { LancamentoComissao } from './lancamento-comissao.aggregate';
  * (aqui, testado puro) quanto pela agregação SQL de leitura
  * (`comissao-query.service.ts`), pra nunca divergir.
  */
+/**
+ * SOMA (+1): comissão ganha, e o estorno de um desconto (que devolve ao
+ * barbeiro o que ele tinha absorvido).
+ *
+ * SUBTRAI (−1): vale, pagamento, desconto concedido, e o estorno de uma
+ * comissão (que tira de quem não atendeu).
+ *
+ * O sinal vem do TIPO, nunca do valor — `valorComissao` é magnitude e é sempre
+ * positivo (§3.7). Por isso o estorno precisa de DOIS tipos: anular algo que
+ * subtraiu exige somar.
+ */
+const TIPOS_QUE_SOMAM: ReadonlySet<TipoLancamento> = new Set([
+  TipoLancamento.COMISSAO,
+  TipoLancamento.ESTORNO_DESCONTO,
+]);
+
 export function sinalDoTipo(tipo: TipoLancamento): 1 | -1 {
-  return tipo === TipoLancamento.COMISSAO ? 1 : -1;
+  return TIPOS_QUE_SOMAM.has(tipo) ? 1 : -1;
 }
 
 /**

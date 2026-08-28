@@ -483,6 +483,13 @@ export interface LancamentoComissaoDTO {
   valeId: string | null;
   /** Só tipo=VALE|PAGAMENTO — quem confirmou que o dinheiro se moveu (admin). */
   registradoPorNome: string | null;
+  /**
+   * Correção de barbeiro (2026-08-27): qual lançamento este estorno anula.
+   * `null` em tudo que não é estorno — que são quase todos. Serve para a tela
+   * mostrar o percurso (lançou para A → estornou de A → lançou para B) e para
+   * conferência de auditoria.
+   */
+  estornoDeId: string | null;
 }
 /**
  * Saldo real e projeção futura são números SEPARADOS e rotulados.
