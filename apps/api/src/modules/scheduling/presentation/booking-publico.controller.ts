@@ -377,6 +377,12 @@ export class BookingPublicoController {
    *
    * Continua sendo um oráculo de "este número é cliente daqui", e é por isso
    * que tem limite agressivo por origem. Registrado em DECISOES_PENDENTES.
+   *
+   * ★ `temSenha` (2026-09-04) só sai com a contingência LIGADA. É o que o funil
+   * precisa para escolher entre pedir a senha e mandar falar com a barbearia —
+   * os dois ramos de "telefone com conta" (ver `contingencia-otp.ts`). Fora da
+   * contingência ninguém consome o campo, e por isso ele não é respondido: um
+   * oráculo a mais sobre a conta de alguém não deve existir sem uso.
    */
   @Publico()
   @Throttle({ default: { limit: 20, ttl: 600_000 } })
@@ -396,7 +402,10 @@ export class BookingPublicoController {
       throw new BadRequestException('Telefone inválido');
     }
     const cliente = await this.clientes.porTelefone(id, normalizado);
-    return { conhecido: !!cliente && !cliente.nomeEhPlaceholder };
+    return {
+      conhecido: !!cliente && !cliente.nomeEhPlaceholder,
+      temSenha: this.contingencia.ativo && !!cliente && cliente.temSenha,
+    };
   }
 
   @Publico()
@@ -566,11 +575,30 @@ export class BookingPublicoController {
       if (!body.cliente.telefone) {
         throw new BadRequestException('Informe seu celular com WhatsApp para agendar.');
       }
-      if (!body.cliente.nome) {
-        throw new BadRequestException('Informe seu nome para agendar.');
-      }
       telefone = body.cliente.telefone;
-      nome = body.cliente.nome;
+      /**
+       * ★ 2026-09-04: o nome só é obrigatório para quem AINDA NÃO TEM cadastro.
+       *
+       * Nasceu do ramo 3 da contingência (telefone com conta e sem senha): o
+       * funil não pergunta o nome de quem já é cliente, porque não conseguiu
+       * provar que é ele quem está digitando — mandar um nome de volta ali
+       * arriscaria o cadastro real, e MOSTRAR o guardado transformaria o campo
+       * de telefone numa consulta de "quem é o dono deste número".
+       *
+       * O nome vem do cadastro, exatamente como no caminho com sessão. Nada é
+       * devolvido na resposta, então isto não vira oráculo: quem manda o
+       * telefone descobre no máximo que o agendamento passou — o que
+       * `/public/clientes/conhecido` já dizia, com limite próprio.
+       */
+      const existente = await this.clienteExistente(body.companyId, telefone);
+      if (existente && !existente.nomeEhPlaceholder) {
+        nome = existente.nome;
+      } else {
+        if (!body.cliente.nome) {
+          throw new BadRequestException('Informe seu nome para agendar.');
+        }
+        nome = body.cliente.nome;
+      }
     }
 
     const tz = await this.parametros.timezone(body.companyId);
@@ -631,6 +659,19 @@ export class BookingPublicoController {
       intencaoId: body.intencaoId,
     });
     return { ok: true };
+  }
+
+  /**
+   * Cliente por telefone, tolerante a número malformado: quem valida formato é
+   * a borda (`@EhCelularBrasileiro`) e, mais adiante, `AgendarAvulsoUseCase` —
+   * um erro de formato precisa sair de lá, com a mensagem de lá, não daqui.
+   */
+  private async clienteExistente(companyId: string, telefone: string) {
+    try {
+      return await this.clientes.porTelefone(companyId, Telefone.de(telefone));
+    } catch {
+      return null;
+    }
   }
 
   private exigirCompanyId(companyId?: string): string {

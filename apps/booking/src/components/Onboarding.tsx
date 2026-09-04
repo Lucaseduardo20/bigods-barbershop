@@ -40,6 +40,7 @@ export function Onboarding({
   contexto = 'pacote',
   sessaoDoFunil = null,
   otpEmContingencia = false,
+  senhaCriada = false,
 }: {
   telefone: string;
   contexto?: 'pacote' | 'agendamento';
@@ -54,6 +55,12 @@ export function Onboarding({
    * instrução real — falar com a barbearia, que cria a senha dele.
    */
   otpEmContingencia?: boolean;
+  /**
+   * ★ 2026-09-04: o cliente acabou de criar a senha dele no funil. A conta
+   * existe e ele sabe como entrar — a caixa só confirma isso e aponta o
+   * caminho, sem pedir código nenhum.
+   */
+  senhaCriada?: boolean;
 }) {
   const [fase, setFase] = useState<'oferta' | 'codigo' | 'pronto'>(
     sessaoDoFunil ? 'pronto' : 'oferta',
@@ -125,9 +132,16 @@ export function Onboarding({
         </div>
         <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
           {jaEstavaConfirmado
-            ? contexto === 'pacote'
-              ? 'Seu telefone já está confirmado — entre e use os créditos quando quiser.'
-              : 'Seu telefone já está confirmado — entre e acompanhe seus horários.'
+            ? // ★ 2026-09-04: na contingência a sessão veio de SENHA, e senha não
+              // prova posse do telefone. Dizer "seu telefone já está confirmado"
+              // ali seria afirmar exatamente o que não foi verificado.
+              otpEmContingencia
+              ? contexto === 'pacote'
+                ? 'Entre com seu telefone e sua senha para usar os créditos quando quiser.'
+                : 'Entre com seu telefone e sua senha para acompanhar seus horários.'
+              : contexto === 'pacote'
+                ? 'Seu telefone já está confirmado — entre e use os créditos quando quiser.'
+                : 'Seu telefone já está confirmado — entre e acompanhe seus horários.'
             : contexto === 'pacote'
               ? 'Agora é só entrar na sua conta para usar os créditos quando quiser.'
               : 'Agora é só entrar na sua conta para ver e gerenciar seus horários.'}
@@ -143,15 +157,35 @@ export function Onboarding({
     );
   }
 
-  // Sem SMS funcionando, o caminho honesto é a barbearia criar a senha — e o
-  // widget diz isso em vez de oferecer um código que não chega.
+  // ★ 2026-09-04: quem criou a senha no funil já tem tudo. A caixa vira
+  // confirmação e atalho, não mais uma etapa a cumprir.
+  if (senhaCriada && fase === 'oferta') {
+    return (
+      <div className="rounded-2xl p-4 text-center" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
+        <div className="text-[15px] font-extrabold">Sua conta está pronta 🎉</div>
+        <div className="text-[13px] mt-1 mb-3" style={{ color: 'var(--text-secondary)' }}>
+          {contexto === 'pacote'
+            ? 'Entre com seu telefone e a senha que você criou para usar seus créditos quando quiser.'
+            : 'Entre com seu telefone e a senha que você criou para acompanhar seus horários.'}
+        </div>
+        <a href={ACCOUNT_URL} className="btn btn-block" style={{ textDecoration: 'none' }}>
+          Ir para minha conta →
+        </a>
+      </div>
+    );
+  }
+
+  // Sem o código como caminho, oferecer "receber SMS" seria um beco. O texto
+  // não expõe o problema de entrega — do lado do cliente isso não é notícia
+  // útil, é só motivo de desconfiança: a instrução real é falar com a
+  // barbearia, que confirma quem ele é e cria a senha.
   if (otpEmContingencia && fase === 'oferta') {
     return (
       <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
         <div className="text-[15px] font-extrabold">Acessar minha conta</div>
         <div className="text-[13px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-          Nosso envio de SMS está fora do ar. Fale com a barbearia no WhatsApp que a gente cria
-          uma senha para você — daí é só entrar com seu telefone e essa senha.
+          Para ativar seu acesso, fale com a barbearia no WhatsApp. A gente cria uma senha para
+          você — daí é só entrar com seu telefone e essa senha.
         </div>
       </div>
     );

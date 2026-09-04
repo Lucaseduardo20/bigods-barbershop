@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
@@ -22,6 +23,12 @@ import {
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
 import { LoginComSenhaClienteUseCase } from '../application/login-com-senha-cliente.usecase';
+import { CriarContaComSenhaClienteUseCase } from '../application/criar-conta-com-senha-cliente.usecase';
+import { TrocarSenhaDoClienteUseCase } from '../application/trocar-senha-do-cliente.usecase';
+import {
+  CONFIG_CONTINGENCIA_OTP,
+  ConfigContingenciaOtp,
+} from '../../../shared/config/contingencia-otp';
 import { Publico } from './auth.decorators';
 import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
@@ -93,6 +100,19 @@ class LoginComSenhaDto {
   @IsString() @MinLength(1) senha!: string;
 }
 
+/** Cliente NOVO criando a própria senha no funil (só na contingência). */
+class CriarContaComSenhaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @EhNomeDeCliente() nome!: string;
+  @IsString() @MinLength(1) senha!: string;
+}
+
+class TrocarSenhaDoClienteDto {
+  @IsString() @MinLength(1) senhaAtual!: string;
+  @IsString() @MinLength(1) novaSenha!: string;
+}
+
 class AgendarComCreditoContaDto {
   @IsString() @MinLength(1) vendaId!: string;
   /** Vários créditos do mesmo pacote = uma visita só (2026-08-21). */
@@ -129,6 +149,9 @@ export class ContaClienteController {
     private readonly iniciarLogin: IniciarLoginClienteUseCase,
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
     private readonly loginComSenha: LoginComSenhaClienteUseCase,
+    private readonly criarContaComSenha: CriarContaComSenhaClienteUseCase,
+    private readonly trocarSenhaDoCliente: TrocarSenhaDoClienteUseCase,
+    @Inject(CONFIG_CONTINGENCIA_OTP) private readonly contingencia: ConfigContingenciaOtp,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly clube: ClubeQueryService,
@@ -189,6 +212,61 @@ export class ContaClienteController {
       telefone: body.telefone,
       senha: body.senha,
     });
+  }
+
+  /**
+   * ★★ CLIENTE NOVO CRIA A PRÓPRIA SENHA (2026-09-04) — só na contingência.
+   *
+   * Fecha o beco sem saída de quem chega pela primeira vez enquanto o SMS não
+   * entrega: em vez da tela de código, ele escolhe uma senha e a conta nasce com
+   * ela. Não devolve sessão — a senha não prova posse do telefone, e o
+   * agendamento continua nascendo pendente de aprovação (ver o caso de uso).
+   *
+   * Fora da contingência a rota simplesmente NÃO EXISTE (404). É a borda
+   * decidindo, no mesmo padrão do funil: um ponto de decisão por entrada, nunca
+   * um `if` escondido no meio da regra. Desligar a flag devolve o fluxo normal
+   * sem sobrar rota aberta.
+   *
+   * Mesmo rate limit do login: aqui ele barra a criação de contas em série a
+   * partir de uma origem só.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('senha/criar')
+  async criarSenha(@Body() body: CriarContaComSenhaDto): Promise<{ ok: true }> {
+    if (!this.contingencia.ativo) {
+      throw new NotFoundException('Rota indisponível');
+    }
+    await this.criarContaComSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      nome: body.nome,
+      senha: body.senha,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * ★ Troca da PRÓPRIA senha, pelo cliente logado (2026-09-04).
+   *
+   * Diferente das duas rotas acima, esta vale com a contingência ligada ou
+   * desligada: a senha do cliente é um recurso permanente da conta, e quem
+   * recebeu uma senha da barbearia precisa poder fazer a dele em qualquer
+   * momento — inclusive (e principalmente) depois que o SMS voltar.
+   */
+  @ContaCliente()
+  @Put('senha')
+  async trocarSenha(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: TrocarSenhaDoClienteDto,
+  ): Promise<{ ok: true }> {
+    await this.trocarSenhaDoCliente.executar({
+      companyId: atual.companyId,
+      clienteId: atual.clienteId,
+      senhaAtual: body.senhaAtual,
+      novaSenha: body.novaSenha,
+    });
+    return { ok: true };
   }
 
   @ContaCliente()

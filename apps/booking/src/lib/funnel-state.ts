@@ -61,6 +61,22 @@ export interface FunnelState {
    */
   clienteConhecido: boolean | null;
   /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): existe conta para este telefone, mas
+   * NÃO há como provar agora que é dela quem está agendando — conta antiga, de
+   * antes da senha, e o código de confirmação não chega.
+   *
+   * O funil segue (o horário é agendado, pendente de aprovação como todos os
+   * outros da contingência), mas se comporta como se não soubesse quem é: não
+   * mostra o nome do cadastro — mostrá-lo transformaria o campo de telefone
+   * numa consulta de "quem é o dono deste número" — e também não pergunta o
+   * nome, para não mandar de volta um que sobrescreva o cadastro real.
+   *
+   * NUNCA vira "crie sua senha aqui": sem prova de posse do telefone, isso
+   * entregaria a conta (com histórico, pacotes e créditos pagos) a quem
+   * chegasse primeiro. Quem destrava é o admin, à mão.
+   */
+  contaSemAcesso: boolean;
+  /**
    * O cadastro já tem e-mail (2026-08-21). Aí o funil não pergunta — e não
    * manda nada, então não sobrescreve. Mesma política do nome.
    */
@@ -139,6 +155,7 @@ export const estadoInicial: FunnelState = {
   barbeiroNome: null,
   barbeiroFotoUrl: null,
   clienteConhecido: null,
+  contaSemAcesso: false,
   emailJaCadastrado: false,
   barbeiroAuto: false,
   barbeiroFixadoPorLink: false,

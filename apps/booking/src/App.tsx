@@ -25,6 +25,7 @@ import {
   emailValido,
   nomeDeClienteValido,
   preenchido,
+  validarSenhaDeCliente,
 } from '@bigods/contracts';
 import { mascararE164, mascararTelefone } from './lib/telefone';
 import {
@@ -52,6 +53,7 @@ import { PixAguardando } from './components/PixAguardando';
 import { CartaoCheckout } from './components/CartaoCheckout';
 import { cartaoDisponivel } from './lib/cartao';
 import { PagamentoManualAguardando } from './components/PagamentoManualAguardando';
+import { SenhaVerificacao } from './components/SenhaVerificacao';
 import { OtpVerificacao } from './components/OtpVerificacao';
 import { Landing } from './steps/Landing';
 import { Servicos } from './steps/Servicos';
@@ -169,6 +171,34 @@ function Funil() {
   const [otp, setOtp] = useState<null | 'identificar' | 'confirmar'>(null);
   const setMostrandoOtp = (v: boolean) => setOtp(v ? 'confirmar' : null);
   const [identificando, setIdentificando] = useState(false);
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04) — senha do cliente no funil.
+   *
+   * A senha mora aqui, em `useState`, e NUNCA no `FunnelState`: aquele objeto é
+   * serializado inteiro em `sessionStorage` (ver `funnel-state.ts` e o
+   * teste-cadeado de chaves), e senha em disco de celular é exatamente o tipo
+   * de coisa que não deve sobreviver a um refresh.
+   */
+  const [senhaNova, setSenhaNova] = useState('');
+  const [contaCriadaComSenha, setContaCriadaComSenha] = useState(false);
+  const [criandoConta, setCriandoConta] = useState(false);
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+  /** Telefone com conta E senha: pede a senha em vez do código. */
+  const [pedindoSenha, setPedindoSenha] = useState(false);
+
+  /**
+   * Tudo que era daquele número: a senha em digitação, a conta já criada e o
+   * modal aberto. Vive aqui em cima porque TRÊS caminhos precisam dele —
+   * trocar o telefone no passo de dados, trocar o número no banner de sessão e
+   * o "fazer outro agendamento" do fim. Esquecer um deles deixa a faixa "senha
+   * criada" aparecendo para um telefone que ainda nem foi digitado.
+   */
+  const limparRamoDeSenha = () => {
+    setSenhaNova('');
+    setContaCriadaComSenha(false);
+    setErroSenha(null);
+    setPedindoSenha(false);
+  };
   const [erroIdentificacao, setErroIdentificacao] = useState<string | null>(null);
   // Sessão já verificada NESTE navegador (localStorage) — enquanto existir, o
   // cliente não é obrigado a repetir o OTP em nenhum agendamento/compra
@@ -295,6 +325,7 @@ function Funil() {
 
   const reset = () => {
     limparEstado();
+    limparRamoDeSenha();
     setPago(false);
     setErroEnvio(null);
     setCobranca(null);
@@ -339,10 +370,19 @@ function Funil() {
         pago={pago}
         // Presencial durante a contingência entra pendente: quem decide é a
         // API, e o funil espelha para não prometer horário garantido.
+        //
+        // ★ `!sessaoAtiva` (2026-09-04): quem entrou com senha tem sessão, e a
+        // API trata sessão como identidade provada — o agendamento dele nasce
+        // FIRME. Sem esta condição, o cliente que acabou de se identificar leria
+        // "a barbearia vai confirmar" para um horário que já está garantido.
         aguardandoConfirmacao={
-          empresa.otpEmContingencia && estado.modo === 'avulso' && estado.formaPagamento !== 'online'
+          empresa.otpEmContingencia &&
+          estado.modo === 'avulso' &&
+          estado.formaPagamento !== 'online' &&
+          !sessaoAtiva
         }
         otpEmContingencia={empresa.otpEmContingencia}
+        senhaCriada={contaCriadaComSenha}
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
         // Um OTP, não dois: o telefone confirmado na confirmação do agendamento
@@ -653,7 +693,8 @@ function Funil() {
     setSessaoAtiva(null);
     // A identificação era daquele número: some junto com a sessão, senão o
     // funil seguiria dizendo "Olá, Fulano" pra quem acabou de trocar de dono.
-    patch({ clienteConhecido: null, nome: '', telefone: '', email: '', emailJaCadastrado: false });
+    limparRamoDeSenha();
+    patch({ clienteConhecido: null, contaSemAcesso: false, nome: '', telefone: '', email: '', emailJaCadastrado: false });
   };
 
   const avancar = () => {
@@ -751,7 +792,24 @@ function Funil() {
         `/public/clientes/conhecido?companyId=${encodeURIComponent(COMPANY_ID)}&telefone=${encodeURIComponent(estado.telefone)}`,
       );
       if (r.conhecido) {
-        setOtp('identificar');
+        /**
+         * ★ CONTINGÊNCIA DE OTP (2026-09-04): o código não chega, então ele não
+         * pode ser a prova. O que separa os dois ramos de "telefone com conta"
+         * é TER SENHA ou não — nunca "cliente novo ou antigo", que é uma
+         * pergunta que o sistema não sabe responder.
+         *
+         * - com senha  → pede a senha (modal), e o resto do funil segue igual;
+         * - sem senha  → não deixa criar uma aqui. Seria entregar a conta (com
+         *   histórico, pacotes e créditos pagos) a quem digitasse o número
+         *   primeiro. Segue como `contaSemAcesso`: agenda, mas sem se dizer
+         *   dono de nada.
+         */
+        if (empresa.otpEmContingencia) {
+          if (r.temSenha) setPedindoSenha(true);
+          else patch({ clienteConhecido: false, contaSemAcesso: true });
+        } else {
+          setOtp('identificar');
+        }
       } else {
         patch({ clienteConhecido: false });
       }
@@ -773,7 +831,74 @@ function Funil() {
   /** Volta pra fase do telefone: a identificação anterior era de outro número. */
   const trocarTelefoneNoFunil = () => {
     setErroIdentificacao(null);
-    patch({ clienteConhecido: null, nome: '', email: '', emailJaCadastrado: false });
+    limparRamoDeSenha();
+    patch({ clienteConhecido: null, contaSemAcesso: false, nome: '', email: '', emailJaCadastrado: false });
+  };
+
+
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04) — quando o passo de dados pede uma senha.
+   *
+   * Só na trilha AVULSO. Na de pacote o funil continua exigindo o código (ver
+   * DECISOES_PENDENTES #63: `POST /public/pacotes` pede sessão, e liberar isso
+   * é decisão de domínio, não de tela) — e pedir "crie sua senha" para logo
+   * depois pedir um código por SMS seria a tela se contradizendo na cara do
+   * cliente.
+   */
+  const criandoSenhaNoFunil =
+    empresa.otpEmContingencia &&
+    estado.modo === 'avulso' &&
+    estado.clienteConhecido === false &&
+    !estado.contaSemAcesso &&
+    !contaCriadaComSenha;
+
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04) — o cliente NOVO sai do passo de dados
+   * com a conta já criada e a senha dele definida.
+   *
+   * A conta nasce AQUI, e não no envio do agendamento, por dois motivos: um
+   * erro de senha aparece na tela em que ela foi digitada, e o cliente que
+   * abandona na revisão sai daqui com o acesso criado do mesmo jeito.
+   *
+   * ★ E NÃO devolve sessão. A senha não prova posse do telefone — o
+   * agendamento continua indo pelo caminho anônimo e nascendo pendente de
+   * aprovação, que é o que de fato filtra agenda falsa na contingência (ver
+   * `criar-conta-com-senha-cliente.usecase.ts`).
+   */
+  const avancarDosDados = async () => {
+    if (!criandoSenhaNoFunil) {
+      avancar();
+      return;
+    }
+    setCriandoConta(true);
+    setErroSenha(null);
+    try {
+      await api('/conta/senha/criar', {
+        method: 'POST',
+        body: {
+          companyId: COMPANY_ID,
+          telefone: estado.telefone,
+          nome: estado.nome.trim(),
+          senha: senhaNova,
+        },
+      });
+      setContaCriadaComSenha(true);
+      // A senha some da memória assim que cumpre o papel dela.
+      setSenhaNova('');
+      patch({ step: PASSO.CONFIRMACAO });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        // Conta apareceu entre a consulta e este POST (ou o cliente voltou e
+        // repetiu o passo). Não se cria senha para conta que já existe — vira
+        // o ramo 3, e o horário continua sendo marcado.
+        limparRamoDeSenha();
+        patch({ contaSemAcesso: true, step: PASSO.CONFIRMACAO });
+      } else {
+        setErroSenha(e instanceof ApiError ? e.message : String(e));
+      }
+    } finally {
+      setCriandoConta(false);
+    }
   };
 
   // Sessão de OTP+reserva (Problema 1): telefone verificado ANTES de reservar
@@ -790,16 +915,23 @@ function Funil() {
       // Cliente já cadastrado não manda nome: quem manda é o cadastro dele. O
       // backend também protege (`adotarNomeSeAusente`), mas não mandar deixa a
       // intenção explícita — e evita mandar um placeholder de volta.
-      ...(estado.clienteConhecido ? {} : { nome: estado.nome.trim() }),
+      // ★ `contaSemAcesso` (2026-09-04) entra aqui junto de `clienteConhecido`:
+      // nos dois casos existe cadastro, e o funil não pode mandar nome de volta.
+      // A diferença é só que num deles a identidade foi provada.
+      ...(estado.clienteConhecido || estado.contaSemAcesso ? {} : { nome: estado.nome.trim() }),
       // Sem sessão (avulso online anônimo), o telefone precisa ir no corpo —
       // é a única forma de a barbearia saber com quem falar. Havendo sessão, a
       // API IGNORA este campo e usa o telefone verificado dela.
       ...(token ? {} : { telefone: estado.telefone }),
       // E-mail idem: já cadastrado não vai no corpo, então não é sobrescrito.
-      ...(!estado.emailJaCadastrado && preenchido(estado.email)
+      ...(!estado.emailJaCadastrado && !estado.contaSemAcesso && preenchido(estado.email)
         ? { email: estado.email.trim() }
         : {}),
-      ...(preenchido(estado.sobreVoce) ? { sobreVoce: estado.sobreVoce.trim() } : {}),
+      // "Fale sobre você" idem: `atualizarDadosOpcionais` sobrescreve o que vier
+      // preenchido, e em `contaSemAcesso` não se sabe se quem digitou é o dono.
+      ...(!estado.contaSemAcesso && preenchido(estado.sobreVoce)
+        ? { sobreVoce: estado.sobreVoce.trim() }
+        : {}),
     };
     // Pacote é sempre online (decisão do dono — sem escolha de presencial,
     // ver Confirmacao.tsx); avulso segue a escolha do cliente.
@@ -991,12 +1123,21 @@ function Funil() {
         email={estado.email}
         sobreVoce={estado.sobreVoce}
         clienteConhecido={estado.clienteConhecido}
+        contaSemAcesso={estado.contaSemAcesso}
+        criandoSenha={criandoSenhaNoFunil}
+        senha={senhaNova}
+        senhaJaCriada={contaCriadaComSenha}
+        erroSenha={erroSenha}
         emailJaCadastrado={estado.emailJaCadastrado}
         identificando={identificando}
         erroIdentificacao={erroIdentificacao}
         onNome={(v) => patch({ nome: v })}
         onTelefone={(v) => patch({ telefone: mascararTelefone(v) })}
         onEmail={(v) => patch({ email: v })}
+        onSenha={(v) => {
+          setSenhaNova(v);
+          setErroSenha(null);
+        }}
         onSobreVoce={(v) => patch({ sobreVoce: v })}
         onTrocarTelefone={trocarTelefoneNoFunil}
       />
@@ -1041,16 +1182,27 @@ function Funil() {
             onClick: () => void identificarTelefone(),
           };
         }
+        // ★ Contingência (2026-09-04): o cliente NOVO sai daqui com senha, e é
+        // o próprio botão que cria a conta — daí o rótulo mudar enquanto salva.
         return {
-          label: estado.modo === 'pacote' ? 'Revisar compra' : 'Revisar agendamento',
+          label: criandoConta
+            ? 'Salvando'
+            : estado.modo === 'pacote'
+              ? 'Revisar compra'
+              : 'Revisar agendamento',
           // Mesmas regras da borda da API (@bigods/contracts) — o botão nunca
           // habilita para algo que o backend vai recusar. Cliente identificado
-          // não precisa de nome: ele vem do cadastro.
+          // não precisa de nome: ele vem do cadastro. `contaSemAcesso` também
+          // não — ali existe cadastro, só não foi possível provar quem é.
           disabled:
-            (!estado.clienteConhecido && !nomeDeClienteValido(estado.nome)) ||
+            criandoConta ||
+            (!estado.clienteConhecido &&
+              !estado.contaSemAcesso &&
+              !nomeDeClienteValido(estado.nome)) ||
             !celularBrasileiroValido(estado.telefone) ||
-            (preenchido(estado.email) && !emailValido(estado.email)),
-          onClick: avancar,
+            (preenchido(estado.email) && !emailValido(estado.email)) ||
+            (criandoSenhaNoFunil && !validarSenhaDeCliente(senhaNova, estado.telefone).ok),
+          onClick: () => void avancarDosDados(),
         };
       default:
         return null;
@@ -1129,7 +1281,10 @@ function Funil() {
         {sessaoAtiva && (estado.step === PASSO.DADOS || estado.step === PASSO.CONFIRMACAO) && (
           <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl text-[13px]" style={{ background: 'var(--surface-brand-tint)' }}>
             <span>
-              Número verificado nesta sessão: <strong>{mascararE164(sessaoAtiva.cliente.telefone)}</strong> — não vamos pedir o código de novo.
+              Número verificado nesta sessão: <strong>{mascararE164(sessaoAtiva.cliente.telefone)}</strong> —{' '}
+              {empresa.otpEmContingencia
+                ? 'não vamos pedir sua senha de novo.'
+                : 'não vamos pedir o código de novo.'}
             </span>
             <button
               className="btn-ghost"
@@ -1155,6 +1310,27 @@ function Funil() {
       )}
       {/* Sessão de OTP+reserva: modal sobre a Confirmação — sem sessão local válida, pausa
           o envio aqui até o telefone ser verificado. Não é passo próprio do funil. */}
+      {/* ★ CONTINGÊNCIA (2026-09-04) — ramo 2: telefone com conta E senha. Ocupa
+          o lugar exato do modal de código, com a mesma consequência: sessão,
+          cadastro lido e o funil seguindo com os dados dele. */}
+      {pedindoSenha && (
+        <SenhaVerificacao
+          telefone={estado.telefone}
+          onVerificado={(sessao: ConfirmarLoginClienteResponse) => {
+            salvarSessaoBooking({ token: sessao.token, cliente: sessao.cliente });
+            setSessaoAtiva({ token: sessao.token, cliente: sessao.cliente });
+            setPedindoSenha(false);
+            void api<CadastroDoClienteDTO>('/conta/cadastro', { token: sessao.token })
+              .then(aplicarCadastro)
+              .catch(() => patch({ clienteConhecido: false, contaSemAcesso: true }));
+          }}
+          onSeguirSemEntrar={() => {
+            setPedindoSenha(false);
+            patch({ clienteConhecido: false, contaSemAcesso: true });
+          }}
+          onCancelar={() => setPedindoSenha(false)}
+        />
+      )}
       {otp && (
         <OtpVerificacao
           telefone={estado.telefone}
