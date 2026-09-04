@@ -30,7 +30,7 @@ export const BARBEARIA = {
   instagram: "bigods.barbershop" as string,
 
   /** PENDENTE — telefone de contato público em E.164, sem "+". Ex.: '5511999998888'. */
-  whatsapp: 5511990036469 as number,
+  whatsapp: 5513991878125 as number,
 
   /** PENDENTE — link do perfil no Google (avaliações). Sem ele, usamos o mapsUrl. */
   googleUrl: 'https://share.google/LiEqwXuTqbnKaBqEZ',
