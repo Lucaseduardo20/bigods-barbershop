@@ -2626,6 +2626,51 @@ verificado", e agora existe uma terceira origem de sessão.
 
 ---
 
+### 8.19 Remarcar pelo balcão (2026-09-04)
+
+O cliente já remarcava sozinho pelo cockpit (§8.6), mas dentro de uma janela de
+horas — e passada a janela a própria mensagem manda **falar com a barbearia**. A
+barbearia não tinha como fazer: cancelava e criava de novo à mão, o que perde o
+crédito de pacote sempre que alguém esquece de reagendar o item certo.
+
+**Continua sendo cancelar + criar novo** (§4.1). Nada de método novo no agregado,
+nada de "mover o horário": a orquestração é a MESMA do cockpit
+(`ReagendarAtendimentoClienteUseCase`), inclusive a ordem, que muda por origem:
+
+| origem | ordem | por quê |
+|---|---|---|
+| `CREDITO_PACOTE` | cancela → agenda | o item só sai de `AGENDADO` quando o cancelamento antecipado o libera. Se o novo horário falhar, o crédito já voltou para `DISPONIVEL` — o cliente perde o horário, nunca o que pagou |
+| `AVULSO` | agenda → cancela | não existe janela em que o cliente fica sem o antigo E sem o novo |
+
+O que muda em relação ao cockpit é a **audiência**, e ela muda três coisas:
+
+1. **Sem janela de horas.** Remarcar de última hora é exatamente o caso que a
+   janela do cliente manda trazer para o balcão. Travar aqui fecharia a única
+   porta que sobrou.
+2. **ACL de staff** (`autorizarDonoOuAdmin`, o mesmo do concluir/cancelar/
+   reatribuir): admin remarca qualquer um, barbeiro só os dele.
+3. **Motivo obrigatório para quem não é admin.** Mover o horário de um cliente é
+   uma decisão que ele não tomou; quando parte do dono, ele responde por ela;
+   quando parte do barbeiro, fica registrado por quê. Não é burocracia — é o que
+   o dono lê quando o cliente liga perguntando por que mudou.
+
+O motivo vai para o `motivoCancelamento` do atendimento **antigo**, junto com o
+autor e o destino (`Reagendado para 09/09/2026 14:30 por Igor Molinho — dentista
+de manhã`). Nenhum campo novo, nenhuma migration: o histórico já guarda "por que
+este atendimento deixou de existir", e é ali que alguém vai procurar. Sem isso o
+registro diria só "cancelado", que é a metade errada da história.
+
+#### Dinheiro vinculado TRAVA a remarcação
+
+Se o atendimento tem `IntencaoDePagamento` **PAGA** ou abateu **saldo residual**,
+remarcar é recusado com 409. O pagamento fica preso ao atendimento cancelado, e o
+novo nasceria como se ninguém tivesse pago — alguém cobraria o cliente duas vezes
+no balcão. Recusar é alto e recuperável (cancele, acerte o dinheiro, remarque);
+deixar passar seria silencioso e caro. Registrado em DECISOES_PENDENTES para
+quando o cartão entrar de verdade.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -2658,6 +2703,11 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Contingência de OTP (§8.17) com a flag LIGADA e DESLIGADA no mesmo arquivo, cada uma com sua
   instância da aplicação: ligada, agenda sem código e nasce pendente; desligada, presencial sem
   sessão continua 401 e nada nasce pendente (`contingencia-otp.e2e.spec.ts`).
+- ★★ Remarcar pelo balcão (§8.19): o barbeiro não remarca o de outro e sem motivo
+  não remarca nem o dele; o crédito de pacote vai junto para o horário novo, sem
+  virar falta; se o horário novo não der, o crédito volta para `DISPONIVEL`; e
+  pagamento online confirmado trava a remarcação
+  (`reagendar-pelo-balcao.e2e.spec.ts`).
 - ★★★ Senha do cliente no funil (§8.18), também com dois apps num arquivo: telefone sem conta
   cria senha e a conta nasce com ela; telefone com conta **SEM** senha tem a criação RECUSADA
   (a trava contra sequestro de conta) e mesmo assim consegue agendar, com o nome do cadastro

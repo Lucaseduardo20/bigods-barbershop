@@ -180,9 +180,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/admin/src/App.tsx": {
-    "mtime": 1787885936.7172275,
-    "seen": 1787935155.8199928,
-    "ast_hash": "280191f6a56958459f3372fe4ef4df44",
+    "mtime": 1788547109.6683455,
+    "seen": 1788547428.4807603,
+    "ast_hash": "bac1814e65693461a791efb9e2bb263d",
     "semantic_hash": ""
   },
   "apps/admin/src/components/AtendimentoDetalheDialog.tsx": {
@@ -234,10 +234,10 @@
     "semantic_hash": "1479f174ea7e6cfa0a80ed0734578525"
   },
   "apps/admin/src/lib/format.ts": {
-    "mtime": 1784085355.1083577,
-    "seen": 1787165206.9796572,
-    "ast_hash": "d2853271db1c4e1956993098cb76011b",
-    "semantic_hash": "d2853271db1c4e1956993098cb76011b"
+    "mtime": 1788547027.6475182,
+    "seen": 1788547428.4811757,
+    "ast_hash": "8a5bc05001f04cc59c07fdfa9c4b060c",
+    "semantic_hash": ""
   },
   "apps/admin/src/lib/moeda.spec.ts": {
     "mtime": 1785470385.2331865,
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "apps/admin/src/screens/Agenda.tsx": {
-    "mtime": 1788540109.3901176,
-    "seen": 1788545218.7547717,
-    "ast_hash": "457a6795659518da6dafed35885f8bcf",
+    "mtime": 1788547055.9398038,
+    "seen": 1788547428.4814858,
+    "ast_hash": "a8c39df9fa70ce75e91d13f2731dac9b",
     "semantic_hash": ""
   },
   "apps/admin/src/screens/Ajustes.tsx": {
@@ -2328,9 +2328,9 @@
     "semantic_hash": "02ecc5064df7c34164c5c86f80479297"
   },
   "apps/admin/src/screens/Home.tsx": {
-    "mtime": 1788540109.3901176,
-    "seen": 1788545218.7550056,
-    "ast_hash": "2c14afe50775c2d4679af6a35ff9db04",
+    "mtime": 1788547088.2441297,
+    "seen": 1788547428.481693,
+    "ast_hash": "d088698bad3e722bb8a4f3c578818d1f",
     "semantic_hash": ""
   },
   "apps/api/src/modules/payroll/domain/ticket-medio.spec.ts": {
@@ -2472,9 +2472,9 @@
     "semantic_hash": ""
   },
   "RELATORIO_SESSAO.md": {
-    "mtime": 1788545175.2758424,
-    "seen": 1788545218.780909,
-    "ast_hash": "87d94e9d0f5d6ccb8b9e1014f07a5864",
+    "mtime": 1788547406.1513064,
+    "seen": 1788547428.498188,
+    "ast_hash": "807a2ba033dc040d92071dfda4e4de25",
     "semantic_hash": ""
   },
   "apps/account/index.html": {

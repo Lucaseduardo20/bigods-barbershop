@@ -7518,3 +7518,84 @@ registrar a origem da senha (coluna aditiva) e é decisão de domínio, não de 
 
 **#62** virou parcial: o cliente novo agora cria a própria senha; "esqueci a senha" continua
 dependendo de #61 (a rota A2P), que segue sendo a causa raiz de tudo isto.
+
+---
+
+## Sessão 2026-09-04 (continuação) — remarcar pelo balcão
+
+Pedido: o admin remarca qualquer atendimento, o barbeiro remarca os **dele**, funciona igual
+para avulso e para crédito de pacote, e quando é o barbeiro ele diz o motivo.
+
+### Nada de método novo no agregado
+
+Remarcar continua sendo **cancelar + criar novo** (§4.1), e a orquestração é a MESMA que o
+cockpit já usava desde a sessão-E — inclusive a ordem, que muda por origem e por bons motivos:
+
+- **crédito de pacote**: cancela PRIMEIRO. O item só sai de `AGENDADO` quando o cancelamento
+  antecipado o libera, e só então pode ser consumido no horário novo. Se o novo horário falhar,
+  o crédito já voltou para `DISPONIVEL` — o cliente perde o horário, nunca o que pagou;
+- **avulso**: cria o novo PRIMEIRO. Assim não existe a janela em que o cliente fica sem o
+  antigo e sem o novo.
+
+Do lado da tela isso não aparece: é o mesmo botão, e o crédito vai junto sozinho.
+
+### O que muda em relação ao cockpit
+
+**Sem janela de horas.** A janela do cliente existe para mandá-lo falar com a barbearia — e
+esta é a barbearia. Travar aqui também fecharia a única porta que sobrou.
+
+**ACL de staff.** `autorizarDonoOuAdmin`, a mesma função do concluir/cancelar/reatribuir: admin
+em qualquer um, barbeiro só nos dele. Sem `@Papeis(ADMIN)` no controller de propósito — o
+barbeiro precisa poder mover o próprio horário.
+
+**Motivo obrigatório para quem não é admin.** Mover o horário de um cliente é uma decisão que
+ELE não tomou. Quando parte do dono, ele responde por ela; quando parte do barbeiro, fica o
+registro de por quê — e não é burocracia, é o que o dono lê quando o cliente liga perguntando
+por que mudou.
+
+O motivo vai para o `motivoCancelamento` do atendimento antigo, com autor e destino:
+
+> `Reagendado para 09/09/2026 14:30 por Igor Molinho — dentista de manhã`
+
+Nenhum campo novo, nenhuma migration. O histórico já guarda "por que este atendimento deixou de
+existir", e é ali que alguém procura. Sem esse texto o registro diria só "cancelado", que conta
+a metade errada da história: o horário **mudou**, não sumiu.
+
+### ★★ Dinheiro vinculado trava a remarcação
+
+Se o atendimento tem pagamento online já confirmado, ou abateu saldo residual de pacote,
+remarcar é **recusado com 409**. O pagamento fica preso ao atendimento cancelado, e o novo
+nasceria como se ninguém tivesse pago — alguém cobraria o cliente duas vezes no balcão.
+
+Recusar é alto e recuperável: a mensagem diz para cancelar, acertar o dinheiro e marcar de
+novo. Deixar passar seria silencioso e caro. Custo prático hoje é **zero** (a produção sobe com
+pagamento manual, sem cobrança online de fato). Registrado como DECISOES_PENDENTES #65, junto
+com o mesmo buraco que existe no cockpit desde a sessão-E — lá ele passa em silêncio, aqui
+trava.
+
+### Um defeito achado ao testar no navegador
+
+O diálogo de detalhe **não desmonta** ao trocar de atendimento: `atendimentoId` muda e o
+componente continua o mesmo. O sintoma apareceu na hora — abri o atendimento seguinte já com o
+formulário de remarcação aberto e a hora do anterior dentro dele.
+
+O caso ruim de verdade não era o meu: é o **motivo de cancelamento**. Digitar "cliente
+desistiu" para um, fechar sem cancelar, abrir outro — e o botão Cancelar já está armado, com um
+motivo que é de outra pessoa. Um `useEffect` sobre `atendimentoId` zera tudo que estava em
+digitação.
+
+### Testes
+
+`apps/api/test/integration/reagendar-pelo-balcao.e2e.spec.ts` — **13 e2e**:
+
+| | |
+|---|---|
+| ★★★ | o barbeiro não remarca o de outro (403), e sem motivo não remarca nem o dele |
+| ★★ | o MESMO crédito de pacote vai para o horário novo, sem virar falta e sem sumir |
+| ★★ | se o horário novo não der, o crédito volta para `DISPONIVEL` |
+| ★★ | o histórico do antigo diz "Reagendado para \<quando\> por \<quem\> — \<motivo\>" |
+| ★★ | pagamento online confirmado trava, e o atendimento continua de pé |
+| ★ | sem janela de horas; horário ocupado recusa sem estragar o antigo; mesmo horário recusa |
+
+`apps/api`: **1584 verdes** (109 arquivos), idênticos nos três fusos. `apps/admin`: 40.
+`turbo run build`: 5/5.
