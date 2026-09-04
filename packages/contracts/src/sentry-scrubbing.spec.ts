@@ -264,3 +264,127 @@ describe('referência compartilhada', () => {
     expect(limpo.eu!.telefone).toBe(REMOVIDO);
   });
 });
+
+/**
+ * Pagamento (Mercado Pago, 2026-08-26).
+ *
+ * Cada teste aqui é um vazamento concreto: dado de cartão num breadcrumb,
+ * assinatura de webhook num relatório de erro, ou um copia-e-cola de PIX — que é
+ * instrumento ao portador, e quem o tem paga a cobrança de outro.
+ */
+describe('★ dado de pagamento não sai', () => {
+  it('dados de cartão somem, nas grafias do SDK e nas nossas', () => {
+    const limpo = limparProfundo({
+      cvv: '123',
+      securityCode: '123',
+      security_code: '123',
+      cardNumber: '5031433215406351',
+      card_number: '5031433215406351',
+      numeroCartao: '5031433215406351',
+      cardholderName: 'APRO',
+      titular: 'APRO',
+      cardExpirationMonth: '11',
+      cardExpirationYear: '2030',
+      validade: '11/30',
+    }) as Record<string, unknown>;
+    for (const [chave, valor] of Object.entries(limpo)) {
+      expect(valor, `${chave} deveria ter sido removida`).toBe(REMOVIDO);
+    }
+    expect(JSON.stringify(limpo)).not.toContain('5031433215406351');
+  });
+
+  it('assinatura, idempotência e token do cartão somem', () => {
+    const limpo = limparProfundo({
+      headers: {
+        'x-signature': 'ts=1742505638683,v1=ced36ab6d33566bb',
+        'X-Idempotency-Key': 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      },
+      idempotencyKey: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      payment_method: { id: 'master', token: 'adac6b95f1d22c51890499d1707f0f0a' },
+    }) as Record<string, Record<string, unknown>>;
+    expect(limpo.headers!['x-signature']).toBe(REMOVIDO);
+    expect(limpo.headers!['X-Idempotency-Key']).toBe(REMOVIDO);
+    expect(limpo.idempotencyKey).toBe(REMOVIDO);
+    expect(limpo.payment_method!.token).toBe(REMOVIDO);
+    // A bandeira fica: é diagnóstico, não segredo.
+    expect(limpo.payment_method!.id).toBe('master');
+  });
+
+  it('★ o copia-e-cola do PIX some — é instrumento de pagamento ao portador', () => {
+    const limpo = limparProfundo({
+      qr_code: '00020126580014br.gov.bcb.pix0136b76aa9c2',
+      qrCode: '00020126580014br.gov.bcb.pix0136b76aa9c2',
+      qr_code_base64: 'iVBORw0KGgoAAAANSUhEUg',
+      brCode: '00020126580014br.gov.bcb.pix0136b76aa9c2',
+      copiaECola: '00020126580014br.gov.bcb.pix0136b76aa9c2',
+    }) as Record<string, unknown>;
+    for (const v of Object.values(limpo)) expect(v).toBe(REMOVIDO);
+    expect(JSON.stringify(limpo)).not.toContain('br.gov.bcb.pix');
+  });
+
+  it('identificador de dispositivo e de sessão do Mercado Pago somem', () => {
+    const limpo = limparProfundo({
+      'X-meli-session-id': 'armor.abc123',
+      MP_DEVICE_SESSION_ID: 'armor.abc123',
+      deviceId: 'armor.abc123',
+    }) as Record<string, unknown>;
+    for (const v of Object.values(limpo)) expect(v).toBe(REMOVIDO);
+  });
+
+  it('credenciais do Mercado Pago somem pelas regras que já existiam', () => {
+    const limpo = limparProfundo({
+      MERCADOPAGO_ACCESS_TOKEN: 'APP_USR-1234',
+      MERCADOPAGO_WEBHOOK_SECRET: 'segredo',
+    }) as Record<string, unknown>;
+    expect(limpo.MERCADOPAGO_ACCESS_TOKEN).toBe(REMOVIDO);
+    expect(limpo.MERCADOPAGO_WEBHOOK_SECRET).toBe(REMOVIDO);
+  });
+
+  /**
+   * ★ O teste que protege as decisões DELIBERADAS de não apagar.
+   *
+   * Sobre-mascarar não é "o lado seguro": cega o diagnóstico exatamente quando
+   * mais se precisa dele. Cada campo aqui foi discutido e mantido de propósito —
+   * se alguém acrescentar `pan`, `expiration` ou `public_key` a CHAVES_SENSIVEIS,
+   * este teste fica vermelho e explica por quê.
+   */
+  it('★ NÃO apaga o que é diagnóstico: chave pública, request-id, prazos e "pan" dentro de palavra', () => {
+    const limpo = limparProfundo({
+      // Pública por definição — apagá-la cega a depuração do SDK no frontend.
+      MERCADOPAGO_PUBLIC_KEY: 'APP_USR-public-abc',
+      public_key: 'APP_USR-public-abc',
+      // É o identificador que o suporte do Mercado Pago pede para investigar.
+      'x-request-id': '2066ca19-c6f1-498a-be75-1923005edd06',
+      // Prazos do PIX/order: diagnóstico, não segredo. Só a validade do CARTÃO sai.
+      expiration_time: 'PT30M',
+      date_of_expiration: '2026-08-26T12:00:00.000-03:00',
+      // 'pan' está dentro de 'expandido' — por isso a chave curta não entra na lista.
+      expandido: 'true',
+      // Status e ids da order são o assunto do erro.
+      status_detail: 'accredited',
+      external_reference: 'ext_ref_1234',
+    }) as Record<string, unknown>;
+
+    expect(limpo.MERCADOPAGO_PUBLIC_KEY).toBe('APP_USR-public-abc');
+    expect(limpo.public_key).toBe('APP_USR-public-abc');
+    expect(limpo['x-request-id']).toBe('2066ca19-c6f1-498a-be75-1923005edd06');
+    expect(limpo.expiration_time).toBe('PT30M');
+    expect(limpo.date_of_expiration).toBe('2026-08-26T12:00:00.000-03:00');
+    expect(limpo.expandido).toBe('true');
+    expect(limpo.status_detail).toBe('accredited');
+    expect(limpo.external_reference).toBe('ext_ref_1234');
+  });
+
+  it('★ o corpo do endpoint de cartão não vai — por isso ele nasce sob /public/pagamentos', () => {
+    // Se o endpoint nascesse sob /public/agendamentos, o token do cartão iria
+    // inteiro para o Sentry: a rota é o que decide, não o conteúdo.
+    expect(corpoEhSensivel('https://api.x.com/public/pagamentos/uuid-1/cartao')).toBe(true);
+    expect(corpoEhSensivel('https://api.x.com/public/agendamentos')).toBe(false);
+  });
+
+  it('webhook do Mercado Pago tem o corpo removido, como o do AbacatePay', () => {
+    expect(corpoEhSensivel('https://api.x.com/webhooks/mercadopago?data.id=ORD01&type=order')).toBe(
+      true,
+    );
+  });
+});

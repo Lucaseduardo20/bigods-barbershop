@@ -3,6 +3,56 @@ services:
   postgres:
     image: postgres:16
     container_name: bigods-postgres
+    # ★ max_connections acima do default (100) — é correção de FLAKINESS medida,
+    # não afinação especulativa.
+    #
+    # A suíte de integração tem 99 arquivos e2e, cada um subindo o AppModule real
+    # com o seu pool do Prisma (default `cpus*2+1`). `fileParallelism: false` faz
+    # um arquivo rodar por vez, mas o `app.close()` do anterior libera as conexões
+    # de forma assíncrona — elas acumulam mais rápido do que drenam. Ao bater 100,
+    # o Postgres passa a recusar conexão e os testes falham com
+    # `ECONNRESET: Connection reset by peer` em 8 ms, em arquivos diferentes a cada
+    # rodada. Nada a ver com a lógica testada.
+    #
+    # `connection_limit` menor no Prisma foi tentado e piorou (centenas de skips em
+    # cascata). Subir o teto do servidor é o que ataca a causa.
+    #
+    # ★★ E o resto do `command` desliga DURABILIDADE — a causa raiz da suíte
+    # instável, medida no log do próprio Postgres:
+    #
+    #   checkpoint complete: wrote 334 buffers (2.0%); write=34.627 s, total=34.650 s
+    #   checkpoint complete: wrote 265 buffers (1.6%); write=27.665 s, total=27.692 s
+    #
+    # 27 a 35 SEGUNDOS para escrever ~2 MB. Com `docker stats` mostrando 3% de CPU e
+    # 48 MB de RAM: não falta CPU nem memória, falta `fsync` — o volume do Docker
+    # Desktop no macOS é virtualizado e tem throughput de sincronização péssimo.
+    #
+    # Enquanto um checkpoint desses roda, TODA escrita bloqueia. Daí os sintomas que
+    # pareciam aleatórios: timeouts em arquivos diferentes a cada rodada,
+    # `ECONNRESET`, e um 500 vindo direto do Prisma. Nenhum deles tinha relação com
+    # a lógica testada — e é por isso que "rodar de novo" às vezes passava.
+    #
+    # ## Por que desligar durabilidade aqui é seguro, e não uma gambiarra
+    #
+    # `fsync=off` significa: se a máquina perder energia no meio de uma escrita, o
+    # banco pode ficar corrompido. Num banco de DESENVOLVIMENTO cuja recuperação é
+    # `docker compose down -v && npm run db:migrate`, isso não é um risco — é o
+    # procedimento normal. Em troca, o teste deixa de esperar o disco.
+    #
+    # `max_wal_size` grande reduz a FREQUÊNCIA de checkpoint, que é a outra metade:
+    # menos checkpoints, menos janelas em que tudo bloqueia.
+    #
+    # ⚠ DESENVOLVIMENTO APENAS, e é literalmente impossível vazar para produção:
+    # produção é RDS, configurada por parameter group. Este arquivo não a toca.
+    # Nunca copie esta linha para um compose que sirva dado real.
+    command: >
+      postgres
+      -c max_connections=300
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c max_wal_size=2GB
+      -c checkpoint_timeout=30min
     environment:
       POSTGRES_USER: bigods
       POSTGRES_PASSWORD: bigods

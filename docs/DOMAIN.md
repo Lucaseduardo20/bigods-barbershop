@@ -561,6 +561,72 @@ dois mecanismos representando o mesmo fato. Aqui: **o status é a única verdade
 soft-delete para representar cancelamento. Soft-delete, se existir, é para remoção administrativa,
 que é um conceito diferente.
 
+#### 3.5.1 Quem atendeu não foi quem estava marcado (2026-08-27)
+
+Caso corriqueiro na barbearia: o cliente marca com o A, o A atrasa num atendimento anterior, e o
+cliente aceita ser atendido pelo B. Até 2026-08-27 a comissão nascia (ou já tinha nascido) no nome
+do A — dinheiro para quem não trabalhou, e o financeiro desbalanceado.
+
+São **dois fluxos**, porque o problema é diferente antes e depois de a comissão existir.
+
+##### Antes de concluir — reatribuição simples
+
+| | |
+|---|---|
+| **Quem** | o barbeiro DONO do atendimento, ou um admin. Não exige admin |
+| **Estado** | só `AGENDADO` |
+| **Efeito** | troca `barbeiroId`. Nada de dinheiro acontece |
+| **Preço** | **não muda** |
+| **Comissão** | não existe ainda; nasce na conclusão, já no nome certo e pela taxa do novo |
+
+Não exige admin porque nada foi lançado: é rotina de operação, e exigir o dono para cada troca de
+cadeira transformaria o normal em exceção. A trava que importa é outra — um barbeiro só transfere os
+**próprios** atendimentos; puxar o de outro é 403.
+
+**★ O preço é compromisso com o CLIENTE.** `ItemAtendido.valorCobrado` fica como está mesmo que o
+novo barbeiro tenha preço diferente (§3.2.2). O cliente marcou vendo um valor; uma troca interna da
+casa não renegocia com ele. O que muda é a comissão, que é relação casa↔barbeiro.
+
+**Valida:** o novo barbeiro atende todos os serviços da comanda, e o horário dele está livre — a
+mesma invariante de `agendar()`, com a constraint `EXCLUDE` como rede contra a corrida.
+
+**Recusa** quando o atendimento veio de um pacote comprado COM um barbeiro específico (§3.6): a
+promessa é que só ele atende aqueles serviços, e furá-la por dentro seria quebrá-la sem o cliente
+saber. Ver DECISOES_PENDENTES #58.
+
+##### Depois de concluir — estorno e novo lançamento
+
+| | |
+|---|---|
+| **Quem** | **só ADMIN** — é correção de dinheiro já registrado |
+| **Estado** | só `CONCLUIDO` |
+| **Efeito** | troca `barbeiroId` **e** acrescenta lançamentos no ledger |
+| **Preço** | **não muda** (é snapshot do atendimento) |
+| **Comissão** | estornada de quem estava, **recalculada** pela taxa de quem atendeu |
+
+**O ledger não é editado; ele é acrescentado.** Apagar o lançamento errado apagaria justamente o
+rastro de que houve um erro, e um ledger que se reescreve não é auditável (§3.7). Em três atos, na
+mesma transação:
+
+```
+1. lançamento original        fica onde está, intocado
+2. estorno, sinal oposto      → o saldo de quem não atendeu volta ao que era
+3. lançamento novo            → para quem atendeu, pela taxa DELE
+```
+
+**★ Recalcular é o ponto.** Comissão é a relação entre a casa e AQUELE barbeiro: serviço de R$50 com
+o A a 35% (R$17,50 estornados) vira R$22,50 com o B a 45%. Caixinha e desconto acompanham pela mesma
+lógica — a caixinha era de quem atendeu, e o desconto é absorvido pelo percentual de quem atendeu.
+
+**Não valida conflito de horário**, de propósito: o atendimento já aconteceu, não há cadeira a
+disputar (a constraint `EXCLUDE` nem cobre `CONCLUIDO`). Exigir agenda livre recusaria a correção de
+um atendimento que o novo barbeiro de fato fez, enquanto atendia os outros dele no mesmo dia. O que
+continua valendo é a competência: ele precisa atender os serviços da comanda.
+
+**Auditoria:** os dois fluxos gravam `reatribuidoDeId` / `reatribuidoPorId` / `reatribuidoEm` — em
+trocas sucessivas, `reatribuidoDeId` guarda o dono ORIGINAL, que é a pergunta que interessa ("com
+quem o cliente marcou?"). O estorno guarda em `registradoPorId` o admin que o fez.
+
 ---
 
 ### 3.6 `VendaDePacote` (raiz)
@@ -584,6 +650,7 @@ itens individuais, cada um com ciclo de vida próprio.
 | `compradoEm` | Timestamp | |
 | `statusPagamento` | StatusPagamento | ver §3.8 |
 | `origemLinkBarbeiroId` | BarbeiroId \| null | Fase 4c — de qual link pessoal veio a compra, se veio de algum (só registro, ver §8.4) |
+| `diasPermitidos` | List\<0..6\> | **SNAPSHOT** dos dias da semana em que os créditos podem ser usados (2026-08-28) — 0=domingo … 6=sábado; os sete = sem restrição. Congelado na compra, ver §8.15 |
 
 **`barbeiroId` = o barbeiro que o CLIENTE escolheu ao comprar (2026-08-18).** Não é dono
 do pacote e não é base de preço: a oferta é da empresa e o rateio usa a referência da casa
@@ -593,6 +660,11 @@ do pacote e não é base de preço: a oferta é da empresa e o rateio usa a refe
 - `barbeiroId !== null` ⇒ **só ele** atende os serviços daquele pacote. Foi com ele que o
   cliente decidiu se tratar; agendar com outro é `InvarianteVioladaError`.
 - `barbeiroId === null` (comprou sem escolher) ⇒ qualquer barbeiro pode.
+
+**`agendarItem` também recusa dia da semana fora de `diasPermitidos`** (2026-08-28, §8.15).
+O dia é o **CIVIL da empresa**, resolvido por quem chama (o agregado é puro e não conhece
+fuso) — 23h de sexta em São Paulo é sábado em UTC, e é a data civil que vale.
+
 
 "O barbeiro atende este serviço" **não** é verificado aqui: é a MESMA invariante que
 `Atendimento.agendar()` já aplica a qualquer atendimento (§3.5), e o use case cria os dois
@@ -669,8 +741,18 @@ sempre.
 direções**: `tipo` é o eixo que decide o sinal no saldo.
 
 ```
-saldo(barbeiro) = Σ valorComissao(COMISSAO) − Σ valorComissao(VALE) − Σ valorComissao(PAGAMENTO)
+saldo(barbeiro) = Σ(+) − Σ(−)
+
+  somam    (+)  COMISSAO · ESTORNO_DESCONTO
+  subtraem (−)  VALE · PAGAMENTO · DESCONTO_CONCEDIDO · ESTORNO_COMISSAO
 ```
+
+Os **estornos** (2026-08-27, §3.5.1) são dois porque o sinal do estorno é o oposto do que ele anula,
+e o sinal vem do TIPO, nunca do valor — `valorComissao` é magnitude e é sempre positiva.
+`ESTORNO_COMISSAO` desfaz o que somou (serviço, produto, caixinha); `ESTORNO_DESCONTO` devolve o que
+foi subtraído. Um tipo só, de sinal fixo, devolveria o desconto ao contrário: tiraria do barbeiro
+dinheiro que ele nunca chegou a ganhar. `estornoDeId` aponta para o lançamento anulado, e o original
+**permanece** — é o que torna o percurso auditável.
 
 `tipo` (COMISSAO `+` | VALE `−` | PAGAMENTO `−`) é um eixo **ortogonal** a `origem`
 (SERVICO | PRODUTO) — não é o mesmo campo generalizado de novo. `origem` responde "o que
@@ -913,6 +995,7 @@ rateio, só é a fonte da composição e do preço que alimentam a venda.
 | `nome` | string | |
 | `composicao` | List\<{servicoId, quantidade}\> | **MISTA**: N serviços distintos, cada um com sua quantidade (ex.: 2 cortes + 2 barbas no mesmo pacote) |
 | `preco` | Dinheiro | **única fonte de verdade persistida** — ver regra de precificação abaixo |
+| `diasPermitidos` | List\<0..6\> | dias da semana em que os créditos vendidos poderão ser usados (2026-08-28) — 0=domingo … 6=sábado; os sete = sem restrição (default). A VENDA congela, ver §8.15 |
 | `ativo` | boolean | soft-disable, como `Servico`/`Produto` |
 | `statusAprovacao` | StatusAprovacaoPacoteOferta | workflow de aprovação (§4.3, Fase 3) |
 | `motivoRejeicao` | string \| null | preenchido só quando `REJEITADO` |
@@ -943,6 +1026,11 @@ pacote para todos, então a economia exibida é a mesma para todos. Override de 
 - `preco` **não pode ser maior** que a soma dos preços de referência da composição — um
   "pacote" mais caro que comprar os mesmos serviços separado é erro de cadastro, não um
   desconto negativo.
+- `diasPermitidos`: todo elemento inteiro em 0..6. Vazio/ausente = **todos os dias** (o
+  default e o comportamento anterior a 2026-08-28). Valor fora da faixa é **erro**, nunca
+  descarte silencioso: engolir um `7` transformaria o erro de digitação do admin numa
+  configuração diferente da que ele quis — e a frase que o cliente lê sairia igualmente
+  errada.
 
 **Autorização (2026-08-18): cadastro é ADMIN-ONLY.** Sem dono, não existe "as minhas
 ofertas" para escopar — catálogo da empresa é responsabilidade do admin. O workflow de
@@ -2203,7 +2291,85 @@ ATUAL — sem isso, uma sessão esquecida aberta trancaria o dono para fora da p
 
 ---
 
-### 8.15 Consumir crédito de pacote no balcão (2026-08-28)
+### 8.15 Dias da semana em que o crédito de pacote vale (2026-08-28)
+
+**O problema real:** o pacote econômico é barato porque o cliente aceita flexibilidade. Sem
+nenhuma trava, ele consome exatamente a agenda mais disputada da casa — sexta e sábado —, e
+aí o desconto sai do horário que a barbearia venderia cheio de qualquer jeito.
+
+A regra é **por oferta**: cada pacote decide em que dias os créditos dele podem ser usados.
+Default: **todos os dias** — é o que valia antes desta regra, e é o que continua valendo para
+toda oferta e toda venda que já existiam.
+
+#### As três peças, e por que são três
+
+```
+PacoteOferta.diasPermitidos   a regra ATUAL do catálogo — o admin edita quando quiser
+VendaDePacote.diasPermitidos  o SNAPSHOT da compra    — nunca muda depois
+descricaoDosDias(dias)        a FRASE que o cliente lê — sempre derivada
+```
+
+**★ A venda congela (§3.5, a mesma disciplina de `valorRateado` e `valorCobrado`).** O cliente
+comprou uma coisa e leva aquela coisa. Apertar a oferta para "segunda a quinta" amanhã não
+alcança quem comprou hoje sem restrição — e afrouxá-la não libera quem comprou restrito. A
+regra que vale é a que estava escrita na tela no momento da compra.
+
+**★ A frase é DERIVADA, nunca digitada.** "Válido de segunda a quinta" sai de
+`descricaoDosDias`, no `packages/contracts`, do MESMO conjunto que o sistema usa para
+bloquear. Um campo de texto livre ao lado divergiria da regra no primeiro ajuste — e é
+justamente esse texto que o cliente usa para decidir a compra. Três formas, da mais natural
+para a mais literal: `todos os sete → "Válido todos os dias"`; `faixa contígua → "Válido de
+segunda a quinta"`; `avulsos → "Válido às segundas, quartas e sextas"`. A contiguidade é
+medida na ordem de LEITURA (segunda→domingo): `sáb, dom, seg` não vira "de sábado a segunda",
+que faria o leitor pensar que a terça também vale.
+
+#### Bloqueio limpo: o dia não aparece, não dá erro
+
+A projeção de horários (`/public/horarios` e `/public/dias`) aceita `creditoId` — o crédito
+que a visita vai gastar. Com ele, a projeção devolve só os dias que **aquela venda** permite:
+o dia bloqueado simplesmente **não tem horário**, e o seletor de dias apaga o botão.
+
+O cliente escolhe entre o que dá, em vez de escolher e ser recusado no fim do fluxo. A
+explicação de POR QUE fica na tela **antes** da escolha (a frase derivada), nunca numa
+mensagem de erro depois dela.
+
+**A projeção é leitura (§2.1) e leitura não guarda regra.** O bloqueio de verdade é
+`VendaDePacote.agendarItem`, que recusa dia fora do snapshot — e a mensagem dele também usa
+`descricaoDosDias`, dos mesmos dias que barraram. Quem chama a API direto, ou chega com uma
+tela aberta desde antes da mudança, esbarra ali.
+
+#### ★ Fuso: o dia da semana é o CIVIL da empresa
+
+Um horário às **23h de sexta em São Paulo é sábado em UTC**. Ler o dia da semana do instante
+bruto (`getUTCDay()`) roubaria do cliente uma sexta legítima num pacote "segunda a sexta" — e
+liberaria um sábado num pacote que o proíbe.
+
+O caminho é sempre o mesmo, e é o único:
+
+```
+diaCivilChave(instante, tz)  →  "2026-09-04"   (dia civil no fuso da empresa)
+diaDaSemanaCivil("2026-09-04")  →  5           (sexta; tz-agnóstico, só lê a data)
+```
+
+O agregado **não** deriva o dia sozinho: ele é puro e não conhece fuso, então recebe o dia da
+semana já resolvido de quem tem o fuso em mãos (o use case, a projeção). Na projeção o `data`
+consultado **já é** o dia civil da empresa — todo slot listado nasce dentro de
+`limitesDoDiaCivil(data, tz)` —, então basta lê-lo.
+
+#### Onde isso aparece
+
+- **Admin** (`Pacotes` → oferta): sete botões na ordem de leitura, e embaixo a frase exata que
+  o cliente vai ler. Editar avisa que vale só para as próximas vendas.
+- **Funil** (Bigod's Club): a frase aparece no card da oferta, **antes** da compra.
+- **Conta do cliente**: a frase no card do pacote, junto dos créditos — onde ele decide usar.
+- **Agendar/reagendar com crédito**: dias bloqueados apagados, sem horário nenhum.
+
+#### O que NÃO foi feito
+
+Reagendar um atendimento de pacote passa pelo mesmo `AgendarComCredito`, então herda a trava
+sem código novo. Atendimento **já agendado** antes de a oferta mudar não é revisto — o
+snapshot da venda dele não mudou, e revisar o passado contrariaria §3.5.
+### 8.16 Consumir crédito de pacote no balcão (2026-08-28)
 
 **O incidente que trouxe isto.** O cliente agendou avulso; na cadeira, resolveu comprar um
 pacote. A operação cancelou o avulso, vendeu o pacote pelo painel e consumiu o crédito
@@ -2270,7 +2436,193 @@ crédito de pacote comprado COM ELE, e só em nome próprio.
 #### O que ficou de fora
 
 **Desfazer o consumo.** CONCLUIDO é estado final e não há caminho de volta pelo painel —
-ver DECISOES_PENDENTES #58. Um consumo errado hoje só se corrige como antes: no banco.
+ver DECISOES_PENDENTES #60. Um consumo errado hoje só se corrige como antes: no banco.
+
+---
+
+### 8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04)
+
+**O incidente.** O SMS de verificação parou de chegar de forma confiável: a rota do provedor
+atual não é uma rota A2P própria para OTP, e as mensagens somem no caminho sem erro nenhum
+do nosso lado. O cliente não conseguia **agendar** nem **entrar na conta** — e quem tinha
+pacote pago ficou sem acesso ao próprio crédito.
+
+A resposta é um **desvio por flag**, não uma remoção. `OTP_CONTINGENCIA=true` liga o desvio;
+`false` (o default) devolve o sistema ao fluxo com OTP, inteiro. Nada do código de OTP foi
+tocado — a causa raiz é de infraestrutura, e é lá que ela se resolve (DECISOES_PENDENTES #61).
+
+#### Um ponto de decisão, não um `if` espalhado
+
+A flag é lida em `shared/config/contingencia-otp.ts`, provida por símbolo no `SharedModule`, e
+consumida em **dois** lugares: a borda do agendamento (`booking-publico.controller`) e a
+projeção pública da empresa (`empresa-publica-query.service`, que a repassa ao funil para ele
+não pedir um código que não vai chegar).
+
+Front e back leem a MESMA fonte de propósito: se o funil achasse que o desvio está ligado e a
+API não, o cliente ficaria preso numa tela de código que o servidor nem exige.
+
+#### `AGUARDANDO_APROVACAO` — a pessoa no lugar do código
+
+Com o desvio ligado, o agendamento presencial entra sem verificação e nasce neste estado:
+
+```
+   ┌────────────────────────┐  aprova (painel)   ┌────────────┐
+   │ AGUARDANDO_APROVACAO   │ ─────────────────▶ │  AGENDADO  │
+   └────────────┬───────────┘                    └────────────┘
+                │ recusa (motivo obrigatório)         ↑ só aqui sai AtendimentoAgendado
+                ▼
+         ┌────────────┐
+         │ CANCELADO  │  (o motivo diz que foi recusa)
+         └────────────┘
+```
+
+- **Ocupa o horário** (invariante + `EXCLUDE`), como `AGENDADO` e `CONCLUSAO_PENDENTE`. Dois
+  pedidos para o mesmo horário não podem ambos esperar decisão: aprovar o segundo derrubaria o
+  primeiro, e o cliente que pediu antes descobriria na cadeira.
+- **Não expira sozinho.** Diferente de `RESERVADO`, aqui não há prazo de pagamento correndo — o
+  que se espera é uma decisão, e ela demora o que a barbearia levar para abrir o painel.
+- **Conta na cota de presenciais.** Sem isso a contingência viraria a porta para entupir a
+  agenda, que é exatamente o que o OTP impedia.
+- **Só a aprovação emite `AtendimentoAgendado`** — mesmo desenho de `confirmarReserva()`.
+  Avisar o cliente antes seria prometer um horário que ainda pode ser recusado.
+- **Recusar é cancelar, com motivo.** Não existe um estado "recusado": para o resto do sistema
+  o fato é o mesmo (o horário some, o crédito volta), e um sexto estado final duplicaria cada
+  `switch` sem contar nada novo.
+- Quem decidiu e quando ficam em `aprovadoPorId`/`aprovadoEm`. É uma decisão humana no lugar
+  de uma trava automática; daqui a um mês alguém vai querer saber de quem foi.
+
+Aprovar e recusar são de **qualquer barbeiro ou admin**: no volume atual quem está no balcão
+resolve, e travar em admin faria o cliente esperar o dono chegar.
+
+#### Onde `AGUARDANDO_APROVACAO` precisa aparecer (2026-09-04, corrigido)
+
+Um estado novo não é uma linha no enum: é uma linha em toda consulta que enumera status. O QA
+achou três lugares em que ele faltava, e os três doíam:
+
+| lugar | efeito de faltar |
+|---|---|
+| projeção de horários livres (`horarios-disponiveis-query.service.ts`, 5 consultas) | a agenda oferecia o horário de um pedido pendente e o cliente seguinte tomava **500** no último clique do funil |
+| `agendadosDoBarbeiroNoPeriodo` (invariante do domínio) | o conflito só era pego pela EXCLUDE — erro de banco em vez de "esse horário acabou de ser preenchido" |
+| `AgendamentosClienteQueryService.proximos` (e o espelho `historico`) | sumia do detalhe do cliente no painel (bem na tela em que o dono decide) e aparecia no **histórico** do cliente, como coisa passada |
+
+Nas cinco consultas de horários a lista virou UMA (`ocupamOHorario`). Enquanto for cópia, o
+próximo status vai ficar para trás do mesmo jeito.
+
+Na conta do cliente o card mostra **"Aguardando confirmação da barbearia"** — mesma disciplina
+do `RESERVADO`: horário guardado que ainda não é firme precisa dizer isso, ou o cliente sai de
+casa confiando nele.
+
+#### Senha do cliente — o que destrava quem já pagou
+
+O login por código também parou de funcionar, e quem comprou pacote ficou sem acesso ao
+crédito. Agora existe `Cliente.senhaHash` e `POST /conta/login/senha`.
+
+**Quem define a senha é o ADMIN**, na tela de Clientes do painel, e passa ao cliente por
+WhatsApp. O autosserviço ("crie sua senha", "esqueci minha senha") depende de provar posse do
+telefone — exatamente o que está quebrado. É uma medida de operação: o admin conhece a senha
+que definiu, e isso é aceitável porque o risco concreto e presente é o cliente não conseguir
+usar o que pagou.
+
+O hash é o **mesmo motor do login de staff** (`senha.ts`: scrypt, sal por senha, comparação em
+tempo constante). Não existe uma segunda implementação de hash neste sistema. A política de
+força (`validarSenhaDeCliente`, em `packages/contracts`) roda nas duas pontas, da mesma função:
+mínimo de 8, recusa as óbvias e recusa **o próprio telefone**, que é o login.
+
+A recusa do telefone só vale a partir de **4 dígitos** na senha (2026-09-04). Antes comparava
+por sufixo de qualquer tamanho, e `navalha7` — um dígito — era recusada como "o seu telefone"
+para todo cliente com número terminado em 7. Quatro dígitos é onde o palpite volta a ser real
+("os últimos quatro do meu número"); abaixo disso é coincidência, e recusar coincidência com
+uma mensagem sobre telefone só confunde quem escolheu uma senha boa.
+
+Resposta **neutra** no login: telefone inexistente, cliente sem senha e senha errada dão a
+mesma resposta, e gastam o mesmo scrypt — o tempo também não pode virar oráculo de quem é
+cliente da casa.
+
+**A senha não é contingência** e fica quando o SMS voltar: quem tem senha entra sem gastar
+envio nenhum, que é melhor em qualquer cenário.
+
+#### Tela de Clientes (permanente)
+
+O painel nunca teve onde ver os clientes cadastrados. A tela entrou agora porque é ela que
+destrava a senha, mas fica: lista com busca, detalhe com pacotes e agendamentos, e a ação de
+definir senha. Vive dentro de **Usuários**, em abas (Equipe × Clientes) — a barra de baixo já
+trunca rótulo com oito abas, e as duas são gestão de pessoas.
+
+A lista é ordenada pelo **trabalho a fazer**, não por nome: quem tem crédito e não tem senha
+aparece primeiro, porque é quem pagou e está trancado do lado de fora.
+
+---
+
+### 8.18 Senha do cliente no funil — os três ramos do telefone (2026-09-04)
+
+Continuação de §8.17. Ali a senha existia, mas só o **admin** podia criá-la; o cliente novo
+ainda batia numa tela de código que não avança. Aqui o passo "telefone primeiro" do funil ganha
+um ramo por senha — **aditivo**, e só com `OTP_CONTINGENCIA=true`.
+
+O que separa os ramos é a CONTA, nunca "cliente novo ou antigo" (pergunta que o sistema não
+sabe responder). Duas perguntas bastam, e as duas vêm de `GET /public/clientes/conhecido`:
+existe conta para este telefone? ela tem senha?
+
+| | existe conta | tem senha | o funil faz |
+|---|---|---|---|
+| **1** | não | — | o cliente **cria a senha ali**, e a conta nasce com ela |
+| **2** | sim | sim | pede a **senha** no lugar do código; acerta → sessão, cadastro, segue |
+| **3** | sim | **não** | ★★★ **nunca** deixa criar senha. Caminho neutro: "fale com a barbearia" |
+
+#### Por que o ramo 3 é tratado à mão
+
+É a trava de segurança da sessão. Aquela conta tem histórico, pacotes e **créditos pagos**, e
+sem OTP não existe como distinguir o dono de quem digitou o número primeiro. Deixar criar senha
+ali entregaria o patrimônio do cliente a quem chegasse antes. O admin destrava depois de
+confirmar a identidade por outros meios (painel → Usuários → Clientes).
+
+O cliente do ramo 3 **continua agendando** — o horário é o que ele veio buscar, e fechar essa
+porta seria o desfecho que a contingência inteira existe para evitar. O funil só passa a se
+comportar como se não soubesse quem é: não mostra o nome do cadastro (mostrá-lo transformaria o
+campo de telefone numa consulta de "quem é o dono deste número") e não pergunta um novo (para
+não mandar de volta algo que sobrescreva o cadastro real). Daí `POST /public/agendamentos` ter
+passado a exigir `nome` **só de quem ainda não tem cadastro**.
+
+#### A senha do ramo 1 não prova posse do telefone
+
+`POST /conta/senha/criar` **não devolve sessão**. Ninguém confirmou que o número é de quem
+digitou, e um token ali faria o agendamento nascer firme — desmontando a contingência inteira
+por um detalhe. O pedido continua indo pelo caminho anônimo e nascendo `AGUARDANDO_APROVACAO`;
+quem filtra agenda falsa segue sendo a pessoa que aprova no painel.
+
+A rota também **não existe** com a flag desligada: responde 404. Desligar a contingência não
+deixa porta aberta para trás.
+
+#### Só na trilha de agendamento
+
+O ramo 1 aparece só no **avulso**. Na trilha de pacote o funil continua exigindo o código
+(DECISOES_PENDENTES #63: `POST /public/pacotes` pede sessão, e liberar isso é decisão de
+domínio) — e pedir "crie sua senha" para logo em seguida pedir um código por SMS seria a tela
+se contradizendo na cara do cliente. Os ramos 2 e 3 valem nas duas trilhas: perguntar a senha
+no lugar do código é melhor em qualquer caso, e ali a sessão vem de uma identidade que alguém
+de fato confirmou.
+
+#### Tom da UI
+
+Do lado do cliente, criar senha é **benefício**, não contingência: "crie sua senha para acessar
+sua conta". Nenhuma tela de cliente menciona problema de envio de SMS — para quem está do outro
+lado isso não é informação útil, é só motivo de desconfiança. (No painel a franqueza continua:
+o dono precisa saber por que a fila de "sem senha" existe.)
+
+#### Trocar a própria senha
+
+`PUT /conta/senha`, no topo da conta ao lado do sair. Existe porque hoje muita senha foi
+definida pela barbearia e passada por WhatsApp — alguém de lá a conhece. **Exige a senha
+atual**, mesmo com sessão: ela dura 30 dias e vive num celular, e um aparelho destravado
+esquecido no balcão não pode trancar o dono para fora. Mesmo padrão do "alterar senha" do
+staff. Vale com a flag ligada ou desligada — é recurso permanente, não desvio.
+
+Quem **não tem** senha não "define" uma por aqui: não há atual para conferir, e seria a mesma
+brecha do ramo 3 por outra porta.
+
+Resíduo conhecido e registrado (DECISOES_PENDENTES #64): uma conta nascida no ramo 1 pode, pelo
+app da conta, agendar firme — aquele caminho sempre tratou "tem sessão" como "telefone
+verificado", e agora existe uma terceira origem de sessão.
 
 ---
 
@@ -2286,7 +2638,12 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
-- Registro de atendimento já ocorrido (§8.15): nasce CONCLUIDO, emite `AtendimentoConcluido`
+- Contingência de OTP (§8.17): o pedido pendente OCUPA horário e CONTA na cota — as duas coisas
+  que, se falharem, transformam o desvio em porta para entupir a agenda.
+- Dias permitidos do pacote (§8.15): a venda congela e a oferta muda sem alcançá-la; dia fora de
+  0..6 é erro; e a composição `diaCivilChave → diaDaSemanaCivil` acerta a sexta 23h de São Paulo
+  que é sábado em UTC (`dias-permitidos-do-pacote.spec.ts`).
+- Registro de atendimento já ocorrido (§8.16): nasce CONCLUIDO, emite `AtendimentoConcluido`
   e NÃO `AtendimentoAgendado`, conta o intervalo para trás a partir do fim, e não depende de
   expediente cadastrado.
 - Fuso horário (§2.6): conversão local↔UTC robusta a horário de verão (caso real cruzando a
@@ -2298,6 +2655,15 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Constraint `EXCLUDE` do Postgres realmente rejeita sobreposição sob concorrência.
 - Transação de "agendar com crédito" faz rollback completo se qualquer passo falhar.
 - Webhook de pagamento é idempotente (processar 2x não gera efeito duplo).
+- Contingência de OTP (§8.17) com a flag LIGADA e DESLIGADA no mesmo arquivo, cada uma com sua
+  instância da aplicação: ligada, agenda sem código e nasce pendente; desligada, presencial sem
+  sessão continua 401 e nada nasce pendente (`contingencia-otp.e2e.spec.ts`).
+- ★★★ Senha do cliente no funil (§8.18), também com dois apps num arquivo: telefone sem conta
+  cria senha e a conta nasce com ela; telefone com conta **SEM** senha tem a criação RECUSADA
+  (a trava contra sequestro de conta) e mesmo assim consegue agendar, com o nome do cadastro
+  intacto; criar senha não devolve sessão e o agendamento continua nascendo pendente; trocar a
+  própria senha exige a atual; com a flag desligada a rota responde 404 e nenhuma conta nasce
+  (`senha-do-cliente-no-funil.e2e.spec.ts`).
 - Consumo de crédito no balcão gera comissão sobre o valor RATEADO, consome o crédito e não
   rouba o horário de um agendamento existente (`consumo-de-credito-balcao.e2e.spec.ts`).
 - Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).
@@ -2305,6 +2671,9 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   correto, nunca no dia seguinte.
 - Job de expiração não erra a virada de dia por causa do fuso (prazo vence "hoje" local mesmo
   quando o instante UTC já é outro dia).
+- Dia bloqueado por pacote some da projeção (`/public/horarios` e `/public/dias` com `creditoId`)
+  E é recusado pela escrita — as duas pontas, porque a projeção é leitura e não guarda regra
+  (`dias-permitidos.e2e.spec.ts`).
 
 **Não perseguir cobertura alta em controllers e mapeamento de infra.** O valor está no domínio.
 

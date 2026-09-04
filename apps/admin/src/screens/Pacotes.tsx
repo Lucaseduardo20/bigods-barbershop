@@ -15,6 +15,11 @@ import {
   StatusAprovacaoPacoteOferta,
   StatusItemPacote,
   StatusPagamento,
+  TODOS_OS_DIAS,
+  descricaoDosDias,
+  diasNormalizados,
+  nomeCurtoDoDia,
+  permiteTodosOsDias,
 } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { dataCurta, dinheiro, hojeISO } from '../lib/format';
@@ -43,6 +48,9 @@ const tonePagamento: Record<StatusPagamento, string> = {
   [StatusPagamento.AGUARDANDO]: 'warning',
   [StatusPagamento.EXPIRADO]: 'danger',
   [StatusPagamento.FALHOU]: 'danger',
+  // Cartão em análise pelo emissor: tom NEUTRO de propósito. Não é sucesso (o
+  // dinheiro não entrou) nem problema (ninguém precisa agir) — é espera.
+  [StatusPagamento.EM_ANALISE]: 'neutral',
 };
 
 type Aba = 'vendidos' | 'catalogo' | 'reembolsos';
@@ -935,6 +943,11 @@ function CatalogoDeOfertas({ usuario }: { usuario: UsuarioDTO }) {
                   </span>
                 )}
               </div>
+              {!permiteTodosOsDias(o.diasPermitidos) && (
+                <div className="text-[12px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  {descricaoDosDias(o.diasPermitidos)}
+                </div>
+              )}
               {o.statusAprovacao === StatusAprovacaoPacoteOferta.REJEITADO && o.motivoRejeicao && (
                 <div className="text-[12px] mt-1" style={{ color: 'var(--status-danger)' }}>
                   motivo da rejeição: {o.motivoRejeicao}
@@ -990,6 +1003,16 @@ function OfertaDialog({
   const [modo, setModo] = useState<'percentual' | 'preco'>('percentual');
   const [percentual, setPercentual] = useState('20');
   const [precoCentavos, setPrecoCentavos] = useState(0);
+  /**
+   * Dias em que os créditos vão valer (2026-08-28).
+   *
+   * ★ `[]` significa SEM RESTRIÇÃO (todos os dias) — não "nenhum dia". É o
+   * mesmo que o backend entende por vazio, e é o que faz o clique funcionar do
+   * jeito que a mão espera: começar com os sete marcados transformava o
+   * primeiro clique num DESMARCAR, e quem clica em "sex" está dizendo que quer
+   * a sexta, não que quer tirá-la.
+   */
+  const [dias, setDias] = useState<number[]>([]);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -1003,12 +1026,16 @@ function OfertaDialog({
       setLinhas(editando.composicao.map((i) => ({ servicoId: i.servicoId, quantidade: String(i.quantidade) })));
       setModo('preco');
       setPrecoCentavos(editando.precoCentavos);
+      // Oferta sem restrição volta como campo vazio, não como sete marcados —
+      // senão o primeiro clique aqui também desmarcaria.
+      setDias(permiteTodosOsDias(editando.diasPermitidos) ? [] : diasNormalizados(editando.diasPermitidos));
     } else {
       setNome('');
       setLinhas([{ servicoId: '', quantidade: '1' }]);
       setModo('percentual');
       setPercentual('20');
       setPrecoCentavos(0);
+      setDias([]);
     }
     setErroSalvar(null);
   }, [aberto, editando]);
@@ -1049,12 +1076,12 @@ function OfertaDialog({
       if (editando) {
         await api(`/pacote-ofertas/${editando.id}`, {
           method: 'PATCH',
-          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado, diasPermitidos: dias },
         });
       } else {
         await api('/pacote-ofertas', {
           method: 'POST',
-          body: { nome, composicao, precoCentavos: precoCentavosCalculado },
+          body: { nome, composicao, precoCentavos: precoCentavosCalculado, diasPermitidos: dias },
         });
       }
       aoSalvar();
@@ -1148,6 +1175,66 @@ function OfertaDialog({
             Preço final: <strong>{dinheiro(Math.max(0, precoCentavosCalculado))}</strong>{' '}
             <span style={{ color: 'var(--text-muted)' }}>({percentualCalculado.toFixed(1)}% de desconto)</span>
           </div>
+        </div>
+
+        {/* DIAS EM QUE O CRÉDITO VALE (2026-08-28) — a trava que impede um pacote
+            econômico de comer a agenda de sexta e sábado. A frase abaixo é
+            DERIVADA destes botões (`descricaoDosDias`), a mesma função que o
+            cliente vê no funil e na conta dele: o que o admin lê aqui é
+            exatamente o que o cliente vai ler lá. */}
+        <div>
+          <label className="label">Dias em que os créditos podem ser usados</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {/* Ordem de leitura (segunda→domingo) — `diasNormalizados` já a impõe. */}
+            {diasNormalizados(TODOS_OS_DIAS).map((d) => {
+              // Sem restrição, NENHUM botão fica aceso: o campo está vazio, e o
+              // primeiro clique começa a restrição pelo dia clicado.
+              const ligado = dias.includes(d);
+              return (
+                <button
+                  key={d}
+                  className={`selectable ${ligado ? 'selected' : ''}`}
+                  style={{ padding: '6px 10px', minWidth: 46, textTransform: 'capitalize' }}
+                  aria-pressed={ligado}
+                  onClick={() =>
+                    setDias((atual) =>
+                      ligado
+                        ? // Tirar o último dia volta para "sem restrição" — é a
+                          // saída natural de quem se arrependeu, em vez de um
+                          // beco onde o botão para de responder.
+                          atual.filter((x) => x !== d)
+                        : diasNormalizados([...atual, d]),
+                    )
+                  }
+                >
+                  {nomeCurtoDoDia(d)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[12px] mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+            {dias.length === 0 ? (
+              'Sem restrição — o cliente marca em qualquer dia. Clique nos dias para limitar.'
+            ) : (
+              <>
+                O cliente vai ler: <strong>"{descricaoDosDias(dias)}"</strong>. Os outros dias nem
+                aparecem para ele.{' '}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: '0 4px', height: 'auto', verticalAlign: 'baseline' }}
+                  onClick={() => setDias([])}
+                >
+                  liberar todos
+                </button>
+              </>
+            )}
+          </div>
+          {editando && (
+            <div className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Vale só para as PRÓXIMAS vendas — quem já comprou mantém os dias da
+              época da compra.
+            </div>
+          )}
         </div>
 
         {erroSalvar && <div className="text-[13px]" style={{ color: 'var(--status-danger)' }}>{erroSalvar}</div>}

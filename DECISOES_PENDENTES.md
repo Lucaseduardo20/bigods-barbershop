@@ -1028,9 +1028,44 @@ FECHAMENTO/repasse não é: no primeiro caso a casa já "pagou" sem passar pelo 
 **O que falta decidir:** se o fechamento precisa dessa distinção. Se precisar, o caminho é a caixinha
 carregar a forma de pagamento dela (não a da comanda) e o fechamento abater a que veio em espécie.
 
-## 58. Desfazer um consumo de crédito registrado por engano (2026-08-28)
+## 58. Reatribuir um atendimento de pacote comprado COM barbeiro (2026-08-27)
 
-O consumo no balcão (§8.15) cria um atendimento **CONCLUIDO**, que é estado final: se o
+A reatribuição (§3.5.1) recusa quando o atendimento veio de um pacote que o cliente comprou COM um
+barbeiro específico. A regra existente (§3.6, 2026-08-18) é do dono: "se o cliente comprou com um
+barbeiro selecionado, só ele atende os serviços daquele pacote — foi com ele que o cliente decidiu se
+tratar".
+
+Só que o caso que motivou a reatribuição é exatamente o cliente ali, na cadeira, aceitando trocar. A
+recusa protege a promessa, mas atrapalha quando o próprio cliente já abriu mão dela.
+
+**O que foi feito:** recusa com mensagem que diz o que fazer (cancelar e reagendar, ou atender como
+avulso). Nada de furar a regra por dentro — o cliente não saberia.
+
+**O que falta decidir:** se o dono quer permitir. Se quiser, o caminho honesto não é ignorar a
+checagem aqui: é a reatribuição mexer TAMBÉM na `VendaDePacote` (trocar ou limpar o `barbeiroId`
+dela), porque senão o pacote seguiria prometendo um barbeiro que não atende mais aqueles créditos.
+
+## 59. Caixinha e desconto na correção pós-conclusão (2026-08-27)
+
+Quando um atendimento concluído é corrigido para outro barbeiro (§3.5.1), a caixinha e o desconto vão
+junto: estornados de quem estava, relançados para quem atendeu, pelos percentuais DELE.
+
+Para o desconto isso é claramente certo — quem concede absorve a fração dele. Para a caixinha há uma
+leitura possível em que ela deveria ficar onde estava: se o cliente entregou a gorjeta em mãos ao
+barbeiro A antes de alguém perceber a troca, o dinheiro já está com o A, e o sistema mover a caixinha
+para o B cria uma dívida entre eles que o sistema não sabe cobrar.
+
+**O que foi feito:** a caixinha acompanha o atendimento, pela leitura simples de que ela é de quem
+atendeu — e é o caso mais comum, já que a correção normalmente acontece no mesmo dia, antes de
+qualquer acerto.
+
+**O que falta decidir:** se aparecer na prática o caso da gorjeta em mãos. A saída seria a correção
+perguntar ao admin ("a caixinha fica com quem?") em vez de assumir — mas isso é uma pergunta a mais
+numa tela que ninguém quer que seja lenta, e não vale pagar por um caso que talvez não exista.
+
+## 60. Desfazer um consumo de crédito registrado por engano (2026-08-28)
+
+O consumo no balcão (§8.16) cria um atendimento **CONCLUIDO**, que é estado final: se o
 admin registrar o crédito errado, o barbeiro errado ou a caixinha errada, não há caminho de
 volta pelo painel.
 
@@ -1044,3 +1079,79 @@ e o desfazer dobraria o tamanho dela.
 **O risco de deixar assim, dito com todas as letras:** o jeito de corrigir um consumo errado
 continua sendo mexer no banco — que é exatamente o que causou o incidente que originou a
 feature. Se acontecer uma vez, é sinal de que isto virou prioridade.
+
+## 61. ★ Rota A2P própria para OTP — a causa raiz da contingência (2026-09-04)
+
+O SMS de verificação parou de chegar de forma confiável. A investigação apontou a rota do
+provedor atual: não é uma rota A2P própria para OTP, e as mensagens somem no caminho sem erro
+nenhum do nosso lado — o envio "dá certo" e o código não chega.
+
+A contingência (§8.17) contorna: agendamento sem verificação, com aprovação humana, e login por
+senha definida pelo admin. **Ela não conserta nada** — só compra tempo, e cobra o preço de uma
+pessoa aprovando pedido a pedido.
+
+**O que falta decidir/fazer:** contratar uma rota A2P dedicada a OTP (short code ou remetente
+registrado), com relatório de entrega que permita distinguir "não enviado" de "não entregue".
+Enquanto isso não existe, qualquer fluxo novo que dependa de SMS nasce quebrado.
+
+**Quando resolver:** `OTP_CONTINGENCIA=false` (ou remover a variável) devolve o fluxo normal
+sem outra sessão de trabalho. Vale revisar então se o `AGUARDANDO_APROVACAO` continua útil como
+opção manual — a barbearia pode gostar de aprovar pedido de cliente novo — ou se some.
+
+## 62. Autosserviço de senha do cliente (2026-09-04) — PARCIALMENTE RESOLVIDO
+
+Eram dois: (a) criar a própria senha no primeiro acesso e (b) recuperá-la sozinho quando
+esquecer.
+
+**(a) resolvido para telefone SEM conta** (2026-09-04, §8.18): no funil, com a contingência
+ligada, o cliente novo cria a senha dele e a conta nasce com ela. Não vale para telefone que
+JÁ tem conta e não tem senha — ali criar senha sem provar posse do telefone entregaria a conta
+a quem chegasse primeiro, e esse caso continua sendo destravado pelo admin.
+
+**(b) continua em aberto.** "Esqueci a senha" depende de provar posse do telefone, que é
+exatamente o que está quebrado. Quando #61 estiver resolvido, o caminho é o código por SMS.
+
+**Enquanto isso:** cliente que esquecer a senha pede à barbearia, que redefine pela tela de
+Clientes. O cliente já consegue TROCAR a senha dele sozinho (topo da conta → cadeado), o que
+resolve o caso de "a barbearia sabe minha senha" sem depender de SMS nenhum.
+
+## 63. Compra de pacote pelo funil durante a contingência de OTP (2026-09-04)
+
+`POST /public/pacotes` exige sessão de cliente (telefone verificado). Com o SMS fora do ar,
+isso significa que **o cliente não consegue comprar pacote sozinho pelo funil** enquanto a
+contingência estiver ligada — o funil o levaria até o fim para tomar 401.
+
+O desvio foi deliberadamente restrito ao AGENDAMENTO (que foi o que a operação pediu), e o
+funil deixou de pular o código na trilha de pacote. Na prática, durante a contingência o
+pacote se vende **pelo painel** (Pacotes → Vender), que já funciona e é onde o dono confirma
+o pagamento manual de qualquer jeito.
+
+**O que falta decidir:** se o pacote também deveria poder ser comprado sem verificação
+enquanto o SMS não volta. É decisão de domínio, não de implementação — envolve deixar alguém
+comprar crédito em nome de um telefone que não provou possuir. O risco é baixo (quem compra
+paga, e o dono confirma o pagamento na mão), mas a decisão é do dono.
+
+## 64. ★ Conta criada com senha no funil agenda FIRME pelo app da conta (2026-09-04)
+
+A senha que o cliente novo cria no funil (§8.18) **não prova posse do telefone** — ninguém
+confirmou que o número digitado é dele. Por isso a criação não emite sessão, e o agendamento
+feito ali continua nascendo `AGUARDANDO_APROVACAO`, como todos os da contingência.
+
+**O que sobrou:** essa mesma conta consegue fazer login por senha e agendar pelo APP DA CONTA
+(`POST /conta/agendamentos/avulso`), e esse caminho não passa pela aprovação manual — ele
+sempre tratou "tem sessão" como "telefone verificado", o que era verdade enquanto sessão só
+vinha de OTP ou de senha definida pelo admin. Agora existe uma terceira origem.
+
+**Tamanho do risco:** exige criar a conta no funil, ir até o app da conta, entrar e agendar por
+lá — não é o caminho de quem só quer poluir a agenda, e o pedido aparece na agenda do dono do
+mesmo jeito. Mas é uma porta que a contingência não cobre, e o certo é dizê-lo.
+
+**O que falta decidir:** durante a contingência, agendamento feito pelo app da conta também
+deveria nascer pendente? Se sim, para todo mundo (inclusive quem tem senha definida pelo
+admin, que É uma identidade confirmada) — mais atrito para a barbearia — ou só para contas cuja
+senha nasceu no funil? A segunda opção é a correta e exige registrar a ORIGEM da senha (ou o
+momento em que a identidade foi confirmada) no `Cliente`: uma coluna aditiva, útil também
+depois que a contingência acabar.
+
+**Some sozinho quando #61 for resolvido:** com a flag desligada, a rota de criação de senha no
+funil deixa de existir (404) e nenhuma conta nova nasce por esse caminho.

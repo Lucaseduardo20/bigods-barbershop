@@ -3,6 +3,11 @@ import { OrigemAtendimento } from '@bigods/contracts';
 import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-work';
 import { DomainError } from '../../../shared/errors/domain-error';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
+import { diaCivilChave, diaDaSemanaCivil } from '../../../shared/domain/calendario';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 
 export interface ReativarAtendimentoInput {
   atendimentoId: string;
@@ -36,10 +41,17 @@ export interface ReativarAtendimentoInput {
  */
 @Injectable()
 export class ReativarAtendimentoUseCase {
-  constructor(@Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork) {}
+  constructor(
+    @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
+    private readonly parametros: ParametrosDaEmpresaRepository,
+  ) {}
 
   async executar(input: ReativarAtendimentoInput): Promise<void> {
     const agora = input.agora ?? new Date();
+    // Fuso da empresa: o dia da semana do horário reativado é o CIVIL daqui,
+    // nunca o UTC (2026-08-28) — mesma regra do agendamento com crédito.
+    const tz = await this.parametros.timezone(input.usuario.companyId);
 
     await this.uow.transacao(async (repos) => {
       const atendimento = await repos.atendimentos.porId(input.atendimentoId);
@@ -68,7 +80,12 @@ export class ReativarAtendimentoUseCase {
             throw new NotFoundException(`Pacote do item ${itemId} não encontrado`);
           }
           try {
-            venda.agendarItem(itemId, atendimento.id, atendimento.barbeiroId);
+            venda.agendarItem(
+              itemId,
+              atendimento.id,
+              atendimento.barbeiroId,
+              diaDaSemanaCivil(diaCivilChave(atendimento.intervalo.inicio, tz)),
+            );
           } catch (erro) {
             // O crédito não está mais disponível: foi usado em outro
             // atendimento, ou expirou depois de duas faltas. Reativar assim

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -8,13 +8,25 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { Papel, SolicitacaoDeReembolsoDTO, VendaDePacoteDTO, VenderPacoteResponse } from '@bigods/contracts';
+import {
+  Papel,
+  SolicitacaoDeReembolsoDTO,
+  StatusSolicitacaoReembolso,
+  VendaDePacoteDTO,
+  VenderPacoteResponse,
+} from '@bigods/contracts';
 import { VenderPacoteUseCase } from '../application/vender-pacote.usecase';
 import { ConfirmarPagamentoPresencialUseCase } from '../application/confirmar-pagamento-presencial.usecase';
 import { ConfirmarReembolsoUseCase } from '../application/confirmar-reembolso.usecase';
+import {
+  AgendarReembolsoUseCase,
+  CancelarAgendamentoDeReembolsoUseCase,
+} from '../application/agendar-reembolso.usecase';
 import { PacotesQueryService } from '../infrastructure/pacotes-query.service';
 import { Papeis, UsuarioAtual } from '../../identity/presentation/auth.decorators';
 import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
@@ -22,6 +34,28 @@ import { UsuarioAutenticado } from '../../identity/domain/auth-provider';
 class ClienteInlineDto {
   @IsString() @MinLength(1) nome!: string;
   @IsString() @MinLength(8) telefone!: string;
+}
+
+/**
+ * Status que a tela de reembolsos consulta. Lista explícita, não
+ * `Object.values(StatusSolicitacaoReembolso)`: `REEMBOLSADO` é histórico e não tem
+ * aba, e enumerar aqui é o que impede uma aba nova aparecer por acidente quando o
+ * enum crescer.
+ */
+const STATUS_DE_REEMBOLSO = [
+  StatusSolicitacaoReembolso.PENDENTE,
+  StatusSolicitacaoReembolso.AGENDADO,
+  StatusSolicitacaoReembolso.FALHOU,
+  StatusSolicitacaoReembolso.REEMBOLSADO,
+] as const;
+
+class AgendarReembolsoDto {
+  /**
+   * Dias até executar. Ausente = padrão do deploy (`REEMBOLSO_PRAZO_DIAS`).
+   * **`0` = agora.** O teto de 180 é o prazo máximo de estorno de cartão no
+   * Mercado Pago — agendar além disso garantiria falha no dia da execução.
+   */
+  @IsOptional() @IsInt() @Min(0) @Max(180) prazoDias?: number;
 }
 
 class VenderPacoteDto {
@@ -39,6 +73,8 @@ export class PacotesController {
     private readonly venderPacote: VenderPacoteUseCase,
     private readonly confirmarPagamentoPresencial: ConfirmarPagamentoPresencialUseCase,
     private readonly confirmarReembolso: ConfirmarReembolsoUseCase,
+    private readonly agendarReembolsoUseCase: AgendarReembolsoUseCase,
+    private readonly cancelarAgendamento: CancelarAgendamentoDeReembolsoUseCase,
     private readonly consulta: PacotesQueryService,
   ) {}
 
@@ -108,10 +144,78 @@ export class PacotesController {
   }
 
   /**
-   * Admin confirma que já devolveu o dinheiro (reembolso é sempre manual,
-   * sem gateway) — fecha a solicitação e move o saldo reservado pra
-   * `saldoReembolsado` no pacote. `@Papeis(ADMIN)` — mesma correção de ACL
-   * do endpoint acima.
+   * Solicitações de um STATUS (2026-08-27) — as três abas da tela de reembolsos:
+   * `PENDENTE` (decidir), `AGENDADO` (a caminho) e `FALHOU` (precisa de gente).
+   *
+   * A aba de falhados é o que `followup.md` #1 exigia: sem ela, um estorno que
+   * esgotou as tentativas — quase sempre por saldo insuficiente na conta do
+   * gateway — sumiria num log, e quem descobriria seria o cliente.
+   */
+  @Papeis(Papel.ADMIN)
+  @Get('reembolsos')
+  async reembolsosPorStatus(
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+    @Query('status') status?: string,
+  ): Promise<SolicitacaoDeReembolsoDTO[]> {
+    const valido = STATUS_DE_REEMBOLSO.find((s) => s === status);
+    if (!valido) {
+      throw new BadRequestException(
+        `status inválido — use um de: ${STATUS_DE_REEMBOLSO.join(', ')}.`,
+      );
+    }
+    return this.consulta.reembolsosPorStatus(usuario.companyId, valido);
+  }
+
+  /**
+   * Agenda a execução do estorno pelo gateway.
+   *
+   * Os três botões da tela caem aqui: "agendar (31 dias)" sem corpo, "antecipar" e
+   * "tentar de novo" com `prazoDias: 0`. É a mesma transição — definir *quando*
+   * executar —, e três endpoints seriam três lugares para a regra divergir.
+   *
+   * **Não chama o gateway.** Agenda, e o job executa (a cada 10 min). Um único
+   * caminho de execução é o que mantém a chave de idempotência estável e a
+   * contagem de tentativas num só lugar.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post('reembolsos/:id/agendar')
+  async agendarReembolso(
+    @Param('id') id: string,
+    @Body() body: AgendarReembolsoDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true; agendadaPara: string; imediato: boolean }> {
+    const r = await this.agendarReembolsoUseCase.executar({
+      solicitacaoId: id,
+      companyId: usuario.companyId,
+      ...(body.prazoDias === undefined ? {} : { prazoDias: body.prazoDias }),
+    });
+    return { ok: true, ...r };
+  }
+
+  /**
+   * Desfaz o agendamento: volta para PENDENTE.
+   *
+   * Existe porque `confirmar` recusa uma solicitação AGENDADA de propósito —
+   * devolver à mão o que já tem execução a caminho pagaria duas vezes. Cancelar
+   * NÃO desiste de devolver: o saldo do pacote segue reservado.
+   */
+  @Papeis(Papel.ADMIN)
+  @Post('reembolsos/:id/cancelar-agendamento')
+  async cancelarAgendamentoDeReembolso(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.cancelarAgendamento.executar({ solicitacaoId: id, companyId: usuario.companyId });
+    return { ok: true };
+  }
+
+  /**
+   * Admin confirma que já devolveu o dinheiro POR FORA (PIX manual, dinheiro) —
+   * fecha a solicitação e move o saldo reservado pra `saldoReembolsado` no pacote.
+   *
+   * Segue existindo, e é o único caminho para pacote pago presencialmente: não há
+   * transação online para estornar. `@Papeis(ADMIN)` — correção de ACL de uma
+   * sessão anterior.
    */
   @Papeis(Papel.ADMIN)
   @Post('reembolsos/:id/confirmar')

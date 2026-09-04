@@ -153,9 +153,9 @@ body {
 }
 
 /* Botão de escolha (chip). A classe já era usada pelo painel — no modo de preço
-   da oferta de pacote — mas nunca existiu neste CSS: o clique mudava o estado e
-   a tela não mostrava nada. A tela de consumo de crédito (2026-08-28) depende
-   dela para o barbeiro ver o que marcou. */
+   da oferta, nos dias permitidos dela e na tela de consumo de crédito — mas
+   NUNCA existiu neste CSS: o clique mudava o estado e a tela não mostrava nada,
+   então quem clicava num dia não via o dia marcar. */
 .selectable {
   padding: 10px 12px;
   border-radius: 12px;
@@ -167,7 +167,7 @@ body {
   transition: background 120ms, border-color 120ms, color 120ms;
 }
 .selectable:hover:not(:disabled) { border-color: var(--accent-primary); }
-/* Borda E fundo: só a borda dourada some no meio de vários chips lado a lado. */
+/* Borda E fundo: só a borda dourada some no meio de sete chips lado a lado. */
 .selectable.selected {
   border-color: var(--accent-primary);
   background: var(--brand-gold-100);

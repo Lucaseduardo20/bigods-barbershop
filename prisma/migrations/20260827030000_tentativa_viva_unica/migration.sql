@@ -1,0 +1,44 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Uma TENTATIVA VIVA por intenção de pagamento — como INVARIANTE DE BANCO.
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- ## O bug que esta migration fecha
+--
+-- `PagarComCartaoUseCase` já checava "existe tentativa viva?" dentro de uma
+-- transação, e o e2e provou que a checagem NÃO segura sob concorrência: dois
+-- POST simultâneos no mesmo `intencaoId` leem, ambos, zero tentativas vivas
+-- (READ COMMITTED não bloqueia leitura de linhas que ainda não existem) e ambos
+-- inserem. Resultado medido: DUAS orders criadas no Mercado Pago para o mesmo
+-- agendamento, e com `capture_mode: automatic` isso é o cliente cobrado duas
+-- vezes.
+--
+-- É a mesma lição que o conflito de horário já ensinou neste projeto (§7 do
+-- CLAUDE.md, `EXCLUDE USING gist`): invariante de concorrência que vive só no
+-- código de aplicação não é invariante, é intenção.
+--
+-- ## Por que este índice é seguro em produção AGORA
+--
+-- Diferente dos índices parciais em `IntencaoDePagamento` (Fase 1c, que seguem
+-- adiadas até o diagnóstico read-only em produção — risco R1 do plano),
+-- `TentativaDePagamento` é uma tabela NOVA, criada em
+-- `20260827010100_mercadopago_campos` e ainda VAZIA em produção: o checkout de
+-- cartão nunca rodou. Não existe duplicata pré-existente que possa derrubar o
+-- `CREATE UNIQUE INDEX`, então não há o que diagnosticar antes.
+--
+-- ## Aditiva
+--
+-- Só cria índice. Nenhuma coluna muda, nenhum dado é reescrito, nada é apagado.
+-- Reverter é `DROP INDEX`.
+--
+-- `CONCURRENTLY` não é opção: migration do Prisma roda em transação. Numa tabela
+-- vazia o lock é instantâneo.
+
+-- AGUARDANDO = order criada, esperando desfecho.
+-- EM_ANALISE  = emissor analisando; ainda pode virar PAGO, então a tentativa
+--               está viva e nenhuma outra cobrança pode começar.
+-- Os estados finais (PAGO, FALHOU, EXPIRADO) ficam FORA do índice de propósito:
+-- é justamente deles que uma nova tentativa parte, quando o cliente troca de
+-- cartão dentro da mesma janela de 30 minutos.
+CREATE UNIQUE INDEX "TentativaDePagamento_uma_viva_por_intencao"
+  ON "TentativaDePagamento" ("intencaoDePagamentoId")
+  WHERE "status" IN ('AGUARDANDO', 'EM_ANALISE');

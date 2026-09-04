@@ -8,6 +8,7 @@ import {
   StatusAtendimento,
   TipoLancamento,
 } from '@bigods/contracts';
+import { motivoOperacionalDoEstorno, rotuloDoMotivoDeEstorno } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { Timezone } from '../../../shared/domain/timezone';
 import { diaCivilChave, limitesDoDiaCivil } from '../../../shared/domain/calendario';
@@ -192,7 +193,7 @@ export class HomeQueryService {
    * há algo pra decidir.
    */
   private async pendencias(companyId: string): Promise<HomePendenciaDTO[]> {
-    const [pacotes, atendimentos, conclusoes] = await Promise.all([
+    const [pacotes, atendimentos, conclusoes, estornosFalhados, aguardandoAprovacao] = await Promise.all([
       this.prisma.vendaDePacote.findMany({
         where: { companyId, statusPagamento: 'AGUARDANDO' },
         orderBy: { compradoEm: 'desc' },
@@ -210,6 +211,22 @@ export class HomeQueryService {
         include: { itens: true, produtos: true },
         take: 5,
       }),
+      // Estornos que esgotaram as tentativas (2026-08-27). Ordenados do mais
+      // ANTIGO primeiro — ao contrário dos pacotes, aqui o que envelhece é
+      // dinheiro do cliente que não voltou, e o mais velho é o mais urgente.
+      this.prisma.solicitacaoDeReembolso.findMany({
+        where: { companyId, status: 'FALHOU' },
+        orderBy: { agendadaPara: 'asc' },
+        take: 5,
+      }),
+      // Contingência de OTP (2026-09-04). Do mais ANTIGO primeiro: o cliente
+      // está esperando resposta, e quem pediu primeiro espera há mais tempo.
+      this.prisma.atendimento.findMany({
+        where: { companyId, status: 'AGUARDANDO_APROVACAO' },
+        orderBy: { inicio: 'asc' },
+        include: { itens: true, produtos: true },
+        take: 10,
+      }),
     ]);
 
     const clienteIds = [
@@ -217,6 +234,8 @@ export class HomeQueryService {
         ...pacotes.map((p) => p.clienteId),
         ...atendimentos.map((a) => a.clienteId),
         ...conclusoes.map((a) => a.clienteId),
+        ...estornosFalhados.map((e) => e.clienteId),
+        ...aguardandoAprovacao.map((a) => a.clienteId),
       ]),
     ];
     const [clientes, barbeiros] = await Promise.all([
@@ -230,6 +249,17 @@ export class HomeQueryService {
     const nomeBarbeiro = new Map(barbeiros.map((b) => [b.id, b.nome]));
 
     return [
+      // Primeiro na lista: é o cliente esperando resposta para saber se tem
+      // horário. As outras pendências são dinheiro; esta é uma pessoa.
+      ...aguardandoAprovacao.map(
+        (a): HomePendenciaDTO => ({
+          tipo: 'AGENDAMENTO_AGUARDANDO_APROVACAO',
+          id: a.id,
+          clienteNome: nome.get(a.clienteId) ?? '—',
+          valorCentavos: this.valorDoAtendimento(a),
+          desde: a.inicio.toISOString(),
+        }),
+      ),
       ...pacotes.map(
         (p): HomePendenciaDTO => ({
           tipo: 'PACOTE_AGUARDANDO',
@@ -259,6 +289,21 @@ export class HomeQueryService {
           desde: (a.conclusaoSolicitadaEm ?? a.inicio).toISOString(),
           barbeiroNome: nomeBarbeiro.get(a.barbeiroId) ?? '—',
           motivo: a.conclusaoAntecipadaMotivo ?? '',
+        }),
+      ),
+      ...estornosFalhados.map(
+        (e): HomePendenciaDTO => ({
+          tipo: 'ESTORNO_FALHADO',
+          id: e.id,
+          clienteNome: nome.get(e.clienteId) ?? '—',
+          valorCentavos: e.valorCentavos,
+          // `desde` = quando a última execução deveria ter acontecido. É o que
+          // envelhece: dinheiro do cliente parado desde então.
+          desde: (e.agendadaPara ?? e.criadaEm).toISOString(),
+          // Motivo em linguagem de OPERAÇÃO, nunca o erro cru do gateway — que é
+          // longo, em inglês, e não cabe numa linha de home. O cru fica na tela
+          // de reembolsos, que é onde alguém vai investigar.
+          motivo: rotuloDoMotivoDeEstorno(motivoOperacionalDoEstorno(e.ultimoErro)),
         }),
       ),
     ];

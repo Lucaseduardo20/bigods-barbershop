@@ -23,9 +23,10 @@ import { Historico } from './screens/Historico';
 import { AtendimentoDetalhe } from './screens/AtendimentoDetalhe';
 import { UsarSaldoResidual } from './screens/UsarSaldoResidual';
 import { Header } from './screens/Header';
+import { TrocarSenha } from './screens/TrocarSenha';
 import { ehMembro } from './components/Clube';
 
-type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo';
+type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo' | 'senha';
 
 export function App() {
   return (
@@ -93,6 +94,16 @@ function Conta() {
     setTela('otp');
   }
 
+  /** ★ Login por senha (2026-09-04) — não gasta SMS nenhum. */
+  async function entrarComSenha(tel: string, senha: string): Promise<void> {
+    const r = await api<ConfirmarLoginClienteResponse>('/conta/login/senha', {
+      method: 'POST',
+      body: { companyId: COMPANY_ID, telefone: tel, senha },
+    });
+    setTelefone(tel);
+    entrar({ token: r.token, cliente: r.cliente });
+  }
+
   async function confirmarLogin(codigo: string): Promise<void> {
     const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
       method: 'POST',
@@ -102,7 +113,7 @@ function Conta() {
   }
 
   if (tela === 'login') {
-    return <Login onEnviar={iniciarLogin} />;
+    return <Login onEntrarComSenha={entrarComSenha} onEnviarCodigo={iniciarLogin} />;
   }
   if (tela === 'otp') {
     return (
@@ -120,7 +131,7 @@ function Conta() {
 
   if (!sessao) {
     // sessão perdida entre telas — volta ao login
-    return <Login onEnviar={iniciarLogin} />;
+    return <Login onEntrarComSenha={entrarComSenha} onEnviarCodigo={iniciarLogin} />;
   }
 
   return (
@@ -129,11 +140,19 @@ function Conta() {
         nome={sessao.cliente.nome}
         telefone={sessao.cliente.telefone}
         ehMembroDoClube={ehMembroDoClube}
+        onTrocarSenha={() => setTela('senha')}
         onSair={sair}
       />
       {/* Landmark principal: leitor de tela pula direto pro conteúdo, sem
           reler o cabeçalho a cada navegação (Lighthouse a11y/SEO). */}
       <main>
+      {tela === 'senha' ? (
+        <TrocarSenha
+          telefone={sessao.cliente.telefone}
+          token={sessao.token}
+          onVoltar={() => setTela('home')}
+        />
+      ) : (
       <CockpitOuBook
         aoSaberDoClube={setEhMembroDoClube}
         sessao={sessao}
@@ -152,6 +171,7 @@ function Conta() {
         }}
         aoDeslogar={sair}
       />
+      )}
       </main>
     </div>
   );

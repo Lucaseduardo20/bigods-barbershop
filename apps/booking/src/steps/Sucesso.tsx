@@ -12,6 +12,9 @@ import { Avatar } from '../components/ui';
 export function Sucesso({
   estado,
   pago,
+  aguardandoConfirmacao = false,
+  otpEmContingencia = false,
+  senhaCriada = false,
   timezone,
   duracaoMinutos,
   sessaoDoFunil,
@@ -20,6 +23,20 @@ export function Sucesso({
 }: {
   estado: FunnelState;
   pago: boolean;
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): o horário entrou SEM verificação de
+   * telefone e a barbearia ainda vai confirmar. O cliente precisa saber — sair
+   * de casa achando que está garantido é o pior desfecho possível deste desvio.
+   */
+  aguardandoConfirmacao?: boolean;
+  /**
+   * A contingência está ligada (2026-09-04). Diferente de
+   * `aguardandoConfirmacao`, que só vale para o presencial: aqui o que importa
+   * é que NÃO SAI SMS — vale para o pacote também.
+   */
+  otpEmContingencia?: boolean;
+  /** O cliente criou a senha dele no passo de dados (2026-09-04). */
+  senhaCriada?: boolean;
   /**
    * Sessão obtida no OTP da confirmação, quando houve. Com ela, a caixa de
    * acesso à conta não pede código de novo (2026-08-21).
@@ -32,12 +49,21 @@ export function Sucesso({
   /** Bigod's Club no fim da confirmação (sessão 2026-08-17) — vender o pacote depois do avulso fechado. */
   onComprarPacote: (o: PacoteOfertaDTO) => void;
 }) {
-  const primeiroNome = estado.nome.trim().split(/\s+/)[0] || 'até logo';
+  /**
+   * ★ 2026-09-04: pode ser vazio. Na contingência, o cliente que já tem
+   * cadastro e não pôde ser identificado (`contaSemAcesso`) atravessa o funil
+   * sem que o nome dele seja perguntado nem mostrado — e o fallback antigo
+   * ('até logo') virava "Tudo certo, até logo!" na tela de sucesso. Sem nome, a
+   * saudação simplesmente não tem vocativo.
+   */
+  const primeiroNome = estado.nome.trim().split(/\s+/)[0] ?? '';
   const ehPacote = estado.modo === 'pacote';
 
   if (ehPacote) {
     return (
       <SucessoPacote
+        otpEmContingencia={otpEmContingencia}
+        senhaCriada={senhaCriada}
         estado={estado}
         primeiroNome={primeiroNome}
         pago={pago}
@@ -52,7 +78,9 @@ export function Sucesso({
     <div className="funnel-shell items-center justify-center px-6 text-center" style={{ minHeight: '100dvh' }}>
       <div className="w-full" style={{ maxWidth: 420 }}>
         <SuccessBadge />
-        <div className="text-[24px] font-extrabold">Tudo certo, {primeiroNome}!</div>
+        <div className="text-[24px] font-extrabold">
+          {primeiroNome ? `Tudo certo, ${primeiroNome}!` : 'Tudo certo!'}
+        </div>
         {/* Rosto + nome de quem vai atender (2026-08-21): fecha o funil com a
             mesma informação que abriu, e o cliente sai sabendo quem procurar. */}
         <div
@@ -80,7 +108,11 @@ export function Sucesso({
           </div>
         )}
         <div className="mt-5 rounded-2xl p-4 text-[13px]" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)', color: 'var(--text-secondary)' }}>
-          {pago ? 'Pagamento confirmado. É só chegar no horário.' : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
+          {aguardandoConfirmacao
+            ? 'Recebemos seu pedido e guardamos esse horário. A barbearia vai confirmar com você pelo WhatsApp — é rápido, e você recebe a confirmação antes do dia.'
+            : pago
+              ? 'Pagamento confirmado. É só chegar no horário.'
+              : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
         </div>
 
         {estado.data && estado.horaInicio && (
@@ -97,7 +129,7 @@ export function Sucesso({
             quem agendou avulso terminar o funil sem saber que existe uma área
             onde ele acompanha, remarca e vê o histórico. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} senhaCriada={senhaCriada} telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />
@@ -225,12 +257,17 @@ function SucessoPacote({
   primeiroNome,
   pago,
   sessaoDoFunil,
+  otpEmContingencia = false,
+  senhaCriada = false,
   onNovo,
 }: {
   estado: FunnelState;
   primeiroNome: string;
   pago: boolean;
   sessaoDoFunil: SessaoBooking | null;
+  /** Sem SMS, o widget de acesso não oferece código — ver `Onboarding`. */
+  otpEmContingencia?: boolean;
+  senhaCriada?: boolean;
   onNovo: () => void;
 }) {
   return (
@@ -238,7 +275,11 @@ function SucessoPacote({
       <div className="w-full" style={{ maxWidth: 420 }}>
         <SuccessBadge />
         <div className="text-[24px] font-extrabold">
-          {pago ? `Pacote garantido, ${primeiroNome}!` : 'Quase lá!'}
+          {pago
+            ? primeiroNome
+              ? `Pacote garantido, ${primeiroNome}!`
+              : 'Pacote garantido!'
+            : 'Quase lá!'}
         </div>
         <div className="text-[15px] mt-2" style={{ color: 'var(--text-secondary)' }}>
           {pago ? (
@@ -258,7 +299,7 @@ function SucessoPacote({
             liberação. Esconder aqui deixava quem vai pagar na barbearia sem
             caminho nenhum para a própria conta. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} senhaCriada={senhaCriada} telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />

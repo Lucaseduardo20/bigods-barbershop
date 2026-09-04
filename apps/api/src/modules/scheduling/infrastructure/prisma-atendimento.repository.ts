@@ -75,6 +75,11 @@ function paraDominio(row: Row): Atendimento {
     descontoConcedido: Dinheiro.deCentavos(row.descontoConcedidoCentavos),
     reativadoPorId: row.reativadoPorId,
     reativadoEm: row.reativadoEm,
+    aprovadoPorId: row.aprovadoPorId,
+    aprovadoEm: row.aprovadoEm,
+    reatribuidoDeId: row.reatribuidoDeId,
+    reatribuidoPorId: row.reatribuidoPorId,
+    reatribuidoEm: row.reatribuidoEm,
   });
 }
 
@@ -97,7 +102,15 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
         // CONCLUSAO_PENDENTE ocupa o horário como AGENDADO (2026-08-20) — sem
         // isto, o domínio não veria o conflito e só a constraint EXCLUDE
         // barraria, com erro de banco em vez de mensagem de negócio.
-        status: { in: ['AGENDADO', 'RESERVADO', 'CONCLUSAO_PENDENTE'] },
+        //
+        // ★ AGUARDANDO_APROVACAO (2026-09-04) pela mesma razão, e o sintoma foi
+        // exatamente o previsto acima: com a contingência de OTP ligada, dois
+        // pedidos para o mesmo horário chegavam ao banco e o segundo voltava
+        // como "Internal server error" no fim do funil, em vez de "esse horário
+        // acabou de ser ocupado". A EXCLUDE já listava o status; o domínio não.
+        status: {
+          in: ['AGENDADO', 'RESERVADO', 'CONCLUSAO_PENDENTE', 'AGUARDANDO_APROVACAO'],
+        },
         inicio: { lt: fim },
         fim: { gt: inicio },
       },
@@ -113,7 +126,11 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
         // CONCLUSAO_PENDENTE conta na cota (2026-08-20) pela mesma razão que
         // ocupa o horário: se a recusa devolve o atendimento pra AGENDADO, ele
         // nunca deixou de ser um presencial futuro segurado pelo cliente.
-        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
+        // AGUARDANDO_APROVACAO conta na cota (2026-09-04): sem isto, a
+        // contingência de OTP viraria a porta para entupir a agenda — bastava
+        // pedir sem verificar telefone, que é justamente o caminho que a
+        // contingência abriu. Um pedido pendente ocupa horário e ocupa cota.
+        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'AGUARDANDO_APROVACAO'] },
         reservaOnlineExpiraEm: null,
         inicio: { gt: agora },
       },
@@ -161,6 +178,11 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       descontoConcedidoCentavos: atendimento.descontoConcedido.centavos,
       reativadoPorId: atendimento.reativadoPorId,
       reativadoEm: atendimento.reativadoEm,
+      aprovadoPorId: atendimento.aprovadoPorId,
+      aprovadoEm: atendimento.aprovadoEm,
+      reatribuidoDeId: atendimento.reatribuidoDeId,
+      reatribuidoPorId: atendimento.reatribuidoPorId,
+      reatribuidoEm: atendimento.reatribuidoEm,
     };
     const existente = await this.db.atendimento.findUnique({ where: { id: atendimento.id } });
     if (existente) {

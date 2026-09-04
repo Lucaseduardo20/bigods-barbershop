@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  celularBrasileiroValido,
-  emailValido,
-  nomeDeClienteValido,
-  preenchido,
-} from './validacao';
+import { celularBrasileiroValido, emailValido, nomeDeClienteValido, preenchido, validarSenhaDeCliente } from './validacao';
 
 /**
  * Estas regras valem nas duas pontas (front e back) a partir DESTE arquivo, então
@@ -93,5 +88,48 @@ describe('preenchido', () => {
       expect(preenchido(valor)).toBe(false);
     }
     expect(preenchido('x')).toBe(true);
+  });
+});
+
+describe('senha do cliente (2026-08-28)', () => {
+  it('aceita uma senha comum de 8+ caracteres — sem exigir símbolo e maiúscula', () => {
+    expect(validarSenhaDeCliente('barbearia').ok).toBe(true);
+    expect(validarSenhaDeCliente('meucorte1').ok).toBe(true);
+  });
+
+  it('recusa curta demais, e diz o mínimo', () => {
+    const r = validarSenhaDeCliente('1234567');
+    expect(r.ok).toBe(false);
+    expect(r.erro).toContain('8');
+  });
+
+  it('recusa as óbvias', () => {
+    expect(validarSenhaDeCliente('12345678').ok).toBe(false);
+    expect(validarSenhaDeCliente('PassWord').ok).toBe(false); // case-insensitive
+  });
+
+  it('★ recusa o próprio telefone — é o login, e é o primeiro palpite', () => {
+    expect(validarSenhaDeCliente('11988887777', '+5511988887777').ok).toBe(false);
+    expect(validarSenhaDeCliente('988887777', '11 98888-7777').ok).toBe(false);
+  });
+
+  it('não confunde um número qualquer com o telefone', () => {
+    expect(validarSenhaDeCliente('20261225', '+5511988887777').ok).toBe(true);
+  });
+
+  it('★ um dígito solto no fim da senha NÃO é "o seu telefone"', () => {
+    // O bug: a comparação era por sufixo de qualquer tamanho, então `navalha7`
+    // era recusada para todo cliente com número terminado em 7 — uma em cada
+    // dez pessoas, com uma mensagem sem relação nenhuma com o que ela digitou.
+    expect(validarSenhaDeCliente('navalha7', '+5511988887777').ok).toBe(true);
+    expect(validarSenhaDeCliente('corte-pomada77', '+5511988887777').ok).toBe(true);
+    expect(validarSenhaDeCliente('tesoura777', '+5511988887777').ok).toBe(true);
+    // A partir de quatro dígitos volta a ser palpite de verdade: "os últimos
+    // quatro do meu número".
+    expect(validarSenhaDeCliente('corte7777', '+5511988887777').ok).toBe(false);
+  });
+
+  it('só espaços não é senha', () => {
+    expect(validarSenhaDeCliente('         ').ok).toBe(false);
   });
 });

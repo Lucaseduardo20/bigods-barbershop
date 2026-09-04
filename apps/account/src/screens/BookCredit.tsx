@@ -144,6 +144,8 @@ export function BookCredit({
   const servicoIdsDaVisita = selecionados.map((l) => l.servicoId);
   /** Qualquer crédito da visita serve pra ler a regra de barbeiro: é o mesmo pacote. */
   const base = selecionados[0] ?? null;
+  /** A venda de onde os créditos saíram — dela vêm os dias permitidos (snapshot). */
+  const pacoteDaVisita = perfil.pacotes.find((p) => p.id === vendaDaVisita) ?? null;
 
   const alternar = (opcao: OpcaoDeCredito) => {
     setHora(null); // a duração muda, então o horário escolhido pode não caber mais
@@ -363,6 +365,11 @@ export function BookCredit({
                 tz={tz}
                 barbeiroId={barbeiroId}
                 servicoIds={servicoIdsDaVisita}
+                // Os dias em que ESTE pacote vale (2026-08-28) — o snapshot da
+                // venda, que o perfil já traz. O `creditoId` é o que faz a API
+                // filtrar; os dias vão junto só pra apagar os botões.
+                creditoId={base?.itemId ?? null}
+                diasPermitidos={pacoteDaVisita?.diasPermitidos ?? null}
                 data={data}
                 hora={hora}
                 onDia={(d) => {

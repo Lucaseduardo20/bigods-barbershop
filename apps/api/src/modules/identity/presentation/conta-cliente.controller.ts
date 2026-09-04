@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsArray, ArrayNotEmpty, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
@@ -21,6 +22,13 @@ import {
 } from '@bigods/contracts';
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
+import { LoginComSenhaClienteUseCase } from '../application/login-com-senha-cliente.usecase';
+import { CriarContaComSenhaClienteUseCase } from '../application/criar-conta-com-senha-cliente.usecase';
+import { TrocarSenhaDoClienteUseCase } from '../application/trocar-senha-do-cliente.usecase';
+import {
+  CONFIG_CONTINGENCIA_OTP,
+  ConfigContingenciaOtp,
+} from '../../../shared/config/contingencia-otp';
 import { Publico } from './auth.decorators';
 import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
@@ -46,6 +54,7 @@ import {
 import { instanteDeDataHoraLocal } from '../../../shared/domain/calendario';
 import { creditosDaRequisicao } from '../../scheduling/application/agendar-com-credito.usecase';
 import { ClubeQueryService } from '../../packages/infrastructure/clube-query.service';
+import { ReembolsosDoClienteQueryService } from '../../packages/infrastructure/reembolsos-do-cliente-query.service';
 
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -85,6 +94,25 @@ class ConfirmarLoginDto {
   @IsOptional() @EhNomeDeCliente() nome?: string;
 }
 
+class LoginComSenhaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @IsString() @MinLength(1) senha!: string;
+}
+
+/** Cliente NOVO criando a própria senha no funil (só na contingência). */
+class CriarContaComSenhaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @EhNomeDeCliente() nome!: string;
+  @IsString() @MinLength(1) senha!: string;
+}
+
+class TrocarSenhaDoClienteDto {
+  @IsString() @MinLength(1) senhaAtual!: string;
+  @IsString() @MinLength(1) novaSenha!: string;
+}
+
 class AgendarComCreditoContaDto {
   @IsString() @MinLength(1) vendaId!: string;
   /** Vários créditos do mesmo pacote = uma visita só (2026-08-21). */
@@ -120,9 +148,14 @@ export class ContaClienteController {
   constructor(
     private readonly iniciarLogin: IniciarLoginClienteUseCase,
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
+    private readonly loginComSenha: LoginComSenhaClienteUseCase,
+    private readonly criarContaComSenha: CriarContaComSenhaClienteUseCase,
+    private readonly trocarSenhaDoCliente: TrocarSenhaDoClienteUseCase,
+    @Inject(CONFIG_CONTINGENCIA_OTP) private readonly contingencia: ConfigContingenciaOtp,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly clube: ClubeQueryService,
+    private readonly reembolsosDoCliente: ReembolsosDoClienteQueryService,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly agendarComCredito: AgendarComCreditoUseCase,
     private readonly cancelarAtendimento: CancelarAtendimentoClienteUseCase,
@@ -156,6 +189,86 @@ export class ContaClienteController {
     });
   }
 
+  /**
+   * ★★ LOGIN POR SENHA (2026-09-04) — entrar sem depender de SMS.
+   *
+   * O SMS de verificação parou de chegar de forma confiável, e o cliente que
+   * comprou pacote ficou trancado para fora da conta. A senha é definida pelo
+   * ADMIN, na tela de Clientes do painel, e passada por WhatsApp.
+   *
+   * O login por código continua existindo e funcionando ao lado deste — nada do
+   * OTP foi removido. Quando a rota de SMS voltar, este caminho continua sendo
+   * o mais rápido para quem já tem senha.
+   *
+   * Mesmo rate limit do código (5 por telefone / 10 min): aqui ele não protege
+   * contra gasto de SMS, protege contra tentativa de senha em série.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('login/senha')
+  async loginSenha(@Body() body: LoginComSenhaDto): Promise<ConfirmarLoginClienteResponse> {
+    return this.loginComSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      senha: body.senha,
+    });
+  }
+
+  /**
+   * ★★ CLIENTE NOVO CRIA A PRÓPRIA SENHA (2026-09-04) — só na contingência.
+   *
+   * Fecha o beco sem saída de quem chega pela primeira vez enquanto o SMS não
+   * entrega: em vez da tela de código, ele escolhe uma senha e a conta nasce com
+   * ela. Não devolve sessão — a senha não prova posse do telefone, e o
+   * agendamento continua nascendo pendente de aprovação (ver o caso de uso).
+   *
+   * Fora da contingência a rota simplesmente NÃO EXISTE (404). É a borda
+   * decidindo, no mesmo padrão do funil: um ponto de decisão por entrada, nunca
+   * um `if` escondido no meio da regra. Desligar a flag devolve o fluxo normal
+   * sem sobrar rota aberta.
+   *
+   * Mesmo rate limit do login: aqui ele barra a criação de contas em série a
+   * partir de uma origem só.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('senha/criar')
+  async criarSenha(@Body() body: CriarContaComSenhaDto): Promise<{ ok: true }> {
+    if (!this.contingencia.ativo) {
+      throw new NotFoundException('Rota indisponível');
+    }
+    await this.criarContaComSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      nome: body.nome,
+      senha: body.senha,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * ★ Troca da PRÓPRIA senha, pelo cliente logado (2026-09-04).
+   *
+   * Diferente das duas rotas acima, esta vale com a contingência ligada ou
+   * desligada: a senha do cliente é um recurso permanente da conta, e quem
+   * recebeu uma senha da barbearia precisa poder fazer a dele em qualquer
+   * momento — inclusive (e principalmente) depois que o SMS voltar.
+   */
+  @ContaCliente()
+  @Put('senha')
+  async trocarSenha(
+    @ClienteAtual() atual: ClienteAutenticado,
+    @Body() body: TrocarSenhaDoClienteDto,
+  ): Promise<{ ok: true }> {
+    await this.trocarSenhaDoCliente.executar({
+      companyId: atual.companyId,
+      clienteId: atual.clienteId,
+      senhaAtual: body.senhaAtual,
+      novaSenha: body.novaSenha,
+    });
+    return { ok: true };
+  }
+
   @ContaCliente()
   @Get('perfil')
   async perfil(@ClienteAtual() atual: ClienteAutenticado): Promise<PerfilClienteDTO> {
@@ -163,18 +276,25 @@ export class ContaClienteController {
     if (!cliente || cliente.companyId !== atual.companyId) {
       throw new NotFoundException('Cliente não encontrado');
     }
-    const [pacotes, proximosAgendamentos, clube] = await Promise.all([
-      this.pacotes.listar(atual.companyId, atual.clienteId),
-      this.agendamentosCliente.proximos(atual.companyId, atual.clienteId),
-      // Recalculado a cada leitura, de propósito (§Bigod's Club) — não existe
-      // coluna de status pra divergir do mundo real.
-      this.clube.doCliente(atual.companyId, atual.clienteId),
-    ]);
+    const [pacotes, proximosAgendamentos, clube, reembolsos, estornosAutomaticos] =
+      await Promise.all([
+        this.pacotes.listar(atual.companyId, atual.clienteId),
+        this.agendamentosCliente.proximos(atual.companyId, atual.clienteId),
+        // Recalculado a cada leitura, de propósito (§Bigod's Club) — não existe
+        // coluna de status pra divergir do mundo real.
+        this.clube.doCliente(atual.companyId, atual.clienteId),
+        // "Cadê meu dinheiro" (2026-08-27): até aqui o cliente pedia reembolso e
+        // nunca mais via nada, e a ansiedade virava mensagem no WhatsApp.
+        this.reembolsosDoCliente.doCliente(atual.companyId, atual.clienteId),
+        this.reembolsosDoCliente.estornosAutomaticos(atual.companyId, atual.clienteId),
+      ]);
     return {
       cliente: { id: cliente.id, nome: cliente.nome, telefone: cliente.telefone.e164 },
       clube,
       pacotes,
       proximosAgendamentos,
+      reembolsos,
+      estornosAutomaticos,
     };
   }
 

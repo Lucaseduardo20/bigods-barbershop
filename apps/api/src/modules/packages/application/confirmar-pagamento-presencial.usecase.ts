@@ -30,7 +30,11 @@ export class ConfirmarPagamentoPresencialUseCase {
       if (!intencao) {
         throw new NotFoundException('Intenção de pagamento da venda não encontrada');
       }
-      if (!intencao.confirmarPagamento()) {
+      // `intencao.valor`: o admin está afirmando que o dinheiro entrou por fora
+      // do sistema (PIX manual, dinheiro, maquininha). Não há terceiro dizendo
+      // quanto entrou, então a asserção do admin é a fonte — mas ela passa pela
+      // MESMA porta que o webhook, que exige declarar o valor.
+      if (!intencao.confirmarPagamento(intencao.valor)) {
         // já estava PAGO (ou noutro status final) — idempotente, sem efeito duplo.
         return false;
       }

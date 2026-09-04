@@ -55,6 +55,16 @@ export class AtendimentoConcluido implements DomainEvent {
      */
     readonly caixinhaCentavos: number = 0,
     readonly descontoConcedidoCentavos: number = 0,
+    /**
+     * FASE 8 (2026-08-27): a taxa que o gateway retém do pagamento online deste
+     * atendimento, em centavos. Zero quando não houve pagamento online.
+     *
+     * Viaja no evento pela MESMA razão de caixinha e desconto: é o Payroll que a
+     * transforma em lançamento, e o Payroll não pode ler `IntencaoDePagamento`
+     * (agregado nunca chama agregado, §2.3). Quem sabe dos dois lados é a camada de
+     * aplicação, e é ela que preenche este número.
+     */
+    readonly taxaPagamentoOnlineCentavos: number = 0,
   ) {}
 }
 

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { CobrancaDTO, OrigemAtendimento, PagamentoManualDTO } from '@bigods/contracts';
+import { CheckoutCartaoDTO, CobrancaDTO, OrigemAtendimento, PagamentoManualDTO } from '@bigods/contracts';
+import type { MeioDePagamentoOnline } from '@bigods/contracts';
 import { Atendimento } from '../domain/atendimento.aggregate';
 import { Servico } from '../../catalog/domain/servico.aggregate';
 import { IntervaloDeTempo } from '../../../shared/domain/intervalo-de-tempo';
@@ -100,6 +101,21 @@ export interface AgendarAvulsoInput {
    * Um id aqui precisa estar em `servicoIds`.
    */
   servicosBump?: string[];
+  /**
+   * Trilho online escolhido pelo cliente (2026-08-27). Ausente = `'PIX'`.
+   *
+   * Só tem efeito com `gerarCobranca` — no presencial não há cobrança nenhuma.
+   * ★ Não é campo de dinheiro: o valor sai da `IntencaoDePagamento` nos dois
+   * trilhos, e escolher cartão não muda um centavo.
+   */
+  meioOnline?: MeioDePagamentoOnline;
+  /**
+   * CONTINGÊNCIA DE OTP (2026-09-04): o atendimento nasce
+   * `AGUARDANDO_APROVACAO` em vez de firme, porque o telefone não foi
+   * verificado. Quem decide isso é a BORDA (o controller do funil, lendo a
+   * flag) — o caso de uso só obedece, e o painel e o cockpit nunca passam.
+   */
+  aguardandoAprovacao?: boolean;
 }
 
 export interface AgendarAvulsoOutput {
@@ -108,6 +124,8 @@ export interface AgendarAvulsoOutput {
   cobranca: CobrancaDTO | null;
   /** Ponte do WhatsApp quando o modo manual está ligado (no lugar do PIX). */
   pagamentoManual: PagamentoManualDTO | null;
+  /** Trilho de cartão: nada cobrado ainda, o funil monta o formulário. */
+  checkoutCartao: CheckoutCartaoDTO | null;
   /** Quem vai atender — no "sem preferência" é a resposta da atribuição. */
   barbeiro: { id: string; nome: string; fotoUrl: string | null };
   /** Total cobrado (já com desconto progressivo), em centavos. */
@@ -131,6 +149,10 @@ export class AgendarAvulsoUseCase {
   ) {}
 
   async executar(input: AgendarAvulsoInput): Promise<AgendarAvulsoOutput> {
+    // Antes de QUALQUER escrita: um trilho de pagamento que este deploy não
+    // aceita precisa falhar aqui, não depois de o horário já estar reservado.
+    this.cobrancaOnline.assertMeioSuportado(input.meioOnline);
+
     const servicos = await this.servicos.porIds(input.servicoIds);
     if (servicos.length !== input.servicoIds.length) {
       throw new NotFoundException('Serviço inexistente');
@@ -389,6 +411,7 @@ export class AgendarAvulsoUseCase {
         valorAbatidoSaldo: Dinheiro.deCentavos(valorAbatidoCentavos),
         vendaAbatidaId: valorAbatidoCentavos > 0 ? input.abaterSaldoDeVendaId : null,
         reservaOnlineExpiraEm,
+        aguardandoAprovacao: input.aguardandoAprovacao,
       });
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());
@@ -416,11 +439,13 @@ export class AgendarAvulsoUseCase {
     // prazo: quem clica "pagar", vai pro WhatsApp e some NÃO prende o horário.
     let cobranca: AgendarAvulsoOutput['cobranca'] = null;
     let pagamentoManual: AgendarAvulsoOutput['pagamentoManual'] = null;
+    let checkoutCartao: AgendarAvulsoOutput['checkoutCartao'] = null;
     if (resultado.intencao) {
       const r = await this.cobrancaOnline.gerar({
         intencao: resultado.intencao,
         descricao: `Atendimento ${atendimentoId}`,
         expiraEmSegundos: PRAZO_RESERVA_SEGUNDOS,
+        ...(input.meioOnline ? { meio: input.meioOnline } : {}),
         comanda: {
           titulo: 'Agendamento',
           clienteNome: input.cliente.nome,
@@ -444,6 +469,7 @@ export class AgendarAvulsoUseCase {
       });
       cobranca = r.cobranca;
       pagamentoManual = r.pagamentoManual;
+      checkoutCartao = r.checkoutCartao;
     }
 
     return {
@@ -451,6 +477,7 @@ export class AgendarAvulsoUseCase {
       clienteId: resultado.clienteId,
       cobranca,
       pagamentoManual,
+      checkoutCartao,
       barbeiro: { id: barbeiro.id, nome: barbeiro.nome, fotoUrl: barbeiro.fotoUrl },
       // Serviços (com desconto progressivo) + produtos do bump — o "preço de
       // capa" mostrado ao cliente, sem descontar abatimento de saldo residual

@@ -126,6 +126,34 @@ body {
   margin: 0 0 6px;
 }
 
+/*
+ * Contêiner de um Secure Field do Mercado Pago (número, validade, CVV).
+ *
+ * O conteúdo é um <iframe> de sdk.mercadopago.com, então NÃO podemos estilizar o
+ * texto de dentro por CSS — a aparência interna se configura por JS, no
+ * `fields.create`. Aqui só se desenha a MOLDURA, com as mesmas medidas de
+ * `.input` para os campos ficarem alinhados na mesma coluna.
+ *
+ * `height` fixa em vez de padding vertical: o iframe nasce com altura 0 até o SDK
+ * montar, e sem altura própria a moldura colapsaria e o formulário "pularia".
+ */
+.mp-field {
+  width: 100%;
+  height: 48px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: var(--surface-card);
+  display: flex;
+  align-items: center;
+}
+.mp-field iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
 /* ---- Hero da landing ---- */
 .hero {
   flex: 1;

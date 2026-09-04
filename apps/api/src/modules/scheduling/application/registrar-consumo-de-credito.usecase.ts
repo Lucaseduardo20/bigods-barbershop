@@ -13,6 +13,11 @@ import { UNIT_OF_WORK, UnitOfWork } from '../../../shared/application/unit-of-wo
 import { EVENT_PUBLISHER, EventPublisher } from '../../../shared/events/event-publisher';
 import { DomainEvent } from '../../../shared/events/domain-event';
 import { Dinheiro } from '../../../shared/domain/dinheiro';
+import { diaCivilChave, diaDaSemanaCivil } from '../../../shared/domain/calendario';
+import {
+  PARAMETROS_DA_EMPRESA_REPOSITORY,
+  ParametrosDaEmpresaRepository,
+} from '../../packages/domain/parametros-da-empresa.repository';
 
 export interface RegistrarConsumoDeCreditoInput {
   companyId: string;
@@ -72,6 +77,8 @@ export class RegistrarConsumoDeCreditoUseCase {
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendas: VendaDePacoteRepository,
     @Inject(UNIT_OF_WORK) private readonly uow: UnitOfWork,
     @Inject(EVENT_PUBLISHER) private readonly publisher: EventPublisher,
+    @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY)
+    private readonly parametros: ParametrosDaEmpresaRepository,
   ) {}
 
   async executar(input: RegistrarConsumoDeCreditoInput): Promise<{ atendimentoId: string }> {
@@ -117,6 +124,21 @@ export class RegistrarConsumoDeCreditoUseCase {
 
     const produtosDoAtendimento = await this.resolverProdutos(input);
 
+    /**
+     * ★ Dia da semana do consumo, no calendário CIVIL da empresa (2026-08-28).
+     *
+     * A restrição de dias do pacote (§8.15) vale aqui também, e vale de
+     * propósito: o balcão não pode ser o buraco por onde a regra que foi VENDIDA
+     * ao cliente vaza. Se o pacote não vale sexta, registrar uma sexta é
+     * recusado — alto e claro, com a frase que o cliente leu.
+     *
+     * O dia sai do dia civil da empresa e nunca do instante UTC: 23h de sexta em
+     * São Paulo é sábado em UTC, e o consumo de uma sexta legítima seria barrado
+     * por engano.
+     */
+    const tz = await this.parametros.timezone(input.companyId);
+    const diaDaSemana = diaDaSemanaCivil(diaCivilChave(agora, tz));
+
     const atendimentoId = randomUUID();
     const eventos: DomainEvent[] = [];
 
@@ -126,7 +148,7 @@ export class RegistrarConsumoDeCreditoUseCase {
 
       // (a) o crédito percorre a máquina de estado inteira, aqui dentro.
       for (const itemId of input.itemIds) {
-        venda.agendarItem(itemId, atendimentoId, input.barbeiroId);
+        venda.agendarItem(itemId, atendimentoId, input.barbeiroId, diaDaSemana);
       }
 
       // (b) o atendimento nasce já CONCLUIDO — com o valorCobrado de cada item

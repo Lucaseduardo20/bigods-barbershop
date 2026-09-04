@@ -291,7 +291,7 @@ describe('★ "Este telefone já é cliente?" não vaza nome', () => {
 
   it('telefone desconhecido responde false', async () => {
     const r = await consultar(novoFone()).expect(200);
-    expect(r.body).toEqual({ conhecido: false });
+    expect(r.body).toEqual({ conhecido: false, temSenha: false });
   });
 
   it('telefone com cadastro responde true — e SÓ isso, nunca o nome', async () => {
@@ -300,7 +300,7 @@ describe('★ "Este telefone já é cliente?" não vaza nome', () => {
     await agendarPresencial(token, 'Cliente Conhecido').expect(201);
 
     const r = await consultar(telefone).expect(200);
-    expect(r.body).toEqual({ conhecido: true });
+    expect(r.body).toEqual({ conhecido: true, temSenha: false });
     // A resposta inteira não pode conter o nome, em nenhum campo.
     expect(JSON.stringify(r.body)).not.toContain('Conhecido');
   });
@@ -311,7 +311,7 @@ describe('★ "Este telefone já é cliente?" não vaza nome', () => {
     const telefone = novoFone();
     await tokenCliente(telefone);
     const r = await consultar(telefone).expect(200);
-    expect(r.body).toEqual({ conhecido: false });
+    expect(r.body).toEqual({ conhecido: false, temSenha: false });
   });
 
   it('telefone mal formado é erro de entrada, não "desconhecido"', async () => {

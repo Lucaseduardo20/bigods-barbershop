@@ -14,6 +14,7 @@ import { dinheiro } from '../lib/format';
 import { centavosParaTextoMoeda } from '../lib/moeda';
 import { Badge, BotaoAtualizar, CurrencyInput, ErroEstado, Loading, useApi, Vazio } from '../components/ui';
 import { Foto, FotoUpload } from '../components/FotoUpload';
+import { Clientes } from './Clientes';
 
 /**
  * Aba "Usuários": listagem → gerenciar (como um app convencional), em vez de
@@ -26,8 +27,17 @@ import { Foto, FotoUpload } from '../components/FotoUpload';
  */
 type Visao = { tipo: 'lista' } | { tipo: 'novo' } | { tipo: 'detalhe'; id: string };
 
+/**
+ * Duas abas desde 2026-09-04: a EQUIPE (quem trabalha na casa) e os CLIENTES
+ * (quem compra). Entrou aqui, e não como uma nona aba na barra de baixo, porque
+ * a barra já trunca rótulo com oito — e as duas são gestão de PESSOAS, que é o
+ * que esta tela sempre foi.
+ */
+type AbaDePessoas = 'equipe' | 'clientes';
+
 export function Usuarios({ usuario }: { usuario: UsuarioDTO }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const [abaDePessoas, setAbaDePessoas] = useState<AbaDePessoas>('equipe');
   const usuariosReq = useApi(() => (ehAdmin ? api<UsuarioStaffDTO[]>('/barbeiros/usuarios') : Promise.resolve([])), [ehAdmin]);
   const servicosReq = useApi(() => api<ServicoDTO[]>('/servicos'), []);
   const servicosAtivos = (servicosReq.dados ?? []).filter((s) => s.ativo);
@@ -87,10 +97,22 @@ export function Usuarios({ usuario }: { usuario: UsuarioDTO }) {
 
   const usuarios = usuariosReq.dados ?? [];
 
+  if (abaDePessoas === 'clientes') {
+    return (
+      <>
+        <div className="px-5 pt-1">
+          <AbasDePessoas atual={abaDePessoas} aoTrocar={setAbaDePessoas} />
+        </div>
+        <Clientes />
+      </>
+    );
+  }
+
   return (
     <div className="px-5">
+      <AbasDePessoas atual={abaDePessoas} aoTrocar={setAbaDePessoas} />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="m-0 text-[26px] font-bold leading-tight">Usuários</h1>
+        <h1 className="m-0 text-[26px] font-bold leading-tight">Equipe</h1>
         <div className="flex gap-2 items-center">
           <BotaoAtualizar onClick={usuariosReq.recarregar} carregando={usuariosReq.carregando} />
           <button className="btn btn-sm" onClick={() => setVisao({ tipo: 'novo' })}>
@@ -1154,6 +1176,32 @@ function ExpedienteDoBarbeiro({ barbeiroId }: { barbeiroId: string }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Equipe (quem trabalha) × Clientes (quem compra) — ver o comentário do topo. */
+function AbasDePessoas({
+  atual,
+  aoTrocar,
+}: {
+  atual: AbaDePessoas;
+  aoTrocar: (a: AbaDePessoas) => void;
+}) {
+  return (
+    <div className="tabs mb-4">
+      <button
+        className={`tab ${atual === 'equipe' ? 'tab-active' : ''}`}
+        onClick={() => aoTrocar('equipe')}
+      >
+        Equipe
+      </button>
+      <button
+        className={`tab ${atual === 'clientes' ? 'tab-active' : ''}`}
+        onClick={() => aoTrocar('clientes')}
+      >
+        Clientes
+      </button>
     </div>
   );
 }

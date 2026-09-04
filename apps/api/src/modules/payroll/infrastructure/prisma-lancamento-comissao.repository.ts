@@ -24,6 +24,7 @@ function paraDominio(row: LancamentoPrisma): LancamentoComissao {
     percentualAplicado: row.percentualAplicadoBp !== null ? Percentual.dePontosBase(row.percentualAplicadoBp) : null,
     valorComissao: Dinheiro.deCentavos(row.valorComissaoCentavos),
     ocorridoEm: row.ocorridoEm,
+    estornoDeId: row.estornoDeId,
   });
 }
 
@@ -71,6 +72,7 @@ export class PrismaLancamentoComissaoRepository implements LancamentoComissaoRep
         produtoId: lancamento.produtoId,
         valeId: lancamento.valeId,
         registradoPorId: lancamento.registradoPorId,
+        estornoDeId: lancamento.estornoDeId,
         valorBaseCentavos: lancamento.valorBase?.centavos ?? null,
         percentualAplicadoBp: lancamento.percentualAplicado?.pontosBase ?? null,
         valorComissaoCentavos: lancamento.valorComissao.centavos,

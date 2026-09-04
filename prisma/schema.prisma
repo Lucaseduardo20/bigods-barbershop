@@ -14,6 +14,9 @@ enum Papel {
 
 enum StatusAtendimento {
   RESERVADO
+  // Contingência de OTP (2026-09-04) — agendou sem verificar o telefone e
+  // espera aprovação humana. Ocupa o horário como AGENDADO. Ver §8.17.
+  AGUARDANDO_APROVACAO
   AGENDADO
   // Conclusão ANTECIPADA aguardando aprovação do admin (2026-08-20). Ocupa o
   // horário como AGENDADO — está na constraint EXCLUDE e na invariante do
@@ -43,6 +46,31 @@ enum StatusPagamento {
   PAGO
   EXPIRADO
   FALHOU
+  // Cartão de crédito (Mercado Pago, 2026-08-27): o emissor aceitou processar
+  // mas ainda não decidiu — `status=processing` / `status_detail=in_process` na
+  // Orders API. Não é AGUARDANDO (o cliente já fez a parte dele) nem FALHOU.
+  // O desafio 3DS (`pending_challenge`) NÃO cai aqui: ali o cliente ainda tem
+  // ação a tomar, então é AGUARDANDO — decisão do dono, PLANO_MERCADOPAGO.md.
+  EM_ANALISE
+}
+
+// Qual adapter criou a cobrança. Com dois gateways reais a conviver, um webhook
+// do Mercado Pago não pode confirmar uma intenção criada pela AbacatePay — e o
+// estorno precisa saber para qual gateway ligar. Enum em vez de string livre
+// porque papel/provedor comparado inline é anti-padrão (CLAUDE.md).
+// NULL em linhas anteriores a 2026-08-27 e no modo manual por WhatsApp (que não
+// chama gateway nenhum).
+enum ProvedorPagamento {
+  ABACATEPAY
+  MERCADOPAGO
+  FAKE
+}
+
+// Meio efetivamente usado numa tentativa. Débito ficou fora de escopo: no Brasil
+// o Checkout Transparente só oferece débito virtual Caixa (Elo).
+enum MeioDePagamentoOnline {
+  PIX
+  CARTAO_CREDITO
 }
 
 enum FormaPagamento {
@@ -272,6 +300,11 @@ model PacoteOferta {
   // numa migration futura — ver DECISOES_PENDENTES.
   barbeiroId      String?
   nome            String
+  // Dias da semana em que os créditos deste pacote podem ser usados
+  // (2026-08-28) — 0=domingo … 6=sábado. Os sete = sem restrição, que é o
+  // default e o comportamento de antes desta regra. A VENDA congela isto: mudar
+  // aqui não afeta pacote já comprado.
+  diasPermitidos  Int[]                       @default([0, 1, 2, 3, 4, 5, 6])
   precoCentavos   Int
   ativo           Boolean                     @default(true)
   // Workflow de aprovação (Fase 3): só APROVADO aparece no funil público.
@@ -300,16 +333,16 @@ model PacoteOfertaItem {
 }
 
 model Barbeiro {
-  id                 String  @id
-  companyId          String
-  nome               String
-  papeis             Papel[]
-  comissaoPadraoBp   Int
+  id                   String  @id
+  companyId            String
+  nome                 String
+  papeis               Papel[]
+  comissaoPadraoBp     Int
   // ⚠️ DEPRECADO em 2026-08-19 (decisão dos sócios): a comissão de produto virou
   // uma taxa ÚNICA DA EMPRESA (`Company.comissaoProdutosBp`), não mais por
   // barbeiro. Ninguém lê esta coluna para calcular comissão. Mantida por
   // migration aditiva, para rollback — ver DECISOES_PENDENTES.
-  comissaoProdutosBp Int     @default(0)
+  comissaoProdutosBp   Int     @default(0)
   // ACERTO DO FECHAMENTO (2026-08-26) — configuráveis pelo admin, por barbeiro.
   // `percentualCaixinhaBp`: quanto da CAIXINHA fica com ele (o resto é da casa).
   // `percentualDescontoBp`: quanto do DESCONTO que ele concede sai da comissão
@@ -317,16 +350,16 @@ model Barbeiro {
   // Antes os dois eram derivados — 100% cravado e a fração da comissão. O
   // backfill da migration reproduz exatamente esses valores, então a mudança
   // não move o dinheiro de ninguém; ela só torna o número editável.
-  percentualCaixinhaBp Int   @default(10000)
-  percentualDescontoBp Int   @default(0)
-  ativo              Boolean @default(true)
+  percentualCaixinhaBp Int     @default(10000)
+  percentualDescontoBp Int     @default(0)
+  ativo                Boolean @default(true)
   // Slug legível pra link pessoal de marketing (Fase 4b) — "/?barbeiro=gabriel"
   // em vez de UUID. Único por empresa, gerado no cadastro, editável pelo admin.
-  slug               String
+  slug                 String
   // Foto de perfil (2026-08-19, resolve DECISOES_PENDENTES #4): URL pública no
   // bucket de uploads. Nullable de propósito — quem não tem foto cai no avatar
   // de iniciais, nunca numa imagem quebrada.
-  fotoUrl            String?
+  fotoUrl              String?
 
   // credenciais da autenticação local (infra — não fazem parte do domínio)
   login     String? @unique
@@ -421,6 +454,10 @@ model Cliente {
   nome       String
   telefone   String
   cognitoSub String?
+  // Senha do cliente (2026-09-04) — MESMO formato e mesmo motor do login de
+  // staff (`senha.ts`: scrypt, `sal:hash`). NULL = ainda não tem senha; hoje
+  // quem define é o admin, pela tela de Clientes.
+  senhaHash  String?
   // Opcionais, coletados no funil (nunca obrigatórios — atrito no funil custa
   // conversão). Só são gravados quando o cliente preenche; um agendamento
   // posterior com o campo em branco NÃO apaga o que já havia.
@@ -484,15 +521,27 @@ model Atendimento {
   // dinheiro vive no ledger (LancamentoComissao), imutável; estes campos são o
   // registro do que foi declarado, para a comanda poder ser relida depois.
   // Nunca inferidos de "pagou mais/menos": só existem por ação explícita.
-  caixinhaCentavos          Int     @default(0)
-  descontoConcedidoCentavos Int     @default(0)
+  caixinhaCentavos          Int @default(0)
+  descontoConcedidoCentavos Int @default(0)
 
   // FASE 4 (2026-08-25) — reativação de cancelamento pelo admin. Auditoria de
   // quem trouxe o atendimento de volta. `motivoCancelamento` continua
   // preenchido: os três campos juntos contam a história (cancelado por X,
   // reativado por Y em Z).
-  reativadoPorId            String?
-  reativadoEm               DateTime? @db.Timestamptz(3)
+  reativadoPorId String?
+  reativadoEm    DateTime? @db.Timestamptz(3)
+  // Quem decidiu um pedido que entrou sem verificação de telefone, e quando
+  // (contingência de OTP, 2026-09-04). NULL em tudo que nunca passou por ela.
+  aprovadoPorId             String?
+  aprovadoEm                DateTime?         @db.Timestamptz(3)
+
+  // Reatribuição de barbeiro ANTES de concluir (2026-08-27): de quem era, quem
+  // transferiu e quando. `barbeiroId` segue sendo a verdade sobre quem atende;
+  // isto é o rastro de que ele mudou — e o que responde "por que a comissão
+  // deste atendimento é do B se o cliente marcou com o A?".
+  reatribuidoDeId           String?
+  reatribuidoPorId          String?
+  reatribuidoEm             DateTime? @db.Timestamptz(3)
 
   company  Company               @relation(fields: [companyId], references: [id])
   itens    ItemAtendido[]
@@ -504,12 +553,12 @@ model Atendimento {
 }
 
 model ItemAtendido {
-  id                   String  @id @default(uuid())
-  atendimentoId        String
-  servicoId            String
-  valorCobradoCentavos Int
-  duracaoMinutos       Int
-  itemDoPacoteId       String?
+  id                       String  @id @default(uuid())
+  atendimentoId            String
+  servicoId                String
+  valorCobradoCentavos     Int
+  duracaoMinutos           Int
+  itemDoPacoteId           String?
   // Comanda editável (2026-08-25): o preço CHEIO do barbeiro no momento em que
   // o item entrou, que é a base da escada de desconto progressivo, e o preço
   // promocional do order-bump (não-nulo ⇒ item fora da escada).
@@ -591,6 +640,9 @@ model VendaDePacote {
   // composição; a tela deriva um rótulo dos serviços nesse caso.
   ofertaId                        String?
   nomeOferta                      String?
+  // SNAPSHOT dos dias permitidos no momento da compra (2026-08-28). O cliente
+  // leva o que comprou; editar a oferta depois não muda o pacote dele.
+  diasPermitidos                  Int[]           @default([0, 1, 2, 3, 4, 5, 6])
 
   company               Company                  @relation(fields: [companyId], references: [id])
   barbeiro              Barbeiro?                @relation(fields: [barbeiroId], references: [id])
@@ -608,6 +660,15 @@ model VendaDePacote {
 enum StatusSolicitacaoReembolso {
   PENDENTE
   REEMBOLSADO
+  // 2026-08-27: o admin decide devolver, mas a execução é AGENDADA (default 31
+  // dias, parametrizável por solicitação, 0 = imediato).
+  AGENDADO
+  // A execução agendada chamou o gateway e falhou. O motivo mais provável é
+  // SALDO INSUFICIENTE na conta do Mercado Pago no dia da execução — a doc é
+  // explícita que o estorno exige saldo disponível, e a operação saca o saldo
+  // para pagar barbeiro. Sem este estado o estorno agendado sumiria em silêncio
+  // e o cliente cobraria a barbearia (followup.md #1).
+  FALHOU
 }
 
 model SolicitacaoDeReembolso {
@@ -623,11 +684,34 @@ model SolicitacaoDeReembolso {
   status          StatusSolicitacaoReembolso
   reembolsadaEm   DateTime?                  @db.Timestamptz(3)
 
+  // ── Estorno agendado (2026-08-27). Todos NULÁVEIS: aditivo, sem backfill. ──
+  //
+  // Quando a execução deve acontecer. Default 31 dias, parametrizável POR
+  // SOLICITAÇÃO (não configuração global escondida) e 0 = imediato. NULL nas
+  // solicitações anteriores, que eram todas manuais.
+  agendadaPara    DateTime? @db.Timestamptz(3)
+  // Quando o gateway confirmou o estorno de fato. Distinto de `reembolsadaEm`,
+  // que registra o ato ADMINISTRATIVO de dar por devolvido (o fluxo manual, em
+  // que o dinheiro voltava por fora do sistema).
+  executadaEm     DateTime? @db.Timestamptz(3)
+  // Id do estorno no gateway — a prova de que aconteceu, e o que permite
+  // reconciliar sem estornar de novo.
+  gatewayRefundId String?
+  // Quantas vezes o job tentou executar. Sobe a cada falha.
+  tentativas      Int       @default(0)
+  // Mensagem crua do gateway na última falha. Traduzida para linguagem de
+  // operação na tela do admin ("saldo insuficiente na conta Mercado Pago"),
+  // nunca mostrada crua ao cliente.
+  ultimoErro      String?
+
   venda VendaDePacote @relation(fields: [vendaDePacoteId], references: [id])
 
   @@index([companyId, status])
   @@index([vendaDePacoteId])
   @@index([clienteId])
+  // O job de estorno agendado varre por (status, agendadaPara) a cada tick.
+  // Sem este índice a varredura é seq scan numa tabela que só cresce.
+  @@index([status, agendadaPara])
 }
 
 model ItemDoPacote {
@@ -646,7 +730,7 @@ model ItemDoPacote {
   // marcado: concluir hoje um atendimento de sexta fazia o crédito "morrer" na
   // sexta, e um avulso marcado no meio não rebaixava ninguém. Concluir antes do
   // horário é rotina (§4.1), então o proxy não servia.
-  deixouDeExistirEm    DateTime?        @db.Timestamptz(3)
+  deixouDeExistirEm     DateTime?        @db.Timestamptz(3)
   atendimentoId         String?
 
   venda VendaDePacote @relation(fields: [vendaId], references: [id])
@@ -751,6 +835,10 @@ model LancamentoComissao {
   // vale como PAGO, ou que registrou o pagamento (FASE 2). Null quando
   // tipo=COMISSAO (gerado pelo sistema, não por uma ação humana pontual).
   registradoPorId       String?
+  // Qual lançamento este estorno anula (2026-08-27). Sem @relation, mesmo
+  // padrão dos outros ids de auditoria: referência de leitura, não FK rígida.
+  // NULL em tudo que não é estorno.
+  estornoDeId           String?
   valorBaseCentavos     Int?
   percentualAplicadoBp  Int?
   valorComissaoCentavos Int
@@ -761,6 +849,7 @@ model LancamentoComissao {
   @@index([barbeiroId])
   @@index([atendimentoId])
   @@index([valeId])
+  @@index([estornoDeId])
 }
 
 // Vale/adiantamento de comissão (sessão de vale/pagamento) — item antes fora
@@ -777,6 +866,17 @@ enum TipoLancamento {
   // VALE/PAGAMENTO, mas é outro fato — comissão que ele deixou de ganhar, não
   // dinheiro que a casa lhe entregou.
   DESCONTO_CONCEDIDO
+  // Parte da TAXA do gateway que o barbeiro absorve (2026-08-27) — comissão
+  // sobre o LÍQUIDO, implementada como linha própria para o extrato dele
+  // explicar a diferença. Ver o comentário do enum em contracts.
+  TAXA_PAGAMENTO_ONLINE
+  // Estornos da correção de barbeiro (2026-08-27). O ledger é imutável: o
+  // lançamento errado não é apagado, é ANULADO por um de sinal oposto.
+  // São dois porque o sinal do estorno é o oposto do que ele anula:
+  //   ESTORNO_COMISSAO (−) anula o que somou    (serviço, produto, caixinha)
+  //   ESTORNO_DESCONTO (+) anula o que subtraiu (o desconto absorvido)
+  ESTORNO_COMISSAO
+  ESTORNO_DESCONTO
 }
 
 enum StatusVale {
@@ -824,7 +924,107 @@ model IntencaoDePagamento {
   // pagamento online (presencial) ou em linhas anteriores a esta sessão.
   expiraEm        DateTime?           @db.Timestamptz(3)
 
-  company Company @relation(fields: [companyId], references: [id])
+  // ── Mercado Pago (2026-08-27). Todos NULÁVEIS: aditivo, sem backfill. ──────
+  //
+  // Qual adapter criou esta cobrança. NULL = linha anterior a esta migration ou
+  // modo manual por WhatsApp (que não chama gateway).
+  gateway              ProvedorPagamento?
+  // Id da cobrança NO GATEWAY. Para o Mercado Pago é o id da order (`ORD01…`), e
+  // é a ÚNICA chave que o webhook dele entrega: a notificação traz só `data.id`,
+  // sem status e sem o nosso `external_reference`. Sem esta coluna, achar a
+  // intenção exigiria um GET na API antes de saber se o evento é sequer nosso.
+  // (Hoje o `gatewayId` que o adapter da AbacatePay devolve é descartado.)
+  gatewayId            String?
+  // `status_detail` cru do gateway. O Mercado Pago tem duas camadas de status e
+  // ~13 combinações; sem guardar o detalhe, AGUARDANDO e EM_ANALISE viram
+  // caixa-preta na hora de investigar um pagamento travado. NUNCA é devolvido na
+  // resposta pública — `high_risk` e `rejected_by_issuer` ensinariam o fraudador
+  // a calibrar a próxima tentativa. Só o admin vê.
+  statusDetalhe        String?
+  // Valor LÍQUIDO recebido, já descontada a taxa do gateway. Existe porque a
+  // comissão do barbeiro passa a incidir sobre o líquido em todo pagamento
+  // online (decisão do dono). O Mercado Pago informa isso em `paid_amount`
+  // (distinto de `amount`); a AbacatePay não expõe líquido em lugar nenhum, e
+  // para ela o valor é derivado de uma taxa configurada por env.
+  valorLiquidoCentavos Int?
+  // Por qual TRILHO o cliente pagou (2026-08-27). NULL = linha anterior a esta
+  // coluna, ou modo manual por WhatsApp.
+  //
+  // Existe porque a conclusão do atendimento precisa registrar a
+  // `FormaPagamento` correta: até aqui todo pagamento online era gravado como
+  // `PIX_ONLINE`, e com o trilho de cartão isso passou a ser mentira nos
+  // relatórios (followup.md #13). O trilho é escolhido ANTES de qualquer
+  // cobrança, então esta coluna é preenchida na criação da cobrança.
+  meio                 MeioDePagamentoOnline?
+  // Instante em que o estorno automático foi SOLICITADO (não executado).
+  // Gravado ANTES de chamar o gateway, na mesma transação que lê a intenção:
+  // é o que impede um webhook reenviado (o Mercado Pago retenta a cada 15 min)
+  // de estornar o mesmo pagamento duas vezes. Ver followup.md #4.
+  estornoSolicitadoEm  DateTime?          @db.Timestamptz(3)
+  /// Id do estorno NO GATEWAY — a prova de que ele aconteceu de fato.
+  /// `estornoSolicitadoEm != null && estornoGatewayId == null` é exatamente o
+  /// estado "solicitei e não sei se completou", que o job de reconciliação varre.
+  estornoGatewayId     String?
+  /// Mensagem crua do gateway na última tentativa de estorno que falhou. Existe
+  /// para o estorno não falhar em silêncio — sem isto, uma devolução travada
+  /// some, e é o cliente que descobre.
+  estornoErro          String?
+
+  company    Company                @relation(fields: [companyId], references: [id])
+  tentativas TentativaDePagamento[]
+
+  // O job de reconciliação varre por estorno em voo (solicitado e sem id do
+  // gateway). Índice não-único: não pode falhar por dado preexistente.
+  @@index([estornoSolicitadoEm, estornoGatewayId])
+  // O webhook do Mercado Pago só entrega o id da order; a busca por ele é o
+  // plano B quando o external_reference não vem ecoado.
+  @@index([gatewayId])
+}
+
+/**
+ * Uma TENTATIVA de cobrança no gateway. Uma intenção pode ter várias.
+ * Por que esta tabela existe, e por que agora: cartão recusado permite nova
+ * tentativa (decisão do dono — o cliente pode tentar outro cartão, sem renovar a
+ * janela de 30 min). Cada tentativa é uma order NOVA no Mercado Pago, com uma
+ * chave de idempotência NOVA — porque reenviar a mesma chave devolve HTTP 409
+ * `idempotency_key_already_used`, e não a order original: a Orders API não tem
+ * semântica de replay.
+ * Se `gatewayId` e `idempotencyKey` morassem em `IntencaoDePagamento`, a segunda
+ * tentativa sobrescreveria a primeira, e um webhook atrasado da primeira order
+ * não encontraria vínculo nenhum. Criar isto depois custaria migration de dados
+ * com pagamentos reais em produção.
+ * `idempotencyKey @unique` transforma "nunca reutilizar a chave" de convenção em
+ * invariante de banco. `@@unique([gateway, gatewayId])` garante que a mesma order
+ * não seja vinculada a duas tentativas.
+ */
+model TentativaDePagamento {
+  id                    String                @id
+  companyId             String
+  intencaoDePagamentoId String
+  gateway               ProvedorPagamento
+  // NULL entre o INSERT e a resposta do gateway: a linha nasce antes da chamada
+  // HTTP, para que um crash no meio deixe rastro em vez de uma order órfã.
+  gatewayId             String?
+  idempotencyKey        String                @unique
+  meio                  MeioDePagamentoOnline
+  status                StatusPagamento
+  statusDetalhe         String?
+  valorLiquidoCentavos  Int?
+  criadaEm              DateTime              @db.Timestamptz(3)
+  atualizadaEm          DateTime              @db.Timestamptz(3)
+
+  intencao IntencaoDePagamento @relation(fields: [intencaoDePagamentoId], references: [id])
+
+  @@unique([gateway, gatewayId])
+  @@index([intencaoDePagamentoId])
+  @@index([companyId, status])
+  // ★ Existe também um índice PARCIAL ÚNICO que o Prisma não expressa:
+  //   UNIQUE (intencaoDePagamentoId) WHERE status IN ('AGUARDANDO','EM_ANALISE')
+  // Criado em `20260827030000_tentativa_viva_unica`. É ele — não o `if` do caso
+  // de uso — que garante UMA tentativa viva por intenção: sem ele, dois POST
+  // simultâneos criam duas orders no gateway e o cliente é cobrado duas vezes
+  // (medido em `webhook-mercadopago.e2e.spec.ts`). Ver `EXCLUDE USING gist` do
+  // conflito de horário: mesma classe de invariante.
 }
 
 // ── Identidade do cliente (provider demo) ─────────────────────────────────

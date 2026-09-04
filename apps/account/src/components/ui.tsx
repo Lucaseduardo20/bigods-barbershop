@@ -70,6 +70,14 @@ const PATHS: Record<string, ReactNode> = {
       <line x1="8.12" y1="8.12" x2="12" y2="12" />
     </>
   ),
+  calendar: (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </>
+  ),
   'calendar-check': (
     <>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -105,6 +113,13 @@ const PATHS: Record<string, ReactNode> = {
     <>
       <line x1="19" y1="12" x2="5" y2="12" />
       <polyline points="12 19 5 12 12 5" />
+    </>
+  ),
+  /** Cadeado — "trocar minha senha" no topo da conta (2026-09-04). */
+  lock: (
+    <>
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </>
   ),
   'log-out': (

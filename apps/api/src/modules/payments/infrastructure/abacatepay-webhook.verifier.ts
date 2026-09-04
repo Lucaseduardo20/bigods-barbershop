@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac } from 'node:crypto';
+import { comparaSegura } from './comparacao-segura';
 
 /**
  * Verificação da origem de um webhook do AbacatePay v2. Pura (sem Nest/Prisma)
@@ -58,12 +59,4 @@ export function verificarWebhookAbacatePay(entrada: EntradaVerificacaoWebhook): 
   if (!entrada.assinaturaHeader) return false;
   const esperado = createHmac('sha256', ABACATEPAY_PUBLIC_KEY).update(entrada.corpoCru).digest('base64');
   return comparaSegura(entrada.assinaturaHeader, esperado);
-}
-
-/** Comparação em tempo constante. Difere no tamanho → false, sem vazar por timing. */
-function comparaSegura(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
 }

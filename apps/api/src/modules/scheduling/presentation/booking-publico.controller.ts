@@ -27,6 +27,7 @@ import {
 import {
   ClienteConhecidoDTO,
   FormaPagamentoFunil,
+  MeioDePagamentoOnline,
   LIMITE_DIAS_AGENDAMENTO,
   MAX_SOBRE_VOCE,
 } from '@bigods/contracts';
@@ -75,6 +76,14 @@ import {
 } from '../../identity/presentation/cliente.guard';
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 import { Telefone } from '../../../shared/domain/telefone';
+import {
+  CONFIG_CONTINGENCIA_OTP,
+  ConfigContingenciaOtp,
+} from '../../../shared/config/contingencia-otp';
+import {
+  VENDA_DE_PACOTE_REPOSITORY,
+  VendaDePacoteRepository,
+} from '../../packages/domain/venda-de-pacote.repository';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -112,6 +121,16 @@ class AgendarPublicoDto {
   @Matches(HORA_HHMM) horaInicio!: string;
   @ValidateNested() @Type(() => ClientePublicoDto) cliente!: ClientePublicoDto;
   @IsOptional() @IsIn(['online', 'presencial']) formaPagamento?: FormaPagamentoFunil;
+  /**
+   * Trilho online (2026-08-27). Ausente = `'PIX'`, que preserva o comportamento
+   * de todo cliente antigo do funil.
+   *
+   * ★ Continua não existindo campo de dinheiro neste DTO, e escolher cartão não
+   * cria um: o valor sai da `IntencaoDePagamento` no servidor, nos dois trilhos.
+   * `@IsIn` valida a FORMA; se o deploy aceita aquele trilho é pergunta de
+   * `CobrancaOnlineService.assertMeioSuportado`, respondida antes da 1ª escrita.
+   */
+  @IsOptional() @IsIn(['PIX', 'CARTAO_CREDITO']) meioOnline?: MeioDePagamentoOnline;
   /** Fase 4c: presente quando o cliente entrou pelo link pessoal de um barbeiro. */
   @IsOptional() @IsString() origemLinkBarbeiroId?: string;
   /**
@@ -157,6 +176,10 @@ export class BookingPublicoController {
     @Inject(ITEM_DE_ORDER_BUMP_REPOSITORY) private readonly itensDeBump: ItemDeOrderBumpRepository,
     private readonly empresaQuery: EmpresaPublicaQueryService,
     private readonly horariosQuery: HorariosDisponiveisQueryService,
+    @Inject(VENDA_DE_PACOTE_REPOSITORY)
+    private readonly vendasDePacote: VendaDePacoteRepository,
+    @Inject(CONFIG_CONTINGENCIA_OTP)
+    private readonly contingencia: ConfigContingenciaOtp,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly cancelarReservaOnline: CancelarReservaOnlineUseCase,
   ) {}
@@ -354,6 +377,12 @@ export class BookingPublicoController {
    *
    * Continua sendo um oráculo de "este número é cliente daqui", e é por isso
    * que tem limite agressivo por origem. Registrado em DECISOES_PENDENTES.
+   *
+   * ★ `temSenha` (2026-09-04) só sai com a contingência LIGADA. É o que o funil
+   * precisa para escolher entre pedir a senha e mandar falar com a barbearia —
+   * os dois ramos de "telefone com conta" (ver `contingencia-otp.ts`). Fora da
+   * contingência ninguém consome o campo, e por isso ele não é respondido: um
+   * oráculo a mais sobre a conta de alguém não deve existir sem uso.
    */
   @Publico()
   @Throttle({ default: { limit: 20, ttl: 600_000 } })
@@ -373,7 +402,10 @@ export class BookingPublicoController {
       throw new BadRequestException('Telefone inválido');
     }
     const cliente = await this.clientes.porTelefone(id, normalizado);
-    return { conhecido: !!cliente && !cliente.nomeEhPlaceholder };
+    return {
+      conhecido: !!cliente && !cliente.nomeEhPlaceholder,
+      temSenha: this.contingencia.ativo && !!cliente && cliente.temSenha,
+    };
   }
 
   @Publico()
@@ -383,6 +415,7 @@ export class BookingPublicoController {
     @Query('barbeiroId') barbeiroId?: string,
     @Query('data') data?: string,
     @Query('servicoIds') servicoIds?: string,
+    @Query('creditoId') creditoId?: string,
   ): Promise<HorariosDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
     if (!data || !DATA_ISO.test(data)) {
@@ -390,11 +423,37 @@ export class BookingPublicoController {
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
+    const diasPermitidos = await this.diasDoCredito(id, creditoId);
     // Sem barbeiroId = "não tenho preferência": união dos horários de todos os
     // barbeiros que atendem os serviços escolhidos.
     return barbeiroId
-      ? this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids })
-      : this.horariosQuery.disponiveisGlobal({ companyId: id, data, servicoIds: ids });
+      ? this.horariosQuery.disponiveis({ companyId: id, barbeiroId, data, servicoIds: ids, diasPermitidos })
+      : this.horariosQuery.disponiveisGlobal({ companyId: id, data, servicoIds: ids, diasPermitidos });
+  }
+
+  /**
+   * DIAS PERMITIDOS DO PACOTE (2026-08-28) — a projeção só oferece o que o
+   * crédito pode gastar.
+   *
+   * A chave é o CRÉDITO (`itemDoPacoteId`), não a venda: é o que as duas telas
+   * que gastam crédito já têm em mãos (a de usar o pacote e a de reagendar um
+   * atendimento de pacote), e daqui a venda sai por consulta. O que decide são
+   * os dias CONGELADOS na venda, nunca os dias atuais da oferta — a oferta pode
+   * ter mudado depois da compra.
+   *
+   * Crédito desconhecido é 404, não "sem restrição": oferecer a agenda inteira
+   * para um id que ninguém reconhece mostraria dias que a escrita vai recusar.
+   */
+  private async diasDoCredito(
+    companyId: string,
+    creditoId: string | undefined,
+  ): Promise<number[] | undefined> {
+    if (!creditoId) return undefined;
+    const venda = await this.vendasDePacote.porItemId(creditoId);
+    if (!venda || venda.companyId !== companyId) {
+      throw new NotFoundException('Crédito de pacote não encontrado');
+    }
+    return venda.diasPermitidos;
   }
 
   /**
@@ -414,6 +473,7 @@ export class BookingPublicoController {
     @Query('de') de?: string,
     @Query('ate') ate?: string,
     @Query('servicoIds') servicoIds?: string,
+    @Query('creditoId') creditoId?: string,
   ): Promise<DiasDisponiveisDTO> {
     const id = this.exigirCompanyId(companyId);
     if (!de || !DATA_ISO.test(de) || !ate || !DATA_ISO.test(ate)) {
@@ -426,9 +486,10 @@ export class BookingPublicoController {
     }
     const ids = this.parseCsv(servicoIds);
     if (ids.length === 0) throw new BadRequestException('Parâmetro servicoIds obrigatório');
+    const diasPermitidos = await this.diasDoCredito(id, creditoId);
     return barbeiroId
-      ? this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids })
-      : this.horariosQuery.diasComHorarioGlobal({ companyId: id, de, ate, servicoIds: ids });
+      ? this.horariosQuery.diasComHorario({ companyId: id, barbeiroId, de, ate, servicoIds: ids, diasPermitidos })
+      : this.horariosQuery.diasComHorarioGlobal({ companyId: id, de, ate, servicoIds: ids, diasPermitidos });
   }
 
   /**
@@ -472,7 +533,25 @@ export class BookingPublicoController {
     if (atual && atual.companyId !== body.companyId) {
       throw new ForbiddenException('Sessão não pertence a esta empresa');
     }
-    if (!atual && !online) {
+    /**
+     * ★ CONTINGÊNCIA DE OTP (2026-09-04) — o único ponto onde a flag muda
+     * comportamento no agendamento.
+     *
+     * Sem ela, presencial exige sessão verificada: é o que segura o horário
+     * FIRME sem pagar nada, e sem prova de posse do telefone qualquer um entope
+     * a agenda em nome de qualquer número.
+     *
+     * Com ela, o telefone não pode ser verificado (o SMS não chega), então a
+     * prova de posse é trocada por uma DECISÃO HUMANA: o agendamento entra e
+     * nasce `AGUARDANDO_APROVACAO`, e alguém da casa aprova no painel. O
+     * horário fica ocupado enquanto isso, para dois pedidos não brigarem pelo
+     * mesmo lugar.
+     *
+     * O que NÃO muda: cota de presenciais, janela de agendamento, conflito de
+     * horário e a EXCLUDE do Postgres continuam valendo igual.
+     */
+    const semOtpPorContingencia = !atual && !online && this.contingencia.ativo;
+    if (!atual && !online && !semOtpPorContingencia) {
       throw new UnauthorizedException(
         'Confirme seu telefone para agendar com pagamento na barbearia.',
       );
@@ -496,11 +575,30 @@ export class BookingPublicoController {
       if (!body.cliente.telefone) {
         throw new BadRequestException('Informe seu celular com WhatsApp para agendar.');
       }
-      if (!body.cliente.nome) {
-        throw new BadRequestException('Informe seu nome para agendar.');
-      }
       telefone = body.cliente.telefone;
-      nome = body.cliente.nome;
+      /**
+       * ★ 2026-09-04: o nome só é obrigatório para quem AINDA NÃO TEM cadastro.
+       *
+       * Nasceu do ramo 3 da contingência (telefone com conta e sem senha): o
+       * funil não pergunta o nome de quem já é cliente, porque não conseguiu
+       * provar que é ele quem está digitando — mandar um nome de volta ali
+       * arriscaria o cadastro real, e MOSTRAR o guardado transformaria o campo
+       * de telefone numa consulta de "quem é o dono deste número".
+       *
+       * O nome vem do cadastro, exatamente como no caminho com sessão. Nada é
+       * devolvido na resposta, então isto não vira oráculo: quem manda o
+       * telefone descobre no máximo que o agendamento passou — o que
+       * `/public/clientes/conhecido` já dizia, com limite próprio.
+       */
+      const existente = await this.clienteExistente(body.companyId, telefone);
+      if (existente && !existente.nomeEhPlaceholder) {
+        nome = existente.nome;
+      } else {
+        if (!body.cliente.nome) {
+          throw new BadRequestException('Informe seu nome para agendar.');
+        }
+        nome = body.cliente.nome;
+      }
     }
 
     const tz = await this.parametros.timezone(body.companyId);
@@ -509,6 +607,8 @@ export class BookingPublicoController {
       barbeiroId: body.barbeiroId ?? null,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
+      // Sem telefone verificado, o pedido espera uma pessoa aprovar.
+      aguardandoAprovacao: semOtpPorContingencia,
       cliente: {
         nome,
         telefone,
@@ -516,16 +616,24 @@ export class BookingPublicoController {
         sobreVoce: body.cliente.sobreVoce ?? null,
       },
       gerarCobranca: online,
+      ...(body.meioOnline ? { meioOnline: body.meioOnline } : {}),
       origemLinkBarbeiroId: body.origemLinkBarbeiroId ?? null,
       produtosBump: body.produtosBump,
       servicosBump: body.servicosBump,
     });
     return {
       atendimentoId: resultado.atendimentoId,
-      // No modo manual não há PIX, mas há intenção — é ela que o admin
-      // confirma depois, e é por ela que o funil consulta o status.
-      intencaoId: resultado.cobranca?.intencaoId ?? resultado.pagamentoManual?.intencaoId ?? null,
+      // Os TRÊS trilhos online trazem intenção: PIX (com QR), cartão (sem
+      // cobrança ainda) e manual (o admin confirma depois). É por ela que o funil
+      // consulta o status, então esquecer um trilho aqui deixaria a tela de espera
+      // sem nada para consultar.
+      intencaoId:
+        resultado.cobranca?.intencaoId ??
+        resultado.checkoutCartao?.intencaoId ??
+        resultado.pagamentoManual?.intencaoId ??
+        null,
       cobranca: resultado.cobranca,
+      checkoutCartao: resultado.checkoutCartao,
       pagamentoManual: resultado.pagamentoManual,
       barbeiro: resultado.barbeiro,
       valorTotalCentavos: resultado.valorTotalCentavos,
@@ -551,6 +659,19 @@ export class BookingPublicoController {
       intencaoId: body.intencaoId,
     });
     return { ok: true };
+  }
+
+  /**
+   * Cliente por telefone, tolerante a número malformado: quem valida formato é
+   * a borda (`@EhCelularBrasileiro`) e, mais adiante, `AgendarAvulsoUseCase` —
+   * um erro de formato precisa sair de lá, com a mensagem de lá, não daqui.
+   */
+  private async clienteExistente(companyId: string, telefone: string) {
+    try {
+      return await this.clientes.porTelefone(companyId, Telefone.de(telefone));
+    } catch {
+      return null;
+    }
   }
 
   private exigirCompanyId(companyId?: string): string {

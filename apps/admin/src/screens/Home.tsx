@@ -26,16 +26,26 @@ export function Home({
   usuario,
   aoNavegar,
   aoRegistrarAtendimento,
+  aoDecidirAtendimento,
 }: {
   usuario: UsuarioDTO;
   /** Leva pra seção completa — a home só aponta, não duplica tela. */
   aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
   /** Reusa o walk-in que já existe na Agenda — nenhum fluxo novo de criação. */
   aoRegistrarAtendimento: () => void;
+  /**
+   * Leva à Agenda JÁ no atendimento a decidir (2026-09-04) — semana dele,
+   * filtro certo, diálogo aberto. Ver `LinhaPendencia`.
+   */
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
 }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   return ehAdmin ? (
-    <HomeGestao aoNavegar={aoNavegar} aoRegistrarAtendimento={aoRegistrarAtendimento} />
+    <HomeGestao
+      aoNavegar={aoNavegar}
+      aoRegistrarAtendimento={aoRegistrarAtendimento}
+      aoDecidirAtendimento={aoDecidirAtendimento}
+    />
   ) : (
     <HomePessoal aoNavegar={aoNavegar} aoRegistrarAtendimento={aoRegistrarAtendimento} />
   );
@@ -203,7 +213,19 @@ function HomePessoal({
   );
 }
 
-function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
+function LinhaPendencia({
+  p,
+  tz,
+  aoNavegar,
+  aoDecidirAtendimento,
+}: {
+  p: HomePendenciaDTO;
+  tz: string;
+  /** Só usado pela linha urgente — ver `urgente` abaixo. */
+  aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
+  /** Abre a Agenda NO atendimento — ver `decisaoPendente` abaixo. */
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
+}) {
   const dia = new Date(p.desde).toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
@@ -214,31 +236,89 @@ function LinhaPendencia({ p, tz }: { p: HomePendenciaDTO; tz: string }) {
       ? 'Pacote aguardando pagamento'
       : p.tipo === 'CONCLUSAO_ANTECIPADA'
         ? `Conclusão antes do horário · ${p.barbeiroNome ?? '—'}`
-        : 'Atendimento aguardando pagamento';
-  return (
-    <div className="flex items-center justify-between gap-2 py-1.5">
-      <div className="min-w-0">
+        : p.tipo === 'ESTORNO_FALHADO'
+          ? 'Devolução falhou — o dinheiro não voltou'
+          : p.tipo === 'AGENDAMENTO_AGUARDANDO_APROVACAO'
+            ? 'Agendou sem confirmar o telefone — aprove ou recuse'
+            : 'Atendimento aguardando pagamento';
+
+  /**
+   * ★ Estorno falhado é a ÚNICA pendência em vermelho, e é proporcional: as
+   * outras são decisões esperando o admin; esta é dinheiro de CLIENTE que já
+   * deveria ter voltado e não voltou. Se ela se parecer com as outras, ela vira
+   * uma das outras — e quem descobre primeiro é o cliente.
+   *
+   * O `motivo` aqui vem em linguagem de operação (`rotuloDoMotivoDeEstorno`),
+   * nunca o erro cru do gateway. O cru fica na tela de Reembolsos, que é onde
+   * alguém vai investigar de fato.
+   */
+  const urgente = p.tipo === 'ESTORNO_FALHADO';
+  /**
+   * Contingência de OTP (2026-09-04): enquanto o SMS não chega, ESTA é a trava
+   * anti-poluição — e uma trava que ninguém vê não filtra nada. A linha leva à
+   * Agenda, onde aprovar e recusar ficam.
+   *
+   * ★ Leva AO ATENDIMENTO, não à tela. Levar só à tela abria a Agenda na semana
+   * corrente, e um pedido para a semana seguinte não estava lá — o dono via a
+   * pendência aqui, ia lá e lia "Nenhum atendimento neste período". `p.desde` é
+   * o início do atendimento, então é dele que sai a semana certa.
+   */
+  const decisaoPendente = p.tipo === 'AGENDAMENTO_AGUARDANDO_APROVACAO';
+
+  const conteudo = (
+    <>
+      <div className="min-w-0 text-left">
         <div className="text-[13px] font-semibold truncate">{p.clienteNome}</div>
-        <div className="text-[11.5px] truncate" style={{ color: 'var(--text-muted)' }}>
+        <div
+          className="text-[11.5px] truncate"
+          style={{ color: urgente ? 'var(--status-danger)' : 'var(--text-muted)' }}
+        >
           {rotulo} · {dia}
         </div>
         {p.motivo && (
           <div className="text-[11.5px] truncate" style={{ color: 'var(--text-secondary)' }}>
-            “{p.motivo}”
+            {urgente ? p.motivo : `“${p.motivo}”`}
           </div>
         )}
       </div>
-      <div className="text-[13px] font-bold flex-shrink-0">{dinheiro(p.valorCentavos)}</div>
-    </div>
+      <div
+        className="text-[13px] font-bold flex-shrink-0"
+        style={urgente ? { color: 'var(--status-danger)' } : undefined}
+      >
+        {dinheiro(p.valorCentavos)}
+      </div>
+    </>
   );
+
+  // A linha urgente é CLICÁVEL e leva ao Financeiro. O "ver tudo" do card aponta
+  // para Pacotes — certo para as outras pendências, e um beco sem saída para
+  // esta, que mora em Financeiro > Reembolsos. Mostrar a urgência e não oferecer
+  // o caminho seria pior do que não mostrar.
+  if (urgente || decisaoPendente) {
+    return (
+      <button
+        className="flex items-center justify-between gap-2 py-1.5 w-full bg-transparent border-0 p-0 cursor-pointer"
+        onClick={() =>
+          urgente ? aoNavegar('financeiro') : aoDecidirAtendimento(p.id, p.desde)
+        }
+        title={urgente ? 'Abrir Financeiro > Reembolsos' : 'Abrir a Agenda para decidir'}
+      >
+        {conteudo}
+      </button>
+    );
+  }
+
+  return <div className="flex items-center justify-between gap-2 py-1.5">{conteudo}</div>;
 }
 
 function HomeGestao({
   aoNavegar,
   aoRegistrarAtendimento,
+  aoDecidirAtendimento,
 }: {
   aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
   aoRegistrarAtendimento: () => void;
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
 }) {
   const tz = useTimezone();
   const { dados, erro, carregando, recarregar } = useApi(() => api<HomeGestaoDTO>('/home/gestao'), []);
@@ -289,7 +369,15 @@ function HomeGestao({
         {dados.pendencias.length === 0 ? (
           <Vazio texto="Nada pendente de aprovação. 👌" />
         ) : (
-          dados.pendencias.map((p) => <LinhaPendencia key={`${p.tipo}-${p.id}`} p={p} tz={tz} />)
+          dados.pendencias.map((p) => (
+            <LinhaPendencia
+              key={`${p.tipo}-${p.id}`}
+              p={p}
+              tz={tz}
+              aoNavegar={aoNavegar}
+              aoDecidirAtendimento={aoDecidirAtendimento}
+            />
+          ))
         )}
       </Card>
 

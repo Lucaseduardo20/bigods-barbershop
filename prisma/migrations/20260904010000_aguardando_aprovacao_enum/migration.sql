@@ -1,0 +1,16 @@
+-- CONTINGÊNCIA DE OTP (2026-09-04) — o estado novo, sozinho nesta migration.
+--
+-- O SMS de verificação parou de chegar de forma confiável (rota do provedor,
+-- não código). Com `OTP_CONTINGENCIA=true` o funil passa a aceitar agendamento
+-- sem verificar o telefone, e o agendamento nasce AGUARDANDO_APROVACAO: uma
+-- pessoa da casa aprova, no lugar do código.
+--
+-- ★ SOZINHA nesta migration de propósito. `ALTER TYPE ... ADD VALUE` não pode
+-- ser USADO na mesma transação em que é criado (Postgres) — a constraint que
+-- referencia este valor vai na migration seguinte. Já custou uma quebra de
+-- deploy neste repositório; não repetir.
+--
+-- ADITIVA: um valor a mais no enum. Nenhuma linha existente muda, e a API
+-- anterior continua funcionando com este banco (ela simplesmente nunca grava
+-- nem lê este estado).
+ALTER TYPE "StatusAtendimento" ADD VALUE IF NOT EXISTS 'AGUARDANDO_APROVACAO';

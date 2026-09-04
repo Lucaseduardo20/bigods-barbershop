@@ -38,6 +38,7 @@ import { PrismaPacoteOfertaRepository } from '../modules/packages/infrastructure
 import { PrismaSolicitacaoDeReembolsoRepository } from '../modules/packages/infrastructure/prisma-solicitacao-de-reembolso.repository';
 import { ITEM_DE_ORDER_BUMP_REPOSITORY } from '../modules/funnel/domain/item-de-order-bump.repository';
 import { PrismaItemDeOrderBumpRepository } from '../modules/funnel/infrastructure/prisma-item-de-order-bump.repository';
+import { CONFIG_CONTINGENCIA_OTP, lerContingenciaOtp } from './config/contingencia-otp';
 
 const repositorios = [
   { provide: SERVICO_REPOSITORY, useFactory: (p: PrismaService) => new PrismaServicoRepository(p), inject: [PrismaService] },
@@ -63,12 +64,18 @@ const repositorios = [
 @Module({
   providers: [
     PrismaService,
+    // Flag de contingência de OTP (2026-09-04): global porque a borda do funil
+    // e a tela pública de configuração precisam da MESMA leitura — duas
+    // leituras de `process.env` em pontos diferentes é como uma contingência
+    // fica meio ligada.
+    { provide: CONFIG_CONTINGENCIA_OTP, useFactory: () => lerContingenciaOtp() },
     { provide: EVENT_PUBLISHER, useClass: NestEventPublisher },
     { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     ...repositorios,
   ],
   exports: [
     PrismaService,
+    CONFIG_CONTINGENCIA_OTP,
     EVENT_PUBLISHER,
     UNIT_OF_WORK,
     ...repositorios.map((r) => r.provide),

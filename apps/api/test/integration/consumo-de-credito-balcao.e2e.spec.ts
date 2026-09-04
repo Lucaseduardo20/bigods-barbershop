@@ -15,6 +15,10 @@ import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/shared/infrastructure/prisma.service';
 // eslint-disable-next-line import/first
 import { hashSenha } from '../../src/modules/identity/infrastructure/local-auth.provider';
+// eslint-disable-next-line import/first
+import { diaCivilChave, diaDaSemanaCivil } from '../../src/shared/domain/calendario';
+// eslint-disable-next-line import/first
+import { Timezone } from '../../src/shared/domain/timezone';
 
 /**
  * ★★ CONSUMIR CRÉDITO DE PACOTE NO BALCÃO (2026-08-28) — DINHEIRO REAL.
@@ -248,7 +252,9 @@ describe('★★ o consumo no balcão faz acontecer tudo o que o UPDATE na mão 
     }).expect(201);
 
     const lancamentos = await lancamentosDe(res.body.atendimentoId);
-    expect(lancamentos.map((l) => l.valorBaseCentavos).sort((a, b) => b - a)).toEqual([
+    // `valorBaseCentavos` é nulável no ledger (vale/pagamento não têm base).
+    const bases = lancamentos.map((l) => l.valorBaseCentavos ?? 0).sort((a, b) => b - a);
+    expect(bases).toEqual([
       RATEADO_CORTE,
       RATEADO_BARBA,
     ]);
@@ -359,6 +365,57 @@ describe('★ fechamento: caixinha, desconto e produto', () => {
     const doProduto = lancamentos.find((l) => l.produtoId === pomadaId);
     // Taxa de produto é da EMPRESA (10%), não a comissão do barbeiro.
     expect(doProduto?.valorComissaoCentavos).toBe((PRECO_POMADA * TAXA_PRODUTO_BP) / 10000);
+  });
+});
+
+/**
+ * ★★ O ENCONTRO DAS DUAS REGRAS (2026-08-28) — decidido no merge das duas
+ * features, e este arquivo é o que impede que a decisão se perca no próximo.
+ *
+ * A restrição de dias do pacote (§8.15) vale TAMBÉM no balcão. Não é detalhe: o
+ * registro manual é a única porta que poderia ignorar uma regra que foi VENDIDA
+ * ao cliente, e uma porta dessas só é usada depois que alguém descobre que ela
+ * existe.
+ *
+ * A recusa é alta e clara — e a consequência, dita por escrito: um corte que
+ * ACONTECEU num dia não permitido não pode ser registrado, e alguém vai ter que
+ * decidir o que fazer. Falhar alto é melhor que vazar em silêncio, mas a decisão
+ * é do dono.
+ */
+describe('★★ a restrição de dias do pacote vale no balcão também', () => {
+  const tz = Timezone.de('America/Sao_Paulo');
+  const hojeNaEmpresa = () => diaDaSemanaCivil(diaCivilChave(new Date(), tz));
+
+  it('★ pacote que não vale HOJE recusa o registro, dizendo os dias que valem', async () => {
+    const pacote = await pacotePago();
+    // Todos os dias MENOS hoje — o snapshot da venda é quem manda.
+    const semHoje = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== hojeNaEmpresa());
+    await prisma.vendaDePacote.update({
+      where: { id: pacote.vendaId },
+      data: { diasPermitidos: semHoje },
+    });
+
+    const res = await consumir({
+      vendaId: pacote.vendaId,
+      itemIds: [pacote.corte.id],
+      barbeiroId,
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(res.body)).toContain('Válido');
+
+    // E o crédito continua intacto: transação inteira revertida.
+    const item = await prisma.itemDoPacote.findUniqueOrThrow({ where: { id: pacote.corte.id } });
+    expect(item.status).toBe('DISPONIVEL');
+    expect(item.atendimentoId).toBeNull();
+  });
+
+  it('pacote que vale hoje passa normalmente', async () => {
+    const pacote = await pacotePago();
+    await prisma.vendaDePacote.update({
+      where: { id: pacote.vendaId },
+      data: { diasPermitidos: [hojeNaEmpresa()] },
+    });
+    await consumir({ vendaId: pacote.vendaId, itemIds: [pacote.corte.id], barbeiroId }).expect(201);
   });
 });
 

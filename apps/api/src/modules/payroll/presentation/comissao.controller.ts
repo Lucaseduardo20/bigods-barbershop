@@ -103,6 +103,7 @@ function paraDTO(
     clienteTelefone: cliente?.telefone ?? null,
     atendimentoInicio: atendimento?.inicio.toISOString() ?? null,
     valeId: l.valeId,
+    estornoDeId: l.estornoDeId,
     registradoPorNome: l.registradoPorId ? (registradoPorNomePorId.get(l.registradoPorId) ?? '?') : null,
   };
 }
