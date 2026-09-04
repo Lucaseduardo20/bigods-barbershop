@@ -77,6 +77,10 @@ import {
 import { ClienteAutenticado } from '../../identity/infrastructure/cliente-sessao.service';
 import { Telefone } from '../../../shared/domain/telefone';
 import {
+  CONFIG_CONTINGENCIA_OTP,
+  ConfigContingenciaOtp,
+} from '../../../shared/config/contingencia-otp';
+import {
   VENDA_DE_PACOTE_REPOSITORY,
   VendaDePacoteRepository,
 } from '../../packages/domain/venda-de-pacote.repository';
@@ -174,6 +178,8 @@ export class BookingPublicoController {
     private readonly horariosQuery: HorariosDisponiveisQueryService,
     @Inject(VENDA_DE_PACOTE_REPOSITORY)
     private readonly vendasDePacote: VendaDePacoteRepository,
+    @Inject(CONFIG_CONTINGENCIA_OTP)
+    private readonly contingencia: ConfigContingenciaOtp,
     private readonly agendarAvulso: AgendarAvulsoUseCase,
     private readonly cancelarReservaOnline: CancelarReservaOnlineUseCase,
   ) {}
@@ -518,7 +524,25 @@ export class BookingPublicoController {
     if (atual && atual.companyId !== body.companyId) {
       throw new ForbiddenException('Sessão não pertence a esta empresa');
     }
-    if (!atual && !online) {
+    /**
+     * ★ CONTINGÊNCIA DE OTP (2026-09-04) — o único ponto onde a flag muda
+     * comportamento no agendamento.
+     *
+     * Sem ela, presencial exige sessão verificada: é o que segura o horário
+     * FIRME sem pagar nada, e sem prova de posse do telefone qualquer um entope
+     * a agenda em nome de qualquer número.
+     *
+     * Com ela, o telefone não pode ser verificado (o SMS não chega), então a
+     * prova de posse é trocada por uma DECISÃO HUMANA: o agendamento entra e
+     * nasce `AGUARDANDO_APROVACAO`, e alguém da casa aprova no painel. O
+     * horário fica ocupado enquanto isso, para dois pedidos não brigarem pelo
+     * mesmo lugar.
+     *
+     * O que NÃO muda: cota de presenciais, janela de agendamento, conflito de
+     * horário e a EXCLUDE do Postgres continuam valendo igual.
+     */
+    const semOtpPorContingencia = !atual && !online && this.contingencia.ativo;
+    if (!atual && !online && !semOtpPorContingencia) {
       throw new UnauthorizedException(
         'Confirme seu telefone para agendar com pagamento na barbearia.',
       );
@@ -555,6 +579,8 @@ export class BookingPublicoController {
       barbeiroId: body.barbeiroId ?? null,
       servicoIds: body.servicoIds,
       inicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
+      // Sem telefone verificado, o pedido espera uma pessoa aprovar.
+      aguardandoAprovacao: semOtpPorContingencia,
       cliente: {
         nome,
         telefone,

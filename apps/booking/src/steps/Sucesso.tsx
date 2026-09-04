@@ -12,6 +12,8 @@ import { Avatar } from '../components/ui';
 export function Sucesso({
   estado,
   pago,
+  aguardandoConfirmacao = false,
+  otpEmContingencia = false,
   timezone,
   duracaoMinutos,
   sessaoDoFunil,
@@ -20,6 +22,18 @@ export function Sucesso({
 }: {
   estado: FunnelState;
   pago: boolean;
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): o horário entrou SEM verificação de
+   * telefone e a barbearia ainda vai confirmar. O cliente precisa saber — sair
+   * de casa achando que está garantido é o pior desfecho possível deste desvio.
+   */
+  aguardandoConfirmacao?: boolean;
+  /**
+   * A contingência está ligada (2026-09-04). Diferente de
+   * `aguardandoConfirmacao`, que só vale para o presencial: aqui o que importa
+   * é que NÃO SAI SMS — vale para o pacote também.
+   */
+  otpEmContingencia?: boolean;
   /**
    * Sessão obtida no OTP da confirmação, quando houve. Com ela, a caixa de
    * acesso à conta não pede código de novo (2026-08-21).
@@ -38,6 +52,7 @@ export function Sucesso({
   if (ehPacote) {
     return (
       <SucessoPacote
+        otpEmContingencia={otpEmContingencia}
         estado={estado}
         primeiroNome={primeiroNome}
         pago={pago}
@@ -80,7 +95,11 @@ export function Sucesso({
           </div>
         )}
         <div className="mt-5 rounded-2xl p-4 text-[13px]" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)', color: 'var(--text-secondary)' }}>
-          {pago ? 'Pagamento confirmado. É só chegar no horário.' : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
+          {aguardandoConfirmacao
+            ? 'Recebemos seu pedido e guardamos esse horário. A barbearia vai confirmar com você pelo WhatsApp — é rápido, e você recebe a confirmação antes do dia.'
+            : pago
+              ? 'Pagamento confirmado. É só chegar no horário.'
+              : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
         </div>
 
         {estado.data && estado.horaInicio && (
@@ -97,7 +116,7 @@ export function Sucesso({
             quem agendou avulso terminar o funil sem saber que existe uma área
             onde ele acompanha, remarca e vê o histórico. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />
@@ -225,12 +244,15 @@ function SucessoPacote({
   primeiroNome,
   pago,
   sessaoDoFunil,
+  otpEmContingencia = false,
   onNovo,
 }: {
   estado: FunnelState;
   primeiroNome: string;
   pago: boolean;
   sessaoDoFunil: SessaoBooking | null;
+  /** Sem SMS, o widget de acesso não oferece código — ver `Onboarding`. */
+  otpEmContingencia?: boolean;
   onNovo: () => void;
 }) {
   return (
@@ -258,7 +280,7 @@ function SucessoPacote({
             liberação. Esconder aqui deixava quem vai pagar na barbearia sem
             caminho nenhum para a própria conta. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />

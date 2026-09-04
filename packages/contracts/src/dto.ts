@@ -196,6 +196,21 @@ export interface ClienteDTO {
    * `false` para outro.
    */
   daCasa: boolean;
+  /**
+   * Já tem senha para entrar na conta (2026-09-04). Com o SMS de verificação
+   * falhando, é isto que diz ao admin quem ainda está trancado do lado de fora
+   * — e quem ele já destravou.
+   */
+  temSenha: boolean;
+  /** Créditos de pacote vivos: o que o cliente perde se não conseguir entrar. */
+  creditosDisponiveis: number;
+}
+
+/** Detalhe de um cliente no painel (2026-09-04) — a tela de gestão de clientes. */
+export interface ClienteDetalheDTO {
+  cliente: ClienteDTO;
+  pacotes: VendaDePacoteDTO[];
+  proximosAgendamentos: AgendamentoClienteDTO[];
 }
 
 // ---------- Agenda ----------
@@ -766,6 +781,13 @@ export interface HomePendenciaDTO {
     | 'ATENDIMENTO_AGUARDANDO_PAGAMENTO'
     | 'CONCLUSAO_ANTECIPADA'
     /**
+     * CONTINGÊNCIA DE OTP (2026-09-04): agendamento que entrou sem verificação
+     * de telefone e espera uma pessoa aprovar. Entra na home pelo mesmo motivo
+     * dos outros — enquanto o SMS não chega, ESTE é o filtro anti-poluição, e
+     * um filtro que ninguém vê não filtra nada.
+     */
+    | 'AGENDAMENTO_AGUARDANDO_APROVACAO'
+    /**
      * Estorno agendado que esgotou as tentativas (2026-08-27).
      *
      * ★ Entra na home pelo mesmo motivo da conclusão antecipada: se o admin não
@@ -849,6 +871,18 @@ export interface EmpresaPublicaDTO {
    * SEMPRE `false` em produção (o boot recusa DEMO_MODE=true em produção).
    */
   demoMode: boolean;
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): a verificação por SMS está DESVIADA.
+   *
+   * `true` quando `OTP_CONTINGENCIA` está ligada na API. O funil usa isto para
+   * não pedir um código que não vai chegar — o agendamento segue sem
+   * verificação e nasce aguardando aprovação da barbearia.
+   *
+   * Vem do servidor, e não de uma `VITE_`, porque quem sabe se o desvio está
+   * ligado é a API: front e back não podem discordar sobre isso, ou o cliente
+   * ficaria preso numa tela de código que o servidor nem exige.
+   */
+  otpEmContingencia: boolean;
   /**
    * Tabela de desconto progressivo dos avulsos. Vai para o funil porque ele
    * precisa MOSTRAR o desconto antes de o cliente confirmar — usando a mesma

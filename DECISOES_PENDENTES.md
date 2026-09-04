@@ -1079,3 +1079,49 @@ e o desfazer dobraria o tamanho dela.
 **O risco de deixar assim, dito com todas as letras:** o jeito de corrigir um consumo errado
 continua sendo mexer no banco — que é exatamente o que causou o incidente que originou a
 feature. Se acontecer uma vez, é sinal de que isto virou prioridade.
+
+## 61. ★ Rota A2P própria para OTP — a causa raiz da contingência (2026-09-04)
+
+O SMS de verificação parou de chegar de forma confiável. A investigação apontou a rota do
+provedor atual: não é uma rota A2P própria para OTP, e as mensagens somem no caminho sem erro
+nenhum do nosso lado — o envio "dá certo" e o código não chega.
+
+A contingência (§8.17) contorna: agendamento sem verificação, com aprovação humana, e login por
+senha definida pelo admin. **Ela não conserta nada** — só compra tempo, e cobra o preço de uma
+pessoa aprovando pedido a pedido.
+
+**O que falta decidir/fazer:** contratar uma rota A2P dedicada a OTP (short code ou remetente
+registrado), com relatório de entrega que permita distinguir "não enviado" de "não entregue".
+Enquanto isso não existe, qualquer fluxo novo que dependa de SMS nasce quebrado.
+
+**Quando resolver:** `OTP_CONTINGENCIA=false` (ou remover a variável) devolve o fluxo normal
+sem outra sessão de trabalho. Vale revisar então se o `AGUARDANDO_APROVACAO` continua útil como
+opção manual — a barbearia pode gostar de aprovar pedido de cliente novo — ou se some.
+
+## 62. Autosserviço de senha do cliente (2026-09-04)
+
+Hoje só o ADMIN define a senha de um cliente. Falta o cliente poder: (a) criar a própria senha
+no primeiro acesso e (b) recuperá-la sozinho quando esquecer.
+
+Os dois dependem de provar posse do telefone, que é justamente o que está quebrado — por isso
+não entraram. Quando a rota de SMS estiver resolvida (#61), o caminho já está desenhado: sessão
+com verificação recente para o primeiro acesso, e código para o "esqueci a senha".
+
+**Enquanto isso:** cliente que esquecer a senha pede à barbearia, que redefine pela tela de
+Clientes. É o mesmo caminho de hoje, e funciona.
+
+## 63. Compra de pacote pelo funil durante a contingência de OTP (2026-09-04)
+
+`POST /public/pacotes` exige sessão de cliente (telefone verificado). Com o SMS fora do ar,
+isso significa que **o cliente não consegue comprar pacote sozinho pelo funil** enquanto a
+contingência estiver ligada — o funil o levaria até o fim para tomar 401.
+
+O desvio foi deliberadamente restrito ao AGENDAMENTO (que foi o que a operação pediu), e o
+funil deixou de pular o código na trilha de pacote. Na prática, durante a contingência o
+pacote se vende **pelo painel** (Pacotes → Vender), que já funciona e é onde o dono confirma
+o pagamento manual de qualquer jeito.
+
+**O que falta decidir:** se o pacote também deveria poder ser comprado sem verificação
+enquanto o SMS não volta. É decisão de domínio, não de implementação — envolve deixar alguém
+comprar crédito em nome de um telefone que não provou possuir. O risco é baixo (quem compra
+paga, e o dono confirma o pagamento na mão), mas a decisão é do dono.

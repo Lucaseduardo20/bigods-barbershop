@@ -50,6 +50,7 @@ import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-pro
 import { AgendaQueryService } from '../infrastructure/agenda-query.service';
 import { EditarComandaUseCase } from '../application/editar-comanda.usecase';
 import { ReativarAtendimentoUseCase } from '../application/reativar-atendimento.usecase';
+import { DecidirAgendamentoPendenteUseCase } from '../application/decidir-agendamento-pendente.usecase';
 import { ReatribuirBarbeiroUseCase } from '../application/reatribuir-barbeiro.usecase';
 import { CorrigirBarbeiroDoAtendimentoUseCase } from '../../payroll/application/corrigir-barbeiro-do-atendimento.usecase';
 import { ProcessarWebhookUseCase } from '../../payments/application/processar-webhook.usecase';
@@ -167,6 +168,7 @@ export class AtendimentosController {
     private readonly recusarConclusao: RecusarConclusaoAntecipadaUseCase,
     private readonly cancelar: CancelarAtendimentoUseCase,
     private readonly registrarFalta: RegistrarNaoComparecimentoUseCase,
+    private readonly decidirPendente: DecidirAgendamentoPendenteUseCase,
     private readonly adicionarItem: AdicionarItemAtendimentoUseCase,
     private readonly adicionarProduto: AdicionarProdutoAtendimentoUseCase,
     private readonly agenda: AgendaQueryService,
@@ -332,6 +334,34 @@ export class AtendimentosController {
       descontoCentavos: body.descontoCentavos,
       formaPagamento: body.formaPagamento,
     });
+  }
+
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): aprova um agendamento que entrou sem
+   * verificação de telefone. É aqui que ele passa a existir de verdade — só
+   * agora sai o `AtendimentoAgendado`.
+   */
+  @Post(':id/aprovar-agendamento')
+  async aprovarAgendamento(
+    @Param('id') id: string,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.decidirPendente.aprovar({ atendimentoId: id, usuario });
+    return { ok: true };
+  }
+
+  /**
+   * ★ Recusa o pedido: vira CANCELADO, com motivo obrigatório. O horário é
+   * liberado e o crédito de pacote, se houver, volta pro cliente.
+   */
+  @Post(':id/recusar-agendamento')
+  async recusarAgendamento(
+    @Param('id') id: string,
+    @Body() body: CancelarDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true }> {
+    await this.decidirPendente.recusar({ atendimentoId: id, usuario, motivo: body.motivo });
+    return { ok: true };
   }
 
   /** Item 3 da sessão 2026-07-16 (walk-in add-on): adiciona serviço ANTES de concluir. */

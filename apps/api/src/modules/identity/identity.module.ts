@@ -13,6 +13,8 @@ import { ClienteGuard, ClienteGuardOpcional } from './presentation/cliente.guard
 import { OnPacoteVendidoHandler } from './application/on-pacote-vendido.handler';
 import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
+import { LoginComSenhaClienteUseCase } from './application/login-com-senha-cliente.usecase';
+import { DefinirSenhaDoClientePeloAdminUseCase } from './application/definir-senha-do-cliente-pelo-admin.usecase';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { PrismaService } from '../../shared/infrastructure/prisma.service';
 import { PackagesModule } from '../packages/packages.module';
@@ -89,6 +91,8 @@ function exigir(nome: string, kind: string): string {
     ClienteGuardOpcional,
     IniciarLoginClienteUseCase,
     ConfirmarLoginClienteUseCase,
+    LoginComSenhaClienteUseCase,
+    DefinirSenhaDoClientePeloAdminUseCase,
     OnPacoteVendidoHandler,
   ],
   // ClienteGuard exportado (sessão de OTP+reserva): agora usado também fora
@@ -96,6 +100,6 @@ function exigir(nome: string, kind: string): string {
   // PacotesPublicoController (packages) passam a exigir sessão de cliente
   // (@ContaCliente()) nas escritas públicas. Global, então não precisa de
   // import explícito nesses módulos (mesmo mecanismo de ClienteSessaoService).
-  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService, ClienteGuard, ClienteGuardOpcional],
+  exports: [AUTH_PROVIDER, IDENTITY_PROVIDER, ClienteSessaoService, ClienteGuard, ClienteGuardOpcional, DefinirSenhaDoClientePeloAdminUseCase],
 })
 export class IdentityModule {}

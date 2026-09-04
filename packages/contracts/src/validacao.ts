@@ -89,3 +89,76 @@ export const LIMITE_DIAS_AGENDAMENTO = 30;
 
 /** Teto do texto livre de "Fale sobre você" — evita payload abusivo. */
 export const MAX_SOBRE_VOCE = 500;
+
+/**
+ * SENHA DO CLIENTE (2026-08-28) — força mínima, sem exagero.
+ *
+ * O cliente é uma pessoa marcando corte no celular, não um administrador de
+ * sistema. Exigir maiúscula, símbolo e número transforma o primeiro acesso num
+ * campo de batalha e empurra todo mundo para "Senha@123" — que não é mais
+ * segura, só mais irritante de digitar.
+ *
+ * O que de fato protege aqui é o conjunto: comprimento mínimo honesto, recusa
+ * das senhas óbvias, e o rate limit do login por telefone (5 tentativas / 10
+ * min) que já existe. Uma senha de 8 caracteres atrás desse limite é
+ * inatacável por força bruta na prática.
+ *
+ * Recusar o PRÓPRIO TELEFONE é a única regra "esperta", e existe porque é a
+ * escolha natural de quem acabou de digitar o telefone na tela anterior — e a
+ * única que um atacante tentaria primeiro, já que o telefone é o login.
+ */
+export const SENHA_MIN = 8;
+export const SENHA_MAX = 72;
+
+/** As que qualquer um tenta primeiro. Comparadas só depois de normalizar. */
+const SENHAS_OBVIAS = new Set([
+  '12345678',
+  '123456789',
+  '1234567890',
+  'senha123',
+  'password',
+  'qwertyui',
+  'abcd1234',
+  '11111111',
+  '00000000',
+  'bigods123',
+]);
+
+export interface ProblemaDeSenha {
+  ok: boolean;
+  /** Mensagem pronta para a tela. `null` quando está tudo certo. */
+  erro: string | null;
+}
+
+/**
+ * A regra vale nas DUAS pontas: o front chama para dar feedback enquanto o
+ * cliente digita, o back chama na borda porque validação só no front é um curl
+ * de distância.
+ *
+ * `telefone` é opcional só para o front poder validar antes de saber o número;
+ * o back SEMPRE passa, e é lá que a recusa vale.
+ */
+export function validarSenhaDeCliente(senha: string, telefone?: string): ProblemaDeSenha {
+  const valor = String(senha ?? '');
+  if (valor.length < SENHA_MIN) {
+    return { ok: false, erro: `A senha precisa ter pelo menos ${SENHA_MIN} caracteres.` };
+  }
+  if (valor.length > SENHA_MAX) {
+    return { ok: false, erro: `A senha pode ter no máximo ${SENHA_MAX} caracteres.` };
+  }
+  // Espaço em branco puro não é senha; nas pontas ele ainda vira 8 caracteres.
+  if (!valor.trim()) {
+    return { ok: false, erro: 'A senha não pode ser só espaços.' };
+  }
+  if (SENHAS_OBVIAS.has(valor.toLowerCase())) {
+    return { ok: false, erro: 'Essa senha é fácil demais de adivinhar. Escolha outra.' };
+  }
+  if (telefone) {
+    const digitosDoTelefone = somenteDigitos(telefone);
+    const digitosDaSenha = somenteDigitos(valor);
+    if (digitosDoTelefone.length >= 8 && digitosDaSenha && digitosDoTelefone.endsWith(digitosDaSenha)) {
+      return { ok: false, erro: 'A senha não pode ser o seu telefone.' };
+    }
+  }
+  return { ok: true, erro: null };
+}

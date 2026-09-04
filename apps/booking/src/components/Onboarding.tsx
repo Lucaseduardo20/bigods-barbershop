@@ -39,6 +39,7 @@ export function Onboarding({
   telefone,
   contexto = 'pacote',
   sessaoDoFunil = null,
+  otpEmContingencia = false,
 }: {
   telefone: string;
   contexto?: 'pacote' | 'agendamento';
@@ -47,6 +48,12 @@ export function Onboarding({
    * acabou de provar posse do telefone, e não se pede código de novo.
    */
   sessaoDoFunil?: SessaoBooking | null;
+  /**
+   * ★ Contingência de OTP (2026-09-04): sem SMS, oferecer "receber código"
+   * seria mandar o cliente para um beco. Quem não tem sessão do funil recebe a
+   * instrução real — falar com a barbearia, que cria a senha dele.
+   */
+  otpEmContingencia?: boolean;
 }) {
   const [fase, setFase] = useState<'oferta' | 'codigo' | 'pronto'>(
     sessaoDoFunil ? 'pronto' : 'oferta',
@@ -132,6 +139,20 @@ export function Onboarding({
         >
           Ir para minha conta →
         </a>
+      </div>
+    );
+  }
+
+  // Sem SMS funcionando, o caminho honesto é a barbearia criar a senha — e o
+  // widget diz isso em vez de oferecer um código que não chega.
+  if (otpEmContingencia && fase === 'oferta') {
+    return (
+      <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)' }}>
+        <div className="text-[15px] font-extrabold">Acessar minha conta</div>
+        <div className="text-[13px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+          Nosso envio de SMS está fora do ar. Fale com a barbearia no WhatsApp que a gente cria
+          uma senha para você — daí é só entrar com seu telefone e essa senha.
+        </div>
       </div>
     );
   }

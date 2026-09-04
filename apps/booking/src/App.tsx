@@ -337,6 +337,12 @@ function Funil() {
       <Sucesso
         estado={estado}
         pago={pago}
+        // Presencial durante a contingência entra pendente: quem decide é a
+        // API, e o funil espelha para não prometer horário garantido.
+        aguardandoConfirmacao={
+          empresa.otpEmContingencia && estado.modo === 'avulso' && estado.formaPagamento !== 'online'
+        }
+        otpEmContingencia={empresa.otpEmContingencia}
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
         // Um OTP, não dois: o telefone confirmado na confirmação do agendamento
@@ -915,6 +921,17 @@ function Funil() {
       await enviarComSessao(null);
       return;
     }
+    /**
+     * ★ CONTINGÊNCIA DE OTP (2026-09-04): o SMS não está chegando, então pedir
+     * o código aqui seria prender o cliente numa tela que não avança. O
+     * agendamento segue sem verificação e nasce aguardando a barbearia
+     * confirmar — quem decide isso é a API (`otpEmContingencia` vem dela), para
+     * front e back nunca discordarem sobre o desvio estar ligado.
+     */
+    if (empresa.otpEmContingencia && estado.modo === 'avulso') {
+      await enviarComSessao(null);
+      return;
+    }
     setMostrandoOtp(true);
   };
 
@@ -968,6 +985,7 @@ function Funil() {
   } else if (estado.step === PASSO.DADOS) {
     corpo = (
       <Dados
+        otpEmContingencia={empresa.otpEmContingencia}
         nome={estado.nome}
         telefone={estado.telefone}
         email={estado.email}

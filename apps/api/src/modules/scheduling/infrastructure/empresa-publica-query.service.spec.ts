@@ -42,36 +42,32 @@ describe('EmpresaPublicaQueryService', () => {
       company: { findUnique: vi.fn().mockResolvedValue(null) },
       degrauDeDesconto: { findMany: vi.fn() },
     } as unknown as PrismaService;
-    const s = new EmpresaPublicaQueryService(prisma, cobrancaFalsa(['PIX']));
+    const s = new EmpresaPublicaQueryService(prisma, cobrancaFalsa(['PIX']), { ativo: false });
     await expect(s.empresa('nao-existe')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('anuncia os meios que o serviço de cobrança reporta', async () => {
-    const s = new EmpresaPublicaQueryService(
-      prismaFalso(),
-      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']),
-    );
+    const s = new EmpresaPublicaQueryService(prismaFalso(),
+      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.pagamentoOnline.meios).toEqual(['PIX', 'CARTAO_CREDITO']);
   });
 
   it('com cartão anunciado, devolve a chave PÚBLICA', async () => {
-    const s = new EmpresaPublicaQueryService(
-      prismaFalso(),
-      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']),
-    );
+    const s = new EmpresaPublicaQueryService(prismaFalso(),
+      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.pagamentoOnline.mercadoPagoPublicKey).toBe(PUBLIC_KEY);
   });
 
   it('sem cartão anunciado, não devolve chave nenhuma', async () => {
-    const s = new EmpresaPublicaQueryService(prismaFalso(), cobrancaFalsa(['PIX']));
+    const s = new EmpresaPublicaQueryService(prismaFalso(), cobrancaFalsa(['PIX']), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.pagamentoOnline.mercadoPagoPublicKey).toBeNull();
   });
 
   it('modo manual (nenhum meio) também não devolve chave', async () => {
-    const s = new EmpresaPublicaQueryService(prismaFalso(), cobrancaFalsa([]));
+    const s = new EmpresaPublicaQueryService(prismaFalso(), cobrancaFalsa([]), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.pagamentoOnline.meios).toEqual([]);
     expect(r.pagamentoOnline.mercadoPagoPublicKey).toBeNull();
@@ -82,10 +78,8 @@ describe('EmpresaPublicaQueryService', () => {
     // funil trataria "não configurado" como "configurado" e o cliente veria o
     // formulário de cartão travar na tokenização, depois de digitar tudo.
     delete process.env.MERCADOPAGO_PUBLIC_KEY;
-    const s = new EmpresaPublicaQueryService(
-      prismaFalso(),
-      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']),
-    );
+    const s = new EmpresaPublicaQueryService(prismaFalso(),
+      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.pagamentoOnline.mercadoPagoPublicKey).toBeNull();
   });
@@ -98,10 +92,8 @@ describe('EmpresaPublicaQueryService', () => {
     //
     // Varre a resposta INTEIRA serializada, não só o campo esperado: um campo novo
     // adicionado depois (`debug`, `config`, `mp`) também é pego aqui.
-    const s = new EmpresaPublicaQueryService(
-      prismaFalso(),
-      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']),
-    );
+    const s = new EmpresaPublicaQueryService(prismaFalso(),
+      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']), { ativo: false });
     const serializada = JSON.stringify(await s.empresa('bigods'));
     expect(serializada).not.toContain(ACCESS_TOKEN);
     expect(serializada).toContain(PUBLIC_KEY);
@@ -114,10 +106,8 @@ describe('EmpresaPublicaQueryService', () => {
     process.env.MERCADOPAGO_CLIENT_SECRET = 'client-secret-abc';
     process.env.ABACATEPAY_API_KEY = 'abc_dev_chave';
     process.env.ABACATEPAY_WEBHOOK_SECRET = 'segredo-abacate';
-    const s = new EmpresaPublicaQueryService(
-      prismaFalso(),
-      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']),
-    );
+    const s = new EmpresaPublicaQueryService(prismaFalso(),
+      cobrancaFalsa(['PIX', 'CARTAO_CREDITO']), { ativo: false });
     const serializada = JSON.stringify(await s.empresa('bigods'));
     for (const segredo of [
       'segredo-do-webhook-xyz',
@@ -134,7 +124,7 @@ describe('EmpresaPublicaQueryService', () => {
     (prisma.degrauDeDesconto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       { posicao: 2, valorCentavos: 500 },
     ]);
-    const s = new EmpresaPublicaQueryService(prisma, cobrancaFalsa(['PIX']));
+    const s = new EmpresaPublicaQueryService(prisma, cobrancaFalsa(['PIX']), { ativo: false });
     const r = await s.empresa('bigods');
     expect(r.timezone).toBe('America/Sao_Paulo');
     expect(r.descontoProgressivo).toEqual({

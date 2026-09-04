@@ -15,6 +15,11 @@ const rotuloStatus: Record<StatusAtendimento, string> = {
   // é um agendamento normal — a aprovação é assunto interno da barbearia, e um
   // rótulo próprio aqui só geraria dúvida sobre algo que ele não controla.
   [StatusAtendimento.CONCLUSAO_PENDENTE]: 'Agendado',
+  // ★ Contingência de OTP (2026-09-04): aqui o rótulo é DIFERENTE do
+  // CONCLUSAO_PENDENTE de propósito. Aquela aprovação é assunto interno da
+  // barbearia; ESTA o cliente precisa saber, porque o horário dele ainda não
+  // está garantido e ele não deve sair de casa achando que está.
+  [StatusAtendimento.AGUARDANDO_APROVACAO]: 'Aguardando confirmação',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Não compareceu',
@@ -24,6 +29,7 @@ const corStatus: Record<StatusAtendimento, string> = {
   [StatusAtendimento.RESERVADO]: 'var(--state-warning)',
   [StatusAtendimento.AGENDADO]: 'var(--accent-primary)',
 [StatusAtendimento.CONCLUSAO_PENDENTE]: 'var(--accent-primary)',
+  [StatusAtendimento.AGUARDANDO_APROVACAO]: 'var(--state-warning)',
   [StatusAtendimento.CONCLUIDO]: 'var(--state-success, #2e7d32)',
   [StatusAtendimento.CANCELADO]: 'var(--state-danger)',
   [StatusAtendimento.NAO_COMPARECEU]: 'var(--state-warning)',

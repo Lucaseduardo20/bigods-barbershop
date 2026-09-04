@@ -32,6 +32,7 @@ import { AlertaErro } from '../components/ui';
  * mostraria "inválido" enquanto ela ainda está digitando.
  */
 export function Dados({
+  otpEmContingencia = false,
   nome,
   telefone,
   email,
@@ -46,6 +47,8 @@ export function Dados({
   onSobreVoce,
   onTrocarTelefone,
 }: {
+  /** Contingência de OTP (2026-09-04): sem SMS, o texto não pode prometer um. */
+  otpEmContingencia?: boolean;
   nome: string;
   telefone: string;
   email: string;
@@ -94,10 +97,15 @@ export function Dados({
         <label className="label">Celular válido</label>
         {/* O código do OTP vai por SMS: se o número estiver errado, o cliente
             não recebe nada e não tem como concluir. Dizer isso ANTES de digitar
-            evita o erro; o alerta abaixo só age depois que já errou. */}
+            evita o erro; o alerta abaixo só age depois que já errou.
+            ★ Na contingência (2026-09-04) não sai SMS nenhum — prometer um aqui
+            faria o cliente esperar uma mensagem que não vem. O número continua
+            importando, porque é por ele que a barbearia confirma. */}
         {!decidido && (
           <div className="text-[12px] mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-            O celular informado deve ser válido para receber o SMS de confirmação.
+            {otpEmContingencia
+              ? 'Use o número do seu WhatsApp — é por ele que a barbearia confirma seu horário.'
+              : 'O celular informado deve ser válido para receber o SMS de confirmação.'}
           </div>
         )}
         <input

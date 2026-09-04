@@ -5821,6 +5821,109 @@ passado contrariaria §3.5.
 
 ---
 
+## ★★ Contingência de OTP — agendar e entrar sem SMS (2026-09-04) ✅
+
+**O incidente.** O SMS de verificação parou de chegar de forma confiável: a rota do provedor não
+é uma rota A2P própria para OTP, e as mensagens somem no caminho sem erro nenhum do nosso lado.
+Cliente não conseguia **agendar** nem **entrar na conta** — e quem tinha pacote pago ficou sem
+acesso ao próprio crédito.
+
+Esta sessão é uma **contingência por flag, reversível**. O OTP continua inteiro no código; o que
+existe é um desvio, e desligar a variável desfaz o desvio.
+
+### A flag
+
+`OTP_CONTINGENCIA=true` liga; ausente ou `false` (o default) devolve o sistema ao fluxo normal,
+sem nenhuma pendência extra. Documentada no `.env.example` e no `.env.aws.example`.
+
+Ela é lida num **ponto de decisão só** (`shared/config/contingencia-otp.ts`, provida por símbolo
+no `SharedModule`) e consumida em dois lugares: a borda do agendamento e a projeção pública da
+empresa — que a repassa ao funil, para front e back nunca discordarem sobre o desvio estar
+ligado. A tentação era espalhar `if (contingencia)` por controller, use case e tela; aí a volta
+ao normal vira uma caçada e sempre sobra um `if` esquecido, que é como uma contingência
+temporária vira permanente por acidente.
+
+### Frente 1 — agendar sem OTP, mas pendente
+
+Com a flag ligada, o presencial entra sem verificar telefone e nasce `AGUARDANDO_APROVACAO`. O
+filtro anti-poluição deixou de ser um código e passou a ser **uma pessoa**, que aprova ou recusa
+no painel.
+
+O estado é novo e se comporta como tem que se comportar:
+
+- **ocupa o horário** (invariante + `EXCLUDE`) — dois pedidos para o mesmo horário não podem
+  ambos esperar decisão, senão aprovar o segundo derrubaria o primeiro;
+- **conta na cota de presenciais** — ★ isto foi um **buraco real que o teste pegou**: a consulta
+  da cota só olhava `AGENDADO` e `CONCLUSAO_PENDENTE`, então a contingência seria a porta para
+  entupir a agenda, que é exatamente o que o OTP impedia;
+- **não expira sozinho** (diferente de `RESERVADO`: aqui não há prazo de pagamento correndo, o
+  que se espera é uma decisão);
+- **só a aprovação emite `AtendimentoAgendado`** — mesmo desenho do `confirmarReserva()`;
+- **recusar é cancelar, com motivo obrigatório**, e o horário é liberado na hora.
+
+Aparece na home do painel, junto das outras pendências, e **em primeiro lugar**: as outras são
+dinheiro esperando; esta é uma pessoa esperando resposta. A decisão fica no detalhe do
+atendimento, e qualquer barbeiro ou admin resolve — travar em admin faria o cliente esperar o
+dono chegar. O funil, com a flag ligada, avisa: *"a barbearia vai confirmar com você"*, para
+ninguém sair de casa achando que o horário está garantido.
+
+### Frente 2 — tela de Clientes (permanente)
+
+O painel nunca teve onde ver os clientes. Entrou agora porque é ela que destrava a senha, mas
+fica: busca, detalhe com pacotes e agendamentos, e a ação de definir senha.
+
+Vive dentro de **Usuários**, em abas (Equipe × Clientes) — a barra de baixo já trunca rótulo com
+oito abas, e as duas são gestão de pessoas.
+
+★ A lista é ordenada pelo **trabalho a fazer**, não por nome: quem tem crédito e não tem senha
+aparece primeiro, porque é quem pagou e está trancado do lado de fora. Um aviso no topo conta
+quantos são.
+
+### Frente 3 — login por senha
+
+`Cliente.senhaHash` + `POST /conta/login/senha`. O hash é o **mesmo motor do login de staff**
+(`senha.ts`: scrypt, sal por senha, comparação em tempo constante) — não existe uma segunda
+implementação de hash neste sistema, e não seria numa correção às pressas que ela nasceria.
+
+A política de força roda nas duas pontas, da mesma função (`validarSenhaDeCliente`): mínimo de 8,
+recusa as óbvias e recusa **o próprio telefone**, que é o login. Resposta **neutra** no login —
+telefone inexistente, cliente sem senha e senha errada dão a mesma resposta e gastam o mesmo
+scrypt, para o tempo também não virar oráculo.
+
+Na tela do cliente, a senha virou o caminho principal e o código continua embaixo, como segunda
+opção: tirá-lo deixaria sem saída quem ainda não tem senha.
+
+---
+
+## ★ Roteiro para destravar os clientes HOJE
+
+1. Suba com `OTP_CONTINGENCIA=true`.
+2. Painel → **Usuários → Clientes**. O aviso no topo diz quantos clientes têm crédito e não têm
+   senha; eles já vêm primeiro na lista.
+3. Abra cada um: o detalhe mostra os pacotes e quantos créditos sobraram.
+4. **Sugerir** gera uma senha fácil de ditar (`navalha-pomada42`) e que passa na política. Ou
+   digite uma.
+5. **Salvar senha** → a tela mostra a senha para você copiar e mandar no WhatsApp do cliente:
+   *"entre com seu telefone e a senha X"*.
+6. O cliente entra em `conta.` com **telefone + senha**, sem esperar SMS nenhum, e usa o crédito.
+
+Enquanto isso, os agendamentos novos do funil caem em **Início → Esperando você**. Confira o
+número com o cliente e aprove — ou recuse com o motivo, que libera o horário.
+
+### Migrations
+
+Quatro, todas **aditivas**: o valor `AGUARDANDO_APROVACAO` no enum (sozinho, porque o Postgres
+não deixa usar um valor de enum na mesma transação em que ele é criado), a `EXCLUDE` passando a
+cobri-lo, as duas colunas do rastro da decisão e o `Cliente.senhaHash`.
+
+### Testes
+
+**1549 verdes** (1534 antes: +15 e2e), idênticos sob `TZ=UTC`, `America/Sao_Paulo` e
+`Asia/Tokyo`. O e2e sobe **duas instâncias da aplicação no mesmo arquivo** — uma com a flag
+ligada e outra desligada — porque "não regride com a flag desligada" só se prova rodando as duas.
+
+---
+
 ## Como rodar localmente
 
 ```bash

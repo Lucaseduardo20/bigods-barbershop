@@ -18,6 +18,8 @@ export const toneStatus: Record<StatusAtendimento, string> = {
   // Conclusão antecipada esperando o admin (2026-08-20): nem agendado nem
   // concluído — e não conta comissão nenhuma até ser aprovada.
   [StatusAtendimento.CONCLUSAO_PENDENTE]: 'warning',
+  // Contingência de OTP (2026-09-04): agendou sem confirmar o telefone.
+  [StatusAtendimento.AGUARDANDO_APROVACAO]: 'warning',
   [StatusAtendimento.CONCLUIDO]: 'success',
   [StatusAtendimento.CANCELADO]: 'danger',
   [StatusAtendimento.NAO_COMPARECEU]: 'warning',
@@ -27,6 +29,7 @@ export const labelStatus: Record<StatusAtendimento, string> = {
   [StatusAtendimento.RESERVADO]: 'Aguardando pagamento',
   [StatusAtendimento.AGENDADO]: 'Agendado',
   [StatusAtendimento.CONCLUSAO_PENDENTE]: 'Aguardando aprovação',
+  [StatusAtendimento.AGUARDANDO_APROVACAO]: 'Aguardando você aprovar',
   [StatusAtendimento.CONCLUIDO]: 'Concluído',
   [StatusAtendimento.CANCELADO]: 'Cancelado',
   [StatusAtendimento.NAO_COMPARECEU]: 'Faltou',
@@ -74,6 +77,9 @@ export function AtendimentoDetalheDialog({
   const [qtdProduto, setQtdProduto] = useState('1');
   const [marcando, setMarcando] = useState(false);
   const [erroDaCasa, setErroDaCasa] = useState<string | null>(null);
+  /** Recusa do agendamento sem verificação (2026-09-04) — motivo inline. */
+  const [recusando, setRecusando] = useState(false);
+  const [motivoRecusa, setMotivoRecusa] = useState('');
   // Conclusão antecipada (2026-08-20): o modal de justificativa e o que ele
   // colhe. `enviado` existe pra dizer ao barbeiro o que aconteceu de fato —
   // fechar tudo em silêncio deixaria ele achando que concluiu.
@@ -100,6 +106,12 @@ export function AtendimentoDetalheDialog({
   const ehPacote = a?.origem === OrigemAtendimento.CREDITO_PACOTE;
   const agendado = a?.status === StatusAtendimento.AGENDADO;
   const aguardandoAprovacao = a?.status === StatusAtendimento.CONCLUSAO_PENDENTE;
+  /**
+   * Contingência de OTP (2026-09-04): o cliente agendou sem confirmar o
+   * telefone e alguém da casa precisa decidir. É o filtro anti-poluição
+   * enquanto o SMS não chega.
+   */
+  const pedidoSemVerificacao = a?.status === StatusAtendimento.AGUARDANDO_APROVACAO;
   /**
    * O horário ainda não chegou. Mesma comparação do backend (que é quem manda:
    * aqui é só pra abrir o modal antes de tomar 409 e ter que explicar depois).
@@ -379,6 +391,85 @@ export function AtendimentoDetalheDialog({
                 <div className="text-[12px] mt-2" style={{ color: 'var(--text-secondary)' }}>
                   Aguardando aprovação do administrador. A comissão entra no seu extrato quando for
                   aprovada.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ★ CONTINGÊNCIA DE OTP (2026-09-04) — a decisão que substituiu o
+              código. Qualquer barbeiro ou admin resolve: no volume atual quem
+              está no balcão decide, e travar em admin faria o cliente esperar o
+              dono chegar. */}
+          {pedidoSemVerificacao && !somenteLeitura && (
+            <div className="card" style={{ background: 'var(--surface-brand-tint)' }}>
+              <div className="text-[13px] font-bold">Este cliente não confirmou o telefone</div>
+              <div className="text-[12.5px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                O envio de SMS está fora do ar, então o horário fica reservado até alguém aqui
+                decidir. Confira o número com o cliente antes de aprovar — recusar libera o horário
+                na hora.
+              </div>
+              {erroAcao && (
+                <div className="text-[12.5px] mt-2" style={{ color: 'var(--status-danger)' }}>
+                  {erroAcao}
+                </div>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button
+                  className="btn btn-sm flex-1"
+                  disabled={ocupado}
+                  onClick={() =>
+                    acao(() => api(`/atendimentos/${a.id}/aprovar-agendamento`, { method: 'POST' }))
+                  }
+                >
+                  Aprovar agendamento
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm flex-1"
+                  disabled={ocupado}
+                  onClick={() => setRecusando(true)}
+                >
+                  Recusar
+                </button>
+              </div>
+              {/* O motivo é um campo aqui dentro, não um `window.prompt`: o
+                  prompt do navegador some em webview/PWA, não valida nada e,
+                  quando volta vazio, o botão parece simplesmente não funcionar
+                  — foi assim que apareceu no QA de 2026-09-04. */}
+              {recusando && (
+                <div className="flex flex-col gap-2 mt-2">
+                  <input
+                    className="input"
+                    autoFocus
+                    placeholder="Por que está recusando? (fica no histórico)"
+                    value={motivoRecusa}
+                    onChange={(e) => setMotivoRecusa(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      className="btn btn-danger btn-sm flex-1"
+                      disabled={ocupado || !motivoRecusa.trim()}
+                      onClick={() =>
+                        acao(() =>
+                          api(`/atendimentos/${a.id}/recusar-agendamento`, {
+                            method: 'POST',
+                            body: { motivo: motivoRecusa.trim() },
+                          }),
+                        )
+                      }
+                    >
+                      Confirmar recusa
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={ocupado}
+                      onClick={() => {
+                        setRecusando(false);
+                        setMotivoRecusa('');
+                      }}
+                    >
+                      Voltar
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

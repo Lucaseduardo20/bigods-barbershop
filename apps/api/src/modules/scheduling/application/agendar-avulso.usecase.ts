@@ -109,6 +109,13 @@ export interface AgendarAvulsoInput {
    * trilhos, e escolher cartão não muda um centavo.
    */
   meioOnline?: MeioDePagamentoOnline;
+  /**
+   * CONTINGÊNCIA DE OTP (2026-09-04): o atendimento nasce
+   * `AGUARDANDO_APROVACAO` em vez de firme, porque o telefone não foi
+   * verificado. Quem decide isso é a BORDA (o controller do funil, lendo a
+   * flag) — o caso de uso só obedece, e o painel e o cockpit nunca passam.
+   */
+  aguardandoAprovacao?: boolean;
 }
 
 export interface AgendarAvulsoOutput {
@@ -404,6 +411,7 @@ export class AgendarAvulsoUseCase {
         valorAbatidoSaldo: Dinheiro.deCentavos(valorAbatidoCentavos),
         vendaAbatidaId: valorAbatidoCentavos > 0 ? input.abaterSaldoDeVendaId : null,
         reservaOnlineExpiraEm,
+        aguardandoAprovacao: input.aguardandoAprovacao,
       });
       await repos.atendimentos.salvar(atendimento);
       eventos.push(...atendimento.puxarEventos());

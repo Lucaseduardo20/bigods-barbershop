@@ -93,6 +93,16 @@ function Conta() {
     setTela('otp');
   }
 
+  /** ★ Login por senha (2026-09-04) — não gasta SMS nenhum. */
+  async function entrarComSenha(tel: string, senha: string): Promise<void> {
+    const r = await api<ConfirmarLoginClienteResponse>('/conta/login/senha', {
+      method: 'POST',
+      body: { companyId: COMPANY_ID, telefone: tel, senha },
+    });
+    setTelefone(tel);
+    entrar({ token: r.token, cliente: r.cliente });
+  }
+
   async function confirmarLogin(codigo: string): Promise<void> {
     const r = await api<ConfirmarLoginClienteResponse>('/conta/login/confirmar', {
       method: 'POST',
@@ -102,7 +112,7 @@ function Conta() {
   }
 
   if (tela === 'login') {
-    return <Login onEnviar={iniciarLogin} />;
+    return <Login onEntrarComSenha={entrarComSenha} onEnviarCodigo={iniciarLogin} />;
   }
   if (tela === 'otp') {
     return (
@@ -120,7 +130,7 @@ function Conta() {
 
   if (!sessao) {
     // sessão perdida entre telas — volta ao login
-    return <Login onEnviar={iniciarLogin} />;
+    return <Login onEntrarComSenha={entrarComSenha} onEnviarCodigo={iniciarLogin} />;
   }
 
   return (
