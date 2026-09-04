@@ -13,6 +13,7 @@ import {
 import { CancelarAtendimentoUseCase } from './application/cancelar-atendimento.usecase';
 import { CancelarAtendimentoClienteUseCase } from './application/cancelar-atendimento-cliente.usecase';
 import { ReagendarAtendimentoClienteUseCase } from './application/reagendar-atendimento-cliente.usecase';
+import { ReagendarAtendimentoUseCase } from './application/reagendar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from './application/registrar-nao-comparecimento.usecase';
 import { AdicionarItemAtendimentoUseCase } from './application/adicionar-item-atendimento.usecase';
 import { EditarComandaUseCase } from './application/editar-comanda.usecase';
@@ -41,6 +42,7 @@ import { PaymentsModule } from '../payments/payments.module';
     CancelarAtendimentoUseCase,
     CancelarAtendimentoClienteUseCase,
     ReagendarAtendimentoClienteUseCase,
+    ReagendarAtendimentoUseCase,
     RegistrarNaoComparecimentoUseCase,
     AdicionarItemAtendimentoUseCase,
     EditarComandaUseCase,
