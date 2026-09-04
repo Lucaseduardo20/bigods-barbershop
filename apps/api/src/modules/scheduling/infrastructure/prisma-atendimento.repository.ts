@@ -102,7 +102,15 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
         // CONCLUSAO_PENDENTE ocupa o horário como AGENDADO (2026-08-20) — sem
         // isto, o domínio não veria o conflito e só a constraint EXCLUDE
         // barraria, com erro de banco em vez de mensagem de negócio.
-        status: { in: ['AGENDADO', 'RESERVADO', 'CONCLUSAO_PENDENTE'] },
+        //
+        // ★ AGUARDANDO_APROVACAO (2026-09-04) pela mesma razão, e o sintoma foi
+        // exatamente o previsto acima: com a contingência de OTP ligada, dois
+        // pedidos para o mesmo horário chegavam ao banco e o segundo voltava
+        // como "Internal server error" no fim do funil, em vez de "esse horário
+        // acabou de ser ocupado". A EXCLUDE já listava o status; o domínio não.
+        status: {
+          in: ['AGENDADO', 'RESERVADO', 'CONCLUSAO_PENDENTE', 'AGUARDANDO_APROVACAO'],
+        },
         inicio: { lt: fim },
         fim: { gt: inicio },
       },

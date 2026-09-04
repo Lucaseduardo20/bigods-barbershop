@@ -19,6 +19,36 @@ import { horaLocalHHmm, limitesDoDiaCivil } from '../../../shared/domain/calenda
 const PASSO_MINUTOS = 15;
 
 /**
+ * ★★ Os status que OCUPAM o horário na PROJEÇÃO de leitura (2026-09-04).
+ *
+ * Uma lista só, usada nas cinco consultas deste arquivo. Antes cada uma tinha a
+ * sua cópia, e foi assim que `AGUARDANDO_APROVACAO` (contingência de OTP,
+ * §8.17) entrou na EXCLUDE e no domínio mas não aqui: a agenda continuava
+ * oferecendo o horário de um pedido pendente, e o cliente seguinte só descobria
+ * ao confirmar — com erro de banco no fim do funil, que é o pior lugar
+ * possível para descobrir qualquer coisa.
+ *
+ * O critério é o mesmo da invariante e da constraint: se a escrita vai recusar,
+ * a leitura não pode oferecer.
+ *
+ * - `AGENDADO` — firme.
+ * - `CONCLUSAO_PENDENTE` (2026-08-20) — a recusa devolve para AGENDADO, então o
+ *   horário não pode ter sido vendido a outro cliente no meio.
+ * - `AGUARDANDO_APROVACAO` (2026-09-04) — idem: a aprovação o torna firme, e
+ *   até lá o horário é de quem pediu.
+ * - `RESERVADO` só enquanto o prazo não venceu — reserva vencida não ocupa
+ *   nada, mesmo que ninguém a tenha expirado ainda (lazy).
+ */
+function ocupamOHorario(agora: Date) {
+  return [
+    { status: 'AGENDADO' as const },
+    { status: 'CONCLUSAO_PENDENTE' as const },
+    { status: 'AGUARDANDO_APROVACAO' as const },
+    { status: 'RESERVADO' as const, reservaOnlineExpiraEm: { gt: agora } },
+  ];
+}
+
+/**
  * Projeção de leitura: horários de início livres para um barbeiro num dia,
  * dado o conjunto de serviços escolhidos (a duração total é a soma). Livre =
  * cabe inteiramente numa janela de `DisponibilidadeBarbeiro` e não se sobrepõe
@@ -90,20 +120,7 @@ export class HorariosDisponiveisQueryService {
           barbeiroId: params.barbeiroId,
           inicio: { lt: diaFim },
           fim: { gt: diaInicio },
-          OR: [
-            { status: 'AGENDADO' },
-            // Conclusão antecipada pendente de aprovação ainda OCUPA o horário
-            // (2026-08-20): a recusa devolve o atendimento pra AGENDADO, então
-            // o horário não pode ter sido vendido pra outro cliente no meio.
-            { status: 'CONCLUSAO_PENDENTE' },
-            // RESERVADO ocupa o horário igual a AGENDADO (mesmo critério do
-            // domínio/EXCLUDE) — MAS uma reserva cujo prazo já passou não
-            // pode aparecer como ocupada aqui, mesmo que ainda não tenha
-            // sido lazy-expirada em `RESERVA_EXPIRADA` por ninguém (sessão
-            // de OTP+reserva, Problema 2: "horário expirado não aparece
-            // como ocupado na projeção pública").
-            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
-          ],
+          OR: ocupamOHorario(agora),
         },
         select: { inicio: true, fim: true },
       }),
@@ -190,12 +207,7 @@ export class HorariosDisponiveisQueryService {
           barbeiroId: params.barbeiroId,
           inicio: { lt: periodoFim },
           fim: { gt: periodoInicio },
-          OR: [
-            { status: 'AGENDADO' },
-            { status: 'CONCLUSAO_PENDENTE' },
-            // Mesmo critério de `disponiveis`: reserva vencida não ocupa nada.
-            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
-          ],
+          OR: ocupamOHorario(agora),
         },
         select: { inicio: true, fim: true },
       }),
@@ -319,11 +331,7 @@ export class HorariosDisponiveisQueryService {
           barbeiroId: { in: barbeiroIds },
           inicio: { lt: diaFim },
           fim: { gt: diaInicio },
-          OR: [
-            { status: 'AGENDADO' },
-            { status: 'CONCLUSAO_PENDENTE' },
-            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
-          ],
+          OR: ocupamOHorario(agora),
         },
         select: { barbeiroId: true, inicio: true, fim: true },
       }),
@@ -389,11 +397,7 @@ export class HorariosDisponiveisQueryService {
           barbeiroId: { in: barbeiroIds },
           inicio: { lt: periodoFim },
           fim: { gt: periodoInicio },
-          OR: [
-            { status: 'AGENDADO' },
-            { status: 'CONCLUSAO_PENDENTE' },
-            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
-          ],
+          OR: ocupamOHorario(agora),
         },
         select: { barbeiroId: true, inicio: true, fim: true },
       }),
@@ -457,11 +461,7 @@ export class HorariosDisponiveisQueryService {
           barbeiroId: { in: aptos },
           inicio: { lt: params.fim },
           fim: { gt: params.inicio },
-          OR: [
-            { status: 'AGENDADO' },
-            { status: 'CONCLUSAO_PENDENTE' },
-            { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
-          ],
+          OR: ocupamOHorario(agora),
         },
         select: { barbeiroId: true },
       }),

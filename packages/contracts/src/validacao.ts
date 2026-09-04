@@ -156,7 +156,25 @@ export function validarSenhaDeCliente(senha: string, telefone?: string): Problem
   if (telefone) {
     const digitosDoTelefone = somenteDigitos(telefone);
     const digitosDaSenha = somenteDigitos(valor);
-    if (digitosDoTelefone.length >= 8 && digitosDaSenha && digitosDoTelefone.endsWith(digitosDaSenha)) {
+    /**
+     * ★ Mínimo de 4 dígitos (2026-09-04) — correção de um falso positivo real.
+     *
+     * Sem ele, a comparação era por SUFIXO de qualquer tamanho: `navalha7`
+     * tinha um dígito só, "7", e era recusada como "a senha não pode ser o seu
+     * telefone" para todo cliente cujo número terminasse em 7. Ou seja: uma em
+     * cada dez pessoas, com uma mensagem que não tem nada a ver com a senha que
+     * ela digitou. Foi um teste que pegou — o telefone gerado terminou em 7 num
+     * dos fusos e não no outro.
+     *
+     * Quatro dígitos é onde o palpite volta a ser real: "os últimos quatro do
+     * meu número" é escolha comum, e o telefone É o login.
+     */
+    const MIN_DIGITOS_PARA_PARECER_TELEFONE = 4;
+    if (
+      digitosDoTelefone.length >= 8 &&
+      digitosDaSenha.length >= MIN_DIGITOS_PARA_PARECER_TELEFONE &&
+      digitosDoTelefone.endsWith(digitosDaSenha)
+    ) {
       return { ok: false, erro: 'A senha não pode ser o seu telefone.' };
     }
   }

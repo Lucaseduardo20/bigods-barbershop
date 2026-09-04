@@ -186,6 +186,76 @@ describe('★★ flag LIGADA: agenda sem OTP, mas pendente de aprovação', () =
     await agendarAnonimo(httpOn, ligada, '10:00', novoFone()).expect(201);
     const conflito = await agendarAnonimo(httpOn, ligada, '10:00', novoFone());
     expect(conflito.status).toBeGreaterThanOrEqual(400);
+    // ★ E recusado como REGRA DE NEGÓCIO, não como erro de banco. O domínio
+    // precisa enxergar o pendente como ocupante: se só a EXCLUDE barrar, o
+    // cliente leva um 500 genérico no último clique do funil.
+    expect(conflito.status).toBeLessThan(500);
+  });
+
+  it('★★ e o horário do pendente SOME da lista de livres', async () => {
+    const res = await agendarAnonimo(httpOn, ligada, '15:00', novoFone()).expect(201);
+    expect(res.body.atendimentoId).toBeTruthy();
+
+    const horarios = await httpOn
+      .get(
+        `/public/horarios?companyId=${encodeURIComponent(ligada.companyId)}` +
+          `&barbeiroId=${ligada.barbeiroId}&servicoIds=${ligada.servicoId}&data=${DIA}`,
+      )
+      .expect(200);
+    const inicios: string[] = horarios.body.horarios.map((h: { horaInicio: string }) => h.horaInicio);
+
+    // Oferecer 15:00 aqui era o defeito: o funil inteiro andava e só o último
+    // clique descobria que o horário já era de outra pessoa.
+    expect(inicios).not.toContain('15:00');
+    // E o serviço dura 30 min: 14:45 também não cabe mais.
+    expect(inicios).not.toContain('14:45');
+    // Longe do pendente, a agenda continua aberta — o filtro não é um facão.
+    expect(inicios).toContain('08:00');
+  });
+
+  it('★★ o pendente aparece como PRÓXIMO do cliente — nunca no histórico', async () => {
+    const telefone = novoFone();
+    const res = await agendarAnonimo(httpOn, ligada, '16:00', telefone).expect(201);
+
+    const cliente = await prisma.cliente.findFirstOrThrow({
+      where: { companyId: ligada.companyId, telefone: Telefone.de(telefone).e164 },
+    });
+    // Pelo painel, na MESMA tela em que o dono decide se aprova: dizer "nenhum
+    // horário marcado" ali é esconder o que ele está prestes a julgar.
+    const detalhe = await httpOn
+      .get(`/clientes/${cliente.id}`)
+      .set('Authorization', `Bearer ${tokenOn}`)
+      .expect(200);
+    const ids: string[] = detalhe.body.proximosAgendamentos.map(
+      (a: { atendimentoId: string }) => a.atendimentoId,
+    );
+    expect(ids).toContain(res.body.atendimentoId);
+
+    // E pelo app da conta: futuro é futuro. Aparecer no histórico seria mostrar
+    // ao cliente, como coisa passada, um horário que ainda vai acontecer.
+    await httpOn
+      .post(`/clientes/${cliente.id}/senha`)
+      .set('Authorization', `Bearer ${tokenOn}`)
+      .send({ senha: SENHA_CLIENTE })
+      .expect(201);
+    const login = await httpOn
+      .post('/conta/login/senha')
+      .send({ companyId: ligada.companyId, telefone, senha: SENHA_CLIENTE })
+      .expect(201);
+    const perfil = await httpOn
+      .get('/conta/perfil')
+      .set('Authorization', `Bearer ${login.body.token}`)
+      .expect(200);
+    const historico = await httpOn
+      .get('/conta/historico')
+      .set('Authorization', `Bearer ${login.body.token}`)
+      .expect(200);
+    expect(
+      perfil.body.proximosAgendamentos.map((a: { atendimentoId: string }) => a.atendimentoId),
+    ).toContain(res.body.atendimentoId);
+    expect(
+      historico.body.map((a: { atendimentoId: string }) => a.atendimentoId),
+    ).not.toContain(res.body.atendimentoId);
   });
 
   it('★★ aprovar torna firme — e é só aí que o agendamento existe', async () => {
