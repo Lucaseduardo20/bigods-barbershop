@@ -2494,6 +2494,24 @@ Com o desvio ligado, o agendamento presencial entra sem verificação e nasce ne
 Aprovar e recusar são de **qualquer barbeiro ou admin**: no volume atual quem está no balcão
 resolve, e travar em admin faria o cliente esperar o dono chegar.
 
+#### Onde `AGUARDANDO_APROVACAO` precisa aparecer (2026-09-04, corrigido)
+
+Um estado novo não é uma linha no enum: é uma linha em toda consulta que enumera status. O QA
+achou três lugares em que ele faltava, e os três doíam:
+
+| lugar | efeito de faltar |
+|---|---|
+| projeção de horários livres (`horarios-disponiveis-query.service.ts`, 5 consultas) | a agenda oferecia o horário de um pedido pendente e o cliente seguinte tomava **500** no último clique do funil |
+| `agendadosDoBarbeiroNoPeriodo` (invariante do domínio) | o conflito só era pego pela EXCLUDE — erro de banco em vez de "esse horário acabou de ser preenchido" |
+| `AgendamentosClienteQueryService.proximos` (e o espelho `historico`) | sumia do detalhe do cliente no painel (bem na tela em que o dono decide) e aparecia no **histórico** do cliente, como coisa passada |
+
+Nas cinco consultas de horários a lista virou UMA (`ocupamOHorario`). Enquanto for cópia, o
+próximo status vai ficar para trás do mesmo jeito.
+
+Na conta do cliente o card mostra **"Aguardando confirmação da barbearia"** — mesma disciplina
+do `RESERVADO`: horário guardado que ainda não é firme precisa dizer isso, ou o cliente sai de
+casa confiando nele.
+
 #### Senha do cliente — o que destrava quem já pagou
 
 O login por código também parou de funcionar, e quem comprou pacote ficou sem acesso ao
@@ -2509,6 +2527,12 @@ O hash é o **mesmo motor do login de staff** (`senha.ts`: scrypt, sal por senha
 tempo constante). Não existe uma segunda implementação de hash neste sistema. A política de
 força (`validarSenhaDeCliente`, em `packages/contracts`) roda nas duas pontas, da mesma função:
 mínimo de 8, recusa as óbvias e recusa **o próprio telefone**, que é o login.
+
+A recusa do telefone só vale a partir de **4 dígitos** na senha (2026-09-04). Antes comparava
+por sufixo de qualquer tamanho, e `navalha7` — um dígito — era recusada como "o seu telefone"
+para todo cliente com número terminado em 7. Quatro dígitos é onde o palpite volta a ser real
+("os últimos quatro do meu número"); abaixo disso é coincidência, e recusar coincidência com
+uma mensagem sobre telefone só confunde quem escolheu uma senha boa.
 
 Resposta **neutra** no login: telefone inexistente, cliente sem senha e senha errada dão a
 mesma resposta, e gastam o mesmo scrypt — o tempo também não pode virar oráculo de quem é
@@ -2526,6 +2550,79 @@ trunca rótulo com oito abas, e as duas são gestão de pessoas.
 
 A lista é ordenada pelo **trabalho a fazer**, não por nome: quem tem crédito e não tem senha
 aparece primeiro, porque é quem pagou e está trancado do lado de fora.
+
+---
+
+### 8.18 Senha do cliente no funil — os três ramos do telefone (2026-09-04)
+
+Continuação de §8.17. Ali a senha existia, mas só o **admin** podia criá-la; o cliente novo
+ainda batia numa tela de código que não avança. Aqui o passo "telefone primeiro" do funil ganha
+um ramo por senha — **aditivo**, e só com `OTP_CONTINGENCIA=true`.
+
+O que separa os ramos é a CONTA, nunca "cliente novo ou antigo" (pergunta que o sistema não
+sabe responder). Duas perguntas bastam, e as duas vêm de `GET /public/clientes/conhecido`:
+existe conta para este telefone? ela tem senha?
+
+| | existe conta | tem senha | o funil faz |
+|---|---|---|---|
+| **1** | não | — | o cliente **cria a senha ali**, e a conta nasce com ela |
+| **2** | sim | sim | pede a **senha** no lugar do código; acerta → sessão, cadastro, segue |
+| **3** | sim | **não** | ★★★ **nunca** deixa criar senha. Caminho neutro: "fale com a barbearia" |
+
+#### Por que o ramo 3 é tratado à mão
+
+É a trava de segurança da sessão. Aquela conta tem histórico, pacotes e **créditos pagos**, e
+sem OTP não existe como distinguir o dono de quem digitou o número primeiro. Deixar criar senha
+ali entregaria o patrimônio do cliente a quem chegasse antes. O admin destrava depois de
+confirmar a identidade por outros meios (painel → Usuários → Clientes).
+
+O cliente do ramo 3 **continua agendando** — o horário é o que ele veio buscar, e fechar essa
+porta seria o desfecho que a contingência inteira existe para evitar. O funil só passa a se
+comportar como se não soubesse quem é: não mostra o nome do cadastro (mostrá-lo transformaria o
+campo de telefone numa consulta de "quem é o dono deste número") e não pergunta um novo (para
+não mandar de volta algo que sobrescreva o cadastro real). Daí `POST /public/agendamentos` ter
+passado a exigir `nome` **só de quem ainda não tem cadastro**.
+
+#### A senha do ramo 1 não prova posse do telefone
+
+`POST /conta/senha/criar` **não devolve sessão**. Ninguém confirmou que o número é de quem
+digitou, e um token ali faria o agendamento nascer firme — desmontando a contingência inteira
+por um detalhe. O pedido continua indo pelo caminho anônimo e nascendo `AGUARDANDO_APROVACAO`;
+quem filtra agenda falsa segue sendo a pessoa que aprova no painel.
+
+A rota também **não existe** com a flag desligada: responde 404. Desligar a contingência não
+deixa porta aberta para trás.
+
+#### Só na trilha de agendamento
+
+O ramo 1 aparece só no **avulso**. Na trilha de pacote o funil continua exigindo o código
+(DECISOES_PENDENTES #63: `POST /public/pacotes` pede sessão, e liberar isso é decisão de
+domínio) — e pedir "crie sua senha" para logo em seguida pedir um código por SMS seria a tela
+se contradizendo na cara do cliente. Os ramos 2 e 3 valem nas duas trilhas: perguntar a senha
+no lugar do código é melhor em qualquer caso, e ali a sessão vem de uma identidade que alguém
+de fato confirmou.
+
+#### Tom da UI
+
+Do lado do cliente, criar senha é **benefício**, não contingência: "crie sua senha para acessar
+sua conta". Nenhuma tela de cliente menciona problema de envio de SMS — para quem está do outro
+lado isso não é informação útil, é só motivo de desconfiança. (No painel a franqueza continua:
+o dono precisa saber por que a fila de "sem senha" existe.)
+
+#### Trocar a própria senha
+
+`PUT /conta/senha`, no topo da conta ao lado do sair. Existe porque hoje muita senha foi
+definida pela barbearia e passada por WhatsApp — alguém de lá a conhece. **Exige a senha
+atual**, mesmo com sessão: ela dura 30 dias e vive num celular, e um aparelho destravado
+esquecido no balcão não pode trancar o dono para fora. Mesmo padrão do "alterar senha" do
+staff. Vale com a flag ligada ou desligada — é recurso permanente, não desvio.
+
+Quem **não tem** senha não "define" uma por aqui: não há atual para conferir, e seria a mesma
+brecha do ramo 3 por outra porta.
+
+Resíduo conhecido e registrado (DECISOES_PENDENTES #64): uma conta nascida no ramo 1 pode, pelo
+app da conta, agendar firme — aquele caminho sempre tratou "tem sessão" como "telefone
+verificado", e agora existe uma terceira origem de sessão.
 
 ---
 
@@ -2561,6 +2658,12 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Contingência de OTP (§8.17) com a flag LIGADA e DESLIGADA no mesmo arquivo, cada uma com sua
   instância da aplicação: ligada, agenda sem código e nasce pendente; desligada, presencial sem
   sessão continua 401 e nada nasce pendente (`contingencia-otp.e2e.spec.ts`).
+- ★★★ Senha do cliente no funil (§8.18), também com dois apps num arquivo: telefone sem conta
+  cria senha e a conta nasce com ela; telefone com conta **SEM** senha tem a criação RECUSADA
+  (a trava contra sequestro de conta) e mesmo assim consegue agendar, com o nome do cadastro
+  intacto; criar senha não devolve sessão e o agendamento continua nascendo pendente; trocar a
+  própria senha exige a atual; com a flag desligada a rota responde 404 e nenhuma conta nasce
+  (`senha-do-cliente-no-funil.e2e.spec.ts`).
 - Consumo de crédito no balcão gera comissão sobre o valor RATEADO, consome o crédito e não
   rouba o horário de um agendamento existente (`consumo-de-credito-balcao.e2e.spec.ts`).
 - Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).

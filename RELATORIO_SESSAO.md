@@ -7213,3 +7213,283 @@ recusa do gateway que o cliente leria como culpa dele.
 
 Novos: 18 de `textoDoReembolso`/`textoDoEstornoAutomatico` (incluindo o cadeado de
 que `FALHOU` não usa a palavra), e 10 de `bandeiraPeloBin`. **Todos verdes.**
+
+---
+
+## Sessão 2026-09-04 (continuação) — senha do cliente no funil
+
+Sequência direta da contingência de OTP. Ali a senha já existia, mas **só o admin** podia
+criá-la: o cliente novo continuava batendo numa tela de código que não avança. Esta sessão põe
+a senha dentro do funil, sob a MESMA flag, sem reescrever o "telefone primeiro".
+
+### Os três ramos do telefone (com `OTP_CONTINGENCIA=true`)
+
+O que separa os ramos é a **conta**, nunca "cliente novo ou antigo" — essa é uma pergunta que o
+sistema não sabe responder. Duas perguntas bastam, e as duas vêm do mesmo endpoint que o funil
+já consultava (`GET /public/clientes/conhecido`, que passou a responder `temSenha`): existe
+conta para este telefone? ela tem senha?
+
+| | conta | senha | o funil faz |
+|---|---|---|---|
+| **1** | não existe | — | o cliente **cria a senha ali**, e a conta nasce com ela |
+| **2** | existe | tem | pede a **senha** no lugar do código |
+| **3** | existe | **não tem** | ★★★ **nunca** deixa criar senha — manda falar com a barbearia |
+
+### ★★★ Por que o ramo 3 é tratado à mão
+
+É a trava de segurança desta sessão, e vale dizer com todas as letras: **aquela conta tem
+histórico, pacotes e créditos pagos**, e sem OTP não existe como distinguir o dono de quem
+digitou o número primeiro. Se o funil deixasse criar senha ali, quem chegasse antes levaria a
+conta — e o patrimônio dentro dela.
+
+Então o funil recusa, e o backend recusa junto (409, mesmo para conta que já tem senha — a
+mensagem não diferencia os dois casos). Quem destrava é o **admin**, na tela de Clientes, depois
+de confirmar a identidade por outros meios. É lento de propósito.
+
+O cliente do ramo 3 **continua agendando**. Fechar essa porta seria exatamente o desfecho que a
+contingência existe para evitar. O que muda é que o funil passa a se comportar como se não
+soubesse quem é:
+
+- **não mostra** o nome do cadastro — mostrá-lo transformaria o campo de telefone numa consulta
+  de "quem é o dono deste número";
+- **não pergunta** um nome novo, nem manda e-mail/"sobre você" — para não sobrescrever o
+  cadastro real de alguém cuja identidade não foi provada.
+
+Isso obrigou uma mudança pequena e correta na borda: `POST /public/agendamentos` passou a exigir
+`nome` **só de quem ainda não tem cadastro**. Antes exigia sempre, no caminho anônimo, porque
+`Cliente.criar` precisa de nome — mas quando o telefone já tem cadastro o nome vem de lá, como
+sempre veio no caminho com sessão. A resposta não devolve nome nenhum, então isto não vira um
+oráculo novo.
+
+### ★★ A senha do ramo 1 não prova posse do telefone
+
+`POST /conta/senha/criar` **não devolve sessão**. É o detalhe que segura a contingência inteira
+de pé: com um token, o agendamento nasceria firme, e bastaria inventar um número e uma senha
+para entrar na agenda sem passar por ninguém. Sem ele, o pedido continua indo pelo caminho
+anônimo e nascendo `AGUARDANDO_APROVACAO` — quem filtra agenda falsa segue sendo a pessoa que
+aprova no painel, exatamente como antes.
+
+A rota também **não existe** com a flag desligada: responde 404, e nenhuma conta nasce por ali.
+Desligar a contingência não deixa porta aberta para trás.
+
+### O ramo 1 vale só no agendamento
+
+Na trilha de **pacote** o funil continua exigindo o código, porque `POST /public/pacotes` exige
+sessão e liberar isso é a decisão de domínio registrada em #63 — não minha. Mostrar "crie sua
+senha" e, dois cliques depois, "digite o código que enviamos por SMS" seria a tela se
+contradizendo na cara do cliente, que é exatamente o tipo de defeito que o QA anterior pegou.
+
+Os ramos 2 e 3 valem nas duas trilhas: perguntar a senha no lugar do código é melhor em
+qualquer caso, e ali a sessão vem de uma identidade que alguém confirmou de verdade — o que, de
+quebra, faz a compra de pacote voltar a funcionar de ponta a ponta para quem já tem senha.
+
+### O motor de senha é o mesmo, a fachada é outra
+
+`hashSenha`/`verificaSenha` de `identity/infrastructure/senha.ts` — scrypt, sal por senha,
+comparação em tempo constante. O mesmo módulo do login do painel. **Não existe uma segunda
+implementação de senha neste sistema, e não foi aqui que ela nasceu.** O que muda é o
+identificador: telefone em vez de login.
+
+A política de força (`validarSenhaDeCliente`, em `packages/contracts`) roda nas duas pontas, da
+mesma função: no front enquanto o cliente digita, no back porque validação só no front é um
+curl de distância.
+
+Resposta **neutra** no login continua valendo: telefone inexistente, cliente sem senha e senha
+errada dão a mesma resposta e gastam o mesmo scrypt.
+
+### Trocar a própria senha
+
+Botão no topo da conta, ao lado do sair (`PUT /conta/senha`). Existe porque hoje muita senha foi
+definida pela **barbearia** e passada por WhatsApp — alguém de lá a conhece. Sem esta tela, essa
+senha seria definitiva.
+
+**Exige a senha atual**, mesmo com o cliente logado: a sessão dura 30 dias e vive num celular, e
+um aparelho destravado esquecido no balcão não pode trocar a senha e trancar o dono para fora.
+Mesmo padrão do "alterar senha" do staff.
+
+Vale com a flag ligada **ou desligada** — é recurso permanente, não desvio. E quem não tem senha
+não "define" uma por aqui: não há atual para conferir, e seria a mesma brecha do ramo 3 por
+outra porta.
+
+### Tom da UI: benefício, não pane
+
+Nenhuma tela de cliente menciona problema de envio de SMS. Para quem está do outro lado isso
+não é informação útil — é só motivo de desconfiança. O texto que dizia *"Nosso envio de SMS está
+fora do ar"* saiu; no lugar, *"Para ativar seu acesso, fale com a barbearia no WhatsApp"*. E o
+campo de senha do ramo 1 é apresentado pelo que ele de fato entrega: *"É com ela que você entra
+na sua conta para acompanhar seus horários, ver seu histórico e usar seus créditos"*.
+
+No **painel** a franqueza continua, e isso foi escolha: a tela de Clientes ainda diz *"Com o SMS
+fora do ar, é assim que ele entra na conta"*. O dono precisa saber por que aquela fila existe —
+mas se você preferir que nem ali apareça, é uma linha.
+
+### Onde a senha NÃO mora
+
+`FunnelState` é serializado inteiro em `sessionStorage` — o teste-cadeado de chaves existe
+justamente por isso. A senha em digitação vive num `useState` do `App`, some do estado assim que
+cumpre o papel, e nunca toca o disco do celular do cliente. A única chave nova no estado salvo é
+`contaSemAcesso` (booleano), acrescentada à lista congelada.
+
+### Roteiro de smoke manual (os três casos, com a flag ligada)
+
+1. **Telefone novo** (trilha de **agendamento** — no pacote o ramo 1 não aparece).
+   Funil → dados → digite um celular que não é cliente → Continuar.
+   Devem aparecer **Nome** e **Crie sua senha** (com a explicação de benefício). Senha fraca
+   (`12345678`) trava o botão; senha boa libera. Revisar → confirmar.
+   - a tela de sucesso mostra *"A barbearia vai confirmar com você"* (nasceu **pendente**);
+   - a caixa de acesso diz *"Sua conta está pronta"*, sem oferecer código;
+   - no painel, Agenda → **A aprovar** traz o pedido;
+   - abra o app da conta e entre com aquele telefone + aquela senha: deve entrar.
+
+2. **Telefone com conta e senha** (use o do caso 1). Funil → dados → Continuar.
+   Deve abrir o modal **"Confirme que é você"** pedindo a senha, não o código.
+   - senha errada → erro claro, sem revelar nada da conta;
+   - senha certa → o funil segue com *"Olá, \<nome\>"* e não pergunta o nome de novo;
+   - **"Continuar sem entrar"** deve seguir o funil sem mostrar o nome.
+
+3. **Telefone com conta e SEM senha** (um cliente antigo de verdade). Funil → dados → Continuar.
+   - ★★★ **não pode** aparecer campo de criar senha em lugar nenhum;
+   - aparece o card neutro *"Ative o acesso à sua conta — fale com a barbearia"*, com o botão de
+     WhatsApp, e **nenhuma menção a SMS**;
+   - o nome dele **não** é exibido nem perguntado;
+   - o agendamento fecha normalmente e nasce pendente;
+   - no painel, Usuários → Clientes → abrir esse cliente → definir senha → ele entra na conta
+     com ela. Conferir que o **nome do cadastro dele continua o mesmo** depois de tudo.
+
+4. **Trocar a própria senha.** No app da conta, cadeado no topo → senha atual errada deve dar
+   *"Senha atual incorreta"*; a certa troca, e o login velho para de funcionar.
+
+5. **O pendente ocupa o horário, e diz que está pendente.** Depois de qualquer agendamento dos
+   casos acima: volte ao funil, escolha o MESMO barbeiro e dia, e confira que aquele horário
+   **não aparece mais** na lista (nem o de 15 min antes, se o serviço for de 30). E, na conta do
+   cliente, o card deve dizer **"Aguardando confirmação da barbearia"** — não pode parecer um
+   horário fechado.
+
+6. **Flag desligada** (`OTP_CONTINGENCIA=false`): o funil volta a pedir o código em tudo, e
+   `POST /conta/senha/criar` responde **404**. O cadeado de trocar senha continua funcionando.
+
+### Testes
+
+Arquivo novo `apps/api/test/integration/senha-do-cliente-no-funil.e2e.spec.ts` — **20 e2e**, com
+dois apps no mesmo arquivo (flag ligada e desligada), no padrão que a contingência estreou.
+Cobre os três ramos, a recusa do ramo 3 como teste explícito, a ausência de token na criação, o
+agendamento continuando pendente, o formato do hash, a troca exigindo a senha atual, a resposta
+neutra e o 404 com a flag desligada.
+
+Três asserções de `cadastro-nao-sobrescreve.e2e.spec.ts` foram atualizadas: `conhecido` agora
+responde dois campos.
+
+| suíte | resultado |
+|---|---|
+| `apps/api` | **1571 verdes** (108 arquivos), idênticos sob `UTC`, `America/Sao_Paulo` e `Asia/Tokyo` |
+| `apps/booking` | 114 verdes |
+| `apps/account` | 39 verdes |
+| `apps/admin` | 40 verdes |
+| `packages/contracts` | 107 verdes |
+| `turbo run build` | 5/5 |
+
+Além dos 20 do arquivo novo, três testes entraram em `contingencia-otp.e2e.spec.ts` para os
+defeitos achados no QA (o horário do pendente sumindo da lista, a recusa como regra de negócio e
+não como erro de banco, e o pendente aparecendo em "próximos" e não no histórico) e um em
+`validacao.spec.ts` para a política de senha. Confirmei que os quatro **falham** com a correção
+revertida — teste que não falha sem o conserto não segura nada.
+
+### QA no navegador — e três defeitos que já estavam de pé
+
+Rodei os três ramos no Chrome contra um ambiente espelhando a produção (API própria na
+`:3001` com `OTP_CONTINGENCIA=true`, `PAGAMENTO_MANUAL_WHATSAPP=true`, `PAYMENT_GATEWAY=fake`,
+`DEMO_MODE=false`, e os três apps em portas separadas). Achei nove coisas. **Cinco eram
+minhas; quatro já estavam na contingência que subiu antes** — e essas quatro são as piores.
+
+#### ★★★ O horário de um pedido pendente continuava sendo oferecido
+
+`AGUARDANDO_APROVACAO` entrou na EXCLUDE do Postgres e na cota de presenciais, mas **não** na
+projeção que lista horários livres — cinco consultas em
+`horarios-disponiveis-query.service.ts`, cada uma com a sua cópia da lista de status.
+
+O efeito, que reproduzi por acidente: o funil oferecia um horário já pedido por outra pessoa, o
+cliente percorria tudo e o último clique devolvia **"Internal server error"** — a EXCLUDE
+barrando no banco. Numa contingência em que TODO agendamento nasce pendente, isso significa que
+cada pedido feito envenenava o horário dele para o cliente seguinte.
+
+**Corrigido** com uma lista só (`ocupamOHorario`), usada pelas cinco. Era a cópia que deixou o
+status para trás; enquanto for cópia, vai deixar de novo.
+
+#### ★★ E o domínio não via o pendente como ocupante
+
+`agendadosDoBarbeiroNoPeriodo` também não listava o status. Por isso o conflito só era pego
+pela constraint — erro de banco (500) no lugar de *"Esse horário acabou de ser preenchido"*. O
+comentário logo acima da linha já avisava exatamente disso, para `CONCLUSAO_PENDENTE`.
+**Corrigido**, e o teste que segurava o caso passou a exigir `status < 500`, não só `>= 400` —
+era por essa fresta que ele passava verde com um 500.
+
+#### ★★ O pendente sumia do painel e aparecia no HISTÓRICO do cliente
+
+`AgendamentosClienteQueryService.proximos` não incluía o status, e `historico` é o espelho
+dele. Duas consequências:
+
+- no painel, **Usuários → Clientes → \<cliente\>** dizia *"Nenhum horário marcado"* — na
+  exata tela em que o dono confere quem é a pessoa antes de aprovar o pedido dela;
+- na conta do cliente, o horário recém-pedido não aparecia em "próximos" e aparecia no
+  **histórico** — um horário futuro exibido como coisa passada. É o mesmo bug que `RESERVADO`
+  já tinha causado, e o comentário no arquivo conta essa história.
+
+**Corrigido** nos dois. E, junto: a conta agora mostra **"Aguardando confirmação da
+barbearia"** no card do agendamento. Sem isso o cliente lia "a barbearia vai confirmar" na tela
+de sucesso e, ao abrir a conta, via o mesmo horário como se estivesse fechado — sairia de casa
+confiando nele.
+
+#### ★★ E a política de senha recusava senhas boas, em 1 de cada 10 clientes
+
+Este não veio do navegador: veio do **multitz**. A suíte passou em `UTC` e falhou em
+`America/Sao_Paulo` — o telefone que o teste gera vem do relógio, e num fuso ele terminou em 7.
+
+A regra "a senha não pode ser o seu telefone" comparava por **sufixo de qualquer tamanho**.
+`navalha-quente7` tem um dígito só, "7", e todo cliente cujo número termina em 7 recebia
+*"A senha não pode ser o seu telefone."* — uma mensagem sem relação nenhuma com o que ele
+acabou de digitar, e sem nenhum caminho óbvio de saída.
+
+**Corrigido:** a comparação só vale a partir de **4 dígitos**, que é onde o palpite volta a ser
+real ("os últimos quatro do meu número"). `corte7777` contra um telefone terminado em 7777
+continua recusado; `navalha7` passa.
+
+Vale dizer de onde veio: foi o teste em outro fuso que expôs uma regra de negócio errada — não
+um problema de fuso.
+
+#### Os cinco desta sessão
+
+| | o que estava errado |
+|---|---|
+| 1 | a faixa "Senha criada" sobrevivia ao "fazer outro agendamento" e aparecia num funil novo, antes mesmo de digitar o telefone (`reset` não limpava o ramo da senha) |
+| 2 | sem nome (ramo 3), a tela de sucesso dizia **"Tudo certo, até logo!"** — o fallback antigo virando vocativo |
+| 3 | "Seu telefone já está confirmado" na caixa de acesso, com a sessão vinda de **senha** — que é justamente o que não confirma telefone |
+| 4 | o banner de sessão prometia "não vamos pedir o código de novo" num modo em que código nenhum existe |
+| 5 | "Nada de senha ou cadastro" tinha sumido também com a flag DESLIGADA, onde continua sendo verdade |
+
+Todos corrigidos e revalidados no navegador, no mesmo ambiente.
+
+#### O que passou de primeira
+
+Os três ramos, ponta a ponta: cliente novo criou senha e o agendamento nasceu pendente; senha
+fraca travou o botão com a razão na tela; o cliente entrou na conta com a senha que criou. O
+cliente antigo **sem senha** não viu campo de senha nenhum, agendou assim mesmo, e o cadastro
+dele ficou intacto (nome, e-mail e "sobre você" sem um toque). O admin definiu a senha pelo
+painel e o mesmo cliente entrou; trocou a própria senha exigindo a atual, e a antiga deixou de
+funcionar na hora. E o cliente com senha, ao entrar pelo funil, fechou horário **firme** —
+"É só chegar no horário", sem a frase de pendência.
+
+Com a flag DESLIGADA: o texto voltou a falar de SMS, o campo de senha sumiu, o telefone
+conhecido voltou a abrir o modal de **código**, `temSenha` voltou a responder `false` mesmo para
+quem tem senha, e `POST /conta/senha/criar` respondeu **404**.
+
+### O que ficou registrado, e não escondido
+
+**DECISOES_PENDENTES #64** — a conta criada no ramo 1 consegue, pelo **app da conta**, agendar
+firme: aquele caminho sempre tratou "tem sessão" como "telefone verificado", o que era verdade
+enquanto sessão só vinha de OTP ou de senha definida pelo admin. Agora existe uma terceira
+origem. Exige criar a conta, ir ao app da conta, entrar e agendar por lá — não é o caminho de
+quem quer poluir agenda — mas é uma porta que a contingência não cobre. O conserto certo é
+registrar a origem da senha (coluna aditiva) e é decisão de domínio, não de implementação.
+
+**#62** virou parcial: o cliente novo agora cria a própria senha; "esqueci a senha" continua
+dependendo de #61 (a rota A2P), que segue sendo a causa raiz de tudo isto.

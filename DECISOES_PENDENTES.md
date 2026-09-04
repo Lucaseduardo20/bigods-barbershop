@@ -1098,17 +1098,22 @@ Enquanto isso não existe, qualquer fluxo novo que dependa de SMS nasce quebrado
 sem outra sessão de trabalho. Vale revisar então se o `AGUARDANDO_APROVACAO` continua útil como
 opção manual — a barbearia pode gostar de aprovar pedido de cliente novo — ou se some.
 
-## 62. Autosserviço de senha do cliente (2026-09-04)
+## 62. Autosserviço de senha do cliente (2026-09-04) — PARCIALMENTE RESOLVIDO
 
-Hoje só o ADMIN define a senha de um cliente. Falta o cliente poder: (a) criar a própria senha
-no primeiro acesso e (b) recuperá-la sozinho quando esquecer.
+Eram dois: (a) criar a própria senha no primeiro acesso e (b) recuperá-la sozinho quando
+esquecer.
 
-Os dois dependem de provar posse do telefone, que é justamente o que está quebrado — por isso
-não entraram. Quando a rota de SMS estiver resolvida (#61), o caminho já está desenhado: sessão
-com verificação recente para o primeiro acesso, e código para o "esqueci a senha".
+**(a) resolvido para telefone SEM conta** (2026-09-04, §8.18): no funil, com a contingência
+ligada, o cliente novo cria a senha dele e a conta nasce com ela. Não vale para telefone que
+JÁ tem conta e não tem senha — ali criar senha sem provar posse do telefone entregaria a conta
+a quem chegasse primeiro, e esse caso continua sendo destravado pelo admin.
+
+**(b) continua em aberto.** "Esqueci a senha" depende de provar posse do telefone, que é
+exatamente o que está quebrado. Quando #61 estiver resolvido, o caminho é o código por SMS.
 
 **Enquanto isso:** cliente que esquecer a senha pede à barbearia, que redefine pela tela de
-Clientes. É o mesmo caminho de hoje, e funciona.
+Clientes. O cliente já consegue TROCAR a senha dele sozinho (topo da conta → cadeado), o que
+resolve o caso de "a barbearia sabe minha senha" sem depender de SMS nenhum.
 
 ## 63. Compra de pacote pelo funil durante a contingência de OTP (2026-09-04)
 
@@ -1125,3 +1130,28 @@ o pagamento manual de qualquer jeito.
 enquanto o SMS não volta. É decisão de domínio, não de implementação — envolve deixar alguém
 comprar crédito em nome de um telefone que não provou possuir. O risco é baixo (quem compra
 paga, e o dono confirma o pagamento na mão), mas a decisão é do dono.
+
+## 64. ★ Conta criada com senha no funil agenda FIRME pelo app da conta (2026-09-04)
+
+A senha que o cliente novo cria no funil (§8.18) **não prova posse do telefone** — ninguém
+confirmou que o número digitado é dele. Por isso a criação não emite sessão, e o agendamento
+feito ali continua nascendo `AGUARDANDO_APROVACAO`, como todos os da contingência.
+
+**O que sobrou:** essa mesma conta consegue fazer login por senha e agendar pelo APP DA CONTA
+(`POST /conta/agendamentos/avulso`), e esse caminho não passa pela aprovação manual — ele
+sempre tratou "tem sessão" como "telefone verificado", o que era verdade enquanto sessão só
+vinha de OTP ou de senha definida pelo admin. Agora existe uma terceira origem.
+
+**Tamanho do risco:** exige criar a conta no funil, ir até o app da conta, entrar e agendar por
+lá — não é o caminho de quem só quer poluir a agenda, e o pedido aparece na agenda do dono do
+mesmo jeito. Mas é uma porta que a contingência não cobre, e o certo é dizê-lo.
+
+**O que falta decidir:** durante a contingência, agendamento feito pelo app da conta também
+deveria nascer pendente? Se sim, para todo mundo (inclusive quem tem senha definida pelo
+admin, que É uma identidade confirmada) — mais atrito para a barbearia — ou só para contas cuja
+senha nasceu no funil? A segunda opção é a correta e exige registrar a ORIGEM da senha (ou o
+momento em que a identidade foi confirmada) no `Cliente`: uma coluna aditiva, útil também
+depois que a contingência acabar.
+
+**Some sozinho quando #61 for resolvido:** com a flag desligada, a rota de criação de senha no
+funil deixa de existir (404) e nenhuma conta nova nasce por esse caminho.

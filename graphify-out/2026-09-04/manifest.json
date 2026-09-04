@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "apps/admin/src/components/AtendimentoDetalheDialog.tsx": {
-    "mtime": 1788495636.883035,
-    "seen": 1788497062.001673,
-    "ast_hash": "00280d915fe1b48775a1ffc2129a2f9a",
+    "mtime": 1788538056.76173,
+    "seen": 1788539447.5020826,
+    "ast_hash": "b758e3371ea3d3efa2ea5949e50fa935",
     "semantic_hash": ""
   },
   "apps/admin/src/components/FotoUpload.tsx": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "apps/admin/src/screens/Agenda.tsx": {
-    "mtime": 1787885936.7212276,
-    "seen": 1787935155.8202875,
-    "ast_hash": "fbc38e67560ace1d637e1ad92d429950",
+    "mtime": 1788538039.2776089,
+    "seen": 1788539447.5031092,
+    "ast_hash": "457a6795659518da6dafed35885f8bcf",
     "semantic_hash": ""
   },
   "apps/admin/src/screens/Ajustes.tsx": {
@@ -1926,9 +1926,9 @@
     "semantic_hash": "c735540bb63936a123bc867d950c9f69"
   },
   "apps/booking/src/App.tsx": {
-    "mtime": 1788496033.9826882,
-    "seen": 1788497062.012927,
-    "ast_hash": "096a15ae3a17b0578cf72a9057c74706",
+    "mtime": 1788538725.766862,
+    "seen": 1788539447.5202684,
+    "ast_hash": "2c7c6cf3c94711a33ee966cab5a7c3bb",
     "semantic_hash": ""
   },
   "apps/booking/src/components/BigodsClub.tsx": {
@@ -1944,9 +1944,9 @@
     "semantic_hash": "6d8108d52137a3f3c9be3e22499a7f21"
   },
   "apps/booking/src/components/Onboarding.tsx": {
-    "mtime": 1788485411.355385,
-    "seen": 1788497062.0129988,
-    "ast_hash": "fb2d1e3829e9cffbf213736d3021c87a",
+    "mtime": 1788538100.8540394,
+    "seen": 1788539447.5204334,
+    "ast_hash": "661d839fa7b8cf8f72efaeb38ee2ecae",
     "semantic_hash": ""
   },
   "apps/booking/src/components/OrderBump.tsx": {
@@ -2094,9 +2094,9 @@
     "semantic_hash": ""
   },
   "apps/booking/src/steps/Dados.tsx": {
-    "mtime": 1787885936.7812276,
-    "seen": 1787935155.8243399,
-    "ast_hash": "611fb9c9564b0af4ce6fb205e3290288",
+    "mtime": 1788538080.6378968,
+    "seen": 1788539447.521635,
+    "ast_hash": "b239b9b645b42fd4cd3bb90df6c82ee7",
     "semantic_hash": ""
   },
   "apps/booking/src/steps/DataHora.tsx": {
@@ -2118,9 +2118,9 @@
     "semantic_hash": "fac66c00dfbb2badcea26e60be3e1255"
   },
   "apps/booking/src/steps/Sucesso.tsx": {
-    "mtime": 1788496033.9786882,
-    "seen": 1788497062.013834,
-    "ast_hash": "e4f59f342df52e9e48b014702e2fb9c7",
+    "mtime": 1788538153.1984143,
+    "seen": 1788539447.5217488,
+    "ast_hash": "6a9365059b88e66cadb87c3cf8b78422",
     "semantic_hash": ""
   },
   "apps/booking/tailwind.config.js": {
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "DECISOES_PENDENTES.md": {
-    "mtime": 1788496105.7433212,
-    "seen": 1788497062.015057,
-    "ast_hash": "a888e35704517110ffad1b519f2bd257",
+    "mtime": 1788538739.1989713,
+    "seen": 1788539447.523492,
+    "ast_hash": "872da0ebf6768cd4f33307e155fcf8bd",
     "semantic_hash": ""
   },
   "DEPLOY.md": {
@@ -3753,6 +3753,12 @@
     "mtime": 1788495523.2939208,
     "seen": 1788497062.0118546,
     "ast_hash": "f3cf21c410e49eadc9f8617bf10335fc",
+    "semantic_hash": ""
+  },
+  "docs/qa/2026-09-04-deploy.md": {
+    "mtime": 1788539418.1166341,
+    "seen": 1788539447.524153,
+    "ast_hash": "4d7e7902e2a509e3c844ae2ed1e9065d",
     "semantic_hash": ""
   }
 }
