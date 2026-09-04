@@ -13,6 +13,7 @@ export function Sucesso({
   estado,
   pago,
   aguardandoConfirmacao = false,
+  otpEmContingencia = false,
   timezone,
   duracaoMinutos,
   sessaoDoFunil,
@@ -27,6 +28,12 @@ export function Sucesso({
    * de casa achando que está garantido é o pior desfecho possível deste desvio.
    */
   aguardandoConfirmacao?: boolean;
+  /**
+   * A contingência está ligada (2026-09-04). Diferente de
+   * `aguardandoConfirmacao`, que só vale para o presencial: aqui o que importa
+   * é que NÃO SAI SMS — vale para o pacote também.
+   */
+  otpEmContingencia?: boolean;
   /**
    * Sessão obtida no OTP da confirmação, quando houve. Com ela, a caixa de
    * acesso à conta não pede código de novo (2026-08-21).
@@ -45,6 +52,7 @@ export function Sucesso({
   if (ehPacote) {
     return (
       <SucessoPacote
+        otpEmContingencia={otpEmContingencia}
         estado={estado}
         primeiroNome={primeiroNome}
         pago={pago}
@@ -108,7 +116,7 @@ export function Sucesso({
             quem agendou avulso terminar o funil sem saber que existe uma área
             onde ele acompanha, remarca e vê o histórico. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} telefone={estado.telefone} contexto="agendamento" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />
@@ -236,12 +244,15 @@ function SucessoPacote({
   primeiroNome,
   pago,
   sessaoDoFunil,
+  otpEmContingencia = false,
   onNovo,
 }: {
   estado: FunnelState;
   primeiroNome: string;
   pago: boolean;
   sessaoDoFunil: SessaoBooking | null;
+  /** Sem SMS, o widget de acesso não oferece código — ver `Onboarding`. */
+  otpEmContingencia?: boolean;
   onNovo: () => void;
 }) {
   return (
@@ -269,7 +280,7 @@ function SucessoPacote({
             liberação. Esconder aqui deixava quem vai pagar na barbearia sem
             caminho nenhum para a própria conta. */}
         <div className="mt-6 text-left">
-          <Onboarding telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
+          <Onboarding otpEmContingencia={otpEmContingencia} telefone={estado.telefone} contexto="pacote" sessaoDoFunil={sessaoDoFunil} />
         </div>
 
         <InfoDaBarbearia />

@@ -1109,3 +1109,19 @@ com verificação recente para o primeiro acesso, e código para o "esqueci a se
 
 **Enquanto isso:** cliente que esquecer a senha pede à barbearia, que redefine pela tela de
 Clientes. É o mesmo caminho de hoje, e funciona.
+
+## 63. Compra de pacote pelo funil durante a contingência de OTP (2026-09-04)
+
+`POST /public/pacotes` exige sessão de cliente (telefone verificado). Com o SMS fora do ar,
+isso significa que **o cliente não consegue comprar pacote sozinho pelo funil** enquanto a
+contingência estiver ligada — o funil o levaria até o fim para tomar 401.
+
+O desvio foi deliberadamente restrito ao AGENDAMENTO (que foi o que a operação pediu), e o
+funil deixou de pular o código na trilha de pacote. Na prática, durante a contingência o
+pacote se vende **pelo painel** (Pacotes → Vender), que já funciona e é onde o dono confirma
+o pagamento manual de qualquer jeito.
+
+**O que falta decidir:** se o pacote também deveria poder ser comprado sem verificação
+enquanto o SMS não volta. É decisão de domínio, não de implementação — envolve deixar alguém
+comprar crédito em nome de um telefone que não provou possuir. O risco é baixo (quem compra
+paga, e o dono confirma o pagamento na mão), mas a decisão é do dono.

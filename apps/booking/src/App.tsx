@@ -342,6 +342,7 @@ function Funil() {
         aguardandoConfirmacao={
           empresa.otpEmContingencia && estado.modo === 'avulso' && estado.formaPagamento !== 'online'
         }
+        otpEmContingencia={empresa.otpEmContingencia}
         timezone={empresa.timezone}
         duracaoMinutos={duracaoMinutos(servicosParaPreco, estado.servicoIds)}
         // Um OTP, não dois: o telefone confirmado na confirmação do agendamento
@@ -927,7 +928,7 @@ function Funil() {
      * confirmar — quem decide isso é a API (`otpEmContingencia` vem dela), para
      * front e back nunca discordarem sobre o desvio estar ligado.
      */
-    if (empresa.otpEmContingencia) {
+    if (empresa.otpEmContingencia && estado.modo === 'avulso') {
       await enviarComSessao(null);
       return;
     }
@@ -984,6 +985,7 @@ function Funil() {
   } else if (estado.step === PASSO.DADOS) {
     corpo = (
       <Dados
+        otpEmContingencia={empresa.otpEmContingencia}
         nome={estado.nome}
         telefone={estado.telefone}
         email={estado.email}

@@ -1,80 +1,80 @@
 # Graph Report - bigods-barber-v2  (2026-09-04)
 
 ## Corpus Check
-- 540 files · ~749,815 words
+- 541 files · ~751,687 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5065 nodes · 11512 edges · 305 communities (278 shown, 27 thin omitted)
+- 5078 nodes · 11524 edges · 300 communities (269 shown, 31 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 182 edges (avg confidence: 0.81)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `03c0658f`
+- Built from commit: `02d5a306`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- BookCredit.tsx
+- QuandoBloco.tsx
 - dinheiro.ts
-- BarbeiroId
+- LancamentoComissao
 - PacoteOfertasController
-- PrismaService
+- app.module.ts
 - dto.ts
 - s3-armazenamento.ts
-- Barbeiro
-- shared.module.ts
+- CompanyId
+- UnitOfWork
 - VendaDePacote
-- cobranca-online.service.ts
+- payments.module.ts
 - payroll.module.ts
 - Cliente
 - devDependencies
 - ClienteAutenticado
-- HorariosDisponiveisQueryService
+- BarbeiroId
 - Atendimento
 - booking/src/App.tsx
-- auth.decorators.ts
-- UsuarioAtual
+- auth-provider.ts
+- UsuarioAutenticado
 - ValeRepository
-- materializar-expediente.usecase.ts
+- DisponibilidadeBarbeiro
 - sentry-scrubbing.ts
 - AtendimentoDetalheDialog.tsx
 - servicos.controller.ts
 - BarbeirosController
-- mercadopago-webhook.verifier.ts
+- vinculo-order-intencao.ts
 - IntencaoDePagamento
-- ExpedienteSemanal
+- ParametrosDaEmpresaRepository
 - calendario.ts
 - api
-- conclusao-antecipada.e2e.spec.ts
+- executar-reembolso-agendado.spec.ts
 - Telefone primeiro: o funil para de reescrever o cadastro (2026-08-21) ✅
-- .enviarFoto
+- produtos.controller.ts
 - dependencies
-- UsuarioAutenticado
+- AuthController
 - Vale
 - barbeiros.controller.ts
 - create-auth-challenge.js
-- booking-publico.controller.ts
+- conta-cliente.controller.ts
 - Decisões Pendentes
 - admin/src/App.tsx
 - Sucesso.tsx
 - devDependencies
-- .criar
+- disponibilidades.controller.ts
 - Financeiro.tsx
 - Relatório da Sessão — Bigod's Barber v2
-- CompanyId
+- Db
 - compilerOptions
 - PrismaAtendimentoRepository
 - caixinha-e-desconto.e2e.spec.ts
-- identity.module.ts
+- whatsapp-identity.provider.ts
 - What You Must Do When Invoked
 - scripts
 - packages.module.ts
-- AuthProvider
-- Auth.tsx
+- LocalAuthProvider
+- BookCredit.tsx
 - Pacotes.tsx
-- IdentityProvider
-- vendas-produto.controller.ts
+- identity.module.ts
+- clube-query.service.ts
 - PrismaIntencaoDePagamentoRepository
 - Confirmacao.tsx
 - ids.ts
@@ -85,12 +85,12 @@
 - HomeQueryService
 - enums.ts
 - Servico
-- app.module.ts
+- PrismaService
 - ValesController
-- regra-atribuicao-de-barbeiro.ts
+- adicionar-item-atendimento.usecase.ts
 - compilerOptions
 - compilerOptions
-- ClientesController
+- clientes.controller.ts
 - Dinheiro
 - 3. Agregados
 - tsconfig.build.json
@@ -107,7 +107,7 @@
 - parametros.controller.ts
 - payment-gateway.ts
 - 8. Casos de uso principais
-- IntervaloDeTempo
+- QA de deploy — staging + contingência de OTP — 2026-09-04
 - ClubeHandlers
 - 2. Funil público — o que o cliente vê (porta 5174)
 - Produto
@@ -122,18 +122,18 @@
 - AgendarPublicoDto
 - reatribuir-barbeiro.e2e.spec.ts
 - SolicitacaoDeReembolso
-- expediente-semanal.aggregate.ts
+- ExpedienteSemanal
 - CartaoCheckout.tsx
 - OtpVerificacao.tsx
 - Sentry nos quatro apps — erro e latência, sem levar dado de cliente junto (2026-08-21) ✅
-- ProcessarWebhookMercadoPagoUseCase
+- customers.module.ts
 - config/package.json
 - Upload de imagens — foto de barbeiro e de produto (2026-08-19) ✅
 - gerar-icones.mjs
 - nest-cli.json
 - taxa-retida.ts
 - Pagamentos (PIX via AbacatePay — Checkout Transparente v2)
-- .deCentavos
+- .executar
 - ItemDeOrderBump
 - CLAUDE.md — Bigod's Barber
 - visita-multiplos-creditos.e2e.spec.ts
@@ -147,7 +147,7 @@
 - Deploy — Bigod's Barber
 - whatsapp-otp-service
 - S3Espiao
-- .vender
+- .constructor
 - env-up.sh
 - Vários créditos numa visita (2026-08-21) ✅
 - Bigod's Barber — Especificação de Domínio
@@ -159,11 +159,11 @@
 - BLOCO 1 — Funil público avulso (booking, sem login)
 - BLOCO 4 — Admin: agenda e conclusão (onde dinheiro é registrado)
 - contracts/tsconfig.json
-- vinculo-order-intencao.ts
+- PrismaVendaDePacoteRepository
 - Correção de bugs de smoke test manual (sessão 2026-07-20) ✅
 - atendimentos.controller.ts
 - conta-cliente.e2e.spec.ts
-- VenderProdutoAvulsoDto
+- vendas-produto.controller.ts
 - graphify reference: extra exports and benchmark
 - BLOCO D — Funil reordenado + link pessoal
 - resultado-bateria-testes1.md
@@ -183,7 +183,7 @@
 - Trava de conclusão antecipada (2026-08-20) ✅
 - PacoteOferta como agregado + preço por barbeiro + aprovação + funil reordenado (sessão-B, 2026-07-20/21) ✅
 - PARTE 2 — ★ O PROCEDIMENTO DA VIRADA
-- validacao.ts
+- pacotes-publico.controller.ts
 - BLOCO C — Workflow de aprovação
 - BLOCO F — Re-teste: conclusão e comissão (bloco 4 do smoke anterior)
 - 2. Decisões arquiteturais travadas
@@ -196,7 +196,7 @@
 - Funil único + desconto progressivo (2026-08-14) ✅
 - OTP obrigatório + reserva temporária + cota de presenciais (2026-08-13) ✅
 - account/src/screens/Home.tsx
-- .definir
+- RepositoriosTransacionais
 - graphify reference: query, path, explain
 - BLOCO B — Preço por barbeiro
 - BLOCO G — Re-teste: ciclo do pacote (bloco 5 do smoke anterior)
@@ -237,24 +237,24 @@
 - extraction-spec.md
 - account/src/App.tsx
 - @prisma/client
-- .agendar
-- login-com-senha-cliente.usecase.ts
+- conta-cockpit.e2e.spec.ts
+- cliente.guard.ts
 - Follow-up — pendências conhecidas e adiadas
 - ConfigurarDto
 - reativar-cancelamento.e2e.spec.ts
 - testar-sms-gtisms.mjs
 - ★★ Cliente cadastrado não conseguia comprar pacote (2026-08-27) ✅
 - Fases
-- motivo-publico-da-recusa.ts
+- pacote-publico.e2e.spec.ts
 - Status de membro do Bigod's Club (2026-08-21) ✅
-- UnitOfWork
+- PaymentGateway
 - Mercado Pago via Orders API — levantamento da API (2026-08-26) 📋 PESQUISA, NADA IMPLEMENTADO
 - Caixinha e desconto viram acerto POR BARBEIRO (2026-08-26) ✅
 - Papeis
-- account/src/components/ui.tsx
-- PagarComCartaoUseCase
-- staff.module.ts
-- fechamento-query.service.ts
+- AtendimentoDetalhe.tsx
+- PagarComCartaoDto
+- cognito-identity.provider.spec.ts
+- FechamentoQueryService
 - @aws-sdk/client-cognito-identity-provider
 - @bigods/contracts
 - lib/reembolso.ts
@@ -262,7 +262,7 @@
 - .zero
 - .criar
 - pagar-com-cartao.spec.ts
-- cadastro-nao-sobrescreve.e2e.spec.ts
+- AgendamentosClienteQueryService
 - Fase 7 — checkout de cartão no funil (2026-08-27) ✅ IMPLEMENTADO
 - Fase 9 — reembolso agendado (2026-08-27) ✅ BACKEND IMPLEMENTADO
 - Fase 8 — comissão sobre o líquido (2026-08-27) ✅ IMPLEMENTADO
@@ -271,34 +271,30 @@
 - comanda-editavel.e2e.spec.ts
 - AbacatePayGateway
 - smoke-dias-permitidos.mjs
-- DiaDeExpedienteDto
-- marcar-vale-pago.usecase.ts
+- order-bump-rico.e2e.spec.ts
+- .constructor
 - otp-sem-conta.e2e.spec.ts
 - Dias da semana em que o crédito de pacote vale (2026-08-28) ✅
-- OnVendaDeProdutoRegistradaHandler
+- BarbeiroRepository
 - MeioDePagamentoOnline
 - Fase 10 — admin: reembolso e visibilidade (2026-08-27) ✅ IMPLEMENTADO
 - ExpirarItensJob
 - Consumir crédito de pacote no balcão (2026-08-28) ✅
 - SolicitarValeDto
 - consumo-de-credito-balcao.e2e.spec.ts
-- DecidirAgendamentoPendenteUseCase
-- config-seguranca.ts
+- RepoFake
+- whatsapp-otp-boot.e2e.spec.ts
 - 8.16 Consumir crédito de pacote no balcão (2026-08-28)
 - Fase 11 — a conta do cliente (2026-08-27) ✅ IMPLEMENTADO
 - AgendaQueryService
-- ReembolsosDoClienteQueryService
-- BarbeiroRepository
+- SharedModule
+- shared.module.ts
 - fix-cloudfront-spa.sh
 - 8.15 Dias da semana em que o crédito de pacote vale (2026-08-28)
 - AprovarValeUseCase
-- SolicitarValeUseCase
 - 8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04)
 - ★★ Contingência de OTP — agendar e entrar sem SMS (2026-09-04) ✅
-- ConfirmarLoginClienteUseCase
 - Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅
-- .login
-- JanelaExpedienteDto
 - motivo-estorno.spec.ts
 
 ## God Nodes (most connected - your core abstractions)
@@ -328,27 +324,27 @@
 ## Import Cycles
 - None detected.
 
-## Communities (305 total, 27 thin omitted)
+## Communities (300 total, 31 thin omitted)
 
-### Community 0 - "BookCredit.tsx"
-Cohesion: 0.16
-Nodes (15): diaDaSemanaDe(), QuandoBloco(), AvatarBarbeiro(), dataCurtaLocal(), diasCivisRestantes(), diasDaSemana(), dinheiro(), hojeISO() (+7 more)
+### Community 0 - "QuandoBloco.tsx"
+Cohesion: 0.26
+Nodes (10): diaDaSemanaDe(), QuandoBloco(), dataCurtaLocal(), diasCivisRestantes(), diasDaSemana(), hojeISO(), proximosDias(), rotuloDia() (+2 more)
 
 ### Community 1 - "dinheiro.ts"
-Cohesion: 0.08
-Nodes (30): base, MAX_MENSAGEM_BUMP, BASE, VALOR, AGORA, DEPOIS, ReparticaoDoAcerto, repartirEntreBarbeiroECasa() (+22 more)
-
-### Community 2 - "BarbeiroId"
 Cohesion: 0.07
-Nodes (25): ClienteDaCasaRepository, PrismaClienteDaCasaRepository, Injectable, VendaDePacoteProps, RegistrarPagamentoInput, RegistrarPagamentoUseCase, Inject, Injectable (+17 more)
+Nodes (33): ServicoProps, base, MAX_MENSAGEM_BUMP, BASE, saoPaulo, toquio, VALOR, AGORA (+25 more)
+
+### Community 2 - "LancamentoComissao"
+Cohesion: 0.11
+Nodes (18): LancamentoComissao, lancamentosDoAtendimentoConcluido(), calcularSaldoCentavos(), sinalDoTipo(), comissao(), ocorridoEm, pagamento(), vale() (+10 more)
 
 ### Community 3 - "PacoteOfertasController"
 Cohesion: 0.24
 Nodes (10): somaDeReferenciaDaCasa(), PacoteOfertasController, paraDTO(), Body, Controller, Get, Inject, Param (+2 more)
 
-### Community 4 - "PrismaService"
+### Community 4 - "app.module.ts"
 Cohesion: 0.04
-Nodes (33): AppModule, Module, hashSenha(), PrismaService, Injectable, DIA, sufixo, DIA (+25 more)
+Nodes (38): AppModule, THROTTLER_OTP_ORIGEM, Module, FunnelModule, Module, hashSenha(), ProductsModule, Module (+30 more)
 
 ### Community 5 - "dto.ts"
 Cohesion: 0.02
@@ -358,61 +354,57 @@ Nodes (84): AdicionarItemAtendimentoRequest, AdicionarProdutoAtendimentoRequest,
 Cohesion: 0.06
 Nodes (41): Inject, Inject, DonoDeFoto, GerenciarFotoUseCase, Inject, Injectable, ARMAZENAMENTO_DE_IMAGENS, ArmazenamentoDeImagens (+33 more)
 
-### Community 7 - "Barbeiro"
+### Community 7 - "CompanyId"
 Cohesion: 0.04
-Nodes (11): ServicoProps, EntradaDosLancamentos, ItemParaComissao, Barbeiro, BarbeiroProps, include, paraDominio(), PrismaBarbeiroRepository (+3 more)
+Nodes (16): ItemDeOrderBumpProps, PrismaParametrosRepository, Injectable, EntradaDosLancamentos, ItemParaComissao, RegistrarConcluidoParams, Barbeiro, BarbeiroProps (+8 more)
 
-### Community 8 - "shared.module.ts"
-Cohesion: 0.14
-Nodes (26): SERVICO_REPOSITORY, VenderPacoteInput, VenderPacoteOutput, VENDA_DE_PACOTE_REPOSITORY, VendaDePacoteRepository, PRAZO_RESERVA_SEGUNDOS, AgendarAvulsoInput, AgendarAvulsoOutput (+18 more)
+### Community 8 - "UnitOfWork"
+Cohesion: 0.09
+Nodes (30): DefinirSenhaDoClientePeloAdminInput, Inject, ConfirmarReembolsoInput, ExecutarReembolsoAgendadoResultado, EstornarPagamentoForaDaJanelaUseCase, ResultadoDoEstorno, Inject, Injectable (+22 more)
 
-### Community 9 - "VendaDePacote"
+### Community 10 - "payments.module.ts"
 Cohesion: 0.05
-Nodes (17): SolicitacaoDeReembolsoProps, ItemDoPacote, ItemParaVenda, VendaDePacote, ItemDoPacoteConsumido, ItemDoPacoteExpirado, PacoteVendido, hoje (+9 more)
-
-### Community 10 - "cobranca-online.service.ts"
-Cohesion: 0.07
-Nodes (26): CobrancaOnlineService, ResultadoDaCobranca, comanda, comPiso(), EXPIRA, gatewayFalso(), MANUAL_DESLIGADO, MANUAL_LIGADO (+18 more)
+Nodes (41): bootstrap(), sentryLigado, CobrancaOnlineService, ResultadoDaCobranca, comanda, comPiso(), EXPIRA, gatewayFalso() (+33 more)
 
 ### Community 11 - "payroll.module.ts"
-Cohesion: 0.25
-Nodes (8): AprovarValeInput, NegarValeInput, SolicitarValeInput, VALE_REPOSITORY, PayrollModule, Module, ComissaoController, Controller
+Cohesion: 0.21
+Nodes (11): AprovarValeInput, MarcarValePagoInput, NegarValeInput, NegarValeUseCase, Injectable, SolicitarValeInput, SolicitarValeUseCase, Injectable (+3 more)
 
 ### Community 12 - "Cliente"
-Cohesion: 0.05
-Nodes (12): confirmarLogin(), Cliente, criar(), paraDominio(), PrismaClienteRepository, Inject, ClienteSessaoService, Injectable (+4 more)
+Cohesion: 0.09
+Nodes (7): Cliente, ClienteProps, NOME_PLACEHOLDER, ClienteRepository, paraDominio(), PrismaClienteRepository, Telefone
 
 ### Community 13 - "devDependencies"
 Cohesion: 0.05
 Nodes (37): dependencies, @bigods/contracts, react, react-dom, @sentry/react, devDependencies, autoprefixer, postcss (+29 more)
 
 ### Community 14 - "ClienteAutenticado"
-Cohesion: 0.26
-Nodes (10): ClienteAutenticado, ClienteAtual, ContaCliente(), ContaClienteController, Body, Controller, Get, Param (+2 more)
+Cohesion: 0.15
+Nodes (14): ClienteAutenticado, ClienteAtual, ContaCliente(), ContaClienteController, Body, Controller, Get, Param (+6 more)
 
-### Community 15 - "HorariosDisponiveisQueryService"
-Cohesion: 0.22
-Nodes (5): assertDentroDaJanelaDeAgendamento(), somarDias(), HorariosDisponiveisQueryService, Inject, Injectable
+### Community 15 - "BarbeiroId"
+Cohesion: 0.08
+Nodes (28): ClienteDaCasaRepository, PrismaClienteDaCasaRepository, Injectable, ItemDoPacote, ItemParaVenda, VendaDePacoteProps, ItemDoPacoteConsumido, ItemDoPacoteExpirado (+20 more)
 
 ### Community 17 - "booking/src/App.tsx"
 Cohesion: 0.12
 Nodes (37): Funil(), limparParametroDeLinkNaUrl(), limparParametroDePacoteNaUrl(), ROTULOS_PASSO, slugDoLinkNaUrl(), veioPorPacoteNaUrl(), alternarProdutoNoBump(), alternarServicoNoBump() (+29 more)
 
-### Community 18 - "auth.decorators.ts"
-Cohesion: 0.09
-Nodes (17): PAPEIS_KEY, PUBLICO_KEY, FechamentoController, Controller, Get, Inject, Query, PagamentosController (+9 more)
+### Community 18 - "auth-provider.ts"
+Cohesion: 0.06
+Nodes (30): AUTH_PROVIDER, AuthProvider, LoginDto, TrocarSenhaDto, IsString, MinLength, PAPEIS_KEY, PUBLICO_KEY (+22 more)
 
-### Community 19 - "UsuarioAtual"
-Cohesion: 0.21
-Nodes (9): UsuarioAtual, AtendimentosController, Body, Controller, Delete, Get, Param, Post (+1 more)
+### Community 19 - "UsuarioAutenticado"
+Cohesion: 0.10
+Nodes (27): UsuarioAutenticado, UsuarioAtual, CorrigirBarbeiroDoAtendimentoInput, HomeController, Controller, Get, Inject, Body (+19 more)
 
 ### Community 20 - "ValeRepository"
-Cohesion: 0.18
-Nodes (5): NegarValeUseCase, Inject, Injectable, ValeRepository, Inject
+Cohesion: 0.22
+Nodes (3): Inject, Inject, ValeRepository
 
-### Community 21 - "materializar-expediente.usecase.ts"
+### Community 21 - "DisponibilidadeBarbeiro"
 Cohesion: 0.12
-Nodes (11): MaterializarExpedienteInput, DisponibilidadeBarbeiro, DisponibilidadeProps, DISPONIBILIDADE_REPOSITORY, DisponibilidadeRepository, paraDominio(), PrismaDisponibilidadeRepository, CriarDisponibilidadeDto (+3 more)
+Nodes (6): Inject, DisponibilidadeBarbeiro, DisponibilidadeRepository, paraDominio(), PrismaDisponibilidadeRepository, DisponibilidadeId
 
 ### Community 22 - "sentry-scrubbing.ts"
 Cohesion: 0.27
@@ -427,64 +419,64 @@ Cohesion: 0.11
 Nodes (19): CatalogModule, Module, AtualizarServicoDto, CriarServicoDto, paraDTO(), ServicosController, Body, Controller (+11 more)
 
 ### Community 25 - "BarbeirosController"
-Cohesion: 0.14
-Nodes (19): criar(), assertNaoRemoveUltimoAdminAtivo(), admin(), barbeiroComum(), slugDoNome(), slugUnico(), BarbeirosController, ehColisaoDeLogin() (+11 more)
+Cohesion: 0.16
+Nodes (17): criar(), assertNaoRemoveUltimoAdminAtivo(), admin(), barbeiroComum(), BarbeirosController, ehColisaoDeLogin(), paraDTO(), paraUsuarioDTO() (+9 more)
 
-### Community 26 - "mercadopago-webhook.verifier.ts"
-Cohesion: 0.14
-Nodes (14): extrairAssinatura(), manifestosCandidatos(), montarManifesto(), PartesDoManifesto, tsEhNumerico(), EntradaVerificacaoWebhook, assinaturaValida, corpo (+6 more)
+### Community 26 - "vinculo-order-intencao.ts"
+Cohesion: 0.05
+Nodes (36): ProcessarWebhookMercadoPagoUseCase, Injectable, extrairAssinatura(), manifestosCandidatos(), montarManifesto(), PartesDoManifesto, tsEhNumerico(), ContextoDaAplicacao (+28 more)
 
-### Community 28 - "ExpedienteSemanal"
-Cohesion: 0.15
-Nodes (5): ExpedienteSemanal, validarJanelas(), agruparPorBarbeiro(), paraDominio(), PrismaExpedienteSemanalRepository
+### Community 28 - "ParametrosDaEmpresaRepository"
+Cohesion: 0.10
+Nodes (7): Inject, Inject, ParametrosDaEmpresaRepository, Inject, Inject, Inject, Inject
 
 ### Community 29 - "calendario.ts"
-Cohesion: 0.06
-Nodes (43): AtendimentoComItens, ORDEM_DA_COMANDA, DataHoraLocal, diaCivilChave(), diaCivilMaisDias(), diaDaSemanaCivil(), diferencaDiasCivis(), fimDoDiaCivilMaisDias() (+35 more)
+Cohesion: 0.05
+Nodes (51): AtendimentoComItens, ORDEM_DA_COMANDA, MaterializarExpedienteInput, MaterializarExpedienteUseCase, Injectable, MaterializarExpedienteJob, Cron, Injectable (+43 more)
 
 ### Community 30 - "api"
 Cohesion: 0.09
 Nodes (37): Foto(), FotoUpload(), iniciais(), useApi(), api(), BOOKING_URL, DescontoProgressivo(), MinhaFoto() (+29 more)
 
-### Community 31 - "conclusao-antecipada.e2e.spec.ts"
-Cohesion: 0.38
-Nodes (4): agendar(), agendarComCredito(), DIA, proximoHorario()
+### Community 31 - "executar-reembolso-agendado.spec.ts"
+Cohesion: 0.15
+Nodes (10): AGORA, VENCIDA, chaveDeIdempotencia(), ExecutarReembolsoAgendadoUseCase, Injectable, SOLICITACAO_DE_REEMBOLSO_REPOSITORY, ExecutarReembolsosAgendadosJob, Cron (+2 more)
 
 ### Community 32 - "Telefone primeiro: o funil para de reescrever o cadastro (2026-08-21) ✅"
 Cohesion: 0.22
 Nodes (9): A causa, A correção, em duas camadas, ★ A regressão: o placeholder voltou a ser gravado, ★ A terceira camada: o cliente nascia sem nome, As três decisões que definem a segurança disso, O que isso custa, e está registrado, Smoke test manual, Telefone primeiro: o funil para de reescrever o cadastro (2026-08-21) ✅ (+1 more)
 
-### Community 33 - ".enviarFoto"
-Cohesion: 0.19
-Nodes (11): paraDTO(), ProdutosController, Body, Controller, Delete, Get, Param, Patch (+3 more)
+### Community 33 - "produtos.controller.ts"
+Cohesion: 0.12
+Nodes (21): AtualizarProdutoDto, CriarProdutoDto, paraDTO(), ProdutosController, Body, Controller, Delete, Get (+13 more)
 
 ### Community 34 - "dependencies"
 Cohesion: 0.09
 Nodes (23): dependencies, @aws-sdk/client-s3, class-transformer, class-validator, dotenv, @nestjs/common, @nestjs/schedule, prisma (+15 more)
 
-### Community 35 - "UsuarioAutenticado"
-Cohesion: 0.06
-Nodes (28): UsuarioAutenticado, Get, Put, ParametrosController, Body, Controller, Get, Inject (+20 more)
+### Community 35 - "AuthController"
+Cohesion: 0.20
+Nodes (7): AuthController, Body, Controller, Get, Inject, Post, Put
 
 ### Community 36 - "Vale"
 Cohesion: 0.10
 Nodes (3): Vale, paraDominio(), PrismaValeRepository
 
 ### Community 37 - "barbeiros.controller.ts"
-Cohesion: 0.11
-Nodes (33): AtualizarProdutoDto, CriarProdutoDto, IsBoolean, IsInt, IsOptional, IsPositive, IsString, MinLength (+25 more)
+Cohesion: 0.12
+Nodes (31): slugDoNome(), slugUnico(), AlterarStatusDto, AtualizarAcertoDto, AtualizarComissaoDto, AtualizarCredenciaisDto, AtualizarPrecosDto, AtualizarServicosDto (+23 more)
 
 ### Community 38 - "create-auth-challenge.js"
 Cohesion: 0.07
 Nodes (22): create, define, verify, { enviarSms, paraDestinoGti, ENDPOINT_PADRAO }, CONFIG, { enviarSms, paraE164, SmsGateError, ENDPOINT_PADRAO }, crypto, gtiSms (+14 more)
 
-### Community 39 - "booking-publico.controller.ts"
-Cohesion: 0.05
-Nodes (53): CLIENTE_DA_CASA_REPOSITORY, CLIENTE_REPOSITORY, ClienteRepository, DefinirSenhaDoClienteDto, MarcarDaCasaDto, Inject, IsOptional, IsString (+45 more)
+### Community 39 - "conta-cliente.controller.ts"
+Cohesion: 0.14
+Nodes (23): AgendarAvulsoContaDto, AgendarComCreditoContaDto, ConfirmarLoginDto, IniciarLoginDto, LoginComSenhaDto, ReagendarContaDto, THROTTLE_LOGIN, ArrayNotEmpty (+15 more)
 
 ### Community 40 - "Decisões Pendentes"
 Cohesion: 0.03
-Nodes (64): 10. Versão/base da API do AbacatePay — ✅ RESOLVIDO (sessão de ligação do pagamento online): v2, Checkout Transparente, 11. Webhook do AbacatePay só é MONTADO com o gateway real, 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio — ✅ RESOLVIDO (sessão-B, Fase 1), 13. Produtos: SEM controle de estoque (decisão consciente, pedida explicitamente), 14. CRUD de ofertas de pacote (DECISOES #10) e CRUD de produtos: consistência a médio prazo — ✅ RESOLVIDO (sessão-B, Fase 1), 15. Granularidade do expediente: uma janela por dia na UI do admin, 16. Nome placeholder para Cliente criado só pelo login (bug 2, sessão 2026-07-20), 17. RASCUNHO de `PacoteOferta`: nenhum gatilho de UI o produz (sessão-B, Fase 3) (+56 more)
+Nodes (65): 10. Versão/base da API do AbacatePay — ✅ RESOLVIDO (sessão de ligação do pagamento online): v2, Checkout Transparente, 11. Webhook do AbacatePay só é MONTADO com o gateway real, 12. Catálogo de ofertas de pacote (`PacoteOferta`) não é modelado no domínio — ✅ RESOLVIDO (sessão-B, Fase 1), 13. Produtos: SEM controle de estoque (decisão consciente, pedida explicitamente), 14. CRUD de ofertas de pacote (DECISOES #10) e CRUD de produtos: consistência a médio prazo — ✅ RESOLVIDO (sessão-B, Fase 1), 15. Granularidade do expediente: uma janela por dia na UI do admin, 16. Nome placeholder para Cliente criado só pelo login (bug 2, sessão 2026-07-20), 17. RASCUNHO de `PacoteOferta`: nenhum gatilho de UI o produz (sessão-B, Fase 3) (+57 more)
 
 ### Community 41 - "admin/src/App.tsx"
 Cohesion: 0.11
@@ -498,9 +490,9 @@ Nodes (15): Onboarding(), baixarIcs(), conteudoIcs(), escaparIcs(), EventoDeAgen
 Cohesion: 0.05
 Nodes (37): dependencies, @bigods/contracts, react, react-dom, @sentry/react, devDependencies, autoprefixer, postcss (+29 more)
 
-### Community 44 - ".criar"
-Cohesion: 0.14
-Nodes (11): autorizarProprioOuAdmin(), DisponibilidadesController, paraDTO(), Body, Controller, Delete, Get, Inject (+3 more)
+### Community 44 - "disponibilidades.controller.ts"
+Cohesion: 0.12
+Nodes (14): autorizarProprioOuAdmin(), CriarDisponibilidadeDto, DisponibilidadesController, paraDTO(), Body, Controller, Delete, Get (+6 more)
 
 ### Community 45 - "Financeiro.tsx"
 Cohesion: 0.22
@@ -510,9 +502,9 @@ Nodes (10): idEfetivo(), ehDebito(), ehEstorno(), Extrato(), Financeiro(), Linha
 Cohesion: 0.05
 Nodes (40): 1. Nome + foto em todo lugar que mostra o barbeiro, 2. Admin também tem foto de perfil, Ajustes no painel admin (sessão 2026-07-15) ✅, Avulso online dispensa o OTP (2026-08-14) ✅, Checklist de smoke test manual (ponta a ponta — rodar antes do dia 20), Como rodar localmente, Correção de fuso horário (sessão 2026-07-14, continuação) ✅, Correção durante a sessão: o checkout de cartão recusava cartão válido (+32 more)
 
-### Community 47 - "CompanyId"
-Cohesion: 0.06
-Nodes (23): ClienteProps, NOME_PLACEHOLDER, ItemDeOrderBumpProps, ConfirmarLoginClienteInput, ConfirmarLoginClienteOutput, PrismaParametrosRepository, Injectable, include (+15 more)
+### Community 47 - "Db"
+Cohesion: 0.14
+Nodes (13): include, Row, PagamentoOnlineConcluido, IntencaoDePagamentoProps, PagamentoConfirmado, ReferenciaDePagamento, ProvedorDePagamento, PROVEDORES_DE_PAGAMENTO (+5 more)
 
 ### Community 48 - "compilerOptions"
 Cohesion: 0.14
@@ -522,9 +514,9 @@ Nodes (13): compilerOptions, baseUrl, declaration, emitDecoratorMetadata, experi
 Cohesion: 0.29
 Nodes (10): agendar(), atendimentoPagoOnline(), auth(), concluir(), DIA, extrato(), horaDoProximoSlot(), novoFone() (+2 more)
 
-### Community 51 - "identity.module.ts"
-Cohesion: 0.07
-Nodes (27): CustomersModule, Module, AUTH_PROVIDER, criarIdentityProvider(), exigir(), IdentityModule, Global, Module (+19 more)
+### Community 51 - "whatsapp-identity.provider.ts"
+Cohesion: 0.17
+Nodes (7): WhatsAppIdentityProvider, HttpWhatsAppOtpClient, TelefoneSemWhatsAppError, WhatsAppEnvioIndisponivelError, WhatsAppOtpClient, FakeWhatsAppOtpClient, sufixo
 
 ### Community 52 - "What You Must Do When Invoked"
 Cohesion: 0.08
@@ -535,36 +527,32 @@ Cohesion: 0.07
 Nodes (26): dependencies, @prisma/client, devDependencies, prisma, turbo, @types/node, prisma, @prisma/client (+18 more)
 
 ### Community 54 - "packages.module.ts"
-Cohesion: 0.05
-Nodes (43): AgendarReembolsoInput, AgendarReembolsoResultado, AgendarReembolsoUseCase, CancelarAgendamentoDeReembolsoUseCase, Inject, Injectable, ConfirmarPagamentoPresencialUseCase, Inject (+35 more)
-
-### Community 55 - "AuthProvider"
 Cohesion: 0.12
-Nodes (7): AuthProvider, LocalAuthProvider, Injectable, Inject, RolesGuard, Inject, Injectable
+Nodes (19): AgendarReembolsoInput, AgendarReembolsoResultado, AgendarReembolsoUseCase, CancelarAgendamentoDeReembolsoUseCase, Inject, Injectable, ConfirmarPagamentoPresencialUseCase, Injectable (+11 more)
 
-### Community 56 - "Auth.tsx"
-Cohesion: 0.27
-Nodes (8): Icon(), Spinner(), mascararTelefone(), telefoneValido(), Login(), Otp(), Header(), primeiroNome()
+### Community 56 - "BookCredit.tsx"
+Cohesion: 0.17
+Nodes (11): AvatarBarbeiro(), Icon(), PATHS, Spinner(), ApiError, mascararTelefone(), telefoneValido(), Login() (+3 more)
 
 ### Community 57 - "Pacotes.tsx"
 Cohesion: 0.11
 Nodes (31): AcaoDeItem, BadgeDeItem, CabecalhoDeCatalogo(), EstadoDaLista(), ItemDeCatalogo(), Badge(), BotaoAtualizar(), CurrencyInput() (+23 more)
 
-### Community 58 - "IdentityProvider"
-Cohesion: 0.08
-Nodes (19): IniciarLoginClienteInput, IniciarLoginClienteOutput, Inject, OnPacoteVendidoHandler, Inject, Injectable, OnEvent, ConfirmarLoginInput (+11 more)
+### Community 58 - "identity.module.ts"
+Cohesion: 0.07
+Nodes (27): ConfirmarLoginClienteInput, ConfirmarLoginClienteOutput, ConfirmarLoginClienteUseCase, Inject, Injectable, IniciarLoginClienteInput, IniciarLoginClienteOutput, IniciarLoginClienteUseCase (+19 more)
 
-### Community 59 - "vendas-produto.controller.ts"
-Cohesion: 0.18
-Nodes (7): Injectable, VendasProdutoQueryService, Body, Controller, Get, Post, VendasProdutoController
+### Community 59 - "clube-query.service.ts"
+Cohesion: 0.21
+Nodes (7): AvulsoParaStatus, CreditoParaStatus, eventoDaTransicao(), statusDoClube(), VIVOS, ClubeQueryService, Injectable
 
 ### Community 61 - "Confirmacao.tsx"
 Cohesion: 0.16
 Nodes (14): SummaryBar(), CartaoDeBump(), OrderBump(), ResumoDoDesconto(), cartaoDisponivel(), useEmpresa(), dinheiro(), CarrinhoFunil (+6 more)
 
 ### Community 62 - "ids.ts"
-Cohesion: 0.08
-Nodes (14): saoPaulo, toquio, ItemComposicaoPacote, PacoteOferta, PacoteOfertaProps, PACOTE_OFERTA_REPOSITORY, PacoteOfertaRepository, LinhaComItens (+6 more)
+Cohesion: 0.09
+Nodes (11): ItemComposicaoPacote, PacoteOferta, PacoteOfertaProps, PACOTE_OFERTA_REPOSITORY, PacoteOfertaRepository, LinhaComItens, paraDominio(), PrismaPacoteOfertaRepository (+3 more)
 
 ### Community 63 - "RegistrarConsumoDeCreditoDto"
 Cohesion: 0.17
@@ -583,28 +571,28 @@ Cohesion: 0.09
 Nodes (23): devDependencies, @bigods/config, @nestjs/cli, @nestjs/testing, supertest, @swc/core, tsx, @types/node (+15 more)
 
 ### Community 67 - "HomeQueryService"
-Cohesion: 0.13
-Nodes (7): ticketMedioCentavos(), ComissaoQueryService, SaldoComissao, Injectable, HomeQueryService, Injectable, Inject
+Cohesion: 0.26
+Nodes (3): ticketMedioCentavos(), HomeQueryService, Injectable
 
 ### Community 68 - "enums.ts"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (21): ClubeDoClienteDTO, DisponibilidadeDTO, HomeLancamentoDTO, ItemDoPacoteDTO, LancamentoComissaoDTO, PacoteOfertaDTO, PagamentoStatusDTO, PagarComCartaoResponse (+13 more)
 
 ### Community 69 - "Servico"
 Cohesion: 0.10
 Nodes (3): Servico, paraDominio(), PrismaServicoRepository
 
-### Community 70 - "app.module.ts"
-Cohesion: 0.06
-Nodes (22): THROTTLER_OTP_ORIGEM, FunnelModule, Module, ENVIA_OTP, EnviaOtp(), rotaEnviaOtp(), normalizarTelefone(), TelefoneOuIpThrottlerGuard (+14 more)
+### Community 70 - "PrismaService"
+Cohesion: 0.04
+Nodes (22): DemoIdentityProvider, Injectable, PRAZO_REEMBOLSO_DIAS, ComissaoQueryService, SaldoComissao, Injectable, Inject, PrismaService (+14 more)
 
 ### Community 71 - "ValesController"
-Cohesion: 0.26
+Cohesion: 0.24
 Nodes (7): Body, Controller, Get, Param, Patch, Post, ValesController
 
-### Community 72 - "regra-atribuicao-de-barbeiro.ts"
-Cohesion: 0.32
-Nodes (3): CandidatoAAtribuicao, escolherBarbeiroSemPreferencia(), Sorteio
+### Community 72 - "adicionar-item-atendimento.usecase.ts"
+Cohesion: 0.11
+Nodes (11): precoDeReferencia(), INTENCAO_DE_PAGAMENTO_REPOSITORY, IntencaoDePagamentoRepository, ReconciliarPagamentosJob, Cron, Inject, Injectable, motivoParaNaoMexerNoValor() (+3 more)
 
 ### Community 73 - "compilerOptions"
 Cohesion: 0.12
@@ -614,13 +602,13 @@ Nodes (15): compilerOptions, declaration, esModuleInterop, forceConsistentCasing
 Cohesion: 0.10
 Nodes (20): compilerOptions, esModuleInterop, forceConsistentCasingInFileNames, isolatedModules, jsx, lib, module, moduleResolution (+12 more)
 
-### Community 75 - "ClientesController"
-Cohesion: 0.18
-Nodes (8): ClientesController, Body, Controller, Delete, Get, Param, Post, Query
+### Community 75 - "clientes.controller.ts"
+Cohesion: 0.09
+Nodes (19): CLIENTE_DA_CASA_REPOSITORY, ClientesController, DefinirSenhaDoClienteDto, MarcarDaCasaDto, Body, Controller, Delete, Get (+11 more)
 
 ### Community 76 - "Dinheiro"
-Cohesion: 0.09
-Nodes (13): CarrinhoPrecificado, ItemDoCarrinho, ItemPrecificado, ContextoValidacaoPacoteOferta, criar(), MAX_TENTATIVAS_DE_ESTORNO, proximaTentativaEm(), SolicitacaoDeReembolsoId (+5 more)
+Cohesion: 0.05
+Nodes (32): CarrinhoPrecificado, ItemDoCarrinho, ItemPrecificado, precificarCarrinho(), intencaoPaga(), mundo(), solicitacao(), vendaPaga() (+24 more)
 
 ### Community 77 - "3. Agregados"
 Cohesion: 0.10
@@ -651,8 +639,8 @@ Cohesion: 0.15
 Nodes (13): ^build, dist/**, dependsOn, outputs, cache, persistent, $schema, tasks (+5 more)
 
 ### Community 84 - "Publico"
-Cohesion: 0.31
-Nodes (5): Publico(), BookingPublicoController, Controller, Get, Query
+Cohesion: 0.06
+Nodes (27): Publico(), PagarComCartaoUseCase, Injectable, DADOS_DO_CARTAO, DECISAO_DO_EMISSOR, motivoPublicoDaRecusa(), NAO_INSISTIR, podeTentarOutroCartao() (+19 more)
 
 ### Community 85 - "dinheiro"
 Cohesion: 0.15
@@ -671,28 +659,32 @@ Cohesion: 0.15
 Nodes (15): AgendarReembolsoDto, ClienteInlineDto, ArrayNotEmpty, IsArray, IsBoolean, IsInt, IsOptional, IsPositive (+7 more)
 
 ### Community 89 - "parametros.controller.ts"
-Cohesion: 0.22
-Nodes (12): AtualizarParametrosDto, DefinirDescontoDto, DegrauDto, IsArray, IsInt, IsOptional, IsPositive, Max (+4 more)
+Cohesion: 0.10
+Nodes (19): AtualizarParametrosDto, DefinirDescontoDto, DegrauDto, ParametrosController, Body, Controller, Get, Inject (+11 more)
 
 ### Community 90 - "payment-gateway.ts"
-Cohesion: 0.06
-Nodes (34): VALOR, assertJanelaPixValida(), PIX_EXPIRACAO_MAXIMA_SEGUNDOS, PIX_EXPIRACAO_MINIMA_SEGUNDOS, segundosParaDuracaoIso(), deStringDeReais(), paraStringDeReais(), combinacoesConhecidas() (+26 more)
+Cohesion: 0.05
+Nodes (39): VALOR, assertJanelaPixValida(), PIX_EXPIRACAO_MAXIMA_SEGUNDOS, PIX_EXPIRACAO_MINIMA_SEGUNDOS, segundosParaDuracaoIso(), deStringDeReais(), paraStringDeReais(), emReais() (+31 more)
 
 ### Community 91 - "8. Casos de uso principais"
 Cohesion: 0.12
 Nodes (16): 8.11 Funil único — apresentação unificada, transações separadas, 8.12 "Não tenho preferência" — horários globais e atribuição na confirmação, 8.13 Order-bump — "Adicione à sua visita" (sessão 2026-08-17), 8.1.1 O nome do cliente é do CLIENTE, não do funil (2026-08-21), 8.1 Agendar avulso (funil público) — sessão de OTP+reserva, 8.2 Agendar consumindo crédito (área logada), 8.3 Concluir atendimento (painel), 8.4 Cliente falta (+8 more)
 
+### Community 92 - "QA de deploy — staging + contingência de OTP — 2026-09-04"
+Cohesion: 0.17
+Nodes (11): ❌ 11 · Compra de pacote pelo funil quebrava com 401 — o mais grave, ❌ 3 e 5 · Dois textos prometendo um SMS que não vem, ❌ 7 · O filtro "A aprovar" não mostrava os pendentes, ❌ 9 · Recusar falhava em silêncio, Ambiente, Depois das correções, O que este QA não cobriu, O que passou (+3 more)
+
 ### Community 93 - "ClubeHandlers"
-Cohesion: 0.11
-Nodes (13): ClubeHandlers, Injectable, OnEvent, SincronizarStatusDoClubeUseCase, Inject, Injectable, AvulsoParaStatus, CreditoParaStatus (+5 more)
+Cohesion: 0.22
+Nodes (6): ClubeHandlers, Injectable, OnEvent, SincronizarStatusDoClubeUseCase, Inject, Injectable
 
 ### Community 94 - "2. Funil público — o que o cliente vê (porta 5174)"
 Cohesion: 0.15
 Nodes (13): 2. Funil público — o que o cliente vê (porta 5174), Caso 10 — Link pessoal do barbeiro, Caso 11 — Aviso de sessão ativa, Caso 12 — Mobile, Caso 1 — Landing e identidade, Caso 2 — Escolha de barbeiro, com foto ★, Caso 3 — Foto quebrada cai nas iniciais ★, Caso 4 — Desconto progressivo (+5 more)
 
 ### Community 95 - "Produto"
-Cohesion: 0.07
-Nodes (10): ProdutoParaComissao, Produto, ProdutoProps, criar(), ItemVendaDeProduto, ItemVendaDeProdutoSnapshot, paraDominio(), PrismaProdutoRepository (+2 more)
+Cohesion: 0.09
+Nodes (3): Produto, paraDominio(), PrismaProdutoRepository
 
 ### Community 96 - "static-server/package.json"
 Cohesion: 0.18
@@ -738,9 +730,9 @@ Nodes (9): agendarCom(), auth(), concluirCom(), detalhe(), horaDoProximoSlot(), 
 Cohesion: 0.07
 Nodes (4): SolicitacaoDeReembolso, SolicitacaoDeReembolsoRepository, paraDominio(), PrismaSolicitacaoDeReembolsoRepository
 
-### Community 107 - "expediente-semanal.aggregate.ts"
-Cohesion: 0.22
-Nodes (9): DefinirExpedienteInput, DefinirExpedienteUseCase, Inject, Injectable, DiaSemana, JanelaExpediente, EXPEDIENTE_SEMANAL_REPOSITORY, ExpedienteSemanalRepository (+1 more)
+### Community 107 - "ExpedienteSemanal"
+Cohesion: 0.06
+Nodes (32): DefinirExpedienteInput, DefinirExpedienteUseCase, Inject, Injectable, DiaSemana, ExpedienteSemanal, JanelaExpediente, validarJanelas() (+24 more)
 
 ### Community 108 - "CartaoCheckout.tsx"
 Cohesion: 0.14
@@ -754,9 +746,9 @@ Nodes (16): App(), IconeDeMarca(), IconeWhatsapp(), Props, MarcaBigodsClub(), Ot
 Cohesion: 0.22
 Nodes (9): A regra que mais importa: o relatório não pode virar o vazamento, Amostragem, Backend, Como ligar, Frontends, Inerte sem DSN, O que ficou de fora, Sentry nos quatro apps — erro e latência, sem levar dado de cliente junto (2026-08-21) ✅ (+1 more)
 
-### Community 111 - "ProcessarWebhookMercadoPagoUseCase"
-Cohesion: 0.13
-Nodes (10): ProcessarWebhookMercadoPagoUseCase, Injectable, Cron, MercadoPagoWebhookController, Body, Controller, Post, Query (+2 more)
+### Community 111 - "customers.module.ts"
+Cohesion: 0.20
+Nodes (9): CustomersModule, Module, IdentityModule, Global, Module, PackagesModule, Module, SchedulingModule (+1 more)
 
 ### Community 112 - "config/package.json"
 Cohesion: 0.25
@@ -775,20 +767,20 @@ Cohesion: 0.29
 Nodes (6): collection, compilerOptions, deleteOutDir, tsConfigPath, $schema, sourceRoot
 
 ### Community 116 - "taxa-retida.ts"
-Cohesion: 0.14
-Nodes (13): COM_TAXA, pagamento(), SEM_TAXA, TaxaRetida, taxaRetidaDoPagamento(), ajustesDe(), ConcluirAtendimentoUseCase, formaDoTrilhoOnline() (+5 more)
+Cohesion: 0.16
+Nodes (10): COM_TAXA, pagamento(), SEM_TAXA, TaxaRetida, taxaRetidaDoPagamento(), ajustesDe(), ConcluirAtendimentoUseCase, formaDoTrilhoOnline() (+2 more)
 
 ### Community 117 - "Pagamentos (PIX via AbacatePay — Checkout Transparente v2)"
 Cohesion: 0.17
 Nodes (11): Adapters, Endpoints da AbacatePay usados, Eventos assinados nesta conta, Expiração de PIX não pago (timeout local, sem webhook), Fluxo ponta a ponta (venda de pacote, sempre "online"), Opção A — payload v2 assinado à mão (sem túnel), Opção B — sandbox real do AbacatePay (dashboard aberto), Pagamentos (PIX via AbacatePay — Checkout Transparente v2) (+3 more)
 
-### Community 118 - ".deCentavos"
-Cohesion: 0.12
-Nodes (17): intencaoPaga(), mundo(), solicitacao(), vendaPaga(), contexto(), emReais(), barbeiro, criar() (+9 more)
+### Community 118 - ".executar"
+Cohesion: 0.16
+Nodes (8): criar(), normalizarTelefone(), TelefoneOuIpThrottlerGuard, trackerPorOrigem(), Injectable, e164(), e164(), e164()
 
 ### Community 119 - "ItemDeOrderBump"
 Cohesion: 0.07
-Nodes (10): ItemDeOrderBump, criar(), paraDominio(), PrismaItemDeOrderBumpRepository, OrderBumpConfigController, Body, Controller, Get (+2 more)
+Nodes (11): ItemDeOrderBump, TipoItemDeOrderBump, criar(), paraDominio(), PrismaItemDeOrderBumpRepository, OrderBumpConfigController, Body, Controller (+3 more)
 
 ### Community 120 - "CLAUDE.md — Bigod's Barber"
 Cohesion: 0.17
@@ -834,9 +826,9 @@ Nodes (10): Deploy — Bigod's Barber, `.env` — três arquivos-molde diferente
 Cohesion: 0.18
 Nodes (10): Como o backend se conecta a este serviço, Como rodar, Direto (sem Docker), Endpoints, Rodando de verdade (produção, fora do Docker), Troubleshooting, ⚠️ Use um número DESCARTÁVEL, Variáveis de ambiente (+2 more)
 
-### Community 132 - ".vender"
-Cohesion: 0.10
-Nodes (15): paraDTO(), PacotesPublicoController, Body, Controller, Get, Param, Post, Query (+7 more)
+### Community 132 - ".constructor"
+Cohesion: 0.08
+Nodes (20): PacoteOfertasQueryService, paraDTO(), Inject, Injectable, PacotesPublicoController, Controller, Get, Inject (+12 more)
 
 ### Community 133 - "env-up.sh"
 Cohesion: 0.60
@@ -878,25 +870,21 @@ Nodes (10): 4.1 — Concluir avulso presencial, 4.2 — ★ Concluir pago-online
 Cohesion: 0.20
 Nodes (9): compilerOptions, outDir, rootDir, exclude, extends, include, @bigods/config/tsconfig.base.json, src (+1 more)
 
-### Community 160 - "vinculo-order-intencao.ts"
-Cohesion: 0.26
-Nodes (8): ContextoDaAplicacao, DadosDaIntencao, DadosDaNotificacao, DadosDaOrder, recusa(), validarNotificacao(), validarVinculo(), VeredictoDoVinculo
-
 ### Community 161 - "Correção de bugs de smoke test manual (sessão 2026-07-20) ✅"
 Cohesion: 0.20
 Nodes (10): Bug 1 — OTP duplo pós-compra e loop de repagamento (crítico), Bug 2 — telefone sem conta ficava preso no OTP sem feedback, Bug 3 — mensagem crua de conflito de horário, Bug 4 — comissão não carregava com o primeiro barbeiro do select, Bug 5 — add-on em atendimento de crédito não mostrava o valor a cobrar, Bug 6 — prazo de segunda chance mostrava 11 dias em vez de 10, Bug 7 — mensagens com gênero/plural errados no cockpit, Bug 8 — admin não conseguia confirmar pagamento presencial de pacote (+2 more)
 
 ### Community 162 - "atendimentos.controller.ts"
-Cohesion: 0.06
-Nodes (44): precificarCarrinho(), Inject, PARAMETROS_DA_EMPRESA_REPOSITORY, ParametrosDaEmpresaRepository, precoDeReferencia(), CorrigirBarbeiroDoAtendimentoUseCase, CorrigirBarbeiroResultado, Inject (+36 more)
+Cohesion: 0.08
+Nodes (29): CorrigirBarbeiroDoAtendimentoUseCase, Injectable, AdicionarItemAtendimentoUseCase, Injectable, AdicionarProdutoAtendimentoUseCase, Injectable, AgendarAvulsoUseCase, Injectable (+21 more)
 
 ### Community 163 - "conta-cliente.e2e.spec.ts"
-Cohesion: 0.05
-Nodes (21): DIA, e164(), sufixo, DIA_FUTURO, e164(), sufixo, e164(), foneExpira (+13 more)
-
-### Community 164 - "VenderProdutoAvulsoDto"
 Cohesion: 0.18
-Nodes (12): ItemVendaDto, ArrayNotEmpty, IsArray, IsEnum, IsInt, IsOptional, IsPositive, IsString (+4 more)
+Nodes (7): foneExpira, foneMain, fonePerfil, foneRate, foneUnprov, foneUso, sufixo
+
+### Community 164 - "vendas-produto.controller.ts"
+Cohesion: 0.11
+Nodes (19): Injectable, VenderProdutoAvulsoUseCase, Injectable, VendasProdutoQueryService, ItemVendaDto, ArrayNotEmpty, Controller, Get (+11 more)
 
 ### Community 165 - "graphify reference: extra exports and benchmark"
 Cohesion: 0.22
@@ -974,9 +962,9 @@ Nodes (8): Fase 1 — `PacoteOferta` vira domínio de primeira classe, Fase 2 �
 Cohesion: 0.13
 Nodes (15): Antes de começar: o que vai ser apagado, PARTE 1 — Um seed de produção, separado do de desenvolvimento, PARTE 2 — ★ O PROCEDIMENTO DA VIRADA, Passo 0 — Snapshot do RDS (console AWS, antes de tudo), Passo 1 — Subir o código atual PRIMEIRO, Passo 2 — Parar quem escreve no banco, Passo 3 — Apagar e reconstruir o schema, Passo 4 — Seed de produção (+7 more)
 
-### Community 184 - "validacao.ts"
-Cohesion: 0.20
-Nodes (12): celularBrasileiroValido(), emailValido(), LIMITE_DIAS_AGENDAMENTO, MAX_SOBRE_VOCE, nomeDeClienteValido(), preenchido(), ProblemaDeSenha, SENHA_MAX (+4 more)
+### Community 184 - "pacotes-publico.controller.ts"
+Cohesion: 0.10
+Nodes (25): ClientePublicoDto, IsIn, IsOptional, IsString, MaxLength, MinLength, Type, ValidateNested (+17 more)
 
 ### Community 185 - "BLOCO C — Workflow de aprovação"
 Cohesion: 0.29
@@ -1023,12 +1011,12 @@ Cohesion: 0.29
 Nodes (7): Matriz implementada, OTP obrigatório + reserva temporária + cota de presenciais (2026-08-13) ✅, Problema 1 — agenda falsa (qualquer telefone reservava sem provar posse), Problema 2 — buraco na agenda (PIX nunca pago prendia o horário pra sempre), Problema 3 — enxurrada de presenciais (OTP prova telefone real, não impede volume), Roteiro de smoke test manual (para o dono rodar), Testes
 
 ### Community 196 - "account/src/screens/Home.tsx"
-Cohesion: 0.17
-Nodes (20): useEmpresa(), fraseSaldoResidual(), fraseSegundaChance(), ondeOValorVolta(), textoDoEstornoAutomatico(), textoDoReembolso(), aguardandoPagamento(), bookavel() (+12 more)
+Cohesion: 0.18
+Nodes (20): dinheiro(), fraseSaldoResidual(), fraseSegundaChance(), ondeOValorVolta(), textoDoEstornoAutomatico(), textoDoReembolso(), aguardandoPagamento(), bookavel() (+12 more)
 
-### Community 197 - ".definir"
-Cohesion: 0.28
-Nodes (7): autorizarProprioOuAdmin(), ExpedienteController, Body, Controller, Get, Param, Put
+### Community 197 - "RepositoriosTransacionais"
+Cohesion: 0.33
+Nodes (4): EditarComandaUseCase, Inject, Injectable, RepositoriosTransacionais
 
 ### Community 198 - "graphify reference: query, path, explain"
 Cohesion: 0.33
@@ -1147,16 +1135,16 @@ Cohesion: 0.11
 Nodes (7): VendaDeProduto, VendaDeProdutoRepository, registrar(), include, paraDominio(), PrismaVendaDeProdutoRepository, Row
 
 ### Community 238 - "account/src/App.tsx"
-Cohesion: 0.18
-Nodes (12): App(), Conta(), Tela, iniciarSentry(), carregarSessao(), limparParametrosDeSessaoNaUrl(), limparSessao(), PARAMS_SESSAO (+4 more)
+Cohesion: 0.14
+Nodes (16): App(), Conta(), confirmarLogin(), Tela, useEmpresa(), iniciarSentry(), carregarSessao(), limparParametrosDeSessaoNaUrl() (+8 more)
 
-### Community 240 - ".agendar"
-Cohesion: 0.47
-Nodes (3): Body, Post, Throttle
+### Community 240 - "conta-cockpit.e2e.spec.ts"
+Cohesion: 0.29
+Nodes (4): DIA, e164(), provisionarCliente(), sufixo
 
-### Community 241 - "login-com-senha-cliente.usecase.ts"
-Cohesion: 0.17
-Nodes (12): LoginComSenhaClienteInput, LoginComSenhaClienteOutput, LoginComSenhaClienteUseCase, Injectable, verificaSenha(), main(), opcoesDoAmbiente(), OpcoesSeedProducao (+4 more)
+### Community 241 - "cliente.guard.ts"
+Cohesion: 0.10
+Nodes (15): CLIENTE_REPOSITORY, LoginComSenhaClienteInput, LoginComSenhaClienteOutput, LoginComSenhaClienteUseCase, Inject, Injectable, ClienteSessaoService, Injectable (+7 more)
 
 ### Community 242 - "Follow-up — pendências conhecidas e adiadas"
 Cohesion: 0.09
@@ -1178,17 +1166,17 @@ Nodes (6): A causa, ★★ Cliente cadastrado não conseguia comprar pacote (202
 Cohesion: 0.09
 Nodes (21): Context, Decisões que governam o plano, Fase 0 — Scrubbing, fail-fast e envs, Fase 10 — Admin: reembolso e visibilidade, Fase 11 — Account: o que o cliente vê, Fase 1 — Migrations aditivas (três, separadas), Fase 2 — Domínio puro (zero rede, zero framework), Fase 3 — Adapter Mercado Pago (PIX), com `fetch` injetado, ainda não plugado (+13 more)
 
-### Community 248 - "motivo-publico-da-recusa.ts"
-Cohesion: 0.32
-Nodes (6): DADOS_DO_CARTAO, DECISAO_DO_EMISSOR, motivoPublicoDaRecusa(), NAO_INSISTIR, podeTentarOutroCartao(), SEM_SALDO
+### Community 248 - "pacote-publico.e2e.spec.ts"
+Cohesion: 0.29
+Nodes (3): e164(), fetchMock, sufixo
 
 ### Community 249 - "Status de membro do Bigod's Club (2026-08-21) ✅"
 Cohesion: 0.29
 Nodes (7): A função de cálculo, ★ Bug em produção no mesmo dia: "esgotei, marquei avulso, e continuo membro", Como o account muda por estado, Quando cada evento é gravado, Smoke test manual — percorrer os 3 estados, Status de membro do Bigod's Club (2026-08-21) ✅, Testes
 
-### Community 250 - "UnitOfWork"
-Cohesion: 0.05
-Nodes (46): Inject, Inject, Inject, EstornarPagamentoForaDaJanelaUseCase, ResultadoDoEstorno, Inject, Injectable, ExpirarPagamentoVencidoUseCase (+38 more)
+### Community 250 - "PaymentGateway"
+Cohesion: 0.07
+Nodes (15): Inject, Inject, Inject, Inject, Inject, ProcessarWebhookUseCase, Inject, Injectable (+7 more)
 
 ### Community 251 - "Mercado Pago via Orders API — levantamento da API (2026-08-26) 📋 PESQUISA, NADA IMPLEMENTADO"
 Cohesion: 0.10
@@ -1199,24 +1187,20 @@ Cohesion: 0.40
 Nodes (5): A tela, Caixinha e desconto viram acerto POR BARBEIRO (2026-08-26) ✅, ★ O backfill preserva o dinheiro de todo mundo, O percentual do desconto passou a ser gravado, Testes
 
 ### Community 253 - "Papeis"
-Cohesion: 0.23
-Nodes (8): Papeis(), PacotesController, Body, Controller, Get, Param, Post, Query
+Cohesion: 0.17
+Nodes (11): Papeis(), PacotesQueryService, Inject, Injectable, PacotesController, Body, Controller, Get (+3 more)
 
-### Community 254 - "account/src/components/ui.tsx"
+### Community 254 - "AtendimentoDetalhe.tsx"
 Cohesion: 0.20
-Nodes (17): ErroEstado(), Loading(), PATHS, useApi(), api(), ApiError, mensagemDeLimite(), segundosParaTentarDeNovo() (+9 more)
+Nodes (17): CockpitOuBook(), ErroEstado(), Loading(), useApi(), api(), mensagemDeLimite(), segundosParaTentarDeNovo(), EmpresaContext (+9 more)
 
-### Community 255 - "PagarComCartaoUseCase"
-Cohesion: 0.12
-Nodes (13): PagarComCartaoUseCase, Injectable, PagamentosPublicoController, PagarComCartaoDto, Body, Controller, IsOptional, IsString (+5 more)
+### Community 255 - "PagarComCartaoDto"
+Cohesion: 0.40
+Nodes (5): PagarComCartaoDto, IsOptional, IsString, MaxLength, MinLength
 
-### Community 256 - "staff.module.ts"
-Cohesion: 0.18
-Nodes (8): MaterializarExpedienteUseCase, Inject, Injectable, MaterializarExpedienteJob, Cron, Injectable, StaffModule, Module
-
-### Community 257 - "fechamento-query.service.ts"
-Cohesion: 0.32
-Nodes (5): acumularEm(), FechamentoQueryService, Totais, totaisVazios(), Injectable
+### Community 257 - "FechamentoQueryService"
+Cohesion: 0.40
+Nodes (3): FechamentoQueryService, Injectable, Inject
 
 ### Community 260 - "lib/reembolso.ts"
 Cohesion: 0.33
@@ -1247,12 +1231,12 @@ Cohesion: 0.20
 Nodes (10): A instabilidade da suíte foi RESOLVIDA (era `followup.md` #11), De onde vem a taxa, Duas decisões que contrariam o plano — e por quê, Fase 8 — comissão sobre o líquido (2026-08-27) ✅ IMPLEMENTADO, `followup.md` #13 fechado no mesmo commit, Migrations, `percentualAplicado` é `null` neste lançamento, Por que a taxa é rateada ANTES de aplicar percentual (+2 more)
 
 ### Community 270 - "Clube.tsx"
-Cohesion: 0.24
-Nodes (8): CockpitOuBook(), ChamadoDoClube(), ChamadoDoClubeTexto, chamadoParaStatus(), ehMembro(), FaixaDoClube(), BOOKING_URL, COMPANY_ID
+Cohesion: 0.27
+Nodes (7): ChamadoDoClube(), ChamadoDoClubeTexto, chamadoParaStatus(), ehMembro(), FaixaDoClube(), BOOKING_URL, COMPANY_ID
 
 ### Community 271 - "on-atendimento-concluido.handler.ts"
-Cohesion: 0.15
-Nodes (16): OnAtendimentoConcluidoHandler, Injectable, OnEvent, AbsorcaoDaTaxa, absorcaoDaTaxaPeloBarbeiro(), assertInteiroNaoNegativo(), assertPontosBase(), BaseComissionavel (+8 more)
+Cohesion: 0.24
+Nodes (11): OnAtendimentoConcluidoHandler, Injectable, OnEvent, AbsorcaoDaTaxa, absorcaoDaTaxaPeloBarbeiro(), assertInteiroNaoNegativo(), assertPontosBase(), BaseComissionavel (+3 more)
 
 ### Community 272 - "comanda-editavel.e2e.spec.ts"
 Cohesion: 0.33
@@ -1262,13 +1246,9 @@ Nodes (8): agendarAvulso(), auth(), detalhe(), DIA, novoFone(), removerItem(), s
 Cohesion: 0.33
 Nodes (7): chamar(), conferir(), falhou(), main(), ok(), QUARTA, SEXTA
 
-### Community 275 - "DiaDeExpedienteDto"
-Cohesion: 0.32
-Nodes (8): DefinirExpedienteDto, DiaDeExpedienteDto, IsArray, IsInt, Max, Min, Type, ValidateNested
-
-### Community 276 - "marcar-vale-pago.usecase.ts"
+### Community 276 - ".constructor"
 Cohesion: 0.29
-Nodes (4): MarcarValePagoInput, MarcarValePagoUseCase, Inject, Injectable
+Nodes (4): MarcarValePagoUseCase, Inject, Injectable, Inject
 
 ### Community 277 - "otp-sem-conta.e2e.spec.ts"
 Cohesion: 0.32
@@ -1278,9 +1258,9 @@ Nodes (6): DIA, e164(), garantirInedito(), iniciarOtp(), loginCompleto(), sufixo
 Cohesion: 0.25
 Nodes (8): As três peças, e por que são três, Bloqueio limpo: o dia não aparece, não dá erro, Dias da semana em que o crédito de pacote vale (2026-08-28) ✅, ★ Fuso: a parte que erraria em silêncio, Migration aditiva, O que não foi feito, Onde aparece, Testes
 
-### Community 279 - "OnVendaDeProdutoRegistradaHandler"
-Cohesion: 0.29
-Nodes (5): OnVendaDeProdutoRegistradaHandler, Inject, Injectable, OnEvent, VendaDeProdutoRegistrada
+### Community 279 - "BarbeiroRepository"
+Cohesion: 0.11
+Nodes (18): VenderPacoteInput, VenderPacoteOutput, CorrigirBarbeiroResultado, Inject, OnVendaDeProdutoRegistradaHandler, Inject, Injectable, RegistrarPagamentoInput (+10 more)
 
 ### Community 280 - "MeioDePagamentoOnline"
 Cohesion: 0.29
@@ -1306,14 +1286,6 @@ Nodes (7): NegarValeDto, SolicitarValeDto, IsNumber, IsOptional, IsString, Min, 
 Cohesion: 0.43
 Nodes (5): auth(), consumir(), novoFone(), pacotePago(), sufixo
 
-### Community 286 - "DecidirAgendamentoPendenteUseCase"
-Cohesion: 0.38
-Nodes (3): DecidirAgendamentoPendenteUseCase, Inject, Injectable
-
-### Community 287 - "config-seguranca.ts"
-Cohesion: 0.24
-Nodes (8): bootstrap(), sentryLigado, lerTaxaBp(), assertConfiguracaoSegura(), assertNaoEhExemplo(), ConfiguracaoInseguraError, pareceValorDeExemplo(), iniciarSentry()
-
 ### Community 288 - "8.16 Consumir crédito de pacote no balcão (2026-08-28)"
 Cohesion: 0.40
 Nodes (5): 8.16 Consumir crédito de pacote no balcão (2026-08-28), `Atendimento.registrarConcluido()` — nasce CONCLUIDO, O horário: "acabou agora", O que ficou de fora, Uma tela, uma transação
@@ -1322,9 +1294,13 @@ Nodes (5): 8.16 Consumir crédito de pacote no balcão (2026-08-28), `Atendiment
 Cohesion: 0.40
 Nodes (5): As quatro regras do texto, e por que cada uma existe, Fase 11 — a conta do cliente (2026-08-27) ✅ IMPLEMENTADO, O card do estorno automático é o único que exige uma ação, O que o cliente NÃO recebe, O WhatsApp passou a vir da API
 
-### Community 292 - "BarbeiroRepository"
-Cohesion: 0.08
-Nodes (26): ServicoRepository, TipoItemDeOrderBump, ITEM_DE_ORDER_BUMP_REPOSITORY, ItemDeOrderBumpRepository, Inject, Inject, PacoteOfertasQueryService, Inject (+18 more)
+### Community 291 - "SharedModule"
+Cohesion: 0.67
+Nodes (3): SharedModule, Global, Module
+
+### Community 292 - "shared.module.ts"
+Cohesion: 0.09
+Nodes (35): SERVICO_REPOSITORY, ServicoRepository, ITEM_DE_ORDER_BUMP_REPOSITORY, ItemDeOrderBumpRepository, Inject, SolicitarReembolsoInput, SolicitarReembolsoOutput, PARAMETROS_DA_EMPRESA_REPOSITORY (+27 more)
 
 ### Community 293 - "fix-cloudfront-spa.sh"
 Cohesion: 0.83
@@ -1338,10 +1314,6 @@ Nodes (6): 8.15 Dias da semana em que o crédito de pacote vale (2026-08-28), As
 Cohesion: 0.40
 Nodes (3): AprovarValeUseCase, Inject, Injectable
 
-### Community 296 - "SolicitarValeUseCase"
-Cohesion: 0.40
-Nodes (3): SolicitarValeUseCase, Inject, Injectable
-
 ### Community 297 - "8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04)"
 Cohesion: 0.40
 Nodes (5): 8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04), `AGUARDANDO_APROVACAO` — a pessoa no lugar do código, Senha do cliente — o que destrava quem já pagou, Tela de Clientes (permanente), Um ponto de decisão, não um `if` espalhado
@@ -1350,37 +1322,29 @@ Nodes (5): 8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04), 
 Cohesion: 0.40
 Nodes (5): A flag, ★★ Contingência de OTP — agendar e entrar sem SMS (2026-09-04) ✅, Frente 1 — agendar sem OTP, mas pendente, Frente 2 — tela de Clientes (permanente), Frente 3 — login por senha
 
-### Community 299 - "ConfirmarLoginClienteUseCase"
-Cohesion: 0.50
-Nodes (3): ConfirmarLoginClienteUseCase, Inject, Injectable
-
 ### Community 300 - "Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅"
 Cohesion: 0.50
 Nodes (4): Gate de envio de OTP removido + rate limit por origem (2026-08-14) ✅, Onde estava o gate, ★ Rate limit — o que existia e o que faltava, Testes (+11)
 
-### Community 303 - "JanelaExpedienteDto"
-Cohesion: 0.67
-Nodes (3): JanelaExpedienteDto, Matches, MaxLength
-
 ## Knowledge Gaps
-- **1464 isolated node(s):** `name`, `version`, `private`, `type`, `build` (+1459 more)
+- **1474 isolated node(s):** `name`, `version`, `private`, `type`, `build` (+1469 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **27 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **31 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `UsuarioAutenticado` connect `UsuarioAutenticado` to `BarbeiroId`, `PacoteOfertasController`, `PrismaService`, `shared.module.ts`, `payroll.module.ts`, `auth.decorators.ts`, `UsuarioAtual`, `materializar-expediente.usecase.ts`, `servicos.controller.ts`, `BarbeirosController`, `.enviarFoto`, `atendimentos.controller.ts`, `BarbeiroRepository`, `barbeiros.controller.ts`, `booking-publico.controller.ts`, `.criar`, `CompanyId`, `identity.module.ts`, `packages.module.ts`, `AuthProvider`, `vendas-produto.controller.ts`, `ids.ts`, `.definir`, `ValesController`, `ClientesController`, `parametros.controller.ts`, `expediente-semanal.aggregate.ts`, `taxa-retida.ts`, `ItemDeOrderBump`, `Papeis`?**
+- **Why does `UsuarioAutenticado` connect `UsuarioAutenticado` to `PacoteOfertasController`, `app.module.ts`, `CompanyId`, `UnitOfWork`, `payroll.module.ts`, `BarbeiroId`, `auth-provider.ts`, `BarbeiroRepository`, `servicos.controller.ts`, `BarbeirosController`, `produtos.controller.ts`, `atendimentos.controller.ts`, `AuthController`, `shared.module.ts`, `vendas-produto.controller.ts`, `barbeiros.controller.ts`, `disponibilidades.controller.ts`, `packages.module.ts`, `LocalAuthProvider`, `ids.ts`, `RepositoriosTransacionais`, `ValesController`, `adicionar-item-atendimento.usecase.ts`, `clientes.controller.ts`, `parametros.controller.ts`, `ExpedienteSemanal`, `taxa-retida.ts`, `ItemDeOrderBump`, `Papeis`?**
   _High betweenness centrality (0.041) - this node is a cross-community bridge._
-- **Why does `Dinheiro` connect `Dinheiro` to `dinheiro.ts`, `BarbeiroId`, `.zero`, `Barbeiro`, `shared.module.ts`, `VendaDePacote`, `cobranca-online.service.ts`, `pagar-com-cartao.spec.ts`, `.criar`, `payroll.module.ts`, `.exigirAgendado`, `on-atendimento-concluido.handler.ts`, `servicos.controller.ts`, `IntencaoDePagamento`, `atendimentos.controller.ts`, `BarbeiroRepository`, `barbeiros.controller.ts`, `booking-publico.controller.ts`, `CompanyId`, `packages.module.ts`, `ids.ts`, `Publico`, `payment-gateway.ts`, `Produto`, `TentativaDePagamento`, `VendaDeProduto`, `taxa-retida.ts`, `.deCentavos`, `ItemDeOrderBump`, `UnitOfWork`?**
+- **Why does `Dinheiro` connect `Dinheiro` to `dinheiro.ts`, `LancamentoComissao`, `.zero`, `CompanyId`, `pagar-com-cartao.spec.ts`, `UnitOfWork`, `payments.module.ts`, `.criar`, `payroll.module.ts`, `.exigirAgendado`, `BarbeiroId`, `on-atendimento-concluido.handler.ts`, `Atendimento`, `BarbeiroRepository`, `servicos.controller.ts`, `IntencaoDePagamento`, `executar-reembolso-agendado.spec.ts`, `produtos.controller.ts`, `shared.module.ts`, `barbeiros.controller.ts`, `Db`, `ids.ts`, `Publico`, `payment-gateway.ts`, `TentativaDePagamento`, `VendaDeProduto`, `taxa-retida.ts`, `ItemDeOrderBump`, `PaymentGateway`?**
   _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Why does `PrismaService` connect `PrismaService` to `staff.module.ts`, `fechamento-query.service.ts`, `BarbeiroId`, `.vender`, `webhook-mercadopago.e2e.spec.ts`, `s3-armazenamento.ts`, `shared.module.ts`, `cobranca-online.service.ts`, `payroll.module.ts`, `cadastro-nao-sobrescreve.e2e.spec.ts`, `HorariosDisponiveisQueryService`, `comanda-editavel.e2e.spec.ts`, `ValeRepository`, `otp-sem-conta.e2e.spec.ts`, `calendario.ts`, `consumo-de-credito-balcao.e2e.spec.ts`, `conclusao-antecipada.e2e.spec.ts`, `AgendaQueryService`, `ReembolsosDoClienteQueryService`, `conta-cliente.e2e.spec.ts`, `barbeiros.controller.ts`, `booking-publico.controller.ts`, `CompanyId`, `caixinha-e-desconto.e2e.spec.ts`, `identity.module.ts`, `packages.module.ts`, `AuthProvider`, `IdentityProvider`, `vendas-produto.controller.ts`, `HomeQueryService`, `app.module.ts`, `bigods-club-status.e2e.spec.ts`, `ClubeHandlers`, `dias-permitidos.e2e.spec.ts`, `reatribuir-barbeiro.e2e.spec.ts`, `login-com-senha-cliente.usecase.ts`, `reativar-cancelamento.e2e.spec.ts`, `visita-multiplos-creditos.e2e.spec.ts`, `integration.spec.ts`?**
+- **Why does `PrismaService` connect `PrismaService` to `FechamentoQueryService`, `LancamentoComissao`, `app.module.ts`, `.constructor`, `s3-armazenamento.ts`, `CompanyId`, `webhook-mercadopago.e2e.spec.ts`, `AgendamentosClienteQueryService`, `payroll.module.ts`, `payments.module.ts`, `ClienteAutenticado`, `BarbeiroId`, `comanda-editavel.e2e.spec.ts`, `auth-provider.ts`, `order-bump-rico.e2e.spec.ts`, `.constructor`, `otp-sem-conta.e2e.spec.ts`, `calendario.ts`, `consumo-de-credito-balcao.e2e.spec.ts`, `AgendaQueryService`, `AuthController`, `vendas-produto.controller.ts`, `shared.module.ts`, `barbeiros.controller.ts`, `conta-cliente.e2e.spec.ts`, `Db`, `caixinha-e-desconto.e2e.spec.ts`, `whatsapp-identity.provider.ts`, `LocalAuthProvider`, `identity.module.ts`, `clube-query.service.ts`, `HomeQueryService`, `bigods-club-status.e2e.spec.ts`, `Publico`, `ClubeHandlers`, `dias-permitidos.e2e.spec.ts`, `reatribuir-barbeiro.e2e.spec.ts`, `conta-cockpit.e2e.spec.ts`, `reativar-cancelamento.e2e.spec.ts`, `pacote-publico.e2e.spec.ts`, `visita-multiplos-creditos.e2e.spec.ts`, `integration.spec.ts`, `Papeis`?**
   _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `name`, `version`, `private` to the rest of the system?**
-  _1464 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1474 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `dinheiro.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.07726075504828797 - nodes in this community are weakly interconnected._
-- **Should `BarbeiroId` be split into smaller, more focused modules?**
-  _Cohesion score 0.06738738738738739 - nodes in this community are weakly interconnected._
-- **Should `PrismaService` be split into smaller, more focused modules?**
-  _Cohesion score 0.04493207941483804 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0695970695970696 - nodes in this community are weakly interconnected._
+- **Should `LancamentoComissao` be split into smaller, more focused modules?**
+  _Cohesion score 0.1101010101010101 - nodes in this community are weakly interconnected._
+- **Should `app.module.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.037952559300873906 - nodes in this community are weakly interconnected._

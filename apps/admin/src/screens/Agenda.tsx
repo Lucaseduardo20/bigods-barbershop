@@ -41,9 +41,9 @@ export function Agenda({
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
   const [filtroStatus, setFiltroStatus] = useState<
     | 'todos'
+    | 'a-aprovar'
     | StatusAtendimento.AGENDADO
     | StatusAtendimento.RESERVADO
-    | StatusAtendimento.CONCLUSAO_PENDENTE
     | StatusAtendimento.CONCLUIDO
   >('todos');
   const [novoAberto, setNovoAberto] = useState(abrirNovoAoEntrar);
@@ -69,7 +69,22 @@ export function Agenda({
   );
 
   const filtrados = useMemo(
-    () => (dados ?? []).filter((a) => filtroStatus === 'todos' || a.status === filtroStatus),
+    () =>
+      (dados ?? []).filter((a) => {
+        if (filtroStatus === 'todos') return true;
+        // "A aprovar" junta as DUAS decisões que esperam uma pessoa: a
+        // conclusão antecipada e, desde 2026-09-04, o agendamento que entrou
+        // sem verificação de telefone. São abas diferentes na cabeça de quem
+        // programou e a MESMA coisa na de quem opera — "o que está esperando
+        // eu decidir". Separar mandaria o dono conferir dois lugares.
+        if (filtroStatus === 'a-aprovar') {
+          return (
+            a.status === StatusAtendimento.CONCLUSAO_PENDENTE ||
+            a.status === StatusAtendimento.AGUARDANDO_APROVACAO
+          );
+        }
+        return a.status === filtroStatus;
+      }),
     [dados, filtroStatus],
   );
 
@@ -167,7 +182,7 @@ export function Agenda({
             // o dono precisa achar RÁPIDO o atendimento que acabou de chegar
             // pra confirmar. Sem esta aba, ele caça no meio da semana inteira.
             { value: StatusAtendimento.RESERVADO, label: 'Aguardando pgto' },
-            { value: StatusAtendimento.CONCLUSAO_PENDENTE, label: 'A aprovar' },
+            { value: 'a-aprovar', label: 'A aprovar' },
             { value: StatusAtendimento.CONCLUIDO, label: 'Concluídos' },
           ]}
         />

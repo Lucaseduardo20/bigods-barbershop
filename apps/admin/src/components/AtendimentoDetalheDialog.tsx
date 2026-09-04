@@ -77,6 +77,9 @@ export function AtendimentoDetalheDialog({
   const [qtdProduto, setQtdProduto] = useState('1');
   const [marcando, setMarcando] = useState(false);
   const [erroDaCasa, setErroDaCasa] = useState<string | null>(null);
+  /** Recusa do agendamento sem verificação (2026-09-04) — motivo inline. */
+  const [recusando, setRecusando] = useState(false);
+  const [motivoRecusa, setMotivoRecusa] = useState('');
   // Conclusão antecipada (2026-08-20): o modal de justificativa e o que ele
   // colhe. `enviado` existe pra dizer ao barbeiro o que aconteceu de fato —
   // fechar tudo em silêncio deixaria ele achando que concluiu.
@@ -423,22 +426,52 @@ export function AtendimentoDetalheDialog({
                 <button
                   className="btn btn-ghost btn-sm flex-1"
                   disabled={ocupado}
-                  onClick={() => {
-                    const motivo = window.prompt(
-                      'Por que está recusando? O motivo fica no histórico do cliente.',
-                    );
-                    if (!motivo?.trim()) return;
-                    acao(() =>
-                      api(`/atendimentos/${a.id}/recusar-agendamento`, {
-                        method: 'POST',
-                        body: { motivo: motivo.trim() },
-                      }),
-                    );
-                  }}
+                  onClick={() => setRecusando(true)}
                 >
                   Recusar
                 </button>
               </div>
+              {/* O motivo é um campo aqui dentro, não um `window.prompt`: o
+                  prompt do navegador some em webview/PWA, não valida nada e,
+                  quando volta vazio, o botão parece simplesmente não funcionar
+                  — foi assim que apareceu no QA de 2026-09-04. */}
+              {recusando && (
+                <div className="flex flex-col gap-2 mt-2">
+                  <input
+                    className="input"
+                    autoFocus
+                    placeholder="Por que está recusando? (fica no histórico)"
+                    value={motivoRecusa}
+                    onChange={(e) => setMotivoRecusa(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      className="btn btn-danger btn-sm flex-1"
+                      disabled={ocupado || !motivoRecusa.trim()}
+                      onClick={() =>
+                        acao(() =>
+                          api(`/atendimentos/${a.id}/recusar-agendamento`, {
+                            method: 'POST',
+                            body: { motivo: motivoRecusa.trim() },
+                          }),
+                        )
+                      }
+                    >
+                      Confirmar recusa
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={ocupado}
+                      onClick={() => {
+                        setRecusando(false);
+                        setMotivoRecusa('');
+                      }}
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
