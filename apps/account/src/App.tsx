@@ -23,9 +23,10 @@ import { Historico } from './screens/Historico';
 import { AtendimentoDetalhe } from './screens/AtendimentoDetalhe';
 import { UsarSaldoResidual } from './screens/UsarSaldoResidual';
 import { Header } from './screens/Header';
+import { TrocarSenha } from './screens/TrocarSenha';
 import { ehMembro } from './components/Clube';
 
-type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo';
+type Tela = 'login' | 'otp' | 'home' | 'book' | 'historico' | 'saldo' | 'senha';
 
 export function App() {
   return (
@@ -139,11 +140,19 @@ function Conta() {
         nome={sessao.cliente.nome}
         telefone={sessao.cliente.telefone}
         ehMembroDoClube={ehMembroDoClube}
+        onTrocarSenha={() => setTela('senha')}
         onSair={sair}
       />
       {/* Landmark principal: leitor de tela pula direto pro conteúdo, sem
           reler o cabeçalho a cada navegação (Lighthouse a11y/SEO). */}
       <main>
+      {tela === 'senha' ? (
+        <TrocarSenha
+          telefone={sessao.cliente.telefone}
+          token={sessao.token}
+          onVoltar={() => setTela('home')}
+        />
+      ) : (
       <CockpitOuBook
         aoSaberDoClube={setEhMembroDoClube}
         sessao={sessao}
@@ -162,6 +171,7 @@ function Conta() {
         }}
         aoDeslogar={sair}
       />
+      )}
       </main>
     </div>
   );

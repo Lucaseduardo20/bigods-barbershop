@@ -37,11 +37,23 @@ function temCreditoLivre(v: VendaDePacoteDTO): boolean {
 }
 
 /**
- * Reserva de avulso online esperando o pagamento confirmar. Vale um aviso na
- * tela: o horário está guardado, mas ainda não é firme (go-live 2026-08-20).
+ * Horário guardado mas ainda NÃO firme — devolve o aviso a mostrar, ou `null`.
+ *
+ * São duas esperas diferentes e o cliente precisa saber qual é a dele:
+ *
+ * - `RESERVADO` (go-live 2026-08-20): avulso online esperando o pagamento.
+ * - `AGUARDANDO_APROVACAO` (2026-09-04): pedido feito na contingência de OTP,
+ *   esperando alguém da casa aprovar. Sem este aviso, o cliente que acabou de
+ *   ler "a barbearia vai confirmar" na tela de sucesso abriria a conta e veria
+ *   o mesmo horário como se já estivesse fechado — e sairia de casa confiando
+ *   nele. É o pior desfecho possível deste desvio.
  */
-function aguardandoPagamento(a: AgendamentoClienteDTO): boolean {
-  return a.status === StatusAtendimento.RESERVADO;
+function avisoDeEspera(a: AgendamentoClienteDTO): string | null {
+  if (a.status === StatusAtendimento.RESERVADO) return 'Aguardando confirmação do pagamento';
+  if (a.status === StatusAtendimento.AGUARDANDO_APROVACAO) {
+    return 'Aguardando confirmação da barbearia';
+  }
+  return null;
 }
 
 /**
@@ -240,9 +252,9 @@ function LinhaAgendamento({
           {agendamento.servicoNomes.join(' + ')} com {agendamento.barbeiroNome}
           {agendamento.origem === 'CREDITO_PACOTE' && ' · crédito do pacote'}
         </div>
-        {aguardandoPagamento(agendamento) && (
+        {avisoDeEspera(agendamento) && (
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--state-warning)', marginTop: 2 }}>
-            Aguardando confirmação do pagamento
+            {avisoDeEspera(agendamento)}
           </div>
         )}
       </div>
@@ -281,12 +293,11 @@ function ProximoBloco({
           {proximo.servicoNomes.join(' + ')} com {proximo.barbeiroNome}
           {proximo.origem === 'CREDITO_PACOTE' && ' · crédito do pacote'}
         </div>
-        {/* O horário está guardado, mas não é firme até o pagamento confirmar —
-            dizer isso aqui evita o cliente aparecer confiando num horário que
-            ainda pode expirar. */}
-        {aguardandoPagamento(proximo) && (
+        {/* O horário está guardado, mas não é firme — dizer isso aqui evita o
+            cliente aparecer confiando num horário que ainda pode não valer. */}
+        {avisoDeEspera(proximo) && (
           <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8, color: 'var(--state-warning)' }}>
-            Aguardando confirmação do pagamento
+            {avisoDeEspera(proximo)}
           </div>
         )}
       </button>

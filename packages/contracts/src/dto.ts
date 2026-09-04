@@ -945,6 +945,17 @@ export interface BarbeiroPublicoDTO {
  */
 export interface ClienteConhecidoDTO {
   conhecido: boolean;
+  /**
+   * ★ Só é significativo quando `EmpresaPublicaDTO.otpEmContingencia` está
+   * ligado (2026-09-04): é o que separa, no funil, o cliente que consegue
+   * entrar com senha do cliente antigo que ainda precisa falar com a barbearia
+   * para ativar o acesso.
+   *
+   * Com a contingência DESLIGADA vem sempre `false` — não por ser verdade, mas
+   * porque ninguém consome o campo nesse modo, e um oráculo a mais sobre a
+   * conta de alguém não deve existir sem uso.
+   */
+  temSenha: boolean;
 }
 export interface HorarioDisponivelDTO {
   horaInicio: string; // "HH:mm", horário de parede LOCAL (fuso da empresa)

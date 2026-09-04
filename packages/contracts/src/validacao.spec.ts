@@ -117,6 +117,18 @@ describe('senha do cliente (2026-08-28)', () => {
     expect(validarSenhaDeCliente('20261225', '+5511988887777').ok).toBe(true);
   });
 
+  it('★ um dígito solto no fim da senha NÃO é "o seu telefone"', () => {
+    // O bug: a comparação era por sufixo de qualquer tamanho, então `navalha7`
+    // era recusada para todo cliente com número terminado em 7 — uma em cada
+    // dez pessoas, com uma mensagem sem relação nenhuma com o que ela digitou.
+    expect(validarSenhaDeCliente('navalha7', '+5511988887777').ok).toBe(true);
+    expect(validarSenhaDeCliente('corte-pomada77', '+5511988887777').ok).toBe(true);
+    expect(validarSenhaDeCliente('tesoura777', '+5511988887777').ok).toBe(true);
+    // A partir de quatro dígitos volta a ser palpite de verdade: "os últimos
+    // quatro do meu número".
+    expect(validarSenhaDeCliente('corte7777', '+5511988887777').ok).toBe(false);
+  });
+
   it('só espaços não é senha', () => {
     expect(validarSenhaDeCliente('         ').ok).toBe(false);
   });

@@ -14,9 +14,17 @@ export class AgendamentosClienteQueryService {
   async proximos(companyId: string, clienteId: string): Promise<AgendamentoClienteDTO[]> {
     const agora = new Date();
     const atendimentos = await this.prisma.atendimento.findMany({
-      // Três estados são "ainda vai acontecer" para o cliente:
+      // Quatro estados são "ainda vai acontecer" para o cliente:
       //
       // - AGENDADO: firme.
+      // - AGUARDANDO_APROVACAO (2026-09-04): pedido feito durante a
+      //   contingência de OTP, esperando alguém da casa aprovar. Faltava aqui,
+      //   e o efeito era duplo e ruim: o cliente que acabava de marcar não via
+      //   nada em "próximos" — e via o pedido no HISTÓRICO, porque `historico`
+      //   é o espelho desta lista. Um horário futuro exibido como coisa
+      //   passada, exatamente o bug que RESERVADO já tinha causado antes.
+      //   No painel, o mesmo furo fazia o detalhe do cliente dizer "nenhum
+      //   horário marcado" bem na tela em que o dono decide se aprova.
       // - CONCLUSAO_PENDENTE (2026-08-20): o barbeiro concluiu antes da hora e
       //   espera aprovação. Assunto interno — sumir da lista deixaria o cliente
       //   sem o agendamento dele.
@@ -35,7 +43,7 @@ export class AgendamentosClienteQueryService {
         clienteId,
         inicio: { gte: agora },
         OR: [
-          { status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] } },
+          { status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'AGUARDANDO_APROVACAO'] } },
           { status: 'RESERVADO', reservaOnlineExpiraEm: { gt: agora } },
         ],
       },
@@ -60,7 +68,9 @@ export class AgendamentosClienteQueryService {
       where: {
         companyId,
         clienteId,
-        status: { notIn: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'RESERVADO'] },
+        status: {
+          notIn: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'RESERVADO', 'AGUARDANDO_APROVACAO'],
+        },
       },
       include: { itens: true },
       orderBy: { inicio: 'desc' },

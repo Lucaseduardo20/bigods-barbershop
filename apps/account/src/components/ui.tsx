@@ -115,6 +115,13 @@ const PATHS: Record<string, ReactNode> = {
       <polyline points="12 19 5 12 12 5" />
     </>
   ),
+  /** Cadeado — "trocar minha senha" no topo da conta (2026-09-04). */
+  lock: (
+    <>
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
   'log-out': (
     <>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

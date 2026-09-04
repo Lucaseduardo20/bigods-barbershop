@@ -15,6 +15,8 @@ import { IniciarLoginClienteUseCase } from './application/iniciar-login-cliente.
 import { ConfirmarLoginClienteUseCase } from './application/confirmar-login-cliente.usecase';
 import { LoginComSenhaClienteUseCase } from './application/login-com-senha-cliente.usecase';
 import { DefinirSenhaDoClientePeloAdminUseCase } from './application/definir-senha-do-cliente-pelo-admin.usecase';
+import { CriarContaComSenhaClienteUseCase } from './application/criar-conta-com-senha-cliente.usecase';
+import { TrocarSenhaDoClienteUseCase } from './application/trocar-senha-do-cliente.usecase';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { PrismaService } from '../../shared/infrastructure/prisma.service';
 import { PackagesModule } from '../packages/packages.module';
@@ -93,6 +95,8 @@ function exigir(nome: string, kind: string): string {
     ConfirmarLoginClienteUseCase,
     LoginComSenhaClienteUseCase,
     DefinirSenhaDoClientePeloAdminUseCase,
+    CriarContaComSenhaClienteUseCase,
+    TrocarSenhaDoClienteUseCase,
     OnPacoteVendidoHandler,
   ],
   // ClienteGuard exportado (sessão de OTP+reserva): agora usado também fora

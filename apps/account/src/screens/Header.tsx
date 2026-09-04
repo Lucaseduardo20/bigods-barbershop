@@ -4,6 +4,7 @@ export function Header({
   nome,
   telefone,
   ehMembroDoClube = false,
+  onTrocarSenha,
   onSair,
 }: {
   nome: string;
@@ -17,6 +18,15 @@ export function Header({
    * símbolo clássico da barbearia.
    */
   ehMembroDoClube?: boolean;
+  /**
+   * ★ 2026-09-04: trocar a própria senha, ao lado do sair.
+   *
+   * Fica no topo, e não escondido num menu, porque hoje a senha de muitos
+   * clientes foi definida pela BARBEARIA e passada por WhatsApp — ou seja,
+   * alguém de lá conhece a senha deles. Trocar precisa estar à mão desde a
+   * primeira vez que o cliente entra, não a três toques de distância.
+   */
+  onTrocarSenha: () => void;
   onSair: () => void;
 }) {
   return (
@@ -39,6 +49,14 @@ export function Header({
         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--brand-cream)' }}>Olá, {primeiroNome(nome)}</div>
         <div style={{ fontSize: 11.5, color: 'var(--brand-beige)' }}>{telefone}</div>
       </div>
+      <button
+        onClick={onTrocarSenha}
+        aria-label="Alterar minha senha"
+        title="Alterar minha senha"
+        style={{ border: 'none', background: 'transparent', color: 'var(--brand-beige)', cursor: 'pointer', display: 'flex' }}
+      >
+        <Icon name="lock" size={18} />
+      </button>
       <button
         onClick={onSair}
         aria-label="Sair"

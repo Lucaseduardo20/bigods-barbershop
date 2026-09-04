@@ -3,6 +3,7 @@ import type { AtendimentoDTO, BarbeiroDTO, ClienteDTO, ProdutoDTO, ServicoDTO, U
 import { FormaPagamento, OrigemAtendimento, Papel, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import {
+  diaCivilDe,
   diferencaDias,
   dinheiro,
   hojeISO,
@@ -20,9 +21,16 @@ const PERIODO_MAXIMO_DIAS = 31;
 
 type ModoVisao = 'semana' | 'periodo';
 
+export interface AlvoNaAgenda {
+  atendimentoId: string;
+  /** Instante UTC do atendimento — é dele que sai a SEMANA a abrir. */
+  inicioIso: string;
+}
+
 export function Agenda({
   usuario,
   abrirNovoAoEntrar = false,
+  alvo = null,
 }: {
   usuario: UsuarioDTO;
   /**
@@ -31,11 +39,26 @@ export function Agenda({
    * a Home navega pra cá e pede que o mesmo diálogo já venha aberto.
    */
   abrirNovoAoEntrar?: boolean;
+  /**
+   * ★★ Um atendimento específico para decidir (2026-09-04).
+   *
+   * A Home lista as pendências e promete "abrir a Agenda para decidir". Antes
+   * ela abria a Agenda na SEMANA CORRENTE — e um pedido para a semana que vem
+   * simplesmente não estava lá. O dono via a pendência na Home, vinha para cá e
+   * lia "Nenhum atendimento neste período". Nenhum filtro resolvia: o
+   * atendimento nem tinha sido buscado.
+   *
+   * Com o alvo, a tela monta na semana DELE, no filtro certo, e já com o
+   * diálogo de decisão aberto. Clicar na pendência passa a levar à decisão, não
+   * a uma tela onde ela poderia estar.
+   */
+  alvo?: AlvoNaAgenda | null;
 }) {
   const tz = useTimezone();
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
+  const diaDoAlvo = alvo ? diaCivilDe(alvo.inicioIso, tz) : null;
   const [modo, setModo] = useState<ModoVisao>('semana');
-  const [semanaInicio, setSemanaInicio] = useState(() => inicioDaSemana(hojeISO(tz)));
+  const [semanaInicio, setSemanaInicio] = useState(() => inicioDaSemana(diaDoAlvo ?? hojeISO(tz)));
   const [periodoDe, setPeriodoDe] = useState(() => hojeISO(tz));
   const [periodoAte, setPeriodoAte] = useState(() => somarDias(hojeISO(tz), 6));
   const [barbeiroFiltro, setBarbeiroFiltro] = useState<string>('todos');
@@ -45,10 +68,12 @@ export function Agenda({
     | StatusAtendimento.AGENDADO
     | StatusAtendimento.RESERVADO
     | StatusAtendimento.CONCLUIDO
-  >('todos');
+  >(() => (alvo ? 'a-aprovar' : 'todos'));
   const [novoAberto, setNovoAberto] = useState(abrirNovoAoEntrar);
   const [vendaAberta, setVendaAberta] = useState(false);
-  const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
+  // Já aberto no alvo: o diálogo busca o atendimento por id, então não depende
+  // da lista ter carregado.
+  const [selecionadoId, setSelecionadoId] = useState<string | null>(alvo?.atendimentoId ?? null);
 
   const de = modo === 'semana' ? semanaInicio : periodoDe;
   const ate = modo === 'semana' ? somarDias(semanaInicio, 6) : periodoAte;
@@ -93,7 +118,7 @@ export function Agenda({
   const porDia = useMemo(() => {
     const mapa = new Map<string, AtendimentoDTO[]>();
     for (const a of filtrados) {
-      const dia = new Date(a.inicio).toLocaleDateString('en-CA', { timeZone: tz });
+      const dia = diaCivilDe(a.inicio, tz);
       const lista = mapa.get(dia) ?? [];
       lista.push(a);
       mapa.set(dia, lista);
@@ -192,7 +217,20 @@ export function Agenda({
         {carregando && <Loading />}
         {erro && <ErroEstado erro={erro} aoTentar={recarregar} />}
         {!carregando && !erro && !periodoInvalido && porDia.length === 0 && (
-          <Vazio texto="Nenhum atendimento neste período." />
+          <Vazio
+            texto={
+              // ★ A mensagem precisa dizer que o vazio é DESTE período, não do
+              // mundo. Quem chega em "A aprovar" e lê "nenhum atendimento"
+              // conclui que não há nada a decidir — e pode haver, na semana
+              // seguinte. Foi assim que uma pendência visível na Home virou uma
+              // pendência impossível de achar.
+              filtroStatus === 'a-aprovar'
+                ? modo === 'semana'
+                  ? 'Nada esperando decisão nesta semana. Se a Home mostra uma pendência, ela está em outra — use as setas acima ou toque nela na Home.'
+                  : 'Nada esperando decisão neste período.'
+                : 'Nenhum atendimento neste período.'
+            }
+          />
         )}
         {!carregando &&
           !erro &&

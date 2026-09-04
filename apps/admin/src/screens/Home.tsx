@@ -26,16 +26,26 @@ export function Home({
   usuario,
   aoNavegar,
   aoRegistrarAtendimento,
+  aoDecidirAtendimento,
 }: {
   usuario: UsuarioDTO;
   /** Leva pra seção completa — a home só aponta, não duplica tela. */
   aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
   /** Reusa o walk-in que já existe na Agenda — nenhum fluxo novo de criação. */
   aoRegistrarAtendimento: () => void;
+  /**
+   * Leva à Agenda JÁ no atendimento a decidir (2026-09-04) — semana dele,
+   * filtro certo, diálogo aberto. Ver `LinhaPendencia`.
+   */
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
 }) {
   const ehAdmin = usuario.papeis.includes(Papel.ADMIN);
   return ehAdmin ? (
-    <HomeGestao aoNavegar={aoNavegar} aoRegistrarAtendimento={aoRegistrarAtendimento} />
+    <HomeGestao
+      aoNavegar={aoNavegar}
+      aoRegistrarAtendimento={aoRegistrarAtendimento}
+      aoDecidirAtendimento={aoDecidirAtendimento}
+    />
   ) : (
     <HomePessoal aoNavegar={aoNavegar} aoRegistrarAtendimento={aoRegistrarAtendimento} />
   );
@@ -207,11 +217,14 @@ function LinhaPendencia({
   p,
   tz,
   aoNavegar,
+  aoDecidirAtendimento,
 }: {
   p: HomePendenciaDTO;
   tz: string;
   /** Só usado pela linha urgente — ver `urgente` abaixo. */
   aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
+  /** Abre a Agenda NO atendimento — ver `decisaoPendente` abaixo. */
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
 }) {
   const dia = new Date(p.desde).toLocaleDateString('pt-BR', {
     day: '2-digit',
@@ -244,6 +257,11 @@ function LinhaPendencia({
    * Contingência de OTP (2026-09-04): enquanto o SMS não chega, ESTA é a trava
    * anti-poluição — e uma trava que ninguém vê não filtra nada. A linha leva à
    * Agenda, onde aprovar e recusar ficam.
+   *
+   * ★ Leva AO ATENDIMENTO, não à tela. Levar só à tela abria a Agenda na semana
+   * corrente, e um pedido para a semana seguinte não estava lá — o dono via a
+   * pendência aqui, ia lá e lia "Nenhum atendimento neste período". `p.desde` é
+   * o início do atendimento, então é dele que sai a semana certa.
    */
   const decisaoPendente = p.tipo === 'AGENDAMENTO_AGUARDANDO_APROVACAO';
 
@@ -280,7 +298,9 @@ function LinhaPendencia({
     return (
       <button
         className="flex items-center justify-between gap-2 py-1.5 w-full bg-transparent border-0 p-0 cursor-pointer"
-        onClick={() => aoNavegar(urgente ? 'financeiro' : 'agenda')}
+        onClick={() =>
+          urgente ? aoNavegar('financeiro') : aoDecidirAtendimento(p.id, p.desde)
+        }
         title={urgente ? 'Abrir Financeiro > Reembolsos' : 'Abrir a Agenda para decidir'}
       >
         {conteudo}
@@ -294,9 +314,11 @@ function LinhaPendencia({
 function HomeGestao({
   aoNavegar,
   aoRegistrarAtendimento,
+  aoDecidirAtendimento,
 }: {
   aoNavegar: (aba: 'agenda' | 'financeiro' | 'pacotes') => void;
   aoRegistrarAtendimento: () => void;
+  aoDecidirAtendimento: (atendimentoId: string, inicioIso: string) => void;
 }) {
   const tz = useTimezone();
   const { dados, erro, carregando, recarregar } = useApi(() => api<HomeGestaoDTO>('/home/gestao'), []);
@@ -348,7 +370,13 @@ function HomeGestao({
           <Vazio texto="Nada pendente de aprovação. 👌" />
         ) : (
           dados.pendencias.map((p) => (
-            <LinhaPendencia key={`${p.tipo}-${p.id}`} p={p} tz={tz} aoNavegar={aoNavegar} />
+            <LinhaPendencia
+              key={`${p.tipo}-${p.id}`}
+              p={p}
+              tz={tz}
+              aoNavegar={aoNavegar}
+              aoDecidirAtendimento={aoDecidirAtendimento}
+            />
           ))
         )}
       </Card>

@@ -44,6 +44,18 @@ export function diferencaDias(deISO: string, ateISO: string): number {
   return Math.round((ate - de) / 86_400_000) + 1;
 }
 
+/**
+ * Dia civil (YYYY-MM-DD) de um INSTANTE, no fuso da empresa.
+ *
+ * O par de `hojeISO`: aquele converte "agora", este converte um instante
+ * qualquer. Existe porque a Agenda precisa saber em que dia — e portanto em que
+ * semana — cai um atendimento, e ler isso no fuso do navegador colocaria o
+ * atendimento da meia-noite no dia errado.
+ */
+export function diaCivilDe(instanteIso: string, tz: string): string {
+  return new Date(instanteIso).toLocaleDateString('en-CA', { timeZone: tz });
+}
+
 /** Segunda-feira da semana civil que contém `dataISO`. */
 export function inicioDaSemana(dataISO: string): string {
   const [ano, mes, dia] = dataISO.split('-').map(Number);

@@ -329,6 +329,7 @@ const CHAVES_CONGELADAS_DO_FUNNEL_STATE = [
   'barbeiroNome',
   'barbeiroFotoUrl',
   'clienteConhecido',
+  'contaSemAcesso',
   'emailJaCadastrado',
   'barbeiroAuto',
   'barbeiroFixadoPorLink',
