@@ -1,0 +1,15 @@
+-- SENHA DO CLIENTE (2026-09-04) — o que destrava quem já pagou.
+--
+-- Com o SMS de verificação falhando, o cliente que comprou pacote não consegue
+-- entrar na conta para usar o crédito. A senha resolve sem depender de entrega
+-- de mensagem: o admin define pela tela de Clientes e passa por WhatsApp.
+--
+-- Hash no MESMO formato do login de staff (`sal:hash`, scrypt) — o motor é o
+-- mesmo módulo `senha.ts`, nunca uma segunda implementação de criptografia.
+--
+-- ADITIVA: uma coluna nulável. NULL = ainda não tem senha, que é o estado de
+-- todo cliente hoje, e continua sendo um estado válido.
+-- `IF NOT EXISTS` porque esta mesma coluna já existiu numa branch anterior que
+-- não subiu: bancos de desenvolvimento por aí já a têm, e a migration precisa
+-- ser aplicável nos dois casos. Em produção a coluna não existe.
+ALTER TABLE "Cliente" ADD COLUMN IF NOT EXISTS "senhaHash" TEXT;

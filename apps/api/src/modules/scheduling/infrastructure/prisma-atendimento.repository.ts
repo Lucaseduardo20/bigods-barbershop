@@ -75,6 +75,8 @@ function paraDominio(row: Row): Atendimento {
     descontoConcedido: Dinheiro.deCentavos(row.descontoConcedidoCentavos),
     reativadoPorId: row.reativadoPorId,
     reativadoEm: row.reativadoEm,
+    aprovadoPorId: row.aprovadoPorId,
+    aprovadoEm: row.aprovadoEm,
     reatribuidoDeId: row.reatribuidoDeId,
     reatribuidoPorId: row.reatribuidoPorId,
     reatribuidoEm: row.reatribuidoEm,
@@ -116,7 +118,11 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
         // CONCLUSAO_PENDENTE conta na cota (2026-08-20) pela mesma razão que
         // ocupa o horário: se a recusa devolve o atendimento pra AGENDADO, ele
         // nunca deixou de ser um presencial futuro segurado pelo cliente.
-        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE'] },
+        // AGUARDANDO_APROVACAO conta na cota (2026-09-04): sem isto, a
+        // contingência de OTP viraria a porta para entupir a agenda — bastava
+        // pedir sem verificar telefone, que é justamente o caminho que a
+        // contingência abriu. Um pedido pendente ocupa horário e ocupa cota.
+        status: { in: ['AGENDADO', 'CONCLUSAO_PENDENTE', 'AGUARDANDO_APROVACAO'] },
         reservaOnlineExpiraEm: null,
         inicio: { gt: agora },
       },
@@ -164,6 +170,8 @@ export class PrismaAtendimentoRepository implements AtendimentoRepository {
       descontoConcedidoCentavos: atendimento.descontoConcedido.centavos,
       reativadoPorId: atendimento.reativadoPorId,
       reativadoEm: atendimento.reativadoEm,
+      aprovadoPorId: atendimento.aprovadoPorId,
+      aprovadoEm: atendimento.aprovadoEm,
       reatribuidoDeId: atendimento.reatribuidoDeId,
       reatribuidoPorId: atendimento.reatribuidoPorId,
       reatribuidoEm: atendimento.reatribuidoEm,

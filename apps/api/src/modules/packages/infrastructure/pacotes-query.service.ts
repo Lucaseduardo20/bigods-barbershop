@@ -28,6 +28,44 @@ export class PacotesQueryService {
    * ninguém em particular, então não aparece pra barbeiro nenhum: só o admin
    * vê e decide quem atende. `undefined` = sem escopo (admin vê tudo).
    */
+  /**
+   * Quantos créditos VIVOS cada cliente tem, numa consulta só (2026-09-04).
+   *
+   * Vivo = `DISPONIVEL` ou `SEGUNDA_CHANCE` em pacote PAGO — exatamente o que o
+   * cliente perde se não conseguir entrar na conta. É o número que a tela de
+   * Clientes usa para o admin saber por quem começar enquanto o SMS não chega:
+   * quem tem crédito e não tem senha está trancado do lado de fora com dinheiro
+   * dentro.
+   *
+   * Agregado no banco, não em memória: a lista é de clientes, e uma consulta
+   * por linha viraria N+1 na tela que mais vai ser aberta esta semana.
+   */
+  async creditosVivosPorCliente(companyId: string): Promise<Map<string, number>> {
+    const linhas = await this.prisma.itemDoPacote.groupBy({
+      by: ['vendaId'],
+      where: {
+        status: { in: [StatusItemPacote.DISPONIVEL, StatusItemPacote.SEGUNDA_CHANCE] },
+        venda: { companyId, statusPagamento: StatusPagamento.PAGO },
+      },
+      _count: { _all: true },
+    });
+    if (linhas.length === 0) return new Map();
+
+    const vendas = await this.prisma.vendaDePacote.findMany({
+      where: { id: { in: linhas.map((l) => l.vendaId) } },
+      select: { id: true, clienteId: true },
+    });
+    const clientePorVenda = new Map(vendas.map((v) => [v.id, v.clienteId]));
+
+    const porCliente = new Map<string, number>();
+    for (const linha of linhas) {
+      const clienteId = clientePorVenda.get(linha.vendaId);
+      if (!clienteId) continue;
+      porCliente.set(clienteId, (porCliente.get(clienteId) ?? 0) + linha._count._all);
+    }
+    return porCliente;
+  }
+
   async listar(companyId: string, clienteId?: string, barbeiroId?: string): Promise<VendaDePacoteDTO[]> {
     const vendas = await this.prisma.vendaDePacote.findMany({
       where: { companyId, ...(clienteId ? { clienteId } : {}), ...(barbeiroId ? { barbeiroId } : {}) },

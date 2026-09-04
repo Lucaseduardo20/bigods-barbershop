@@ -14,6 +14,9 @@ enum Papel {
 
 enum StatusAtendimento {
   RESERVADO
+  // Contingência de OTP (2026-09-04) — agendou sem verificar o telefone e
+  // espera aprovação humana. Ocupa o horário como AGENDADO. Ver §8.17.
+  AGUARDANDO_APROVACAO
   AGENDADO
   // Conclusão ANTECIPADA aguardando aprovação do admin (2026-08-20). Ocupa o
   // horário como AGENDADO — está na constraint EXCLUDE e na invariante do
@@ -451,6 +454,10 @@ model Cliente {
   nome       String
   telefone   String
   cognitoSub String?
+  // Senha do cliente (2026-09-04) — MESMO formato e mesmo motor do login de
+  // staff (`senha.ts`: scrypt, `sal:hash`). NULL = ainda não tem senha; hoje
+  // quem define é o admin, pela tela de Clientes.
+  senhaHash  String?
   // Opcionais, coletados no funil (nunca obrigatórios — atrito no funil custa
   // conversão). Só são gravados quando o cliente preenche; um agendamento
   // posterior com o campo em branco NÃO apaga o que já havia.
@@ -523,6 +530,10 @@ model Atendimento {
   // reativado por Y em Z).
   reativadoPorId String?
   reativadoEm    DateTime? @db.Timestamptz(3)
+  // Quem decidiu um pedido que entrou sem verificação de telefone, e quando
+  // (contingência de OTP, 2026-09-04). NULL em tudo que nunca passou por ela.
+  aprovadoPorId             String?
+  aprovadoEm                DateTime?         @db.Timestamptz(3)
 
   // Reatribuição de barbeiro ANTES de concluir (2026-08-27): de quem era, quem
   // transferiu e quando. `barbeiroId` segue sendo a verdade sobre quem atende;

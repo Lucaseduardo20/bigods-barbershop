@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { EmpresaPublicaDTO, PagamentoOnlineDTO } from '@bigods/contracts';
 import { PrismaService } from '../../../shared/infrastructure/prisma.service';
 import { lerConfigPagamentoManual } from '../../../shared/config/pagamento-manual';
 import { lerConfigMercadoPago } from '../../../shared/config/mercadopago';
 import { CobrancaOnlineService } from '../../payments/application/cobranca-online.service';
+import {
+  CONFIG_CONTINGENCIA_OTP,
+  ConfigContingenciaOtp,
+} from '../../../shared/config/contingencia-otp';
 
 /** Dados públicos da empresa que o funil precisa (marca + fuso). */
 @Injectable()
@@ -11,6 +15,8 @@ export class EmpresaPublicaQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cobrancaOnline: CobrancaOnlineService,
+    @Inject(CONFIG_CONTINGENCIA_OTP)
+    private readonly contingencia: ConfigContingenciaOtp,
   ) {}
 
   async empresa(companyId: string): Promise<EmpresaPublicaDTO> {
@@ -29,6 +35,9 @@ export class EmpresaPublicaQueryService {
       nome: company.nome,
       timezone: company.timezone,
       demoMode: process.env.DEMO_MODE === 'true',
+      // Contingência de OTP (2026-09-04) — lida do MESMO ponto de decisão que a
+      // borda do agendamento usa, nunca de um segundo `process.env` solto.
+      otpEmContingencia: this.contingencia.ativo,
       descontoProgressivo: {
         degraus: degraus.map((d) => ({ posicao: d.posicao, valorCentavos: d.valorCentavos })),
         tetoCentavos: company.descontoTetoCentavos,

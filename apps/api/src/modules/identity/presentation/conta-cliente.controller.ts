@@ -21,6 +21,7 @@ import {
 } from '@bigods/contracts';
 import { IniciarLoginClienteUseCase } from '../application/iniciar-login-cliente.usecase';
 import { ConfirmarLoginClienteUseCase } from '../application/confirmar-login-cliente.usecase';
+import { LoginComSenhaClienteUseCase } from '../application/login-com-senha-cliente.usecase';
 import { Publico } from './auth.decorators';
 import { EhCelularBrasileiro, EhNomeDeCliente } from '../../../shared/presentation/validadores';
 import { EnviaOtp } from './envia-otp.decorator';
@@ -86,6 +87,12 @@ class ConfirmarLoginDto {
   @IsOptional() @EhNomeDeCliente() nome?: string;
 }
 
+class LoginComSenhaDto {
+  @IsString() @MinLength(1) companyId!: string;
+  @EhCelularBrasileiro() telefone!: string;
+  @IsString() @MinLength(1) senha!: string;
+}
+
 class AgendarComCreditoContaDto {
   @IsString() @MinLength(1) vendaId!: string;
   /** Vários créditos do mesmo pacote = uma visita só (2026-08-21). */
@@ -121,6 +128,7 @@ export class ContaClienteController {
   constructor(
     private readonly iniciarLogin: IniciarLoginClienteUseCase,
     private readonly confirmarLogin: ConfirmarLoginClienteUseCase,
+    private readonly loginComSenha: LoginComSenhaClienteUseCase,
     @Inject(CLIENTE_REPOSITORY) private readonly clientes: ClienteRepository,
     private readonly pacotes: PacotesQueryService,
     private readonly clube: ClubeQueryService,
@@ -155,6 +163,31 @@ export class ContaClienteController {
       codigo: body.codigo,
       desafio: body.desafio,
       nome: body.nome,
+    });
+  }
+
+  /**
+   * ★★ LOGIN POR SENHA (2026-09-04) — entrar sem depender de SMS.
+   *
+   * O SMS de verificação parou de chegar de forma confiável, e o cliente que
+   * comprou pacote ficou trancado para fora da conta. A senha é definida pelo
+   * ADMIN, na tela de Clientes do painel, e passada por WhatsApp.
+   *
+   * O login por código continua existindo e funcionando ao lado deste — nada do
+   * OTP foi removido. Quando a rota de SMS voltar, este caminho continua sendo
+   * o mais rápido para quem já tem senha.
+   *
+   * Mesmo rate limit do código (5 por telefone / 10 min): aqui ele não protege
+   * contra gasto de SMS, protege contra tentativa de senha em série.
+   */
+  @Publico()
+  @Throttle(THROTTLE_LOGIN)
+  @Post('login/senha')
+  async loginSenha(@Body() body: LoginComSenhaDto): Promise<ConfirmarLoginClienteResponse> {
+    return this.loginComSenha.executar({
+      companyId: body.companyId,
+      telefone: body.telefone,
+      senha: body.senha,
     });
   }
 

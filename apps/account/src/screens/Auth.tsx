@@ -4,24 +4,46 @@ import { BOOKING_URL } from '../lib/config';
 import { mascararTelefone, telefoneValido } from '../lib/telefone';
 import { Icon, Spinner } from '../components/ui';
 
-/* ---------------- Login (telefone) ---------------- */
-export function Login({ onEnviar }: { onEnviar: (telefone: string) => Promise<void> }) {
+/* ---------------- Login (telefone + senha, com código de reserva) ---------------- */
+/**
+ * ★ CONTINGÊNCIA DE OTP (2026-09-04): a senha virou o caminho PRINCIPAL.
+ *
+ * O SMS de verificação parou de chegar de forma confiável, e quem comprou
+ * pacote ficava trancado para fora da própria conta. Agora a barbearia define
+ * uma senha (painel → Usuários → Clientes) e passa por WhatsApp.
+ *
+ * O código continua aqui embaixo, como segunda opção — nada do OTP foi
+ * removido. Quando a rota de SMS voltar, os dois caminhos convivem: quem tem
+ * senha entra direto, quem não tem pede o código.
+ */
+export function Login({
+  onEntrarComSenha,
+  onEnviarCodigo,
+}: {
+  onEntrarComSenha: (telefone: string, senha: string) => Promise<void>;
+  onEnviarCodigo: (telefone: string) => Promise<void>;
+}) {
   const [telefone, setTelefone] = useState('');
+  const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const ok = telefoneValido(telefone);
+  const telefoneOk = telefoneValido(telefone);
+  const ok = telefoneOk && senha.length > 0;
 
-  const enviar = async () => {
+  const executar = async (acao: () => Promise<void>) => {
     setEnviando(true);
     setErro(null);
     try {
-      await onEnviar(telefone);
+      await acao();
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : String(e));
     } finally {
       setEnviando(false);
     }
   };
+
+  const entrar = () => executar(() => onEntrarComSenha(telefone, senha));
+  const pedirCodigo = () => executar(() => onEnviarCodigo(telefone));
 
   return (
     <div className="auth-bg">
@@ -36,23 +58,47 @@ export function Login({ onEnviar }: { onEnviar: (telefone: string) => Promise<vo
           Área do cliente
         </div>
         <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', textAlign: 'center', margin: '6px 0 22px' }}>
-          Entre com seu telefone — mandamos um código por SMS.
+          Entre com seu telefone e sua senha.
         </div>
         <label className="label">Telefone</label>
         <input
           className="input"
           inputMode="tel"
+          autoComplete="username"
           placeholder="(11) 99999-9999"
           value={telefone}
           onChange={(e) => setTelefone(mascararTelefone(e.target.value))}
-          onKeyDown={(e) => e.key === 'Enter' && ok && !enviando && enviar()}
+        />
+        <label className="label" style={{ marginTop: 12 }}>Senha</label>
+        <input
+          className="input"
+          type="password"
+          autoComplete="current-password"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && ok && !enviando && entrar()}
         />
         {erro && (
           <div style={{ fontSize: 13, color: 'var(--state-danger)', marginTop: 10, fontWeight: 600 }}>{erro}</div>
         )}
-        <button className="btn btn-block btn-lg" style={{ marginTop: 16 }} disabled={!ok || enviando} onClick={enviar}>
-          {enviando ? <Spinner /> : 'Receber código'}
+        <button className="btn btn-block btn-lg" style={{ marginTop: 16 }} disabled={!ok || enviando} onClick={entrar}>
+          {enviando ? <Spinner /> : 'Entrar'}
         </button>
+
+        {/* O código continua disponível, em segundo plano: hoje ele é o caminho
+            que pode não chegar, então não pode ser o botão principal — mas
+            tirá-lo deixaria sem saída quem ainda não tem senha. */}
+        <button
+          className="btn btn-ghost btn-block"
+          style={{ marginTop: 10 }}
+          disabled={!telefoneOk || enviando}
+          onClick={pedirCodigo}
+        >
+          Não tenho senha — receber código
+        </button>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
+          Sem senha? Fale com a barbearia no WhatsApp que a gente cria uma para você.
+        </div>
         <div
           style={{
             marginTop: 16,

@@ -141,6 +141,15 @@ export interface AtendimentoProps {
    * juntos contam a história (cancelado por X, trazido de volta por Y em Z).
    */
   reativadoPorId: BarbeiroId | null;
+  /**
+   * Quem decidiu o pedido que entrou sem verificação de telefone, e quando
+   * (2026-09-04). Preenchidos tanto na aprovação quanto na recusa: a decisão é
+   * humana, no lugar de uma trava automática, e daqui a um mês alguém vai
+   * querer saber de quem foi. `null` em todo atendimento que nunca passou pela
+   * contingência — que é a esmagadora maioria.
+   */
+  aprovadoPorId: BarbeiroId | null;
+  aprovadoEm: Date | null;
   reativadoEm: Date | null;
   /**
    * REATRIBUIÇÃO (2026-08-27) — de quem era este atendimento antes da troca,
@@ -204,6 +213,14 @@ export interface AgendarParams {
   valorAbatidoSaldo?: Dinheiro;
   vendaAbatidaId?: VendaDePacoteId | null;
   /**
+   * CONTINGÊNCIA DE OTP (2026-09-04): nasce `AGUARDANDO_APROVACAO` em vez de
+   * firme — o cliente agendou sem verificar o telefone, e uma pessoa da casa
+   * decide. Nunca combina com `reservaOnlineExpiraEm`: quem paga online já tem
+   * no pagamento a trava contra agenda falsa, e o desvio existe só para o
+   * presencial, que era o caminho que dependia do código.
+   */
+  aguardandoAprovacao?: boolean;
+  /**
    * Presente (não-null) ⇒ nasce como reserva TEMPORÁRIA (`RESERVADO`), não
    * firme — usado pelo caminho de pagamento online (Problema 2: sem isso, um
    * PIX nunca pago prende o horário pra sempre). Ausente/null ⇒ nasce
@@ -243,7 +260,11 @@ export class Atendimento extends AggregateRoot {
         // atendimento pra lá, e o horário precisa estar esperando (2026-08-20).
         (a.props.status === StatusAtendimento.AGENDADO ||
           a.props.status === StatusAtendimento.RESERVADO ||
-          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE ||
+          // Contingência de OTP (2026-09-04): quem espera aprovação já é dono
+          // do horário. Sem isto, dois pedidos para o mesmo horário ficariam
+          // pendentes e aprovar o segundo derrubaria o primeiro.
+          a.props.status === StatusAtendimento.AGUARDANDO_APROVACAO) &&
         a.props.intervalo.sobrepoe(intervalo),
     );
     if (conflito) {
@@ -255,6 +276,12 @@ export class Atendimento extends AggregateRoot {
     const produtos = Atendimento.validarProdutos(params.produtos);
 
     const reservaOnlineExpiraEm = params.reservaOnlineExpiraEm ?? null;
+    const aguardandoAprovacao = params.aguardandoAprovacao ?? false;
+    if (aguardandoAprovacao && reservaOnlineExpiraEm) {
+      throw new InvarianteVioladaError(
+        'Atendimento não pode ao mesmo tempo aguardar aprovação e ser reserva de pagamento online',
+      );
+    }
     const atendimento = new Atendimento({
       id: params.id,
       companyId: params.companyId,
@@ -263,7 +290,11 @@ export class Atendimento extends AggregateRoot {
       itens,
       produtos,
       intervalo,
-      status: reservaOnlineExpiraEm ? StatusAtendimento.RESERVADO : StatusAtendimento.AGENDADO,
+      status: reservaOnlineExpiraEm
+        ? StatusAtendimento.RESERVADO
+        : aguardandoAprovacao
+          ? StatusAtendimento.AGUARDANDO_APROVACAO
+          : StatusAtendimento.AGENDADO,
       origem,
       formaPagamento: null,
       motivoCancelamento: null,
@@ -279,6 +310,8 @@ export class Atendimento extends AggregateRoot {
       descontoConcedido: Dinheiro.zero(),
       reativadoPorId: null,
       reativadoEm: null,
+      aprovadoPorId: null,
+      aprovadoEm: null,
       reatribuidoDeId: null,
       reatribuidoPorId: null,
       reatribuidoEm: null,
@@ -286,7 +319,9 @@ export class Atendimento extends AggregateRoot {
     // RESERVADO ainda não é um agendamento de verdade (pode expirar sem
     // nunca ser pago) — o evento só é emitido quando fica firme: aqui de
     // imediato pro caminho presencial, ou em `confirmarReserva()` pro online.
-    if (!reservaOnlineExpiraEm) {
+    // AGUARDANDO_APROVACAO segue a mesma regra e pelo mesmo motivo: enquanto
+    // ninguém aprovou, não houve agendamento para avisar ninguém a respeito.
+    if (!reservaOnlineExpiraEm && !aguardandoAprovacao) {
       atendimento.adicionarEvento(
         new AtendimentoAgendado(
           params.id,
@@ -425,6 +460,8 @@ export class Atendimento extends AggregateRoot {
       descontoConcedido: Dinheiro.zero(),
       reativadoPorId: null,
       reativadoEm: null,
+      aprovadoPorId: null,
+      aprovadoEm: null,
       // Nasce sem rastro de reatribuição: não foi marcado com ninguém antes —
       // quem atendeu é quem está sendo informado agora. Trocar depois é o
       // caminho de `corrigirBarbeiro`, com estorno, como em qualquer concluído.
@@ -788,8 +825,22 @@ export class Atendimento extends AggregateRoot {
     this.props.produtos.push({ produtoId, quantidade, valorUnitario });
   }
 
+  /**
+   * Cancela. Vale para AGENDADO e, desde 2026-09-04, para
+   * AGUARDANDO_APROVACAO — desistir de um pedido que ainda espera decisão é um
+   * cancelamento como qualquer outro, com o mesmo evento e a mesma devolução de
+   * crédito. Recusar pela casa passa por aqui também (`recusarAgendamento`),
+   * para não existirem duas implementações do mesmo cancelamento.
+   */
   cancelar(motivo: string): void {
-    this.exigirAgendado('cancelar');
+    if (
+      this.props.status !== StatusAtendimento.AGENDADO &&
+      this.props.status !== StatusAtendimento.AGUARDANDO_APROVACAO
+    ) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível cancelar: atendimento em estado final ${this.props.status}`,
+      );
+    }
     if (!motivo.trim()) {
       throw new InvarianteVioladaError('Cancelamento exige motivo não-vazio');
     }
@@ -851,7 +902,11 @@ export class Atendimento extends AggregateRoot {
         a.props.barbeiroId === this.props.barbeiroId &&
         (a.props.status === StatusAtendimento.AGENDADO ||
           a.props.status === StatusAtendimento.RESERVADO ||
-          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE ||
+          // Contingência de OTP (2026-09-04): quem espera aprovação já é dono
+          // do horário. Sem isto, dois pedidos para o mesmo horário ficariam
+          // pendentes e aprovar o segundo derrubaria o primeiro.
+          a.props.status === StatusAtendimento.AGUARDANDO_APROVACAO) &&
         a.props.intervalo.sobrepoe(this.props.intervalo),
     );
     if (conflito) {
@@ -921,7 +976,11 @@ export class Atendimento extends AggregateRoot {
         a.props.barbeiroId === params.novoBarbeiro.id &&
         (a.props.status === StatusAtendimento.AGENDADO ||
           a.props.status === StatusAtendimento.RESERVADO ||
-          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE) &&
+          a.props.status === StatusAtendimento.CONCLUSAO_PENDENTE ||
+          // Contingência de OTP (2026-09-04): quem espera aprovação já é dono
+          // do horário. Sem isto, dois pedidos para o mesmo horário ficariam
+          // pendentes e aprovar o segundo derrubaria o primeiro.
+          a.props.status === StatusAtendimento.AGUARDANDO_APROVACAO) &&
         a.props.intervalo.sobrepoe(this.props.intervalo),
     );
     if (conflito) {
@@ -1014,6 +1073,63 @@ export class Atendimento extends AggregateRoot {
   }
 
   /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): a casa APROVA o agendamento que entrou
+   * sem verificação de telefone. AGUARDANDO_APROVACAO → AGENDADO.
+   *
+   * É aqui que o atendimento passa a existir de verdade — e por isso é aqui que
+   * sai o `AtendimentoAgendado`, exatamente como em `confirmarReserva()`. O
+   * paralelo é proposital: nos dois casos algo externo precisava confirmar
+   * antes (o pagamento lá, uma pessoa aqui), e avisar o cliente antes disso
+   * seria prometer um horário que ainda podia não existir.
+   *
+   * Quem aprovou fica registrado: é uma decisão humana no lugar de uma trava
+   * automática, e daqui a um mês alguém vai querer saber de quem foi.
+   */
+  aprovarAgendamento(params: { aprovadoPorId: BarbeiroId; agora: Date }): void {
+    if (this.props.status !== StatusAtendimento.AGUARDANDO_APROVACAO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível aprovar: atendimento em estado ${this.props.status}`,
+      );
+    }
+    this.props.status = StatusAtendimento.AGENDADO;
+    this.props.aprovadoPorId = params.aprovadoPorId;
+    this.props.aprovadoEm = params.agora;
+    this.adicionarEvento(
+      new AtendimentoAgendado(
+        this.props.id,
+        this.props.companyId,
+        this.props.clienteId,
+        this.props.barbeiroId,
+        this.props.intervalo.inicio,
+        this.props.intervalo.fim,
+      ),
+    );
+  }
+
+  /**
+   * ★ A casa RECUSA o pedido: AGUARDANDO_APROVACAO → CANCELADO, com motivo.
+   *
+   * Vai para CANCELADO, e não para um estado próprio de "recusado", porque o
+   * fato é o mesmo do ponto de vista de todo o resto do sistema: o horário some
+   * da agenda, o crédito volta se houver, e o histórico do cliente mostra que
+   * não aconteceu. Um sexto estado final só para isto duplicaria cada `switch`
+   * do sistema sem contar nada novo — o motivo já diz o que houve.
+   *
+   * Reusa `cancelar()` para não existirem duas implementações do mesmo
+   * cancelamento (o evento, o `antecipado`, a liberação do crédito).
+   */
+  recusarAgendamento(params: { motivo: string; recusadoPorId: BarbeiroId; agora: Date }): void {
+    if (this.props.status !== StatusAtendimento.AGUARDANDO_APROVACAO) {
+      throw new TransicaoDeEstadoInvalidaError(
+        `Não é possível recusar: atendimento em estado ${this.props.status}`,
+      );
+    }
+    this.props.aprovadoPorId = params.recusadoPorId;
+    this.props.aprovadoEm = params.agora;
+    this.cancelar(params.motivo);
+  }
+
+  /**
    * Timeout sem pagamento (Problema 2, sessão de OTP+reserva): libera o
    * horário. Chamado por `ExpirarPagamentoVencidoUseCase` na mesma transação
    * em que a `IntencaoDePagamento` vinculada expira — nunca isoladamente,
@@ -1098,6 +1214,8 @@ export class Atendimento extends AggregateRoot {
   get conclusaoFormaPagamento() { return this.props.conclusaoFormaPagamento; }
   get caixinha() { return this.props.caixinha; }
   get reativadoPorId() { return this.props.reativadoPorId; }
+  get aprovadoPorId() { return this.props.aprovadoPorId; }
+  get aprovadoEm() { return this.props.aprovadoEm; }
   get reatribuidoDeId() { return this.props.reatribuidoDeId; }
   get reatribuidoPorId() { return this.props.reatribuidoPorId; }
   get reatribuidoEm() { return this.props.reatribuidoEm; }

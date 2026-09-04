@@ -12,6 +12,22 @@ export enum StatusAtendimento {
    * pagamento não confirmar a tempo → RESERVA_EXPIRADA.
    */
   RESERVADO = 'RESERVADO',
+  /**
+   * CONTINGÊNCIA DE OTP (2026-09-04): o cliente agendou pelo funil SEM verificar
+   * o telefone, e uma pessoa da casa precisa aprovar antes de virar firme.
+   *
+   * Ocupa o horário como `AGENDADO` (invariante + EXCLUDE): dois pedidos para o
+   * mesmo horário não podem ambos esperar aprovação, senão aprovar o segundo
+   * derrubaria o primeiro. A recusa libera o horário.
+   *
+   * Não expira sozinho — diferente de `RESERVADO`, aqui não há prazo de
+   * pagamento correndo; o que se espera é uma DECISÃO, e ela pode demorar o
+   * tempo que a barbearia levar para olhar o painel.
+   *
+   * Só existe com `OTP_CONTINGENCIA=true`. Com a flag desligada, nenhum
+   * atendimento novo nasce neste estado.
+   */
+  AGUARDANDO_APROVACAO = 'AGUARDANDO_APROVACAO',
   AGENDADO = 'AGENDADO',
   /**
    * O barbeiro concluiu ANTES do horário marcado e justificou; espera aprovação

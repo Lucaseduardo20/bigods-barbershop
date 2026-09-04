@@ -225,7 +225,9 @@ function LinhaPendencia({
         ? `Conclusão antes do horário · ${p.barbeiroNome ?? '—'}`
         : p.tipo === 'ESTORNO_FALHADO'
           ? 'Devolução falhou — o dinheiro não voltou'
-          : 'Atendimento aguardando pagamento';
+          : p.tipo === 'AGENDAMENTO_AGUARDANDO_APROVACAO'
+            ? 'Agendou sem confirmar o telefone — aprove ou recuse'
+            : 'Atendimento aguardando pagamento';
 
   /**
    * ★ Estorno falhado é a ÚNICA pendência em vermelho, e é proporcional: as
@@ -238,6 +240,12 @@ function LinhaPendencia({
    * alguém vai investigar de fato.
    */
   const urgente = p.tipo === 'ESTORNO_FALHADO';
+  /**
+   * Contingência de OTP (2026-09-04): enquanto o SMS não chega, ESTA é a trava
+   * anti-poluição — e uma trava que ninguém vê não filtra nada. A linha leva à
+   * Agenda, onde aprovar e recusar ficam.
+   */
+  const decisaoPendente = p.tipo === 'AGENDAMENTO_AGUARDANDO_APROVACAO';
 
   const conteudo = (
     <>
@@ -268,12 +276,12 @@ function LinhaPendencia({
   // para Pacotes — certo para as outras pendências, e um beco sem saída para
   // esta, que mora em Financeiro > Reembolsos. Mostrar a urgência e não oferecer
   // o caminho seria pior do que não mostrar.
-  if (urgente) {
+  if (urgente || decisaoPendente) {
     return (
       <button
         className="flex items-center justify-between gap-2 py-1.5 w-full bg-transparent border-0 p-0 cursor-pointer"
-        onClick={() => aoNavegar('financeiro')}
-        title="Abrir Financeiro > Reembolsos"
+        onClick={() => aoNavegar(urgente ? 'financeiro' : 'agenda')}
+        title={urgente ? 'Abrir Financeiro > Reembolsos' : 'Abrir a Agenda para decidir'}
       >
         {conteudo}
       </button>

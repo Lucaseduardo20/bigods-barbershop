@@ -12,6 +12,7 @@ import { Avatar } from '../components/ui';
 export function Sucesso({
   estado,
   pago,
+  aguardandoConfirmacao = false,
   timezone,
   duracaoMinutos,
   sessaoDoFunil,
@@ -20,6 +21,12 @@ export function Sucesso({
 }: {
   estado: FunnelState;
   pago: boolean;
+  /**
+   * ★ CONTINGÊNCIA DE OTP (2026-09-04): o horário entrou SEM verificação de
+   * telefone e a barbearia ainda vai confirmar. O cliente precisa saber — sair
+   * de casa achando que está garantido é o pior desfecho possível deste desvio.
+   */
+  aguardandoConfirmacao?: boolean;
   /**
    * Sessão obtida no OTP da confirmação, quando houve. Com ela, a caixa de
    * acesso à conta não pede código de novo (2026-08-21).
@@ -80,7 +87,11 @@ export function Sucesso({
           </div>
         )}
         <div className="mt-5 rounded-2xl p-4 text-[13px]" style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-card)', color: 'var(--text-secondary)' }}>
-          {pago ? 'Pagamento confirmado. É só chegar no horário.' : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
+          {aguardandoConfirmacao
+            ? 'Recebemos seu pedido e guardamos esse horário. A barbearia vai confirmar com você pelo WhatsApp — é rápido, e você recebe a confirmação antes do dia.'
+            : pago
+              ? 'Pagamento confirmado. É só chegar no horário.'
+              : 'É só chegar no horário. O pagamento é feito na barbearia, no dia.'}
         </div>
 
         {estado.data && estado.horaInicio && (

@@ -2440,6 +2440,95 @@ ver DECISOES_PENDENTES #60. Um consumo errado hoje só se corrige como antes: no
 
 ---
 
+### 8.17 Contingência de OTP — agendar e entrar sem SMS (2026-09-04)
+
+**O incidente.** O SMS de verificação parou de chegar de forma confiável: a rota do provedor
+atual não é uma rota A2P própria para OTP, e as mensagens somem no caminho sem erro nenhum
+do nosso lado. O cliente não conseguia **agendar** nem **entrar na conta** — e quem tinha
+pacote pago ficou sem acesso ao próprio crédito.
+
+A resposta é um **desvio por flag**, não uma remoção. `OTP_CONTINGENCIA=true` liga o desvio;
+`false` (o default) devolve o sistema ao fluxo com OTP, inteiro. Nada do código de OTP foi
+tocado — a causa raiz é de infraestrutura, e é lá que ela se resolve (DECISOES_PENDENTES #61).
+
+#### Um ponto de decisão, não um `if` espalhado
+
+A flag é lida em `shared/config/contingencia-otp.ts`, provida por símbolo no `SharedModule`, e
+consumida em **dois** lugares: a borda do agendamento (`booking-publico.controller`) e a
+projeção pública da empresa (`empresa-publica-query.service`, que a repassa ao funil para ele
+não pedir um código que não vai chegar).
+
+Front e back leem a MESMA fonte de propósito: se o funil achasse que o desvio está ligado e a
+API não, o cliente ficaria preso numa tela de código que o servidor nem exige.
+
+#### `AGUARDANDO_APROVACAO` — a pessoa no lugar do código
+
+Com o desvio ligado, o agendamento presencial entra sem verificação e nasce neste estado:
+
+```
+   ┌────────────────────────┐  aprova (painel)   ┌────────────┐
+   │ AGUARDANDO_APROVACAO   │ ─────────────────▶ │  AGENDADO  │
+   └────────────┬───────────┘                    └────────────┘
+                │ recusa (motivo obrigatório)         ↑ só aqui sai AtendimentoAgendado
+                ▼
+         ┌────────────┐
+         │ CANCELADO  │  (o motivo diz que foi recusa)
+         └────────────┘
+```
+
+- **Ocupa o horário** (invariante + `EXCLUDE`), como `AGENDADO` e `CONCLUSAO_PENDENTE`. Dois
+  pedidos para o mesmo horário não podem ambos esperar decisão: aprovar o segundo derrubaria o
+  primeiro, e o cliente que pediu antes descobriria na cadeira.
+- **Não expira sozinho.** Diferente de `RESERVADO`, aqui não há prazo de pagamento correndo — o
+  que se espera é uma decisão, e ela demora o que a barbearia levar para abrir o painel.
+- **Conta na cota de presenciais.** Sem isso a contingência viraria a porta para entupir a
+  agenda, que é exatamente o que o OTP impedia.
+- **Só a aprovação emite `AtendimentoAgendado`** — mesmo desenho de `confirmarReserva()`.
+  Avisar o cliente antes seria prometer um horário que ainda pode ser recusado.
+- **Recusar é cancelar, com motivo.** Não existe um estado "recusado": para o resto do sistema
+  o fato é o mesmo (o horário some, o crédito volta), e um sexto estado final duplicaria cada
+  `switch` sem contar nada novo.
+- Quem decidiu e quando ficam em `aprovadoPorId`/`aprovadoEm`. É uma decisão humana no lugar
+  de uma trava automática; daqui a um mês alguém vai querer saber de quem foi.
+
+Aprovar e recusar são de **qualquer barbeiro ou admin**: no volume atual quem está no balcão
+resolve, e travar em admin faria o cliente esperar o dono chegar.
+
+#### Senha do cliente — o que destrava quem já pagou
+
+O login por código também parou de funcionar, e quem comprou pacote ficou sem acesso ao
+crédito. Agora existe `Cliente.senhaHash` e `POST /conta/login/senha`.
+
+**Quem define a senha é o ADMIN**, na tela de Clientes do painel, e passa ao cliente por
+WhatsApp. O autosserviço ("crie sua senha", "esqueci minha senha") depende de provar posse do
+telefone — exatamente o que está quebrado. É uma medida de operação: o admin conhece a senha
+que definiu, e isso é aceitável porque o risco concreto e presente é o cliente não conseguir
+usar o que pagou.
+
+O hash é o **mesmo motor do login de staff** (`senha.ts`: scrypt, sal por senha, comparação em
+tempo constante). Não existe uma segunda implementação de hash neste sistema. A política de
+força (`validarSenhaDeCliente`, em `packages/contracts`) roda nas duas pontas, da mesma função:
+mínimo de 8, recusa as óbvias e recusa **o próprio telefone**, que é o login.
+
+Resposta **neutra** no login: telefone inexistente, cliente sem senha e senha errada dão a
+mesma resposta, e gastam o mesmo scrypt — o tempo também não pode virar oráculo de quem é
+cliente da casa.
+
+**A senha não é contingência** e fica quando o SMS voltar: quem tem senha entra sem gastar
+envio nenhum, que é melhor em qualquer cenário.
+
+#### Tela de Clientes (permanente)
+
+O painel nunca teve onde ver os clientes cadastrados. A tela entrou agora porque é ela que
+destrava a senha, mas fica: lista com busca, detalhe com pacotes e agendamentos, e a ação de
+definir senha. Vive dentro de **Usuários**, em abas (Equipe × Clientes) — a barra de baixo já
+trunca rótulo com oito abas, e as duas são gestão de pessoas.
+
+A lista é ordenada pelo **trabalho a fazer**, não por nome: quem tem crédito e não tem senha
+aparece primeiro, porque é quem pagou e está trancado do lado de fora.
+
+---
+
 ## 9. Testes — onde investir
 
 A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reais de negócio**
@@ -2452,6 +2541,8 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
   (não pode consumir item expirado; não pode ter 2 faltas sem expirar).
 - Cálculo de comissão: com exceção por serviço, e com valor rateado de pacote (não avulso).
 - Invariante de sobreposição de horário.
+- Contingência de OTP (§8.17): o pedido pendente OCUPA horário e CONTA na cota — as duas coisas
+  que, se falharem, transformam o desvio em porta para entupir a agenda.
 - Dias permitidos do pacote (§8.15): a venda congela e a oferta muda sem alcançá-la; dia fora de
   0..6 é erro; e a composição `diaCivilChave → diaDaSemanaCivil` acerta a sexta 23h de São Paulo
   que é sábado em UTC (`dias-permitidos-do-pacote.spec.ts`).
@@ -2467,6 +2558,9 @@ A v1 acertou nisso: pouca cobertura em volume, mas **direcionada aos riscos reai
 - Constraint `EXCLUDE` do Postgres realmente rejeita sobreposição sob concorrência.
 - Transação de "agendar com crédito" faz rollback completo se qualquer passo falhar.
 - Webhook de pagamento é idempotente (processar 2x não gera efeito duplo).
+- Contingência de OTP (§8.17) com a flag LIGADA e DESLIGADA no mesmo arquivo, cada uma com sua
+  instância da aplicação: ligada, agenda sem código e nasce pendente; desligada, presencial sem
+  sessão continua 401 e nada nasce pendente (`contingencia-otp.e2e.spec.ts`).
 - Consumo de crédito no balcão gera comissão sobre o valor RATEADO, consome o crédito e não
   rouba o horário de um agendamento existente (`consumo-de-credito-balcao.e2e.spec.ts`).
 - Disponibilidade "9h" local persiste o instante UTC correto no banco (`timestamptz` real).
