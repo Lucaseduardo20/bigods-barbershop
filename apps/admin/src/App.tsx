@@ -7,7 +7,7 @@ import { BotaoSair, useApi } from './components/ui';
 import { Foto } from './components/FotoUpload';
 import { Login } from './screens/Login';
 import { Home } from './screens/Home';
-import { Agenda } from './screens/Agenda';
+import { Agenda, type AlvoNaAgenda } from './screens/Agenda';
 import { Usuarios } from './screens/Usuarios';
 import { Catalogo } from './screens/Catalogo';
 import { FunilDeVendas } from './screens/FunilDeVendas';
@@ -97,6 +97,14 @@ export default function App() {
   // Walk-in disparado pela Home: navega pra Agenda com o diálogo já aberto,
   // reusando o fluxo que já existe lá.
   const [walkInPelaHome, setWalkInPelaHome] = useState(false);
+  /**
+   * ★ Atendimento a decidir, vindo da Home (2026-09-04). Mesmo padrão do
+   * walk-in: a Home não abre diálogo nenhum, ela navega e pede que a Agenda
+   * monte já no lugar certo. Some assim que se navega para qualquer outra
+   * coisa — senão voltar à Agenda pela barra de baixo reabriria o diálogo de um
+   * atendimento que já foi decidido.
+   */
+  const [alvoNaAgenda, setAlvoNaAgenda] = useState<AlvoNaAgenda | null>(null);
 
   if (!usuario) {
     return <Login aoEntrar={() => setUsuario(usuarioSalvo())} />;
@@ -122,15 +130,24 @@ export default function App() {
               usuario={usuario}
               aoNavegar={(destino) => {
                 setWalkInPelaHome(false);
+                setAlvoNaAgenda(null);
                 setAba(destino);
               }}
               aoRegistrarAtendimento={() => {
                 setWalkInPelaHome(true);
+                setAlvoNaAgenda(null);
+                setAba('agenda');
+              }}
+              aoDecidirAtendimento={(atendimentoId, inicioIso) => {
+                setWalkInPelaHome(false);
+                setAlvoNaAgenda({ atendimentoId, inicioIso });
                 setAba('agenda');
               }}
             />
           )}
-          {aba === 'agenda' && <Agenda usuario={usuario} abrirNovoAoEntrar={walkInPelaHome} />}
+          {aba === 'agenda' && (
+            <Agenda usuario={usuario} abrirNovoAoEntrar={walkInPelaHome} alvo={alvoNaAgenda} />
+          )}
           {aba === 'usuarios' && <Usuarios usuario={usuario} />}
           {aba === 'catalogo' && <Catalogo usuario={usuario} />}
           {aba === 'funil' && <FunilDeVendas usuario={usuario} />}
@@ -145,6 +162,7 @@ export default function App() {
               className={aba === a ? 'ativo' : ''}
               onClick={() => {
                 setWalkInPelaHome(false);
+                setAlvoNaAgenda(null);
                 setAba(a);
               }}
             >

@@ -7482,6 +7482,31 @@ Com a flag DESLIGADA: o texto voltou a falar de SMS, o campo de senha sumiu, o t
 conhecido voltou a abrir o modal de **código**, `temSenha` voltou a responder `false` mesmo para
 quem tem senha, e `POST /conta/senha/criar` respondeu **404**.
 
+### Correção depois do teste do dono: a pendência que não dava para aprovar
+
+Reportado com prints: o agendamento pendente aparecia em **Início → Esperando você**, mas ao ir
+para a Agenda ele não estava lá — nem em "A aprovar" — e não havia como decidir.
+
+Não era filtro. Era **navegação**. A Agenda sempre monta na semana CORRENTE, e o pedido era
+para **segunda, 07/09**, com a semana em 31/08–06/09. O atendimento não tinha sequer sido
+buscado; nenhum filtro o traria. A linha da Home prometia *"Abrir a Agenda para decidir"* e
+entregava uma tela onde a decisão *poderia* estar.
+
+**Corrigido:** a pendência passa a levar AO ATENDIMENTO. `p.desde` é o início do atendimento,
+então a Agenda monta na semana dele, no filtro "A aprovar", e com o diálogo de decisão já
+aberto — o `AtendimentoDetalheDialog` busca por id, então não depende da lista ter carregado. O
+alvo é limpo ao navegar para qualquer outro lugar; sem isso, voltar à Agenda pela barra de baixo
+reabriria a decisão de um atendimento já resolvido.
+
+E o vazio do filtro passou a dizer a verdade. Antes: *"Nenhum atendimento neste período."* — que
+lido embaixo de uma aba chamada "A aprovar" significa "não há nada a aprovar". Agora: *"Nada
+esperando decisão nesta semana. Se a Home mostra uma pendência, ela está em outra — use as setas
+acima ou toque nela na Home."*
+
+Vale o registro do padrão: a contingência põe pendências no futuro, e uma tela organizada por
+semana esconde futuro por construção. Toda pendência que aponta para uma data precisa levar
+**até a data**, não até a tela.
+
 ### O que ficou registrado, e não escondido
 
 **DECISOES_PENDENTES #64** — a conta criada no ramo 1 consegue, pelo **app da conta**, agendar
