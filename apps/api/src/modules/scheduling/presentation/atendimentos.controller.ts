@@ -44,6 +44,7 @@ import {
   RecusarConclusaoAntecipadaUseCase,
 } from '../application/resolver-conclusao-antecipada.usecase';
 import { CancelarAtendimentoUseCase } from '../application/cancelar-atendimento.usecase';
+import { ReagendarAtendimentoUseCase } from '../application/reagendar-atendimento.usecase';
 import { RegistrarNaoComparecimentoUseCase } from '../application/registrar-nao-comparecimento.usecase';
 import { AdicionarItemAtendimentoUseCase } from '../application/adicionar-item-atendimento.usecase';
 import { AdicionarProdutoAtendimentoUseCase } from '../application/adicionar-produto-atendimento.usecase';
@@ -144,6 +145,17 @@ class CancelarDto {
   @IsString() @MinLength(1) motivo!: string;
 }
 
+/**
+ * Remarcar pelo balcão. `motivo` é opcional AQUI e obrigatório no caso de uso
+ * quando quem remarca não é admin — a borda não conhece papéis, e duplicar a
+ * regra em `class-validator` daria duas fontes para a mesma decisão.
+ */
+class ReagendarDto {
+  @Matches(DATA_ISO) data!: string;
+  @Matches(HORA_HHMM) horaInicio!: string;
+  @IsOptional() @IsString() @MaxLength(280) motivo?: string;
+}
+
 class ReatribuirDto {
   @IsString() @MinLength(1) barbeiroId!: string;
 }
@@ -175,6 +187,7 @@ export class AtendimentosController {
     private readonly editarComanda: EditarComandaUseCase,
     private readonly reativar: ReativarAtendimentoUseCase,
     private readonly reatribuir: ReatribuirBarbeiroUseCase,
+    private readonly reagendar: ReagendarAtendimentoUseCase,
     private readonly corrigirBarbeiroDoAtendimento: CorrigirBarbeiroDoAtendimentoUseCase,
     @Inject(PARAMETROS_DA_EMPRESA_REPOSITORY) private readonly parametros: ParametrosDaEmpresaRepository,
     @Inject(VENDA_DE_PACOTE_REPOSITORY) private readonly vendasDePacote: VendaDePacoteRepository,
@@ -525,6 +538,32 @@ export class AtendimentosController {
   ): Promise<{ ok: true }> {
     await this.reativar.executar({ atendimentoId: id, usuario });
     return { ok: true };
+  }
+
+  /**
+   * ★★ REMARCAR (2026-09-04): admin em qualquer atendimento, barbeiro nos DELE.
+   *
+   * Sem `@Papeis(ADMIN)` de propósito — o barbeiro precisa poder mover o
+   * próprio horário, e é o caso de uso que garante o escopo
+   * (`autorizarDonoOuAdmin`) e exige o motivo de quem não é admin.
+   *
+   * Nada de janela de horas: a janela do cockpit existe para mandar o cliente
+   * falar com a barbearia, e esta é a barbearia.
+   */
+  @Post(':id/reagendar')
+  async reagendarAtendimento(
+    @Param('id') id: string,
+    @Body() body: ReagendarDto,
+    @UsuarioAtual() usuario: UsuarioAutenticado,
+  ): Promise<{ ok: true; novoAtendimentoId: string }> {
+    const tz = await this.parametros.timezone(usuario.companyId);
+    const r = await this.reagendar.executar({
+      atendimentoId: id,
+      novoInicio: instanteDeDataHoraLocal(body.data, body.horaInicio, tz),
+      motivo: body.motivo,
+      usuario,
+    });
+    return { ok: true, novoAtendimentoId: r.novoAtendimentoId };
   }
 
   /**

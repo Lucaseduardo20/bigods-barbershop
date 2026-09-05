@@ -1155,3 +1155,26 @@ depois que a contingência acabar.
 
 **Some sozinho quando #61 for resolvido:** com a flag desligada, a rota de criação de senha no
 funil deixa de existir (404) e nenhuma conta nova nasce por esse caminho.
+
+## 65. Remarcar um atendimento já PAGO online (2026-09-04)
+
+Remarcar é cancelar + criar novo (§8.19), e o pagamento fica preso ao atendimento
+**cancelado**: a `IntencaoDePagamento` paga aponta para ele, e o atendimento novo nasce como se
+ninguém tivesse pago. Na conclusão, alguém cobraria o cliente de novo.
+
+Por isso, remarcar hoje é **recusado** (409) quando existe intenção PAGA ou saldo residual
+abatido. A mensagem diz o que fazer: cancelar, acertar o dinheiro com o cliente e marcar o novo
+horário.
+
+**Custo prático hoje: zero.** A produção sobe com `PAGAMENTO_MANUAL_WHATSAPP=true` e
+`PAYMENT_GATEWAY` sem cobrança online de fato — não existe atendimento pago online para
+remarcar. Vira problema real quando o cartão entrar.
+
+**O que falta decidir:** ao remarcar um pago, o pagamento deveria **acompanhar** o atendimento
+novo (mover a `IntencaoDePagamento` para a nova referência) ou virar crédito/estorno? Mover é o
+que o cliente espera — ele pagou uma visita, não um horário. Mas mexe em referência de
+pagamento já conciliada, e a decisão é de quem responde pelo caixa.
+
+O mesmo buraco existe no reagendamento **pelo cockpit** desde a sessão-E, lá documentado como
+`DECISAO_PENDENTE` no código (`reagendar-atendimento-cliente.usecase.ts`) — a diferença é que
+lá ele passa em silêncio, e aqui trava. Resolver os dois de uma vez.

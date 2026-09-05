@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AtendimentoDTO, ProdutoDTO, ServicoDTO } from '@bigods/contracts';
 import { FormaPagamento, OrigemAtendimento, StatusAtendimento } from '@bigods/contracts';
 import { api } from '../lib/api';
 import { valorACobrarNaConclusao, valorNaoCobertoPorCredito } from '../lib/conclusao';
-import { dataCurta, dinheiro, hora } from '../lib/format';
+import { dataCurta, diaCivilDe, dinheiro, hora } from '../lib/format';
 import { useTimezone } from '../lib/tz-context';
 import { Badge, Dialog, ErroEstado, Loading, useApi } from './ui';
 import { FecharComandaDialog } from './FecharComandaDialog';
@@ -80,6 +80,17 @@ export function AtendimentoDetalheDialog({
   /** Recusa do agendamento sem verificação (2026-09-04) — motivo inline. */
   const [recusando, setRecusando] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
+  /**
+   * ★ Remarcar (2026-09-04) — destino e motivo inline, mesmo padrão da recusa.
+   *
+   * Colapsado por padrão: remarcar é ação de exceção, e três campos abertos o
+   * tempo todo empurrariam para baixo as ações do dia a dia (fechar comanda,
+   * cancelar, falta).
+   */
+  const [remarcando, setRemarcando] = useState(false);
+  const [novaData, setNovaData] = useState('');
+  const [novaHora, setNovaHora] = useState('');
+  const [motivoRemarcacao, setMotivoRemarcacao] = useState('');
   // Conclusão antecipada (2026-08-20): o modal de justificativa e o que ele
   // colhe. `enviado` existe pra dizer ao barbeiro o que aconteceu de fato —
   // fechar tudo em silêncio deixaria ele achando que concluiu.
@@ -87,6 +98,32 @@ export function AtendimentoDetalheDialog({
   const [motivoAntecipada, setMotivoAntecipada] = useState('');
   const [enviadoParaAprovacao, setEnviadoParaAprovacao] = useState(false);
   const [fechandoComanda, setFechandoComanda] = useState(false);
+
+  /**
+   * ★ Trocar de atendimento zera o que estava em digitação (2026-09-04).
+   *
+   * O diálogo NÃO desmonta entre um atendimento e outro — `atendimentoId` muda
+   * e o componente continua o mesmo, então todo estado de ação sobrevive à
+   * troca. O sintoma que apareceu ao testar a remarcação: abrir o atendimento
+   * seguinte já com o formulário aberto e a hora do anterior dentro dele.
+   *
+   * O caso ruim de verdade é o motivo de cancelamento: digitar "cliente
+   * desistiu" para um, fechar sem cancelar, abrir outro — e o botão Cancelar
+   * já está armado, com um motivo que é de outra pessoa.
+   */
+  useEffect(() => {
+    setRemarcando(false);
+    setNovaData('');
+    setNovaHora('');
+    setMotivoRemarcacao('');
+    setRecusando(false);
+    setMotivoRecusa('');
+    setMotivo('');
+    setErroAcao(null);
+    setErroDaCasa(null);
+    setEnviadoParaAprovacao(false);
+    setMotivoAntecipada('');
+  }, [atendimentoId]);
 
   const {
     dados: atendimento,
@@ -606,6 +643,97 @@ export function AtendimentoDetalheDialog({
               <button className="btn" disabled={ocupado} onClick={() => setFechandoComanda(true)}>
                 {precisaJustificar ? 'Fechar comanda (antes do horário)…' : 'Fechar comanda'}
               </button>
+
+              {/* ★★ REMARCAR (2026-09-04). Vale para avulso e para crédito de
+                  pacote sem diferença nenhuma na tela: o backend move o crédito
+                  junto. O barbeiro remarca os DELE e precisa dizer por quê; o
+                  admin remarca qualquer um e o motivo é opcional — quem decide
+                  isso é o backend, aqui só espelhamos para o botão não habilitar
+                  para algo que vai ser recusado. */}
+              {!remarcando ? (
+                <button
+                  className="btn btn-ghost"
+                  disabled={ocupado}
+                  onClick={() => {
+                    setNovaData(diaCivilDe(a.inicio, tz));
+                    setNovaHora(hora(a.inicio, tz));
+                    setMotivoRemarcacao('');
+                    setRemarcando(true);
+                  }}
+                >
+                  Remarcar…
+                </button>
+              ) : (
+                <div
+                  className="flex flex-col gap-2 rounded-lg p-3"
+                  style={{ background: 'var(--surface-sunken)' }}
+                >
+                  <div className="text-[13px] font-bold">Novo horário</div>
+                  <div className="flex gap-2">
+                    <input
+                      className="input flex-1"
+                      type="date"
+                      value={novaData}
+                      onChange={(e) => setNovaData(e.target.value)}
+                    />
+                    <input
+                      className="input flex-1"
+                      type="time"
+                      value={novaHora}
+                      onChange={(e) => setNovaHora(e.target.value)}
+                    />
+                  </div>
+                  <input
+                    className="input"
+                    placeholder={
+                      ehAdmin
+                        ? 'Motivo (opcional) — fica no histórico'
+                        : 'Por que está remarcando? (obrigatório)'
+                    }
+                    value={motivoRemarcacao}
+                    onChange={(e) => setMotivoRemarcacao(e.target.value)}
+                  />
+                  <div className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                    {ehPacote
+                      ? 'O crédito do pacote vai junto para o novo horário.'
+                      : 'O cliente mantém o mesmo barbeiro, serviços e valor.'}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="btn btn-sm flex-1"
+                      disabled={
+                        ocupado ||
+                        !novaData ||
+                        !novaHora ||
+                        (!ehAdmin && !motivoRemarcacao.trim())
+                      }
+                      onClick={() =>
+                        acao(() =>
+                          api(`/atendimentos/${a.id}/reagendar`, {
+                            method: 'POST',
+                            body: {
+                              data: novaData,
+                              horaInicio: novaHora,
+                              ...(motivoRemarcacao.trim()
+                                ? { motivo: motivoRemarcacao.trim() }
+                                : {}),
+                            },
+                          }),
+                        )
+                      }
+                    >
+                      Confirmar remarcação
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={ocupado}
+                      onClick={() => setRemarcando(false)}
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </div>
+              )}
               <input
                 className="input"
                 placeholder="Motivo do cancelamento"
